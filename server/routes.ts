@@ -4139,7 +4139,7 @@ Rules:
         response_format: { type: "json_object" },
         temperature: 0.3,
         max_tokens: 4000,
-      });
+      }));
 
       const resultText = response.choices[0].message.content || "{}";
       let parsed: any;
