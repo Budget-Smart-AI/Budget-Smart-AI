@@ -1,0 +1,9 @@
+{
+  "projectId": "budgetsmart",
+  "serviceId": "budgetsmart",
+  "environments": {
+    "production": {
+      "numReplicas": 1
+    }
+  }
+}

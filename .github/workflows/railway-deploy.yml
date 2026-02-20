@@ -1,0 +1,35 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@latest
+
+      - name: Deploy to Railway
+        run: |
+          # Set token env var
+          export RAILWAY_TOKEN="${{ secrets.RAILWAY_TOKEN }}"
+          
+          # Link to project
+          railway link budgetsmart
+          
+          # Deploy (service will be auto-created if doesn't exist)
+          railway up
+
+      - name: Show deployed URL
+        run: |
+          railway domain || echo "Check Railway dashboard for URL"

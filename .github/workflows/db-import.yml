@@ -1,0 +1,36 @@
+name: Import Database to Railway
+
+on:
+  workflow_dispatch:
+    inputs:
+      dump_url:
+        description: 'URL to PostgreSQL dump file'
+        required: true
+        type: string
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      
+      - name: Get Railway DB URL
+        id: db
+        run: |
+          echo "url=$(railway variables --get DATABASE_URL)" >> $GITHUB_OUTPUT
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      
+      - name: Download and import database
+        run: |
+          echo "Downloading database dump..."
+          curl -sL "${{ github.event.inputs.dump_url }}" -o /tmp/dump.sql
+          echo "Importing to Railway..."
+          psql "${{ steps.db.outputs.url }}" < /tmp/dump.sql
+          echo "Import complete!"

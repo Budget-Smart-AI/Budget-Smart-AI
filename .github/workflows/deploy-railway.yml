@@ -1,0 +1,43 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Link and Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          # Create config file for Railway CLI
+          mkdir -p ~/.railway
+          echo '{"token":"'"$RAILWAY_TOKEN"'"}' > ~/.railway/config.json
+          chmod 600 ~/.railway/config.json
+          
+          # Link to project budgetsmart
+          cd $GITHUB_WORKSPACE
+          railway link budgetsmart --environment production
+          
+          # Deploy
+          railway up
+          
+          # Show status
+          railway status
+
+      - name: Get Deployment URL
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          mkdir -p ~/.railway
+          echo '{"token":"'"$RAILWAY_TOKEN"'"}' > ~/.railway/config.json
+          echo "Deployed! Checking domain..."
+          railway domain || echo "Check Railway dashboard for URL"
