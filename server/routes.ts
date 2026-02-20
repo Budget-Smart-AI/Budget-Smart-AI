@@ -3978,7 +3978,11 @@ Return JSON: { "income": [...] }`;
       }
 
       const { chatWithDeepSeek, getModelForTask } = await import("./deepseek");
-      const result = await chatWithDeepSeek(messages, req.session.userId!, getModelForTask("moderate"));
+      const { withAITimeout } = await import("./timeout");
+      
+      const result = await withAITimeout(() => 
+        chatWithDeepSeek(messages, req.session.userId!, getModelForTask("moderate"))
+      );
 
       res.json(result);
     } catch (error: any) {
@@ -4124,7 +4128,9 @@ Rules:
 - Use the historical category names exactly as provided
 - All amounts should be positive numbers rounded to 2 decimal places`;
 
-      const response = await deepseek.chat.completions.create({
+      const { withAITimeout } = await import("./timeout");
+      
+      const response = await withAITimeout(() => deepseek.chat.completions.create({
         model: getModelForTask("moderate"),
         messages: [
           { role: "system", content: "You are a financial forecasting AI. Always respond with valid JSON." },
