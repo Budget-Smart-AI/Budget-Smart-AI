@@ -3973,8 +3973,8 @@ Return JSON: { "income": [...] }`;
         return res.status(400).json({ error: "messages array is required" });
       }
 
-      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "OpenAI API key not configured" });
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
+        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
       }
 
       const { chatWithDeepSeek, getModelForTask } = await import("./deepseek");
@@ -4009,8 +4009,8 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
 
-      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "OpenAI API key not configured" });
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
+        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
       }
 
       // Gather 12 months of data
@@ -4164,8 +4164,8 @@ Rules:
       const userId = req.session.userId!;
       const { month } = req.body;
 
-      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "OpenAI API key not configured" });
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
+        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
       }
 
       // Determine target month and 6-month analysis window
@@ -4343,8 +4343,8 @@ Rules:
         return res.status(400).json({ error: "Goal name is required" });
       }
 
-      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "OpenAI API key not configured" });
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
+        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
       }
 
       // Gather user's financial data
@@ -4561,8 +4561,8 @@ Rules:
     try {
       const userId = req.session.userId!;
 
-      if (!process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "OpenAI API key not configured" });
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
+        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
       }
 
       const accounts = await storage.getAllPlaidAccounts(userId);
