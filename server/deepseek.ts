@@ -6,6 +6,8 @@ import { storage } from "./storage";
 export const deepseek = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.OPENAI_API,
   baseURL: "https://api.deepseek.com", // DeepSeek API endpoint
+  timeout: 30000, // 30 second timeout to prevent 502 errors
+  maxRetries: 2, // Retry failed requests
 });
 
 // Reuse the same financial tools from openai.ts
