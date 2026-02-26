@@ -122,7 +122,7 @@ interface MxMemberGroup {
 
 type SortKey = "date" | "name" | "amount" | "matchType" | "personalCategory";
 
-function PlaidLinkButton({ onSuccess }: { onSuccess: () => void }) {
+function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => void; autoOpen?: boolean }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [showWarning, setShowWarning] = useState(false);
   const [limitError, setLimitError] = useState<string | null>(null);
@@ -177,6 +177,14 @@ function PlaidLinkButton({ onSuccess }: { onSuccess: () => void }) {
     open();
   };
 
+  // Auto-open when autoOpen prop is true and ready
+  useEffect(() => {
+    if (autoOpen && ready && linkToken && !showWarning) {
+      // Auto-open the Plaid connection
+      open();
+    }
+  }, [autoOpen, ready, linkToken, showWarning, open]);
+
   // If limit reached, show disabled button with tooltip
   if (limitError) {
     return (
@@ -215,7 +223,7 @@ function PlaidLinkButton({ onSuccess }: { onSuccess: () => void }) {
 }
 
 // MX Connect Widget Button
-function MXConnectButton({ onSuccess }: { onSuccess: () => void }) {
+function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => void; autoOpen?: boolean }) {
   const [widgetUrl, setWidgetUrl] = useState<string | null>(null);
   const [showWidget, setShowWidget] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -238,6 +246,13 @@ function MXConnectButton({ onSuccess }: { onSuccess: () => void }) {
       setLoading(false);
     }
   };
+
+  // Auto-open when autoOpen prop is true
+  useEffect(() => {
+    if (autoOpen && !showWidget && !loading) {
+      openMXConnect();
+    }
+  }, [autoOpen, showWidget, loading]);
 
   // Handle postMessage from MX widget
   useEffect(() => {
@@ -1095,29 +1110,14 @@ export default function BankAccounts() {
     queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
     queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
     queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
+    // Reset selected provider after successful connection
+    setSelectedProvider(null);
   };
 
   const handleProviderSelected = (provider: "plaid" | "mx") => {
     setSelectedProvider(provider);
     setShowProviderSelection(false);
-    
-    // Show the appropriate provider connection
-    if (provider === "plaid") {
-      // For Plaid, we need to show the PlaidLinkButton's warning dialog
-      // We'll create a ref to trigger the Plaid button
-      toast({
-        title: "Connecting with Plaid",
-        description: "Please use the Connect Bank Account button to proceed with Plaid.",
-      });
-      // Note: In a more complete implementation, we would trigger the Plaid flow directly
-    } else if (provider === "mx") {
-      // For MX, we need to show the MXConnectButton
-      toast({
-        title: "Connecting with MX",
-        description: "Please use the Connect Bank Account button to proceed with MX.",
-      });
-      // Note: In a more complete implementation, we would trigger the MX flow directly
-    }
+    // The selected provider button will now auto-open
   };
 
   const handleManualAccountSelected = () => {
@@ -1261,13 +1261,19 @@ export default function BankAccounts() {
           )}
           {activeTab === "bank" && (
             <div className="flex gap-2">
-              <Button 
-                onClick={() => setShowProviderSelection(true)} 
-                className="gap-2"
-              >
-                <Link2 className="h-4 w-4" />
-                Connect Bank Account
-              </Button>
+              {selectedProvider === null ? (
+                <Button 
+                  onClick={() => setShowProviderSelection(true)} 
+                  className="gap-2"
+                >
+                  <Link2 className="h-4 w-4" />
+                  Connect Bank Account
+                </Button>
+              ) : selectedProvider === "mx" ? (
+                <MXConnectButton onSuccess={handleAccountConnected} autoOpen={true} />
+              ) : (
+                <PlaidLinkButton onSuccess={handleAccountConnected} autoOpen={true} />
+              )}
             </div>
           )}
           {activeTab === "manual" && (
@@ -1516,13 +1522,19 @@ export default function BankAccounts() {
               Connect your bank accounts to automatically import and categorize transactions.
             </p>
             <div className="flex gap-2">
-              <Button 
-                onClick={() => setShowProviderSelection(true)} 
-                className="gap-2"
-              >
-                <Link2 className="h-4 w-4" />
-                Connect Bank Account
-              </Button>
+              {selectedProvider === null ? (
+                <Button 
+                  onClick={() => setShowProviderSelection(true)} 
+                  className="gap-2"
+                >
+                  <Link2 className="h-4 w-4" />
+                  Connect Bank Account
+                </Button>
+              ) : selectedProvider === "mx" ? (
+                <MXConnectButton onSuccess={handleAccountConnected} autoOpen={true} />
+              ) : (
+                <PlaidLinkButton onSuccess={handleAccountConnected} autoOpen={true} />
+              )}
             </div>
           </CardContent>
         </Card>
