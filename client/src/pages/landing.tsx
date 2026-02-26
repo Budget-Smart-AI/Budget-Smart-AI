@@ -909,25 +909,25 @@ export default function LandingPage() {
 
             {/* CTA Buttons */}
             <div className="hidden md:flex items-center gap-3">
-              <Button 
-                variant="outline" 
-                className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
-                onClick={() => demoLoginMutation.mutate()}
-                disabled={demoLoginMutation.isPending}
-                data-testid="button-try-demo"
-              >
-                {demoLoginMutation.isPending ? "Loading..." : "Try Demo"}
-              </Button>
-              <Link href="/login">
-                <Button variant="ghost" className="text-slate-300 hover:text-white">
-                  Sign In
+              <a href="https://app.budgetsmart.io/demo">
+                <Button
+                  variant="outline"
+                  className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+                  data-testid="button-try-demo"
+                >
+                  Try Demo
                 </Button>
-              </Link>
-              <Link href="/signup">
-                <Button className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25">
-                  Get Started Free
-                </Button>
-              </Link>
+              </a>
+              <a href="https://app.budgetsmart.io/login"> 
+                <Button variant="ghost" className="text-slate-300 hover:text-white"> 
+                  Sign In 
+                </Button> 
+              </a> 
+              <a href="https://app.budgetsmart.io/signup"> 
+                <Button className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25"> 
+                  Get Started Free 
+                </Button> 
+              </a>
             </div>
 
             {/* Mobile Menu Button */}
@@ -955,23 +955,23 @@ export default function LandingPage() {
                 <a href="#testimonials" className="block py-2 text-slate-300 hover:text-white">Reviews</a>
                 <a href="#faq" className="block py-2 text-slate-300 hover:text-white">FAQ</a>
                 <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
-                  <Button 
-                    variant="outline" 
-                    className="w-full border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
-                    onClick={() => demoLoginMutation.mutate()}
-                    disabled={demoLoginMutation.isPending}
-                    data-testid="button-try-demo-mobile"
-                  >
-                    {demoLoginMutation.isPending ? "Loading..." : "Try Demo"}
-                  </Button>
-                  <Link href="/login">
+                  <a href="https://app.budgetsmart.io/demo" className="block">
+                    <Button
+                      variant="outline"
+                      className="w-full border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                      data-testid="button-try-demo-mobile"
+                    >
+                      Try Demo
+                    </Button>
+                  </a>
+                  <a href="https://app.budgetsmart.io/login" className="block">
                     <Button variant="outline" className="w-full">Sign In</Button>
-                  </Link>
-                  <Link href="/signup">
+                  </a>
+                  <a href="https://app.budgetsmart.io/signup" className="block">
                     <Button className="w-full bg-gradient-to-r from-emerald-500 to-teal-500">
                       Get Started Free
                     </Button>
-                  </Link>
+                  </a>
                 </div>
               </div>
             </motion.div>
@@ -1137,13 +1137,13 @@ export default function LandingPage() {
             transition={{ duration: 0.5, delay: 0.3 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 mb-12"
           >
-            <Link href="/signup">
+            <a href="https://app.budgetsmart.io/signup">
               <Button size="lg" className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 px-8 py-6 text-lg">
                 {settings.hero_cta_primary || "Start Free Trial"}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
-            </Link>
-            <Link href="/signup">
+            </a>
+            <a href="https://app.budgetsmart.io/signup">
               <Button
                 size="lg"
                 variant="outline"
@@ -1152,7 +1152,7 @@ export default function LandingPage() {
                 <Sparkles className="mr-2 h-5 w-5" />
                 See How It Works
               </Button>
-            </Link>
+            </a>
           </motion.div>
 
           {/* Trust Badges - Compact row */}
@@ -1558,12 +1558,12 @@ export default function LandingPage() {
               <p className="text-lg text-white/80 mb-8 max-w-xl mx-auto">
                 Join thousands of users who have already transformed their financial lives with Budget Smart AI.
               </p>
-              <Link href="/signup">
+              <a href="https://app.budgetsmart.io/signup">
                 <Button size="lg" className="bg-white text-emerald-600 hover:bg-slate-100 px-8 py-6 text-lg shadow-xl">
                   Start Your Free Trial
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
-              </Link>
+              </a>
               <p className="mt-4 text-sm text-white/60">
                 14-day free trial included.
               </p>

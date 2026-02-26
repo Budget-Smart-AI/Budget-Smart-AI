@@ -308,8 +308,23 @@ function AuthenticatedOrRedirect() {
     );
   }
 
-  // Not authenticated - show landing page
+  // Not authenticated - check domain
   if (!isAuthenticated) {
+    // Check if we're on app.budgetsmart.io
+    const isAppDomain = window.location.hostname === 'app.budgetsmart.io';
+    
+    if (isAppDomain) {
+      // On app domain but not authenticated - redirect to login
+      window.location.href = '/login';
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <span className="ml-2">Redirecting to login...</span>
+        </div>
+      );
+    }
+    
+    // On main domain (budgetsmart.io) - show landing page
     return <LandingPage />;
   }
 
