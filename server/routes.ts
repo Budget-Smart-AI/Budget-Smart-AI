@@ -9376,6 +9376,50 @@ The Budget Smart AI Team`,
     }
   });
 
+  // Alias endpoint for landing-settings (backward compatibility)
+  app.get("/api/landing-settings", async (req, res) => {
+    try {
+      const [settings, features, testimonials, pricing, comparison, faqs] = await Promise.all([
+        storage.getLandingSettings(),
+        storage.getLandingFeatures(true),
+        storage.getLandingTestimonials(true),
+        storage.getLandingPricing(true),
+        storage.getLandingComparison(true),
+        storage.getLandingFaqs(true),
+      ]);
+
+      // Convert settings array to object for easier access
+      const settingsObj: Record<string, any> = {};
+      settings.forEach(s => {
+        if (s.type === "json") {
+          try {
+            settingsObj[s.key] = JSON.parse(s.value);
+          } catch {
+            settingsObj[s.key] = s.value;
+          }
+        } else if (s.type === "boolean") {
+          settingsObj[s.key] = s.value === "true";
+        } else if (s.type === "number") {
+          settingsObj[s.key] = Number(s.value);
+        } else {
+          settingsObj[s.key] = s.value;
+        }
+      });
+
+      res.json({
+        settings: settingsObj,
+        features,
+        testimonials,
+        pricing,
+        comparison,
+        faqs,
+      });
+    } catch (error) {
+      console.error("Error fetching landing page settings:", error);
+      res.status(500).json({ error: "Failed to fetch landing page settings" });
+    }
+  });
+
   // Get a single pricing plan by ID (public endpoint for signup flow)
   app.get("/api/landing/pricing/:id", async (req, res) => {
     try {
