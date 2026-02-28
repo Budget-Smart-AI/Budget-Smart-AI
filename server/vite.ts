@@ -33,6 +33,10 @@ export async function setupVite(server: Server, app: Express) {
   app.use(vite.middlewares);
 
   app.use("*", async (req, res, next) => {
+    // Skip API routes – let the API handlers process them
+    if (req.path.startsWith("/api/")) {
+      return next();
+    }
     // For landing page domain, serve the landing page
     if (isLandingPageDomain(req)) {
       return serveLandingPage(req, res);
