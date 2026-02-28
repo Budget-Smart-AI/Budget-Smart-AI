@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { processReceiptUpload, generateSignedUrl } from "../receipt-scanner";
-import { authenticate } from "../middleware/auth";
+import { requireAuth as authenticate } from "../auth";
 
 const router = express.Router();
 
@@ -46,7 +46,7 @@ router.post('/upload', authenticate, upload.single('receipt'), async (req, res) 
     
     const result = await processReceiptUpload(
       req.file,
-      req.user.id,
+      String(req.session.userId ?? ''),
       userTransactions
     );
 
@@ -90,7 +90,7 @@ router.post('/upload-multiple', authenticate, upload.array('receipts', 10), asyn
       try {
         const result = await processReceiptUpload(
           file,
-          req.user.id,
+          String(req.session.userId ?? ''),
           userTransactions
         );
         

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator } from "lucide-react";
+import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -67,6 +67,11 @@ const trackingItems = [
     title: "Accounts",
     url: "/accounts",
     icon: Building2,
+  },
+  {
+    title: "Receipt Scanner",
+    url: "/receipts",
+    icon: ScanLine,
   },
   {
     title: "Investments",

@@ -32,6 +32,7 @@ import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePr
 import { analyzePortfolio, getDetailedHoldingAnalysis, getInvestmentAdvice } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema } from "@shared/schema";
+import receiptsRouter from "./routes/receipts";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -92,6 +93,9 @@ export async function registerRoutes(
 
   // Start the email scheduler
   startEmailScheduler();
+
+  // Receipt scanner routes
+  app.use("/api/receipts", receiptsRouter);
 
   // Test route for debugging landing page API
   app.get("/api/landing-test", (_req, res) => res.json({ test: "ok" }));
