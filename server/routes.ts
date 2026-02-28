@@ -93,6 +93,9 @@ export async function registerRoutes(
   // Start the email scheduler
   startEmailScheduler();
 
+  // Test route for debugging landing page API
+  app.get("/api/landing-test", (_req, res) => res.json({ test: "ok" }));
+
   // Bills API
   app.get("/api/bills", requireAuth, async (req, res) => {
     try {
