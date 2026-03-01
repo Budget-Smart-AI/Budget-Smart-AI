@@ -5,12 +5,12 @@ import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema"
 import { startAiCoachScheduler } from "./ai-coach";
 
 const transporter = nodemailer.createTransport({
-  host: process.env.POSTMARK_SERVER,
+  host: process.env.POSTMARK_SERVER || "smtp.postmarkapp.com",
   port: parseInt(process.env.POSTMARK_PORT || "587"),
   secure: false,
   auth: {
-    user: process.env.POSTMARK_USERNAME,
-    pass: process.env.POSTMARK_PASSWORD,
+    user: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_USERNAME,
+    pass: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_PASSWORD,
   },
 });
 
@@ -629,19 +629,11 @@ export async function sendTestEmail(email: string): Promise<{ success: boolean; 
   const fromEmail = process.env.ALERT_EMAIL_FROM;
 
   // Check configuration
-  if (!process.env.POSTMARK_SERVER) {
-    return {
-      success: false,
-      message: "Email server not configured",
-      details: "POSTMARK_SERVER environment variable is missing"
-    };
-  }
-
-  if (!process.env.POSTMARK_USERNAME || !process.env.POSTMARK_PASSWORD) {
+  if (!process.env.POSTMARK_SERVER_TOKEN && !(process.env.POSTMARK_USERNAME && process.env.POSTMARK_PASSWORD)) {
     return {
       success: false,
       message: "Email credentials not configured",
-      details: "POSTMARK_USERNAME or POSTMARK_PASSWORD environment variable is missing"
+      details: "POSTMARK_SERVER_TOKEN environment variable is missing"
     };
   }
 

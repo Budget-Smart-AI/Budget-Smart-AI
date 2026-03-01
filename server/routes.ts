@@ -74,12 +74,12 @@ function parseCSV(csvText: string): Record<string, string>[] {
 }
 
 const contactTransporter = nodemailer.createTransport({
-  host: process.env.POSTMARK_SERVER,
+  host: process.env.POSTMARK_SERVER || "smtp.postmarkapp.com",
   port: parseInt(process.env.POSTMARK_PORT || "587"),
   secure: false,
   auth: {
-    user: process.env.POSTMARK_USERNAME,
-    pass: process.env.POSTMARK_PASSWORD,
+    user: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_USERNAME,
+    pass: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_PASSWORD,
   },
 });
 
@@ -7552,12 +7552,12 @@ ${JSON.stringify(txSummary)}`;
       if (fromEmail) {
         const nodemailer = await import("nodemailer");
         const transporter = nodemailer.default.createTransport({
-          host: process.env.POSTMARK_SERVER,
+          host: process.env.POSTMARK_SERVER || "smtp.postmarkapp.com",
           port: parseInt(process.env.POSTMARK_PORT || "587"),
           secure: false,
           auth: {
-            user: process.env.POSTMARK_USERNAME,
-            pass: process.env.POSTMARK_PASSWORD,
+            user: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_USERNAME,
+            pass: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_PASSWORD,
           },
         });
 
