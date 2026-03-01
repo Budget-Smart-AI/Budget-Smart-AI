@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import Anthropic from "@anthropic-ai/sdk";
 import { v4 as uuidv4 } from "uuid";
@@ -74,7 +74,7 @@ interface TransactionMatch {
 /**
  * Upload receipt to R2 storage
  */
-export async function uploadReceipt(file: Express.Multer.File, userId: string): Promise<string> {
+export async function uploadReceipt(file: Express.Multer.File, userId: string): Promise<{ key: string; signedUrl: string }> {
   const fileId = uuidv4();
   const fileExtension = path.extname(file.originalname).toLowerCase();
   const fileName = `receipts/${userId}/${fileId}${fileExtension}`;
@@ -94,20 +94,47 @@ export async function uploadReceipt(file: Express.Multer.File, userId: string): 
   try {
     await getR2Client().send(new PutObjectCommand(uploadParams));
     
-    // Generate a signed URL for accessing the file
+    // Generate a signed URL for accessing the file (24 hours)
     const getObjectParams = {
       Bucket: getBucketName(),
       Key: fileName,
     };
     
     const signedUrl = await getSignedUrl(getR2Client(), new GetObjectCommand(getObjectParams), {
-      expiresIn: 3600, // 1 hour
+      expiresIn: 86400, // 24 hours
     });
     
-    return signedUrl;
+    return { key: fileName, signedUrl };
   } catch (error) {
     console.error("Error uploading to R2:", error);
     throw new Error("Failed to upload receipt");
+  }
+}
+
+/**
+ * Test R2 storage connectivity by writing a small test object then deleting it.
+ */
+export async function testR2Connection(): Promise<{ success: boolean; message: string; details?: string }> {
+  const testKey = `_test/connectivity-${Date.now()}.txt`;
+  const testContent = `R2 connectivity test - ${new Date().toISOString()}`;
+  try {
+    const bucket = getBucketName();
+    const client = getR2Client();
+    await client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: testKey,
+      Body: Buffer.from(testContent),
+      ContentType: "text/plain",
+    }));
+    // Clean up test object so storage is not polluted
+    try {
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: testKey }));
+    } catch {
+      // Cleanup failure is non-fatal
+    }
+    return { success: true, message: "R2 storage is reachable and writable", details: `Test write+delete succeeded (key: ${testKey})` };
+  } catch (error: any) {
+    return { success: false, message: "R2 storage connection failed", details: error?.message || String(error) };
   }
 }
 
@@ -415,7 +442,8 @@ export async function generateSignedUrl(fileKey: string): Promise<string> {
 
 /**
  * Process receipt upload (main function)
- * Falls back to direct buffer processing when R2 is not configured.
+ * Always uploads to R2 first. OCR failure is non-fatal — a receipt record is
+ * still returned with the stored file key so the upload is never lost.
  */
 export async function processReceiptUpload(
   file: Express.Multer.File,
@@ -425,35 +453,56 @@ export async function processReceiptUpload(
   receiptData: ReceiptData;
   matches: TransactionMatch[];
   signedUrl: string;
+  fileKey: string;
   rawText: string;
+  ocrError?: string;
 }> {
+  // 1. Always attempt R2 upload first so the file is never lost.
+  let signedUrl = "";
+  let fileKey = "";
   try {
-    // 1. Try to upload to R2 for storage (optional - falls back gracefully)
-    let signedUrl = "";
-    try {
-      signedUrl = await uploadReceipt(file, userId);
-    } catch (r2Error: any) {
-      // R2 not configured or upload failed — continue without cloud storage
-      console.warn("R2 upload skipped (not configured or failed):", r2Error?.message);
-    }
-
-    // 2. Scan from the in-memory buffer directly (avoids re-downloading from R2)
-    const rawText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
-
-    // 3. Parse receipt data
-    const receiptData = parseReceiptData(rawText);
-
-    // 4. Match with transactions
-    const matches = await matchReceiptWithTransactions(receiptData, userId, userTransactions);
-
-    return {
-      receiptData,
-      matches,
-      signedUrl,
-      rawText
-    };
-  } catch (error) {
-    console.error("Error processing receipt:", error);
-    throw error;
+    const upload = await uploadReceipt(file, userId);
+    signedUrl = upload.signedUrl;
+    fileKey = upload.key;
+    console.log(`Receipt uploaded to R2: ${fileKey}`);
+  } catch (r2Error: any) {
+    // R2 not configured or upload failed — continue without cloud storage
+    console.warn("R2 upload skipped (not configured or failed):", r2Error?.message);
   }
+
+  // 2. OCR — non-fatal. If it fails we still save the receipt with minimal data.
+  let rawText = "";
+  let ocrError: string | undefined;
+  try {
+    rawText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
+  } catch (err: any) {
+    ocrError = err?.message || "OCR extraction failed";
+    console.error("OCR failed (receipt will be saved without extracted data):", err);
+  }
+
+  // 3. Parse receipt data (fallback defaults when OCR had no output)
+  const receiptData: ReceiptData = rawText
+    ? parseReceiptData(rawText)
+    : {
+        merchant: "Unknown",
+        amount: 0,
+        date: new Date().toISOString().split("T")[0],
+        category: "Uncategorized",
+        items: [],
+        confidence: 0,
+      };
+
+  // 4. Match with transactions (skip if OCR produced no data)
+  const matches = rawText
+    ? await matchReceiptWithTransactions(receiptData, userId, userTransactions)
+    : [];
+
+  return {
+    receiptData,
+    matches,
+    signedUrl,
+    fileKey,
+    rawText,
+    ...(ocrError ? { ocrError } : {}),
+  };
 }

@@ -225,10 +225,21 @@ export default function ReceiptScanner() {
         setSelectedFiles([]);
         setActiveTab('results');
         queryClient.invalidateQueries({ queryKey: ['/api/receipts'] });
-        toast({
-          title: 'Processing complete',
-          description: `${successResults.length} of ${selectedFiles.length} receipts processed successfully`,
-        });
+
+        // Check if any receipts had OCR failures
+        const ocrFailures = data.results.filter((r: any) => r.success && r.data?.ocrError);
+        if (ocrFailures.length > 0) {
+          toast({
+            title: 'Receipts stored, OCR incomplete',
+            description: `${successResults.length} receipt(s) saved to storage. OCR extraction failed — you can edit details manually.`,
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Processing complete',
+            description: `${successResults.length} of ${selectedFiles.length} receipts processed successfully`,
+          });
+        }
       } else {
         throw new Error(data.error || 'Upload failed');
       }
