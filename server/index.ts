@@ -7,6 +7,7 @@ import { initializeUser, setupGoogleOAuth } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
+import { ensureReceiptsTable } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -101,6 +102,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Ensure the receipts table exists before handling any requests.
+  // This is safe to call on every startup (uses CREATE TABLE IF NOT EXISTS).
+  // If this fails, receipt functionality will be unavailable but other features
+  // will continue to work.
+  await ensureReceiptsTable().catch(err =>
+    console.error("Failed to ensure receipts table — receipt upload/display will not work:", err)
+  );
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

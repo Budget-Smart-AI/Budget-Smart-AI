@@ -378,6 +378,30 @@ router.delete('/:receiptId', authenticate, async (req, res) => {
 });
 
 /**
+ * @route GET /api/receipts/:receiptId/image
+ * @desc Get a signed (time-limited) URL for the receipt image stored in R2.
+ *       Looks up the receipt by ID so the R2 key never has to appear in a URL.
+ * @access Private
+ */
+router.get('/:receiptId/image', authenticate, async (req, res) => {
+  try {
+    const userId = String(req.session.userId ?? '');
+    const receipt = await storage.getReceipt(req.params.receiptId);
+    if (!receipt || receipt.userId !== userId) {
+      return res.status(404).json({ error: 'Receipt not found' });
+    }
+    if (!receipt.imageUrl) {
+      return res.status(404).json({ error: 'No image stored for this receipt' });
+    }
+    const signedUrl = await generateSignedUrl(receipt.imageUrl);
+    res.json({ success: true, signedUrl, expiresIn: '24 hours' });
+  } catch (error: any) {
+    console.error('Get receipt image URL error:', error);
+    res.status(500).json({ error: 'Failed to generate image URL', details: error.message });
+  }
+});
+
+/**
  * @route GET /api/receipts/:fileKey/url  (legacy - kept for compatibility)
  * @desc Get signed URL for receipt file
  * @access Private
