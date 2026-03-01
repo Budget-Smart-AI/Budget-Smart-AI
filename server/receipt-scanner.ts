@@ -1,27 +1,51 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import Anthropic from "@anthropic-ai/sdk";
-import { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
-import * as fs from "fs";
 import * as path from "path";
 
-// Configure R2 S3 client
-const r2Client = new S3Client({
-  region: "auto",
-  endpoint: "https://711303ba637d386edfffed9520418bdf.r2.cloudflarestorage.com",
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID || "f2283d70ff205a9d9750fc570958f617",
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "0bcda5355ced881bcc3843efb8d21d88d10756f8ecb444863d7173457105ea3a",
-  },
-});
+// Lazy-initialized clients to avoid startup failures when credentials are missing
+let _r2Client: S3Client | null = null;
+let _anthropic: Anthropic | null = null;
 
-// Configure Claude API
-const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY || "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",
-});
+function getR2Client(): S3Client {
+  if (!_r2Client) {
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const endpoint = process.env.R2_ENDPOINT;
+    if (!accessKeyId || !secretAccessKey || !endpoint) {
+      throw new Error("R2 storage is not configured. Please set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT environment variables.");
+    }
+    _r2Client = new S3Client({
+      region: "auto",
+      endpoint,
+      credentials: { accessKeyId, secretAccessKey },
+    });
+  }
+  return _r2Client;
+}
 
-const BUCKET_NAME = "budgetsmart";
+function getAnthropicClient(): Anthropic {
+  if (!_anthropic) {
+    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+    if (!apiKey) {
+      throw new Error("Anthropic API key is not configured. Please set ANTHROPIC_API_KEY environment variable.");
+    }
+    if (!process.env.ANTHROPIC_API_KEY && process.env.CLAUDE_API_KEY) {
+      console.warn("Deprecation warning: CLAUDE_API_KEY is deprecated, please use ANTHROPIC_API_KEY instead.");
+    }
+    _anthropic = new Anthropic({ apiKey });
+  }
+  return _anthropic;
+}
+
+function getBucketName(): string {
+  const bucketName = process.env.R2_BUCKET_NAME;
+  if (!bucketName) {
+    throw new Error("R2 bucket is not configured. Please set R2_BUCKET_NAME environment variable.");
+  }
+  return bucketName;
+}
 
 // Interface for receipt data
 interface ReceiptData {
@@ -56,7 +80,7 @@ export async function uploadReceipt(file: Express.Multer.File, userId: string): 
   const fileName = `receipts/${userId}/${fileId}${fileExtension}`;
   
   const uploadParams = {
-    Bucket: BUCKET_NAME,
+    Bucket: getBucketName(),
     Key: fileName,
     Body: file.buffer,
     ContentType: file.mimetype,
@@ -68,15 +92,15 @@ export async function uploadReceipt(file: Express.Multer.File, userId: string): 
   };
 
   try {
-    await r2Client.send(new PutObjectCommand(uploadParams));
+    await getR2Client().send(new PutObjectCommand(uploadParams));
     
     // Generate a signed URL for accessing the file
     const getObjectParams = {
-      Bucket: BUCKET_NAME,
+      Bucket: getBucketName(),
       Key: fileName,
     };
     
-    const signedUrl = await getSignedUrl(r2Client, new GetObjectCommand(getObjectParams), {
+    const signedUrl = await getSignedUrl(getR2Client(), new GetObjectCommand(getObjectParams), {
       expiresIn: 3600, // 1 hour
     });
     
@@ -105,7 +129,7 @@ export async function extractReceiptText(imageUrl: string): Promise<string> {
       ? (rawMimeType as SupportedMimeType)
       : "image/jpeg";
     
-    const message = await anthropic.messages.create({
+    const message = await getAnthropicClient().messages.create({
       model: "claude-3-haiku-20240307",
       max_tokens: 1000,
       messages: [
@@ -298,11 +322,11 @@ function calculateStringSimilarity(str1: string, str2: string): number {
  */
 export async function generateSignedUrl(fileKey: string): Promise<string> {
   const getObjectParams = {
-    Bucket: BUCKET_NAME,
+    Bucket: getBucketName(),
     Key: fileKey,
   };
   
-  const signedUrl = await getSignedUrl(r2Client, new GetObjectCommand(getObjectParams), {
+  const signedUrl = await getSignedUrl(getR2Client(), new GetObjectCommand(getObjectParams), {
     expiresIn: 86400, // 24 hours
   });
   
