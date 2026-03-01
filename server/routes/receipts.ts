@@ -3,6 +3,7 @@ import multer from "multer";
 import { processReceiptUpload, generateSignedUrl, testR2Connection } from "../receipt-scanner";
 import { requireAuth as authenticate } from "../auth";
 import { storage } from "../storage";
+import { EXPENSE_CATEGORIES } from "@shared/schema";
 
 const router = express.Router();
 
@@ -238,6 +239,54 @@ router.get('/:receiptId', authenticate, async (req, res) => {
     res.json({ success: true, data: receipt });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to fetch receipt', details: error.message });
+  }
+});
+
+/**
+ * @route POST /api/receipts/:receiptId/create-expense
+ * @desc Create a new expense from receipt data (when no transaction match exists)
+ * @access Private
+ */
+router.post('/:receiptId/create-expense', authenticate, async (req, res) => {
+  try {
+    const userId = String(req.session.userId ?? '');
+    const { receiptId } = req.params;
+
+    const receipt = await storage.getReceipt(receiptId);
+    if (!receipt || receipt.userId !== userId) {
+      return res.status(404).json({ error: 'Receipt not found' });
+    }
+
+    // Allow caller to override fields (e.g. user edits category before saving)
+    const { category, merchant, amount, date, notes } = req.body;
+
+    const resolvedCategory = EXPENSE_CATEGORIES.includes(category ?? receipt.category)
+      ? (category ?? receipt.category)
+      : "Other";
+
+    const expense = await storage.createExpense({
+      userId,
+      merchant: merchant ?? receipt.merchant,
+      amount: String(amount ?? receipt.amount),
+      date: date ?? receipt.date,
+      category: resolvedCategory as typeof EXPENSE_CATEGORIES[number],
+      notes: notes ?? null,
+    });
+
+    // Link receipt to the newly created expense
+    const updated = await storage.updateReceipt(receiptId, {
+      matchedTransactionId: String(expense.id),
+      matchStatus: 'manual-match',
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Expense created and linked to receipt',
+      data: { expense, receipt: updated },
+    });
+  } catch (error: any) {
+    console.error('Create expense from receipt error:', error);
+    res.status(500).json({ error: 'Failed to create expense', details: error.message });
   }
 });
 

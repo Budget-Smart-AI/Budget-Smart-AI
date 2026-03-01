@@ -3,6 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import Anthropic from "@anthropic-ai/sdk";
 import { v4 as uuidv4 } from "uuid";
 import * as path from "path";
+import { EXPENSE_CATEGORIES } from "@shared/schema";
 
 // Lazy-initialized clients to avoid startup failures when credentials are missing
 let _r2Client: S3Client | null = null;
@@ -82,6 +83,15 @@ function getBucketName(): string {
   }
   return bucketName;
 }
+
+const RECEIPT_EXTRACT_PROMPT = `Extract receipt data and respond with ONLY a valid JSON object (no markdown, no explanation).
+JSON fields:
+- merchant: string (store/restaurant name)
+- date: string (YYYY-MM-DD format, today if missing)
+- total: number (final total paid)
+- category: one of [${EXPENSE_CATEGORIES.join(", ")}]
+- items: array of {name: string, price: number} (line items, empty array if none)
+Use null for any field you cannot determine.`;
 
 // Interface for receipt data
 interface ReceiptData {
@@ -187,10 +197,11 @@ export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string)
   if (mimetype === 'application/pdf') {
     const pdfBase64 = buffer.toString('base64');
     try {
-      const message = await (anthropic.beta.messages.create as any)({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 1000,
+      const message = await anthropic.beta.messages.create({
+        model: "claude-3-5-haiku-20241022",
+        max_tokens: 1024,
         betas: ["pdfs-2024-09-25"],
+        system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
         messages: [
           {
             role: "user",
@@ -202,16 +213,16 @@ export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string)
                   media_type: "application/pdf",
                   data: pdfBase64,
                 },
-              },
+              } as any,
               {
                 type: "text",
-                text: "Extract all text from this receipt. Include merchant name, date, total amount, and line items if available. Format as JSON with fields: merchant, date, total, items[] with name and price. If you can't extract something, use null."
+                text: RECEIPT_EXTRACT_PROMPT,
               }
             ]
           }
         ]
       });
-      const firstBlock = (message as any).content[0];
+      const firstBlock = message.content[0];
       return firstBlock?.type === "text" ? firstBlock.text : "";
     } catch (pdfError) {
       console.error("PDF extraction failed:", pdfError);
@@ -229,16 +240,13 @@ export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string)
     : "image/jpeg";
 
   const message = await anthropic.messages.create({
-    model: "claude-3-haiku-20240307",
-    max_tokens: 1000,
+    model: "claude-3-5-haiku-20241022",
+    max_tokens: 1024,
+    system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
     messages: [
       {
         role: "user",
         content: [
-          {
-            type: "text",
-            text: "Extract all text from this receipt. Include merchant name, date, total amount, and line items if available. Format as JSON with fields: merchant, date, total, items[] with name and price. If you can't extract something, use null."
-          },
           {
             type: "image",
             source: {
@@ -246,6 +254,10 @@ export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string)
               media_type: imageMimeType,
               data: imageBase64
             }
+          },
+          {
+            type: "text",
+            text: RECEIPT_EXTRACT_PROMPT
           }
         ]
       }
@@ -275,16 +287,13 @@ export async function extractReceiptText(imageUrl: string): Promise<string> {
       : "image/jpeg";
     
     const message = await getAnthropicClient().messages.create({
-      model: "claude-3-haiku-20240307",
-      max_tokens: 1000,
+      model: "claude-3-5-haiku-20241022",
+      max_tokens: 1024,
+      system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
       messages: [
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: "Extract all text from this receipt. Include merchant name, date, total amount, and line items if available. Format as JSON with fields: merchant, date, total, items[] with name and price. If you can't extract something, use null."
-            },
             {
               type: "image",
               source: {
@@ -292,6 +301,10 @@ export async function extractReceiptText(imageUrl: string): Promise<string> {
                 media_type: mimeType,
                 data: imageBase64
               }
+            },
+            {
+              type: "text",
+              text: RECEIPT_EXTRACT_PROMPT
             }
           ]
         }
@@ -311,16 +324,28 @@ export async function extractReceiptText(imageUrl: string): Promise<string> {
  */
 export function parseReceiptData(extractedText: string): ReceiptData {
   try {
-    // Try to parse as JSON first
-    const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
+    // Try to parse as JSON first (strip markdown fences if present)
+    const stripped = extractedText.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    const jsonMatch = stripped.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
+
+      // Validate category against known list; fall back to "Other"
+      const aiCategory: string = parsed.category || "";
+      const validCategory = (EXPENSE_CATEGORIES as readonly string[]).includes(aiCategory)
+        ? aiCategory
+        : "Other";
+
       return {
         merchant: parsed.merchant || "Unknown",
         amount: parseFloat(parsed.total) || 0,
         date: parsed.date || new Date().toISOString().split('T')[0],
-        category: "Uncategorized",
-        items: parsed.items || [],
+        category: validCategory,
+        items: (parsed.items || []).map((item: any) => ({
+          name: item.name || "",
+          price: parseFloat(item.price) || 0,
+          quantity: 1,
+        })),
         confidence: 0.85
       };
     }
@@ -370,7 +395,7 @@ export function parseReceiptData(extractedText: string): ReceiptData {
       merchant,
       amount,
       date,
-      category: "Uncategorized",
+      category: "Other",
       items,
       confidence: 0.65 // Lower confidence for text parsing
     };
@@ -380,7 +405,7 @@ export function parseReceiptData(extractedText: string): ReceiptData {
       merchant: "Unknown",
       amount: 0,
       date: new Date().toISOString().split('T')[0],
-      category: "Uncategorized",
+      category: "Other",
       items: [],
       confidence: 0.3
     };

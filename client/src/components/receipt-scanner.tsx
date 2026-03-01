@@ -62,6 +62,7 @@ export default function ReceiptScanner() {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [editingReceipt, setEditingReceipt] = useState<StoredReceipt | null>(null);
   const [editFields, setEditFields] = useState<{ category: string; notes: string; merchant: string }>({ category: '', notes: '', merchant: '' });
+  const [creatingExpenseFor, setCreatingExpenseFor] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -125,6 +126,31 @@ export default function ReceiptScanner() {
       toast({ title: 'Receipt updated' });
     },
     onError: () => toast({ title: 'Update failed', variant: 'destructive' }),
+  });
+
+  // Create new expense from receipt
+  const createExpenseMutation = useMutation({
+    mutationFn: async (receiptId: string) => {
+      setCreatingExpenseFor(receiptId);
+      const res = await fetch(`/api/receipts/${receiptId}/create-expense`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create expense');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/receipts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/expenses'] });
+      toast({ title: 'Expense created', description: 'Receipt linked to a new expense entry.' });
+    },
+    onError: (err: any) => toast({ title: 'Failed to create expense', description: err.message, variant: 'destructive' }),
+    onSettled: () => setCreatingExpenseFor(null),
   });
 
   const startCamera = useCallback(async () => {
@@ -583,10 +609,22 @@ export default function ReceiptScanner() {
                   <div className="text-center py-6 text-muted-foreground">
                     <FileText className="h-12 w-12 mx-auto mb-3 text-muted-foreground/40" />
                     <p>No matching transactions found.</p>
-                    <p className="text-sm mt-1">You can view and edit this receipt in the All Receipts library.</p>
-                    <Button size="sm" variant="outline" className="mt-3" onClick={() => setActiveTab('library')}>
-                      View in Library
-                    </Button>
+                    <p className="text-sm mt-1">Add this receipt as a new expense or match it manually from the library.</p>
+                    <div className="flex gap-2 justify-center mt-3">
+                      <Button
+                        size="sm"
+                        disabled={createExpenseMutation.isPending && creatingExpenseFor === result.id}
+                        onClick={() => createExpenseMutation.mutate(result.id)}
+                      >
+                        {createExpenseMutation.isPending && creatingExpenseFor === result.id
+                          ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          : null}
+                        Add as New Expense
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setActiveTab('library')}>
+                        View in Library
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -678,6 +716,19 @@ export default function ReceiptScanner() {
                           <Button variant="ghost" size="icon" onClick={() => openEditModal(receipt)} title="Edit">
                             <PencilLine className="h-4 w-4" />
                           </Button>
+                          {receipt.matchStatus === 'unmatched' && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => createExpenseMutation.mutate(receipt.id)}
+                              disabled={createExpenseMutation.isPending && creatingExpenseFor === receipt.id}
+                              title="Add as New Expense"
+                            >
+                              {createExpenseMutation.isPending && creatingExpenseFor === receipt.id
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : <CheckCircle className="h-4 w-4 text-green-600" />}
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
