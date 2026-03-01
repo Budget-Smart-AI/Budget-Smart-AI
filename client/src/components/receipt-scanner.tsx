@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, Upload, FileText, CheckCircle, XCircle, Loader2, Image as ImageIcon, File, Video, VideoOff, Printer, Trash2, Link2, PencilLine, Receipt, LayoutList } from 'lucide-react';
+import { Camera, Upload, FileText, CheckCircle, XCircle, Loader2, Image as ImageIcon, File, Video, VideoOff, Printer, Trash2, Link2, PencilLine, Receipt, LayoutList, Eye, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Progress } from './ui/progress';
@@ -84,7 +84,7 @@ export default function ReceiptScanner() {
   }, [showCamera, cameraStream]);
 
   // Load stored receipts
-  const { data: libraryData, isLoading: libraryLoading } = useQuery({
+  const { data: libraryData, isLoading: libraryLoading, isError: libraryError } = useQuery({
     queryKey: ['/api/receipts'],
     queryFn: async () => {
       const res = await fetch('/api/receipts', { credentials: 'include' });
@@ -94,6 +94,23 @@ export default function ReceiptScanner() {
   });
 
   const storedReceipts: StoredReceipt[] = libraryData?.data?.receipts ?? [];
+
+  // Open the receipt image in a new tab using a server-generated signed URL
+  const viewReceiptImage = useCallback(async (receiptId: string) => {
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}/image`, { credentials: 'include' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed (${res.status})`);
+      }
+      const data = await res.json();
+      if (data.signedUrl) {
+        window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err: any) {
+      toast({ title: 'Could not open image', description: err.message, variant: 'destructive' });
+    }
+  }, [toast]);
 
   // Delete receipt mutation
   const deleteMutation = useMutation({
@@ -650,6 +667,13 @@ export default function ReceiptScanner() {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
+          ) : libraryError ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <AlertCircle className="h-16 w-16 mx-auto mb-4 text-destructive/50" />
+              <p className="text-lg font-medium mb-1 text-destructive">Failed to load receipts</p>
+              <p className="text-sm mb-4">There was an error fetching your receipt library. Please try again.</p>
+              <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+            </div>
           ) : storedReceipts.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Receipt className="h-16 w-16 mx-auto mb-4 text-muted-foreground/30" />
@@ -716,6 +740,17 @@ export default function ReceiptScanner() {
                           <Button variant="ghost" size="icon" onClick={() => openEditModal(receipt)} title="Edit">
                             <PencilLine className="h-4 w-4" />
                           </Button>
+                          {receipt.imageUrl && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => viewReceiptImage(receipt.id)}
+                              title="View Receipt Image"
+                              aria-label="View receipt image"
+                            >
+                              <Eye className="h-4 w-4 text-blue-600" />
+                            </Button>
+                          )}
                           {receipt.matchStatus === 'unmatched' && (
                             <Button
                               variant="ghost"
