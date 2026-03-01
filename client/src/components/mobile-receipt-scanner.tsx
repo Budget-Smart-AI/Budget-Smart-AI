@@ -396,7 +396,7 @@ export default function MobileReceiptScanner() {
             <div key={matchIndex} className="text-xs p-2 bg-gray-50 rounded mb-1">
               <div className="flex justify-between">
                 <span>{match.matchedMerchant}</span>
-                <Badge size="sm" variant={
+                <Badge variant={
                   match.status === 'auto-matched' ? 'default' : 'secondary'
                 }>
                   {Math.round(match.confidence * 100)}%

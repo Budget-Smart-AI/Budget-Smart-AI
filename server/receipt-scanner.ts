@@ -97,8 +97,13 @@ export async function extractReceiptText(imageUrl: string): Promise<string> {
     const imageBuffer = await response.arrayBuffer();
     const imageBase64 = Buffer.from(imageBuffer).toString("base64");
     
-    // Determine MIME type
-    const mimeType = response.headers.get("content-type") || "image/jpeg";
+    // Determine MIME type - extract base type only, must be one of the supported types
+    const rawMimeType = (response.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+    const supportedMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+    type SupportedMimeType = typeof supportedMimeTypes[number];
+    const mimeType: SupportedMimeType = supportedMimeTypes.includes(rawMimeType as SupportedMimeType)
+      ? (rawMimeType as SupportedMimeType)
+      : "image/jpeg";
     
     const message = await anthropic.messages.create({
       model: "claude-3-haiku-20240307",
@@ -124,7 +129,8 @@ export async function extractReceiptText(imageUrl: string): Promise<string> {
       ]
     });
     
-    return message.content[0].text;
+    const firstBlock = message.content[0];
+    return firstBlock.type === "text" ? firstBlock.text : "";
   } catch (error) {
     console.error("Error extracting receipt text:", error);
     throw new Error("Failed to extract receipt text");

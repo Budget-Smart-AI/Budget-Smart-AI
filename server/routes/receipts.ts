@@ -42,7 +42,7 @@ router.post('/upload', authenticate, upload.single('receipt'), async (req, res) 
     }
 
     // Get user transactions for matching (in real app, fetch from database)
-    const userTransactions = []; // TODO: Fetch from database
+    const userTransactions: any[] = []; // TODO: Fetch from database
     
     const result = await processReceiptUpload(
       req.file,
@@ -81,10 +81,10 @@ router.post('/upload-multiple', authenticate, upload.array('receipts', 10), asyn
     }
 
     const files = req.files as Express.Multer.File[];
-    const results = [];
+    const results: any[] = [];
     
     // Get user transactions for matching
-    const userTransactions = []; // TODO: Fetch from database
+    const userTransactions: any[] = []; // TODO: Fetch from database
     
     for (const file of files) {
       try {
@@ -134,7 +134,7 @@ router.get('/:fileKey/url', authenticate, async (req, res) => {
     // Verify user has access to this file
     // TODO: Add authorization check
     
-    const signedUrl = await generateSignedUrl(fileKey);
+    const signedUrl = await generateSignedUrl(String(fileKey));
     
     res.json({
       success: true,
@@ -232,7 +232,7 @@ router.get('/', authenticate, async (req, res) => {
     // 2. Apply filters (category, date range)
     // 3. Generate signed URLs for each receipt
     
-    const receipts = []; // Placeholder
+    const receipts: any[] = []; // Placeholder
     
     res.json({
       success: true,
