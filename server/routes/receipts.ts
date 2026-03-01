@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { processReceiptUpload, generateSignedUrl } from "../receipt-scanner";
+import { processReceiptUpload, generateSignedUrl, testR2Connection } from "../receipt-scanner";
 import { requireAuth as authenticate } from "../auth";
 import { storage } from "../storage";
 
@@ -56,7 +56,7 @@ router.post('/upload', authenticate, upload.single('receipt'), async (req, res) 
 
     const result = await processReceiptUpload(req.file, userId, userTransactions);
 
-    // Persist receipt to database
+    // Persist receipt to database (always, even if OCR failed)
     const topMatch = result.matches[0];
     const saved = await storage.createReceipt({
       userId,
@@ -66,7 +66,7 @@ router.post('/upload', authenticate, upload.single('receipt'), async (req, res) 
       category: result.receiptData.category,
       items: JSON.stringify(result.receiptData.items),
       confidence: result.receiptData.confidence,
-      imageUrl: result.signedUrl || null,
+      imageUrl: result.fileKey || null,
       rawText: result.rawText || null,
       matchedTransactionId: topMatch?.status === 'auto-matched' ? topMatch.transactionId : null,
       matchStatus: topMatch?.status === 'auto-matched' ? 'auto-matched' : 'unmatched',
@@ -75,13 +75,15 @@ router.post('/upload', authenticate, upload.single('receipt'), async (req, res) 
 
     res.json({
       success: true,
-      message: 'Receipt processed successfully',
+      message: result.ocrError ? 'Receipt stored but OCR extraction failed' : 'Receipt processed successfully',
       data: {
         id: saved.id,
         receipt: result.receiptData,
         matches: result.matches,
         signedUrl: result.signedUrl,
-        processingTime: new Date().toISOString()
+        fileKey: result.fileKey,
+        processingTime: new Date().toISOString(),
+        ...(result.ocrError ? { ocrError: result.ocrError } : {}),
       }
     });
   } catch (error: any) {
@@ -123,7 +125,7 @@ router.post('/upload-multiple', authenticate, upload.array('receipts', 10), asyn
       try {
         const result = await processReceiptUpload(file, userId, userTransactions);
 
-        // Persist receipt to database
+        // Persist receipt to database (always, even if OCR failed)
         const topMatch = result.matches[0];
         const saved = await storage.createReceipt({
           userId,
@@ -133,7 +135,7 @@ router.post('/upload-multiple', authenticate, upload.array('receipts', 10), asyn
           category: result.receiptData.category,
           items: JSON.stringify(result.receiptData.items),
           confidence: result.receiptData.confidence,
-          imageUrl: result.signedUrl || null,
+          imageUrl: result.fileKey || null,
           rawText: result.rawText || null,
           matchedTransactionId: topMatch?.status === 'auto-matched' ? topMatch.transactionId : null,
           matchStatus: topMatch?.status === 'auto-matched' ? 'auto-matched' : 'unmatched',
@@ -148,6 +150,8 @@ router.post('/upload-multiple', authenticate, upload.array('receipts', 10), asyn
             receipt: result.receiptData,
             matches: result.matches,
             signedUrl: result.signedUrl,
+            fileKey: result.fileKey,
+            ...(result.ocrError ? { ocrError: result.ocrError } : {}),
           }
         });
       } catch (fileError: any) {
@@ -202,6 +206,20 @@ router.get('/', authenticate, async (req, res) => {
       error: 'Failed to fetch receipts',
       details: error.message
     });
+  }
+});
+
+/**
+ * @route GET /api/receipts/test-storage
+ * @desc Test R2 storage connectivity
+ * @access Private
+ */
+router.get('/test-storage', authenticate, async (req, res) => {
+  try {
+    const result = await testR2Connection();
+    res.json({ ...result });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'R2 test failed', details: error.message });
   }
 });
 
