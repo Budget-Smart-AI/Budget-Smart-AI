@@ -32,7 +32,7 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("*", async (req, res, next) => {
+  app.use("/*splat", async (req, res, next) => {
     // Skip API routes – let the API handlers process them
     if (req.path.startsWith("/api/")) {
       return next();
