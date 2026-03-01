@@ -11,10 +11,10 @@ let _anthropic: Anthropic | null = null;
 function getR2Client(): S3Client {
   if (!_r2Client) {
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_TOKEN_VALUE;
     const endpoint = process.env.R2_ENDPOINT;
     if (!accessKeyId || !secretAccessKey || !endpoint) {
-      throw new Error("R2 storage is not configured. Please set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_ENDPOINT environment variables.");
+      throw new Error("R2 storage is not configured. Please set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (or R2_TOKEN_VALUE), and R2_ENDPOINT environment variables.");
     }
     _r2Client = new S3Client({
       region: "auto",
@@ -427,29 +427,16 @@ export async function processReceiptUpload(
   signedUrl: string;
 }> {
   try {
-    // Try R2 upload first; if not configured, process the buffer directly
-    const r2Available =
-      !!process.env.R2_ACCESS_KEY_ID &&
-      !!process.env.R2_SECRET_ACCESS_KEY &&
-      !!process.env.R2_ENDPOINT &&
-      !!process.env.R2_BUCKET_NAME;
+    // 1. Always upload to R2 for storage (R2 credentials are required)
+    const signedUrl = await uploadReceipt(file, userId);
 
-    let extractedText: string;
-    let signedUrl = "";
+    // 2. Scan from the in-memory buffer directly (avoids re-downloading from R2)
+    const extractedText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
 
-    if (r2Available) {
-      // 1. Upload to R2 and extract via signed URL
-      signedUrl = await uploadReceipt(file, userId);
-      extractedText = await extractReceiptText(signedUrl);
-    } else {
-      // Fallback: process the buffer directly without R2
-      extractedText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
-    }
-
-    // 2. Parse receipt data
+    // 3. Parse receipt data
     const receiptData = parseReceiptData(extractedText);
 
-    // 3. Match with transactions
+    // 4. Match with transactions
     const matches = await matchReceiptWithTransactions(receiptData, userId, userTransactions);
 
     return {
