@@ -16,7 +16,7 @@ export function serveStatic(app: Express) {
 
   // fall through to index.html if the file doesn't exist
   // All domains now use the React SPA which has its own routing for landing vs app
-  app.use("*", (req, res, next) => {
+  app.use("/*splat", (req, res, next) => {
     // Skip API routes – let the API handlers process them
     if (req.path.startsWith("/api/")) {
       return next();
