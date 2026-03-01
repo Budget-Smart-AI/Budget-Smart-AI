@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { Camera, Upload, FileText, CheckCircle, XCircle, Loader2, Image as ImageIcon, File } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Camera, Upload, FileText, CheckCircle, XCircle, Loader2, Image as ImageIcon, File, Video, VideoOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Progress } from './ui/progress';
@@ -41,21 +41,77 @@ export default function ReceiptScanner() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [results, setResults] = useState<UploadResult[]>([]);
   const [activeTab, setActiveTab] = useState<'upload' | 'results'>('upload');
-  const [useCamera, setUseCamera] = useState(false);
-  
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      cameraStream?.getTracks().forEach(track => track.stop());
+    };
+  }, [cameraStream]);
+
+  // Attach stream to video element when it becomes available
+  useEffect(() => {
+    if (showCamera && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [showCamera, cameraStream]);
+
+  const startCamera = useCallback(async () => {
+    setCameraError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      setCameraStream(stream);
+      setShowCamera(true);
+    } catch (err: any) {
+      // If camera is unavailable or permission denied, fall back to file input
+      setCameraError(err.message || 'Camera not available');
+      toast({
+        title: 'Camera unavailable',
+        description: 'Could not access camera. Please use the file upload option instead.',
+        variant: 'destructive'
+      });
+    }
+  }, [toast]);
+
+  const stopCamera = useCallback(() => {
+    cameraStream?.getTracks().forEach(track => track.stop());
+    setCameraStream(null);
+    setShowCamera(false);
+  }, [cameraStream]);
+
+  const takePhoto = useCallback(() => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0);
+    canvas.toBlob(blob => {
+      if (blob) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const file = new File([blob], `receipt-${timestamp}.jpg`, { type: 'image/jpeg' });
+        setSelectedFiles(prev => [...prev, file]);
+        toast({ title: 'Photo captured', description: 'Receipt photo added. You can take more or process now.' });
+      }
+    }, 'image/jpeg', 0.92);
+    stopCamera();
+  }, [stopCamera, toast]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
-    
-    // Validate file types
-    const validFiles = files.filter(file => {
-      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
-      return validTypes.includes(file.type);
-    });
-    
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+    const validFiles = files.filter(file => validTypes.includes(file.type));
+
     if (validFiles.length !== files.length) {
       toast({
         title: 'Invalid file type',
@@ -63,14 +119,10 @@ export default function ReceiptScanner() {
         variant: 'destructive'
       });
     }
-    
-    setSelectedFiles(prev => [...prev, ...validFiles]);
-  };
 
-  const handleCameraCapture = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    setSelectedFiles(prev => [...prev, ...files]);
-    setUseCamera(false);
+    setSelectedFiles(prev => [...prev, ...validFiles]);
+    // Reset the input so the same file can be re-selected
+    try { event.target.value = ''; } catch { /* ignore if element is detached */ }
   };
 
   const removeFile = (index: number) => {
@@ -92,26 +144,18 @@ export default function ReceiptScanner() {
 
     try {
       const formData = new FormData();
-      selectedFiles.forEach(file => {
-        formData.append('receipts', file);
-      });
+      selectedFiles.forEach(file => formData.append('receipts', file));
 
-      // Simulate upload progress
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
+          if (prev >= 90) { clearInterval(progressInterval); return prev; }
           return prev + 10;
         });
       }, 300);
 
       const response = await fetch('/api/receipts/upload-multiple', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
+        credentials: 'include',
         body: formData
       });
 
@@ -119,16 +163,16 @@ export default function ReceiptScanner() {
       setUploadProgress(100);
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Upload failed (${response.status})`);
       }
 
       const data = await response.json();
-      
+
       if (data.success) {
         setResults(data.results.filter((r: any) => r.success).map((r: any) => r.data));
         setSelectedFiles([]);
         setActiveTab('results');
-        
         toast({
           title: 'Upload successful',
           description: `${data.results.filter((r: any) => r.success).length} receipts processed`,
@@ -148,25 +192,11 @@ export default function ReceiptScanner() {
     }
   };
 
-  const triggerCamera = () => {
-    setUseCamera(true);
-    if (cameraInputRef.current) {
-      cameraInputRef.current.click();
-    }
-  };
-
-  const triggerFileSelect = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
+  const triggerFileSelect = () => fileInputRef.current?.click();
 
   const getFileIcon = (file: File) => {
-    if (file.type.startsWith('image/')) {
-      return <ImageIcon className="h-5 w-5" />;
-    } else if (file.type === 'application/pdf') {
-      return <FileText className="h-5 w-5" />;
-    }
+    if (file.type.startsWith('image/')) return <ImageIcon className="h-5 w-5" />;
+    if (file.type === 'application/pdf') return <FileText className="h-5 w-5" />;
     return <File className="h-5 w-5" />;
   };
 
@@ -180,23 +210,52 @@ export default function ReceiptScanner() {
 
   return (
     <div className="max-w-4xl mx-auto p-4">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Receipt Scanner</h1>
-        <p className="text-gray-600">
-          Upload receipts and let our AI automatically extract and match transactions.
-          Supports photos from your camera or file uploads (JPEG, PNG, PDF).
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black">
+          <div className="relative w-full max-w-2xl">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full rounded-lg"
+            />
+            <div className="absolute top-2 right-2">
+              <Button size="icon" variant="destructive" onClick={stopCamera}>
+                <VideoOff className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex gap-4 mt-6">
+            <Button size="lg" onClick={takePhoto} className="px-8">
+              <Camera className="mr-2 h-5 w-5" />
+              Capture Photo
+            </Button>
+            <Button size="lg" variant="outline" onClick={stopCamera}>
+              Cancel
+            </Button>
+          </div>
+          <p className="text-white/70 text-sm mt-3">Position the receipt in the frame, then click Capture</p>
+        </div>
+      )}
+
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold mb-1 text-foreground">Receipt Scanner</h2>
+        <p className="text-muted-foreground">
+          Upload receipts or take a photo. Our AI extracts the details and matches them to your transactions.
         </p>
       </div>
 
-      <div className="flex border-b mb-6">
+      <div className="flex border-b border-border mb-6">
         <button
-          className={`px-4 py-2 font-medium ${activeTab === 'upload' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}
+          className={`px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'upload' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground hover:text-foreground'}`}
           onClick={() => setActiveTab('upload')}
         >
           Upload Receipts
         </button>
         <button
-          className={`px-4 py-2 font-medium ${activeTab === 'results' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500'}`}
+          className={`px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'results' ? 'border-b-2 border-primary text-primary' : 'text-muted-foreground hover:text-foreground'} disabled:opacity-40`}
           onClick={() => setActiveTab('results')}
           disabled={results.length === 0}
         >
@@ -212,25 +271,17 @@ export default function ReceiptScanner() {
         multiple
         className="hidden"
       />
-      <input
-        type="file"
-        ref={cameraInputRef}
-        onChange={handleCameraCapture}
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-      />
 
       {activeTab === 'upload' && (
-        <Card>
+        <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle>Upload Receipts</CardTitle>
+            <CardTitle className="text-foreground">Upload Receipts</CardTitle>
           </CardHeader>
           <CardContent>
             {/* Upload Methods */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <Button
-                onClick={triggerCamera}
+                onClick={startCamera}
                 className="h-24 flex flex-col items-center justify-center gap-2"
                 variant="outline"
               >
@@ -250,24 +301,20 @@ export default function ReceiptScanner() {
             {/* Selected Files */}
             {selectedFiles.length > 0 && (
               <div className="mb-6">
-                <h3 className="font-medium mb-3">Selected Files ({selectedFiles.length})</h3>
+                <h3 className="font-medium mb-3 text-foreground">Selected Files ({selectedFiles.length})</h3>
                 <div className="space-y-2">
                   {selectedFiles.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                       <div className="flex items-center gap-3">
-                        {getFileIcon(file)}
+                        <span className="text-muted-foreground">{getFileIcon(file)}</span>
                         <div>
-                          <div className="font-medium">{file.name}</div>
-                          <div className="text-sm text-gray-500">
+                          <div className="font-medium text-foreground">{file.name}</div>
+                          <div className="text-sm text-muted-foreground">
                             {formatFileSize(file.size)} • {file.type}
                           </div>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeFile(index)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => removeFile(index)}>
                         <XCircle className="h-4 w-4" />
                       </Button>
                     </div>
@@ -280,8 +327,8 @@ export default function ReceiptScanner() {
             {isUploading && (
               <div className="mb-6">
                 <div className="flex justify-between mb-2">
-                  <span className="text-sm font-medium">Processing receipts...</span>
-                  <span className="text-sm text-gray-500">{uploadProgress}%</span>
+                  <span className="text-sm font-medium text-foreground">Processing receipts...</span>
+                  <span className="text-sm text-muted-foreground">{uploadProgress}%</span>
                 </div>
                 <Progress value={uploadProgress} className="h-2" />
               </div>
@@ -308,9 +355,9 @@ export default function ReceiptScanner() {
             </Button>
 
             {/* Tips */}
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-              <h4 className="font-medium mb-2">Tips for best results:</h4>
-              <ul className="text-sm text-gray-600 space-y-1">
+            <div className="mt-6 p-4 bg-muted rounded-lg">
+              <h4 className="font-medium mb-2 text-foreground">Tips for best results:</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
                 <li>• Ensure receipt is well-lit and in focus</li>
                 <li>• Include the entire receipt in the photo</li>
                 <li>• PDF receipts should be clear scans, not photos of screens</li>
@@ -324,10 +371,10 @@ export default function ReceiptScanner() {
       {activeTab === 'results' && (
         <div className="space-y-6">
           {results.map((result, index) => (
-            <Card key={index}>
+            <Card key={index} className="bg-card border-border">
               <CardHeader>
                 <div className="flex justify-between items-center">
-                  <CardTitle>Receipt #{index + 1}</CardTitle>
+                  <CardTitle className="text-foreground">Receipt #{index + 1}</CardTitle>
                   <Badge variant={result.receipt.confidence > 0.8 ? 'default' : 'secondary'}>
                     {Math.round(result.receipt.confidence * 100)}% Confidence
                   </Badge>
@@ -337,36 +384,35 @@ export default function ReceiptScanner() {
                 {/* Receipt Details */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                   <div>
-                    <h4 className="font-medium mb-2">Receipt Details</h4>
+                    <h4 className="font-medium mb-2 text-foreground">Receipt Details</h4>
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Merchant:</span>
-                        <span className="font-medium">{result.receipt.merchant}</span>
+                        <span className="text-muted-foreground">Merchant:</span>
+                        <span className="font-medium text-foreground">{result.receipt.merchant}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Amount:</span>
-                        <span className="font-medium">${result.receipt.amount.toFixed(2)}</span>
+                        <span className="text-muted-foreground">Amount:</span>
+                        <span className="font-medium text-foreground">${result.receipt.amount.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Date:</span>
-                        <span className="font-medium">{result.receipt.date}</span>
+                        <span className="text-muted-foreground">Date:</span>
+                        <span className="font-medium text-foreground">{result.receipt.date}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Category:</span>
-                        <span className="font-medium">{result.receipt.category}</span>
+                        <span className="text-muted-foreground">Category:</span>
+                        <span className="font-medium text-foreground">{result.receipt.category}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Items */}
                   {result.receipt.items.length > 0 && (
                     <div>
-                      <h4 className="font-medium mb-2">Items</h4>
+                      <h4 className="font-medium mb-2 text-foreground">Items</h4>
                       <div className="space-y-1">
                         {result.receipt.items.map((item, itemIndex) => (
                           <div key={itemIndex} className="flex justify-between text-sm">
-                            <span>{item.name}</span>
-                            <span>${item.price.toFixed(2)}</span>
+                            <span className="text-muted-foreground">{item.name}</span>
+                            <span className="text-foreground">${item.price.toFixed(2)}</span>
                           </div>
                         ))}
                       </div>
@@ -377,10 +423,10 @@ export default function ReceiptScanner() {
                 {/* Matches */}
                 {result.matches.length > 0 ? (
                   <div>
-                    <h4 className="font-medium mb-3">Transaction Matches</h4>
+                    <h4 className="font-medium mb-3 text-foreground">Transaction Matches</h4>
                     <div className="space-y-3">
                       {result.matches.map((match, matchIndex) => (
-                        <div key={matchIndex} className="p-3 border rounded-lg">
+                        <div key={matchIndex} className="p-3 border border-border rounded-lg bg-muted/50">
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex items-center gap-2">
                               {match.status === 'auto-matched' ? (
@@ -388,7 +434,7 @@ export default function ReceiptScanner() {
                               ) : (
                                 <Loader2 className="h-4 w-4 text-yellow-500 animate-spin" />
                               )}
-                              <span className="font-medium">{match.matchedMerchant}</span>
+                              <span className="font-medium text-foreground">{match.matchedMerchant}</span>
                             </div>
                             <Badge variant={
                               match.status === 'auto-matched' ? 'default' :
@@ -399,12 +445,12 @@ export default function ReceiptScanner() {
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-sm">
                             <div>
-                              <span className="text-gray-600">Amount:</span>
-                              <span className="ml-2 font-medium">${match.matchedAmount.toFixed(2)}</span>
+                              <span className="text-muted-foreground">Amount:</span>
+                              <span className="ml-2 font-medium text-foreground">${match.matchedAmount.toFixed(2)}</span>
                             </div>
                             <div>
-                              <span className="text-gray-600">Confidence:</span>
-                              <span className="ml-2 font-medium">{Math.round(match.confidence * 100)}%</span>
+                              <span className="text-muted-foreground">Confidence:</span>
+                              <span className="ml-2 font-medium text-foreground">{Math.round(match.confidence * 100)}%</span>
                             </div>
                           </div>
                           {match.status === 'needs-review' && (
@@ -418,24 +464,18 @@ export default function ReceiptScanner() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center py-6 text-gray-500">
-                    <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                  <div className="text-center py-6 text-muted-foreground">
+                    <FileText className="h-12 w-12 mx-auto mb-3 text-muted-foreground/40" />
                     <p>No matching transactions found.</p>
                     <p className="text-sm mt-1">You can manually categorize this receipt.</p>
+                    <Button size="sm" variant="outline" className="mt-3">Add as New Expense</Button>
                   </div>
                 )}
 
                 {/* Actions */}
                 <div className="mt-6 flex gap-3">
-                  <Button variant="outline" size="sm">
-                    View Original
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    Edit Details
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    Categorize
-                  </Button>
+                  <Button variant="outline" size="sm">Edit Details</Button>
+                  <Button variant="outline" size="sm">Categorize</Button>
                 </div>
               </CardContent>
             </Card>
