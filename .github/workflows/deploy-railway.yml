@@ -18,16 +18,8 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          # Create config file for Railway CLI
-          mkdir -p ~/.railway
-          echo '{"token":"'"$RAILWAY_TOKEN"'"}' > ~/.railway/config.json
-          chmod 600 ~/.railway/config.json
-          
-          # Link to project budgetsmart
+          # Deploy using project-scoped token (no explicit link needed)
           cd $GITHUB_WORKSPACE
-          railway link budgetsmart --environment production
-          
-          # Deploy
           railway up
           
           # Show status
@@ -37,7 +29,5 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          mkdir -p ~/.railway
-          echo '{"token":"'"$RAILWAY_TOKEN"'"}' > ~/.railway/config.json
           echo "Deployed! Checking domain..."
           railway domain || echo "Check Railway dashboard for URL"

@@ -20,16 +20,14 @@ jobs:
         run: npm install -g @railway/cli@latest
 
       - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          # Set token env var
-          export RAILWAY_TOKEN="${{ secrets.RAILWAY_TOKEN }}"
-          
-          # Link to project
-          railway link budgetsmart
-          
-          # Deploy (service will be auto-created if doesn't exist)
+          # Deploy using project-scoped token (no explicit link needed)
           railway up
 
       - name: Show deployed URL
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway domain || echo "Check Railway dashboard for URL"
