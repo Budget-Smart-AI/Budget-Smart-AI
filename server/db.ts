@@ -6,6 +6,15 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+// Prevent unhandled 'error' events on the pool from crashing the process.
+// pg.Pool emits 'error' when an idle client encounters a network issue (e.g.
+// database restart, idle-timeout disconnect). Without this listener Node.js
+// would throw an uncaught exception and terminate the server, causing users
+// to be logged out and unable to re-authenticate until the container restarts.
+pool.on("error", (err) => {
+  console.error("Unexpected database pool error:", err);
+});
+
 export const db = drizzle(pool, { schema });
 
 /**
