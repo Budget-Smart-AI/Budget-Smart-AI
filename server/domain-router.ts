@@ -87,6 +87,10 @@ export function serveLandingPage(_req: Request, res: Response): void {
  *
  * Now serves the React SPA for the main domain, which has a dynamic
  * landing page with admin-editable content from the database.
+ *
+ * Admin routes on the main domain are redirected to the app subdomain
+ * (app.budgetsmart.io) to consolidate the management interface into a
+ * single CMS backend with a single login.
  */
 export function landingPageMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Only handle landing domain requests
@@ -94,7 +98,18 @@ export function landingPageMiddleware(req: Request, res: Response, next: NextFun
     return next();
   }
 
-  // Let the React SPA handle all routes on the landing domain
+  // Redirect admin paths from the main domain to the app subdomain so there
+  // is only one management interface and one login (eliminates the security
+  // risk of two separate admin sessions).
+  if (req.path.startsWith("/admin")) {
+    // Build the redirect URL via the URL API to safely encode the path and
+    // prevent any path-traversal or open-redirect issues.
+    const target = new URL(`https://${APP_SUBDOMAIN}.${MAIN_DOMAIN}`);
+    target.pathname = req.path;
+    return res.redirect(301, target.toString());
+  }
+
+  // Let the React SPA handle all other routes on the landing domain
   // The SPA has its own landing page component that fetches content from /api/landing
   // This allows for dynamic, admin-editable landing page content
   next();

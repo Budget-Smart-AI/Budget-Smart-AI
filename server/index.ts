@@ -33,6 +33,9 @@ app.use(
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000,
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      // Share the session across all subdomains (e.g. app.budgetsmart.io and
+      // budgetsmart.io) so there is only one login for the entire platform.
+      domain: process.env.NODE_ENV === "production" ? `.${process.env.MAIN_DOMAIN || "budgetsmart.io"}` : undefined,
     },
   })
 );
