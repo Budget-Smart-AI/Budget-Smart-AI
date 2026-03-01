@@ -12,17 +12,53 @@ function getR2Client(): S3Client {
   if (!_r2Client) {
     const accessKeyId = process.env.R2_ACCESS_KEY_ID;
     const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_TOKEN_VALUE;
-    const endpoint = process.env.R2_ENDPOINT;
-    if (!accessKeyId || !secretAccessKey || !endpoint) {
+    const rawEndpoint = process.env.R2_ENDPOINT;
+    if (!accessKeyId || !secretAccessKey || !rawEndpoint) {
       throw new Error("R2 storage is not configured. Please set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (or R2_TOKEN_VALUE), and R2_ENDPOINT environment variables.");
+    }
+    // Sanitize the endpoint: strip surrounding/leading/trailing quote characters that may
+    // have been accidentally included when the environment variable was set (e.g. R2_ENDPOINT="\"https://...").
+    // Then extract only the origin (scheme + host + optional port) so any trailing bucket path is removed.
+    const stripped = rawEndpoint.replace(/^["']+|["']+$/g, "");
+    let endpoint: string;
+    try {
+      endpoint = new URL(stripped).origin;
+    } catch {
+      // If URL parsing fails, fall back to the stripped value as-is
+      endpoint = stripped;
     }
     _r2Client = new S3Client({
       region: "auto",
       endpoint,
+      // forcePathStyle is required for S3-compatible endpoints such as Cloudflare R2 to
+      // prevent the SDK from prepending the bucket name as a subdomain.
+      forcePathStyle: true,
       credentials: { accessKeyId, secretAccessKey },
     });
   }
   return _r2Client;
+}
+
+/**
+ * Build a public URL for a stored file key.
+ * When R2_PUBLIC_URL is set (e.g. https://media.budgetsmart.io) the file is served
+ * directly from the custom domain as a permanent public URL.  Each path segment of the
+ * key is percent-encoded so the URL is always well-formed.
+ * Returns null when R2_PUBLIC_URL is not configured.
+ */
+function getPublicFileUrl(fileKey: string): string | null {
+  const raw = process.env.R2_PUBLIC_URL;
+  if (!raw) return null;
+  const publicBase = raw.replace(/\/+$/, "");
+  // Validate that the configured value is a proper HTTPS URL before using it.
+  try {
+    const parsed = new URL(publicBase);
+    if (parsed.protocol !== "https:") return null;
+  } catch {
+    return null;
+  }
+  const encodedKey = fileKey.split("/").map(encodeURIComponent).join("/");
+  return `${publicBase}/${encodedKey}`;
 }
 
 function getAnthropicClient(): Anthropic {
@@ -94,15 +130,17 @@ export async function uploadReceipt(file: Express.Multer.File, userId: string): 
   try {
     await getR2Client().send(new PutObjectCommand(uploadParams));
     
-    // Generate a signed URL for accessing the file (24 hours)
-    const getObjectParams = {
-      Bucket: getBucketName(),
-      Key: fileName,
-    };
-    
-    const signedUrl = await getSignedUrl(getR2Client(), new GetObjectCommand(getObjectParams), {
-      expiresIn: 86400, // 24 hours
-    });
+    // Use the custom public domain when configured; fall back to a 24-hour signed URL.
+    let signedUrl = getPublicFileUrl(fileName);
+    if (!signedUrl) {
+      const getObjectParams = {
+        Bucket: getBucketName(),
+        Key: fileName,
+      };
+      signedUrl = await getSignedUrl(getR2Client(), new GetObjectCommand(getObjectParams), {
+        expiresIn: 86400, // 24 hours
+      });
+    }
     
     return { key: fileName, signedUrl };
   } catch (error) {
@@ -428,6 +466,9 @@ function calculateStringSimilarity(str1: string, str2: string): number {
  * Generate signed URL for uploaded receipt
  */
 export async function generateSignedUrl(fileKey: string): Promise<string> {
+  const publicUrl = getPublicFileUrl(fileKey);
+  if (publicUrl) return publicUrl;
+
   const getObjectParams = {
     Bucket: getBucketName(),
     Key: fileKey,
