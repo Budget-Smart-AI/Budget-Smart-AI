@@ -3,12 +3,12 @@ import type { ChatCompletionTool, ChatCompletionMessageParam } from "openai/reso
 import { storage } from "./storage";
 
 export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API,
+  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API || "not-configured",
 });
 
 // DeepSeek configuration as alternative to OpenAI
 export const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.OPENAI_API,
+  apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.OPENAI_API || "not-configured",
   baseURL: "https://api.deepseek.com",
 });
 
