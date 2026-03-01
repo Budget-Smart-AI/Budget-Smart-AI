@@ -94,6 +94,9 @@ export async function registerRoutes(
   // Start the email scheduler
   startEmailScheduler();
 
+  // Health check endpoint for deployment monitoring
+  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
 
