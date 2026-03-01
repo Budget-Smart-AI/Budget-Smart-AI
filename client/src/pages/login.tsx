@@ -100,12 +100,16 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginFormData) => {
-      // Clear ALL cached data before login to prevent data leakage between users
-      queryClient.clear();
       const response = await apiRequest("POST", "/api/auth/login", data);
       return response.json();
     },
     onSuccess: (data) => {
+      // Clear ALL cached data after successful login to prevent data leakage between users.
+      // This must happen AFTER the login response is received, not before, to avoid a race
+      // condition where clearing the cache triggers a session refetch that returns
+      // {authenticated: false} and gets cached, causing AuthenticatedOrRedirect to
+      // immediately redirect back to /login even though login just succeeded.
+      queryClient.clear();
       if (data.mfaSetupRequired) {
         // Redirect to mandatory MFA setup
         toast({ title: "2FA Setup Required", description: "Please set up two-factor authentication to continue" });

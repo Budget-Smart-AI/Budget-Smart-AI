@@ -3,7 +3,7 @@ import session from "express-session";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { initializeUser, setupGoogleOAuth } from "./auth";
+import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
@@ -50,9 +50,6 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
-
-// Setup Google OAuth (after session middleware)
-setupGoogleOAuth(app);
 
 initializeUser().catch(console.error);
 initializeSyncScheduler().catch(console.error);
