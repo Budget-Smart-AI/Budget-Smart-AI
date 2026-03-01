@@ -425,16 +425,23 @@ export async function processReceiptUpload(
   receiptData: ReceiptData;
   matches: TransactionMatch[];
   signedUrl: string;
+  rawText: string;
 }> {
   try {
-    // 1. Always upload to R2 for storage (R2 credentials are required)
-    const signedUrl = await uploadReceipt(file, userId);
+    // 1. Try to upload to R2 for storage (optional - falls back gracefully)
+    let signedUrl = "";
+    try {
+      signedUrl = await uploadReceipt(file, userId);
+    } catch (r2Error: any) {
+      // R2 not configured or upload failed — continue without cloud storage
+      console.warn("R2 upload skipped (not configured or failed):", r2Error?.message);
+    }
 
     // 2. Scan from the in-memory buffer directly (avoids re-downloading from R2)
-    const extractedText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
+    const rawText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
 
     // 3. Parse receipt data
-    const receiptData = parseReceiptData(extractedText);
+    const receiptData = parseReceiptData(rawText);
 
     // 4. Match with transactions
     const matches = await matchReceiptWithTransactions(receiptData, userId, userTransactions);
@@ -442,7 +449,8 @@ export async function processReceiptUpload(
     return {
       receiptData,
       matches,
-      signedUrl
+      signedUrl,
+      rawText
     };
   } catch (error) {
     console.error("Error processing receipt:", error);

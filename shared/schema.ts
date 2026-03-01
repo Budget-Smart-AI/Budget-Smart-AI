@@ -1733,3 +1733,35 @@ export const insertPaydayRecommendationSchema = createInsertSchema(paydayRecomme
 });
 export type PaydayRecommendation = typeof paydayRecommendations.$inferSelect;
 export type InsertPaydayRecommendation = z.infer<typeof insertPaydayRecommendationSchema>;
+
+// Receipts table - stores scanned/uploaded receipts with OCR data
+export const receipts = pgTable("receipts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  merchant: text("merchant").notNull().default("Unknown"),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  date: text("date").notNull(),
+  category: text("category").notNull().default("Uncategorized"),
+  items: text("items"), // JSON array of line items
+  confidence: real("confidence").notNull().default(0),
+  imageUrl: text("image_url"), // R2 signed URL or null
+  rawText: text("raw_text"), // Raw OCR text from Claude
+  matchedTransactionId: text("matched_transaction_id"), // Matched expense/transaction ID
+  matchStatus: text("match_status").notNull().default("unmatched"), // unmatched | auto-matched | manual-match
+  notes: text("notes"),
+  createdAt: text("created_at"),
+});
+
+export const insertReceiptSchema = createInsertSchema(receipts).omit({ id: true, userId: true }).extend({
+  userId: z.string().optional(),
+  amount: z.string().or(z.number()).transform((val) => String(val)),
+  confidence: z.number().optional(),
+  items: z.string().nullable().optional(),
+  imageUrl: z.string().nullable().optional(),
+  rawText: z.string().nullable().optional(),
+  matchedTransactionId: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+export const updateReceiptSchema = insertReceiptSchema.partial();
+export type Receipt = typeof receipts.$inferSelect;
+export type InsertReceipt = z.infer<typeof insertReceiptSchema>;

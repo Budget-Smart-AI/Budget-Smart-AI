@@ -53,6 +53,7 @@ import {
   type WhatIfScenario, type InsertWhatIfScenario,
   type SpendabilitySnapshot, type InsertSpendabilitySnapshot,
   type PaydayRecommendation, type InsertPaydayRecommendation,
+  type Receipt, type InsertReceipt,
   users, bills, expenses, income, budgets, savingsGoals,
   plaidItems, plaidAccounts, plaidTransactions,
   mxMembers, mxAccounts, mxTransactions,
@@ -72,7 +73,8 @@ import {
   affiliateSettings, landingVideoAnnotations,
   salesChatSessions, salesChatMessages, salesLeads,
   autopilotRules, leakAlerts, trialEvents, whatIfScenarios,
-  spendabilitySnapshots, paydayRecommendations
+  spendabilitySnapshots, paydayRecommendations,
+  receipts
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -503,6 +505,13 @@ export interface IStorage {
   createPaydayRecommendation(recommendation: InsertPaydayRecommendation & { userId: string }): Promise<PaydayRecommendation>;
   updatePaydayRecommendation(id: string, updates: Partial<PaydayRecommendation>): Promise<PaydayRecommendation | undefined>;
   deletePaydayRecommendation(id: string): Promise<boolean>;
+
+  // Receipts
+  getReceipts(userId: string, options?: { startDate?: string; endDate?: string; category?: string }): Promise<Receipt[]>;
+  getReceipt(id: string): Promise<Receipt | undefined>;
+  createReceipt(receipt: InsertReceipt & { userId: string }): Promise<Receipt>;
+  updateReceipt(id: string, updates: Partial<InsertReceipt>): Promise<Receipt | undefined>;
+  deleteReceipt(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -1053,6 +1062,25 @@ export class MemStorage implements IStorage {
   async getAffiliateSettings(): Promise<AffiliateSetting[]> { return []; }
   async getAffiliateSetting(_key: string): Promise<AffiliateSetting | undefined> { return undefined; }
   async upsertAffiliateSetting(_key: string, _value: string, _type?: string): Promise<AffiliateSetting> { throw new Error("Not implemented"); }
+
+  // Receipts stubs (MemStorage)
+  async getReceipts(_userId: string, _options?: { startDate?: string; endDate?: string; category?: string }): Promise<Receipt[]> { return []; }
+  async getReceipt(_id: string): Promise<Receipt | undefined> { return undefined; }
+  async createReceipt(receipt: InsertReceipt & { userId: string }): Promise<Receipt> {
+    return {
+      id: randomUUID(),
+      ...receipt,
+      merchant: receipt.merchant || "Unknown",
+      amount: String(receipt.amount || "0"),
+      date: receipt.date,
+      category: receipt.category || "Uncategorized",
+      confidence: receipt.confidence ?? 0,
+      matchStatus: receipt.matchStatus || "unmatched",
+      createdAt: new Date().toISOString(),
+    } as Receipt;
+  }
+  async updateReceipt(_id: string, _updates: Partial<InsertReceipt>): Promise<Receipt | undefined> { return undefined; }
+  async deleteReceipt(_id: string): Promise<boolean> { return false; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3453,6 +3481,38 @@ export class DatabaseStorage implements IStorage {
 
   async deletePaydayRecommendation(id: string): Promise<boolean> {
     const result = await db.delete(paydayRecommendations).where(eq(paydayRecommendations.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Receipts
+  async getReceipts(userId: string, options?: { startDate?: string; endDate?: string; category?: string }): Promise<Receipt[]> {
+    const conditions = [eq(receipts.userId, userId)];
+    if (options?.startDate) conditions.push(gte(receipts.date, options.startDate));
+    if (options?.endDate) conditions.push(lte(receipts.date, options.endDate));
+    if (options?.category) conditions.push(eq(receipts.category, options.category));
+    return db.select().from(receipts).where(and(...conditions)).orderBy(desc(receipts.createdAt));
+  }
+
+  async getReceipt(id: string): Promise<Receipt | undefined> {
+    const result = await db.select().from(receipts).where(eq(receipts.id, id));
+    return result[0];
+  }
+
+  async createReceipt(receipt: InsertReceipt & { userId: string }): Promise<Receipt> {
+    const result = await db.insert(receipts).values({
+      ...receipt,
+      createdAt: receipt.createdAt || new Date().toISOString(),
+    }).returning();
+    return result[0];
+  }
+
+  async updateReceipt(id: string, updates: Partial<InsertReceipt>): Promise<Receipt | undefined> {
+    const result = await db.update(receipts).set(updates).where(eq(receipts.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteReceipt(id: string): Promise<boolean> {
+    const result = await db.delete(receipts).where(eq(receipts.id, id)).returning();
     return result.length > 0;
   }
 }
