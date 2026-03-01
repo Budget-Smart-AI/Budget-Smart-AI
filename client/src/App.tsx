@@ -60,6 +60,7 @@ import SignupPage from "@/pages/signup";
 import Simulator from "@/pages/simulator";
 import Receipts from "@/pages/receipts";
 import NotFound from "@/pages/not-found";
+import DemoPage from "@/pages/demo";
 import { Loader2 } from "lucide-react";
 
 function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin: boolean }) {
@@ -358,6 +359,7 @@ function AppContent() {
       <Route path="/verify-email-pending" component={VerifyEmailPendingPage} />
       <Route path="/verify-email/:token" component={VerifyEmailPage} />
       <Route path="/setup-mfa" component={SetupMfaPage} />
+      <Route path="/demo" component={DemoPage} />
       {/* Root and authenticated routes */}
       <Route>
         <AuthenticatedOrRedirect />
