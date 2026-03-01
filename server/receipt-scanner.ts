@@ -112,7 +112,87 @@ export async function uploadReceipt(file: Express.Multer.File, userId: string): 
 }
 
 /**
- * Extract text from receipt using Claude Haiku
+ * Extract text from receipt buffer directly (no R2 required)
+ * Supports images and PDFs via Anthropic's API
+ */
+export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string): Promise<string> {
+  const anthropic = getAnthropicClient();
+
+  // PDF support via Anthropic's document type (requires beta header)
+  if (mimetype === 'application/pdf') {
+    const pdfBase64 = buffer.toString('base64');
+    try {
+      const message = await (anthropic.beta.messages.create as any)({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1000,
+        betas: ["pdfs-2024-09-25"],
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: {
+                  type: "base64",
+                  media_type: "application/pdf",
+                  data: pdfBase64,
+                },
+              },
+              {
+                type: "text",
+                text: "Extract all text from this receipt. Include merchant name, date, total amount, and line items if available. Format as JSON with fields: merchant, date, total, items[] with name and price. If you can't extract something, use null."
+              }
+            ]
+          }
+        ]
+      });
+      const firstBlock = (message as any).content[0];
+      return firstBlock?.type === "text" ? firstBlock.text : "";
+    } catch (pdfError) {
+      console.error("PDF extraction failed:", pdfError);
+      throw new Error("Failed to extract text from PDF. Please upload an image of the receipt instead.");
+    }
+  }
+
+  // Image support — convert buffer to base64 and send directly
+  const imageBase64 = buffer.toString('base64');
+  const supportedMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+  type SupportedMimeType = typeof supportedMimeTypes[number];
+  const rawMimeType = mimetype.split(";")[0].trim();
+  const imageMimeType: SupportedMimeType = supportedMimeTypes.includes(rawMimeType as SupportedMimeType)
+    ? (rawMimeType as SupportedMimeType)
+    : "image/jpeg";
+
+  const message = await anthropic.messages.create({
+    model: "claude-3-haiku-20240307",
+    max_tokens: 1000,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Extract all text from this receipt. Include merchant name, date, total amount, and line items if available. Format as JSON with fields: merchant, date, total, items[] with name and price. If you can't extract something, use null."
+          },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: imageMimeType,
+              data: imageBase64
+            }
+          }
+        ]
+      }
+    ]
+  });
+
+  const firstBlock = message.content[0];
+  return firstBlock.type === "text" ? firstBlock.text : "";
+}
+
+/**
+ * Extract text from receipt using Claude Haiku (from a URL)
  */
 export async function extractReceiptText(imageUrl: string): Promise<string> {
   try {
@@ -335,6 +415,7 @@ export async function generateSignedUrl(fileKey: string): Promise<string> {
 
 /**
  * Process receipt upload (main function)
+ * Falls back to direct buffer processing when R2 is not configured.
  */
 export async function processReceiptUpload(
   file: Express.Multer.File,
@@ -346,18 +427,31 @@ export async function processReceiptUpload(
   signedUrl: string;
 }> {
   try {
-    // 1. Upload to R2
-    const signedUrl = await uploadReceipt(file, userId);
-    
-    // 2. Extract text with Claude
-    const extractedText = await extractReceiptText(signedUrl);
-    
-    // 3. Parse receipt data
+    // Try R2 upload first; if not configured, process the buffer directly
+    const r2Available =
+      !!process.env.R2_ACCESS_KEY_ID &&
+      !!process.env.R2_SECRET_ACCESS_KEY &&
+      !!process.env.R2_ENDPOINT &&
+      !!process.env.R2_BUCKET_NAME;
+
+    let extractedText: string;
+    let signedUrl = "";
+
+    if (r2Available) {
+      // 1. Upload to R2 and extract via signed URL
+      signedUrl = await uploadReceipt(file, userId);
+      extractedText = await extractReceiptText(signedUrl);
+    } else {
+      // Fallback: process the buffer directly without R2
+      extractedText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
+    }
+
+    // 2. Parse receipt data
     const receiptData = parseReceiptData(extractedText);
-    
-    // 4. Match with transactions
+
+    // 3. Match with transactions
     const matches = await matchReceiptWithTransactions(receiptData, userId, userTransactions);
-    
+
     return {
       receiptData,
       matches,

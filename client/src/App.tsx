@@ -31,6 +31,9 @@ import EmailSettings from "@/pages/email-settings";
 import Login from "@/pages/login";
 import Privacy from "@/pages/privacy";
 import Terms from "@/pages/terms";
+import CookiePolicy from "@/pages/cookies";
+import GdprPolicy from "@/pages/gdpr";
+import CcpaPolicy from "@/pages/ccpa";
 import Contact from "@/pages/contact";
 import DataRetention from "@/pages/data-retention";
 import Security from "@/pages/security";
@@ -342,6 +345,9 @@ function AppContent() {
       <Route path="/pricing" component={LandingPage} />
       <Route path="/privacy" component={Privacy} />
       <Route path="/terms" component={Terms} />
+      <Route path="/cookies" component={CookiePolicy} />
+      <Route path="/gdpr" component={GdprPolicy} />
+      <Route path="/ccpa" component={CcpaPolicy} />
       <Route path="/affiliate" component={AffiliatePage} />
       <Route path="/affiliate-terms" component={AffiliateTerms} />
       <Route path="/contact" component={Contact} />
