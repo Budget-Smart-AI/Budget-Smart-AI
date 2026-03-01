@@ -12,6 +12,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_USERNAME,
     pass: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_PASSWORD,
   },
+  connectionTimeout: 10000,
+  socketTimeout: 10000,
+  greetingTimeout: 10000,
 });
 
 function getNextDueDate(dueDay: number, recurrence: string, customDates?: string | null, startDate?: string | null): Date {

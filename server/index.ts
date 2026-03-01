@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -23,8 +24,21 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
+const PgStore = connectPgSimple(session);
+
+if (!process.env.DATABASE_URL) {
+  console.warn("Warning: DATABASE_URL not set. Session store will not work correctly.");
+}
+
+const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+
 app.use(
   session({
+    store: new PgStore({
+      conString: process.env.DATABASE_URL,
+      tableName: "session",
+      createTableIfMissing: true,
+    }),
     secret: process.env.SESSION_SECRET || "budgetsmart-dev-secret-change-me",
     resave: false,
     saveUninitialized: false,
@@ -32,7 +46,7 @@ app.use(
     cookie: {
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000,
+      maxAge: SESSION_MAX_AGE,
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       // Share the session across all subdomains (e.g. app.budgetsmart.io and
       // budgetsmart.io) so there is only one login for the entire platform.
