@@ -1868,11 +1868,17 @@ Return JSON: { "income": [...] }`;
       req.session.pendingMfa = false;
       (req.session as any).isDemo = true;
 
-      res.json({
-        success: true,
-        username: demoUser.username,
-        isAdmin: false,
-        isDemo: true
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ error: "Session save failed" });
+        }
+        res.json({
+          success: true,
+          username: demoUser.username,
+          isAdmin: false,
+          isDemo: true
+        });
       });
     } catch (error) {
       console.error("Demo login error:", error);
@@ -1923,9 +1929,15 @@ Return JSON: { "income": [...] }`;
         req.session.mfaVerified = false;
         req.session.pendingMfa = false;
 
-        return res.json({
-          mfaSetupRequired: true,
-          message: "Please set up two-factor authentication to continue"
+        return req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.status(500).json({ error: "Session save failed" });
+          }
+          res.json({
+            mfaSetupRequired: true,
+            message: "Please set up two-factor authentication to continue"
+          });
         });
       }
 
@@ -1936,7 +1948,13 @@ Return JSON: { "income": [...] }`;
       if (user.mfaEnabled === "true" && user.mfaSecret) {
         req.session.pendingMfa = true;
         req.session.mfaVerified = false;
-        return res.json({ mfaRequired: true });
+        return req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.status(500).json({ error: "Session save failed" });
+          }
+          res.json({ mfaRequired: true });
+        });
       }
 
       req.session.mfaVerified = true;
@@ -1945,12 +1963,18 @@ Return JSON: { "income": [...] }`;
       // Load household info into session
       await loadHouseholdIntoSession(req);
 
-      res.json({
-        success: true,
-        username: user.username,
-        isAdmin: user.isAdmin === "true",
-        householdId: req.session.householdId,
-        householdRole: req.session.householdRole
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ error: "Session save failed" });
+        }
+        res.json({
+          success: true,
+          username: user.username,
+          isAdmin: user.isAdmin === "true",
+          householdId: req.session.householdId,
+          householdRole: req.session.householdRole
+        });
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -1982,10 +2006,16 @@ Return JSON: { "income": [...] }`;
       // Load household info into session
       await loadHouseholdIntoSession(req);
 
-      res.json({
-        success: true,
-        householdId: req.session.householdId,
-        householdRole: req.session.householdRole
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ error: "Session save failed" });
+        }
+        res.json({
+          success: true,
+          householdId: req.session.householdId,
+          householdRole: req.session.householdRole
+        });
       });
     } catch (error) {
       console.error("MFA verification error:", error);
@@ -2029,8 +2059,15 @@ Return JSON: { "income": [...] }`;
         // Load household info
         await loadHouseholdIntoSession(req);
 
-        // Redirect to the app
-        res.redirect("/");
+        // Save session before redirecting
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.redirect("/?error=google_auth_failed");
+          }
+          // Redirect to the app
+          res.redirect("/");
+        });
       } catch (error) {
         console.error("Google OAuth callback error:", error);
         res.redirect("/?error=google_auth_failed");
