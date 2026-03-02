@@ -82,9 +82,9 @@ export default function Support() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to Submit",
-        description: error.message || "Please try again later.",
-        variant: "destructive",
+        title: "Unable to Submit Request",
+        description: "We're having trouble processing your request right now. Please try again or email us directly at support@budgetsmart.io.",
+        variant: "default",
       });
     },
   });

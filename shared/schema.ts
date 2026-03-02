@@ -1765,3 +1765,25 @@ export const insertReceiptSchema = createInsertSchema(receipts).omit({ id: true,
 export const updateReceiptSchema = insertReceiptSchema.partial();
 export type Receipt = typeof receipts.$inferSelect;
 export type InsertReceipt = z.infer<typeof insertReceiptSchema>;
+
+// Support tickets table - stores submitted support requests for admin review
+export const supportTickets = pgTable("support_tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  type: text("type").notNull(), // ticket | feature | bug
+  subject: text("subject").notNull(),
+  priority: text("priority"), // low | medium | high
+  message: text("message").notNull(),
+  status: text("status").notNull().default("open"), // open | in_progress | resolved | closed
+  emailSent: text("email_sent").notNull().default("false"),
+  createdAt: text("created_at"),
+});
+
+export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true }).extend({
+  priority: z.enum(["low", "medium", "high"]).nullable().optional(),
+  status: z.string().optional(),
+  emailSent: z.string().optional(),
+});
+export type SupportTicket = typeof supportTickets.$inferSelect;
+export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
