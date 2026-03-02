@@ -254,6 +254,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     {...field} 
                     placeholder="Enter username" 
                     className="pl-10"
+                    autoComplete="username"
                     data-testid="input-username"
                   />
                 </div>
@@ -276,6 +277,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     type="password" 
                     placeholder="Enter password"
                     className="pl-10"
+                    autoComplete="current-password"
                     data-testid="input-password"
                   />
                 </div>
