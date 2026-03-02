@@ -2622,6 +2622,9 @@ Return JSON: { "income": [...] }`;
       const userId = req.session?.userId || null;
 
       // Persist ticket to database
+      // Map form priority values (low/medium/high) to ticket priority values (low/normal/high/urgent)
+      const ticketPriority = priority === "medium" ? "normal" : (priority || "normal");
+
       const ticket = await storage.createSupportTicket({
         ticketNumber,
         userId: userId || undefined,
@@ -2629,7 +2632,7 @@ Return JSON: { "income": [...] }`;
         email,
         type,
         subject,
-        priority: (priority as any) || "normal",
+        priority: ticketPriority as "low" | "normal" | "high" | "urgent",
         message,
         status: "open",
         emailSent: "false",

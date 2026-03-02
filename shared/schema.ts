@@ -1767,6 +1767,8 @@ export type Receipt = typeof receipts.$inferSelect;
 export type InsertReceipt = z.infer<typeof insertReceiptSchema>;
 
 // Support tickets table - stores submitted support requests for admin review
+// Note: name is nullable at the DB level to support programmatic/API ticket creation;
+// the user-facing form still validates name as required before submitting.
 export const supportTickets = pgTable("support_tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ticketNumber: varchar("ticket_number", { length: 20 }),
@@ -1787,6 +1789,7 @@ export const supportTickets = pgTable("support_tickets", {
 });
 
 export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true }).extend({
+  name: z.string().nullable().optional(),
   priority: z.enum(["low", "normal", "high", "urgent"]).nullable().optional(),
   status: z.string().optional(),
   emailSent: z.string().optional(),
