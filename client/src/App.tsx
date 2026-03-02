@@ -54,6 +54,7 @@ import SplitExpenses from "@/pages/split-expenses";
 import LandingPage from "@/pages/landing";
 import AdminLanding from "@/pages/admin-landing";
 import AdminSalesChat from "@/pages/admin-sales-chat";
+import AdminSupport from "@/pages/admin-support";
 import AffiliatePage from "@/pages/affiliate";
 import AffiliateTerms from "@/pages/affiliate-terms";
 import SignupPage from "@/pages/signup";
@@ -101,6 +102,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
           <Route path="/admin/users" component={AdminUsers} />
           <Route path="/admin/landing" component={AdminLanding} />
           <Route path="/admin/sales-chat" component={AdminSalesChat} />
+          <Route path="/admin/support" component={AdminSupport} />
         </>
       )}
       <Route component={NotFound} />

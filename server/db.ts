@@ -26,6 +26,65 @@ export const db = drizzle(pool, { schema });
  * Schema matches migrations/0016_receipts_table.sql — keep both in sync if
  * the table definition ever changes.
  */
+/**
+ * Ensure support_tickets and support_ticket_messages tables exist with the
+ * full schema required by the Support Ticket System.  Uses CREATE TABLE IF NOT
+ * EXISTS so it is safe to call on every startup.
+ *
+ * For existing deployments that have the old minimal support_tickets table the
+ * function also adds any missing columns via ALTER TABLE … ADD COLUMN IF NOT EXISTS.
+ */
+export async function ensureSupportTables(): Promise<void> {
+  // Create the support_tickets table with the full schema
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "support_tickets" (
+      "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "ticket_number" varchar(20) UNIQUE,
+      "user_id" varchar(255),
+      "name" varchar(255),
+      "email" varchar(255) NOT NULL,
+      "type" varchar(100),
+      "subject" varchar(500) NOT NULL,
+      "message" text NOT NULL,
+      "status" varchar(50) NOT NULL DEFAULT 'open',
+      "priority" varchar(50) DEFAULT 'normal',
+      "admin_response" text,
+      "admin_response_at" text,
+      "responded_by" varchar(255),
+      "email_sent" text NOT NULL DEFAULT 'false',
+      "created_at" text,
+      "updated_at" text
+    )
+  `);
+
+  // Add new columns to existing tables (idempotent)
+  const newColumns: [string, string][] = [
+    ["ticket_number", "varchar(20)"],
+    ["user_id", "varchar(255)"],
+    ["admin_response", "text"],
+    ["admin_response_at", "text"],
+    ["responded_by", "varchar(255)"],
+    ["updated_at", "text"],
+  ];
+  for (const [col, colType] of newColumns) {
+    await pool.query(
+      `ALTER TABLE "support_tickets" ADD COLUMN IF NOT EXISTS "${col}" ${colType}`
+    );
+  }
+
+  // Create the threaded-messages table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "support_ticket_messages" (
+      "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "ticket_id" varchar(255),
+      "sender_type" varchar(20) NOT NULL,
+      "sender_id" varchar(255),
+      "message" text NOT NULL,
+      "created_at" text
+    )
+  `);
+}
+
 export async function ensureReceiptsTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS "receipts" (

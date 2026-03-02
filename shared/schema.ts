@@ -1769,21 +1769,51 @@ export type InsertReceipt = z.infer<typeof insertReceiptSchema>;
 // Support tickets table - stores submitted support requests for admin review
 export const supportTickets = pgTable("support_tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull(),
+  ticketNumber: varchar("ticket_number", { length: 20 }),
+  userId: varchar("user_id", { length: 255 }),
+  name: text("name"),
   email: text("email").notNull(),
-  type: text("type").notNull(), // ticket | feature | bug
+  type: text("type"), // ticket | feature | bug
   subject: text("subject").notNull(),
-  priority: text("priority"), // low | medium | high
+  priority: text("priority").default("normal"), // low | normal | high | urgent
   message: text("message").notNull(),
-  status: text("status").notNull().default("open"), // open | in_progress | resolved | closed
+  status: text("status").notNull().default("open"), // open | waiting_for_user | waiting_for_admin | closed
+  adminResponse: text("admin_response"),
+  adminResponseAt: text("admin_response_at"),
+  respondedBy: varchar("responded_by", { length: 255 }),
   emailSent: text("email_sent").notNull().default("false"),
   createdAt: text("created_at"),
+  updatedAt: text("updated_at"),
 });
 
 export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true }).extend({
-  priority: z.enum(["low", "medium", "high"]).nullable().optional(),
+  priority: z.enum(["low", "normal", "high", "urgent"]).nullable().optional(),
   status: z.string().optional(),
   emailSent: z.string().optional(),
+  ticketNumber: z.string().optional(),
+  userId: z.string().optional(),
+  adminResponse: z.string().optional(),
+  adminResponseAt: z.string().optional(),
+  respondedBy: z.string().optional(),
+  updatedAt: z.string().optional(),
 });
 export type SupportTicket = typeof supportTickets.$inferSelect;
 export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
+
+// Support ticket messages - threaded conversation between user and admin
+export const supportTicketMessages = pgTable("support_ticket_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id", { length: 255 }),
+  senderType: varchar("sender_type", { length: 20 }).notNull(), // user | admin
+  senderId: varchar("sender_id", { length: 255 }),
+  message: text("message").notNull(),
+  createdAt: text("created_at"),
+});
+
+export const insertSupportTicketMessageSchema = createInsertSchema(supportTicketMessages).omit({ id: true }).extend({
+  ticketId: z.string().optional(),
+  senderId: z.string().optional(),
+  createdAt: z.string().optional(),
+});
+export type SupportTicketMessage = typeof supportTicketMessages.$inferSelect;
+export type InsertSupportTicketMessage = z.infer<typeof insertSupportTicketMessageSchema>;

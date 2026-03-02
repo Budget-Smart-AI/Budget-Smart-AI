@@ -2559,7 +2559,46 @@ Return JSON: { "income": [...] }`;
     }
   });
 
-  // Support form endpoint
+  // ==================== SUPPORT TICKET SYSTEM ====================
+
+  // Helper: generate BST-YYYYMMDD-XXXX ticket number
+  async function generateTicketNumber(): Promise<string> {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+    const allTickets = await storage.getSupportTickets();
+    const todayTickets = allTickets.filter(t => t.ticketNumber && t.ticketNumber.includes(`BST-${dateStr}`));
+    const seq = (todayTickets.length + 1).toString().padStart(4, "0");
+    return `BST-${dateStr}-${seq}`;
+  }
+
+  // Helper: HTML email wrapper with BudgetSmart dark branding
+  function buildEmailHtml(title: string, bodyHtml: string): string {
+    return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#1a1a2e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#1a1a2e;min-height:100vh;">
+    <tr><td align="center" style="padding:40px 20px;">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#16213e;border-radius:12px;overflow:hidden;max-width:600px;">
+        <tr><td style="background:linear-gradient(135deg,#0f3460,#1a1a2e);padding:30px 40px;text-align:center;">
+          <h1 style="margin:0;color:#4ade80;font-size:24px;font-weight:800;">💰 Budget Smart AI</h1>
+          <p style="margin:8px 0 0;color:#94a3b8;font-size:13px;">Support Team</p>
+        </td></tr>
+        <tr><td style="padding:40px;">
+          <h2 style="margin:0 0 20px;color:#f1f5f9;font-size:20px;">${title}</h2>
+          ${bodyHtml}
+          <hr style="border:none;border-top:1px solid #334155;margin:30px 0;">
+          <p style="margin:0;color:#64748b;font-size:12px;text-align:center;">
+            Budget Smart AI · <a href="https://app.budgetsmart.io" style="color:#4ade80;text-decoration:none;">app.budgetsmart.io</a>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+  }
+
+  // Submit a new support ticket
   app.post("/api/support", sensitiveApiRateLimiter, async (req, res) => {
     try {
       const parsed = supportFormSchema.safeParse(req.body);
@@ -2574,50 +2613,117 @@ Return JSON: { "income": [...] }`;
         feature: "Feature Request",
         bug: "Bug Report",
       };
-
       const typeLabel = typeLabels[type] || "Support Request";
-      const priorityLabel = priority ? ` [${priority.toUpperCase()}]` : "";
 
-      // Always persist the ticket to the database first so no request is ever lost
+      // Generate unique ticket number
+      const ticketNumber = await generateTicketNumber();
+
+      // Get logged-in user id if available
+      const userId = req.session?.userId || null;
+
+      // Persist ticket to database
       const ticket = await storage.createSupportTicket({
-        name,
+        ticketNumber,
+        userId: userId || undefined,
+        name: name || undefined,
         email,
         type,
         subject,
-        priority: priority || null,
+        priority: (priority as any) || "normal",
         message,
         status: "open",
         emailSent: "false",
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
 
-      // Attempt to send email notification; if this fails the ticket is still saved
-      let emailSent = false;
+      // Also save initial message to thread
+      await storage.createSupportTicketMessage({
+        ticketId: ticket.id,
+        senderType: "user",
+        senderId: userId || undefined,
+        message,
+        createdAt: new Date().toISOString(),
+      });
+
       const fromEmail = process.env.ALERT_EMAIL_FROM;
       const supportTransporter = fromEmail ? getContactTransporter() : null;
 
+      let emailSent = false;
       if (supportTransporter && fromEmail) {
+        // Notify admin
         try {
           await supportTransporter.sendMail({
             from: fromEmail,
             to: "support@budgetsmart.io",
             replyTo: email,
-            subject: `[Budget Smart AI ${typeLabel}]${priorityLabel} ${subject}`,
-            text: `Type: ${typeLabel}\nPriority: ${priority || "N/A"}\nName: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
-            html: `
-              <h2>New ${typeLabel}</h2>
-              <p><strong>Type:</strong> ${typeLabel}</p>
-              ${priority ? `<p><strong>Priority:</strong> ${priority.charAt(0).toUpperCase() + priority.slice(1)}</p>` : ""}
-              <p><strong>Name:</strong> ${name}</p>
-              <p><strong>Email:</strong> ${email}</p>
-              <p><strong>Subject:</strong> ${subject}</p>
-              <h3>Details:</h3>
-              <p>${message.replace(/\n/g, '<br>')}</p>
-            `,
+            subject: `[New Ticket #${ticketNumber}] ${subject}`,
+            html: buildEmailHtml(`New ${typeLabel}: #${ticketNumber}`, `
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr><td style="padding:8px 0;border-bottom:1px solid #334155;">
+                  <span style="color:#94a3b8;font-size:13px;">Ticket #</span>
+                  <span style="color:#f1f5f9;font-size:13px;float:right;">${ticketNumber}</span>
+                </td></tr>
+                <tr><td style="padding:8px 0;border-bottom:1px solid #334155;">
+                  <span style="color:#94a3b8;font-size:13px;">Name</span>
+                  <span style="color:#f1f5f9;font-size:13px;float:right;">${name || "N/A"}</span>
+                </td></tr>
+                <tr><td style="padding:8px 0;border-bottom:1px solid #334155;">
+                  <span style="color:#94a3b8;font-size:13px;">Email</span>
+                  <span style="color:#f1f5f9;font-size:13px;float:right;">${email}</span>
+                </td></tr>
+                <tr><td style="padding:8px 0;border-bottom:1px solid #334155;">
+                  <span style="color:#94a3b8;font-size:13px;">Type</span>
+                  <span style="color:#f1f5f9;font-size:13px;float:right;">${typeLabel}</span>
+                </td></tr>
+                <tr><td style="padding:8px 0;border-bottom:1px solid #334155;">
+                  <span style="color:#94a3b8;font-size:13px;">Priority</span>
+                  <span style="color:#f1f5f9;font-size:13px;float:right;">${priority || "normal"}</span>
+                </td></tr>
+              </table>
+              <div style="margin:20px 0;padding:16px;background:#0f1c2e;border-radius:8px;border-left:3px solid #4ade80;">
+                <p style="margin:0;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Message</p>
+                <p style="margin:8px 0 0;color:#f1f5f9;font-size:14px;line-height:1.6;">${message.replace(/\n/g, "<br>")}</p>
+              </div>
+              <p style="margin:20px 0 0;"><a href="https://app.budgetsmart.io/admin/support" style="display:inline-block;padding:12px 24px;background:#4ade80;color:#1a1a2e;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">View in Admin Portal →</a></p>
+            `),
           });
           emailSent = true;
-        } catch (emailError) {
-          console.error("Support email notification failed (ticket saved to database):", emailError);
+        } catch (err) {
+          console.error("Support admin notification email failed:", err);
+        }
+
+        // Confirmation email to user
+        try {
+          await supportTransporter.sendMail({
+            from: fromEmail,
+            to: email,
+            subject: `Your BudgetSmart Support Request #${ticketNumber} has been received`,
+            html: buildEmailHtml("We've received your request!", `
+              <p style="color:#94a3b8;font-size:14px;line-height:1.6;">
+                Hi ${name || "there"}, thank you for reaching out to BudgetSmart support. We've received your request and will respond shortly.
+              </p>
+              <div style="margin:20px 0;padding:20px;background:#0f1c2e;border-radius:8px;text-align:center;">
+                <p style="margin:0;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Your Ticket Number</p>
+                <p style="margin:8px 0 0;color:#4ade80;font-size:28px;font-weight:800;letter-spacing:2px;">${ticketNumber}</p>
+              </div>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;">
+                <tr><td style="padding:8px 0;border-bottom:1px solid #334155;">
+                  <span style="color:#94a3b8;font-size:13px;">Subject</span>
+                  <span style="color:#f1f5f9;font-size:13px;float:right;">${subject}</span>
+                </td></tr>
+                <tr><td style="padding:8px 0;border-bottom:1px solid #334155;">
+                  <span style="color:#94a3b8;font-size:13px;">Status</span>
+                  <span style="color:#fbbf24;font-size:13px;float:right;">Open</span>
+                </td></tr>
+              </table>
+              <p style="margin:20px 0 0;color:#94a3b8;font-size:14px;line-height:1.6;">
+                Our team typically responds within <strong style="color:#f1f5f9;">2–4 hours</strong>. You can view your ticket status at any time by logging into BudgetSmart.
+              </p>
+            `),
+          });
+        } catch (err) {
+          console.error("Support user confirmation email failed:", err);
         }
       }
 
@@ -2625,10 +2731,228 @@ Return JSON: { "income": [...] }`;
         await storage.updateSupportTicket(ticket.id, { emailSent: "true" });
       }
 
-      res.json({ success: true, message: "Support request submitted successfully" });
+      res.json({ success: true, message: "Support request submitted successfully", ticketNumber });
     } catch (error) {
       console.error("Support form error:", error);
       res.status(500).json({ error: "Failed to submit support request" });
+    }
+  });
+
+  // Get tickets for the logged-in user
+  app.get("/api/support/my-tickets", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const tickets = await storage.getSupportTicketsByUserId(userId);
+      res.json(tickets);
+    } catch (error) {
+      console.error("My tickets error:", error);
+      res.status(500).json({ error: "Failed to fetch tickets" });
+    }
+  });
+
+  // Get a single ticket with its full message thread (user-facing)
+  app.get("/api/support/my-tickets/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const ticket = await storage.getSupportTicketById(req.params.id);
+      if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+      if (ticket.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+      const messages = await storage.getMessagesByTicketId(ticket.id);
+      res.json({ ticket, messages });
+    } catch (error) {
+      console.error("Get ticket error:", error);
+      res.status(500).json({ error: "Failed to fetch ticket" });
+    }
+  });
+
+  // User replies to their own ticket
+  app.post("/api/support/my-tickets/:id/reply", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { message } = req.body;
+      if (!message || !message.trim()) return res.status(400).json({ error: "Message is required" });
+
+      const ticket = await storage.getSupportTicketById(req.params.id);
+      if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+      if (ticket.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+      if (ticket.status === "closed") return res.status(400).json({ error: "Cannot reply to a closed ticket" });
+
+      await storage.createSupportTicketMessage({
+        ticketId: ticket.id,
+        senderType: "user",
+        senderId: userId,
+        message: message.trim(),
+        createdAt: new Date().toISOString(),
+      });
+
+      await storage.updateSupportTicket(ticket.id, { status: "waiting_for_admin" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Ticket reply error:", error);
+      res.status(500).json({ error: "Failed to send reply" });
+    }
+  });
+
+  // ==================== ADMIN SUPPORT ROUTES ====================
+
+  // List all tickets (admin)
+  app.get("/api/admin/support/tickets", requireAdmin, async (req, res) => {
+    try {
+      const tickets = await storage.getSupportTickets();
+      res.json(tickets);
+    } catch (error) {
+      console.error("Admin tickets error:", error);
+      res.status(500).json({ error: "Failed to fetch tickets" });
+    }
+  });
+
+  // Get single ticket with messages (admin)
+  app.get("/api/admin/support/tickets/:id", requireAdmin, async (req, res) => {
+    try {
+      const ticket = await storage.getSupportTicketById(req.params.id);
+      if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+      const messages = await storage.getMessagesByTicketId(ticket.id);
+      res.json({ ticket, messages });
+    } catch (error) {
+      console.error("Admin get ticket error:", error);
+      res.status(500).json({ error: "Failed to fetch ticket" });
+    }
+  });
+
+  // Admin replies to a ticket
+  app.post("/api/admin/support/tickets/:id/reply", requireAdmin, async (req, res) => {
+    try {
+      const adminId = req.session.userId!;
+      const { message } = req.body;
+      if (!message || !message.trim()) return res.status(400).json({ error: "Message is required" });
+
+      const ticket = await storage.getSupportTicketById(req.params.id);
+      if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+
+      await storage.createSupportTicketMessage({
+        ticketId: ticket.id,
+        senderType: "admin",
+        senderId: adminId,
+        message: message.trim(),
+        createdAt: new Date().toISOString(),
+      });
+
+      const now = new Date().toISOString();
+      await storage.updateSupportTicket(ticket.id, {
+        status: "waiting_for_user",
+        adminResponse: message.trim(),
+        adminResponseAt: now,
+        respondedBy: adminId,
+      });
+
+      // Notify user by email
+      const fromEmail = process.env.ALERT_EMAIL_FROM;
+      const transporter = fromEmail ? getContactTransporter() : null;
+      if (transporter && fromEmail && ticket.email) {
+        try {
+          await transporter.sendMail({
+            from: fromEmail,
+            to: ticket.email,
+            replyTo: "support@budgetsmart.io",
+            subject: `[BudgetSmart Support #${ticket.ticketNumber || ticket.id}] New response from support team`,
+            html: buildEmailHtml("You have a new response!", `
+              <p style="color:#94a3b8;font-size:14px;line-height:1.6;">
+                Hi ${ticket.name || "there"}, our support team has responded to your ticket <strong style="color:#4ade80;">#${ticket.ticketNumber || ticket.id}</strong>.
+              </p>
+              <div style="margin:20px 0;padding:16px;background:#0f1c2e;border-radius:8px;border-left:3px solid #4ade80;">
+                <p style="margin:0;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;">Response</p>
+                <p style="margin:8px 0 0;color:#f1f5f9;font-size:14px;line-height:1.6;">${message.trim().replace(/\n/g, "<br>")}</p>
+              </div>
+              <p style="margin:20px 0 0;"><a href="https://app.budgetsmart.io/support" style="display:inline-block;padding:12px 24px;background:#4ade80;color:#1a1a2e;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;">View Full Thread →</a></p>
+            `),
+          });
+        } catch (err) {
+          console.error("Admin reply notification email failed:", err);
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Admin ticket reply error:", error);
+      res.status(500).json({ error: "Failed to send reply" });
+    }
+  });
+
+  // Admin: update ticket status/priority
+  app.patch("/api/admin/support/tickets/:id", requireAdmin, async (req, res) => {
+    try {
+      const { status, priority } = req.body;
+      const updates: Record<string, string> = {};
+      if (status) updates.status = status;
+      if (priority) updates.priority = priority;
+      const ticket = await storage.updateSupportTicket(req.params.id, updates as any);
+      if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+      res.json(ticket);
+    } catch (error) {
+      console.error("Admin update ticket error:", error);
+      res.status(500).json({ error: "Failed to update ticket" });
+    }
+  });
+
+  // Admin: AI assistant for support tickets
+  app.post("/api/admin/support/ai-assist", requireAdmin, async (req, res) => {
+    try {
+      const { ticketId, question } = req.body;
+      if (!ticketId || !question) return res.status(400).json({ error: "ticketId and question are required" });
+
+      const ticket = await storage.getSupportTicketById(ticketId);
+      if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+      const messages = await storage.getMessagesByTicketId(ticketId);
+
+      const ticketContext = `Ticket #${ticket.ticketNumber || ticket.id}
+Subject: ${ticket.subject}
+Type: ${ticket.type || "N/A"}
+Priority: ${ticket.priority || "normal"}
+Status: ${ticket.status}
+User: ${ticket.name || "Unknown"} <${ticket.email}>
+Submitted: ${ticket.createdAt}
+
+--- Conversation ---
+${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")}`;
+
+      const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({ error: "AI assistant not configured (ANTHROPIC_API_KEY missing)" });
+      }
+
+      // Use OpenAI-compatible approach via fetch to Anthropic API
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1024,
+          system: "You are a helpful support assistant for BudgetSmart, a personal finance app. You help the support team respond to user tickets professionally and efficiently. When asked to suggest a response, be empathetic, clear, and solution-focused.",
+          messages: [
+            {
+              role: "user",
+              content: `Here is the support ticket context:\n\n${ticketContext}\n\n---\n\nAdmin question: ${question}`,
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Claude API error:", errorText);
+        return res.status(502).json({ error: "AI assistant request failed" });
+      }
+
+      const data = await response.json() as any;
+      const aiResponse = data?.content?.[0]?.text || "No response generated";
+      res.json({ response: aiResponse });
+    } catch (error) {
+      console.error("AI assist error:", error);
+      res.status(500).json({ error: "AI assistant failed" });
     }
   });
 

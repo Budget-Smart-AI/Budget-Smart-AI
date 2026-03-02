@@ -165,6 +165,11 @@ const adminMenuItems = [
     url: "/admin/sales-chat",
     icon: MessageSquare,
   },
+  {
+    title: "Support",
+    url: "/admin/support",
+    icon: HelpCircle,
+  },
 ];
 
 interface AppSidebarProps {
