@@ -4,18 +4,30 @@ import { storage } from "./storage";
 import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema";
 import { startAiCoachScheduler } from "./ai-coach";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.POSTMARK_SERVER || "smtp.postmarkapp.com",
-  port: parseInt(process.env.POSTMARK_PORT || "587"),
-  secure: false,
-  auth: {
-    user: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_USERNAME,
-    pass: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_PASSWORD,
-  },
-  connectionTimeout: 10000,
-  socketTimeout: 10000,
-  greetingTimeout: 10000,
-});
+// Lazy SMTP transporter – only created once POSTMARK_SERVER is confirmed
+// present so that missing env vars can never crash the process at import time.
+let _transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
+
+function getTransporter(): ReturnType<typeof nodemailer.createTransport> | null {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME || !process.env.POSTMARK_PASSWORD) {
+    return null;
+  }
+  if (!_transporter) {
+    _transporter = nodemailer.createTransport({
+      host: process.env.POSTMARK_SERVER,
+      port: parseInt(process.env.POSTMARK_PORT || "587"),
+      secure: false,
+      auth: {
+        user: process.env.POSTMARK_USERNAME,
+        pass: process.env.POSTMARK_PASSWORD,
+      },
+      connectionTimeout: 10000,
+      socketTimeout: 10000,
+      greetingTimeout: 10000,
+    });
+  }
+  return _transporter;
+}
 
 function getNextDueDate(dueDay: number, recurrence: string, customDates?: string | null, startDate?: string | null): Date {
   const today = new Date();
@@ -125,8 +137,14 @@ ${bill.notes ? `Notes: ${bill.notes}` : ""}
 
 This is an automated reminder from Budget Smart AI.`;
 
+  const tr = getTransporter();
+  if (!tr) {
+    console.log("[Email] SMTP not configured, skipping bill reminder.");
+    return false;
+  }
+
   try {
-    await transporter.sendMail({
+    await tr.sendMail({
       from: fromEmail,
       to: toEmail,
       subject: subject,
@@ -457,7 +475,13 @@ Budget Smart AI
 
 To manage your email preferences, visit your settings at ${process.env.APP_URL || "https://app.budgetsmart.io"}/email-settings`;
 
-    await transporter.sendMail({
+    const tr = getTransporter();
+    if (!tr) {
+      console.log("[Email] SMTP not configured, skipping weekly digest.");
+      return false;
+    }
+
+    await tr.sendMail({
       from: fromEmail,
       to: email,
       subject: subject,
@@ -551,7 +575,13 @@ Budget Smart AI
 
 To manage your email preferences, visit your settings at ${process.env.APP_URL || "https://app.budgetsmart.io"}/email-settings`;
 
-    await transporter.sendMail({
+    const tr = getTransporter();
+    if (!tr) {
+      console.log("[Email] SMTP not configured, skipping monthly report.");
+      return false;
+    }
+
+    await tr.sendMail({
       from: fromEmail,
       to: email,
       subject: subject,
@@ -632,11 +662,11 @@ export async function sendTestEmail(email: string): Promise<{ success: boolean; 
   const fromEmail = process.env.ALERT_EMAIL_FROM;
 
   // Check configuration
-  if (!process.env.POSTMARK_SERVER_TOKEN && !(process.env.POSTMARK_USERNAME && process.env.POSTMARK_PASSWORD)) {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME || !process.env.POSTMARK_PASSWORD) {
     return {
       success: false,
       message: "Email credentials not configured",
-      details: "POSTMARK_SERVER_TOKEN environment variable is missing"
+      details: "POSTMARK_SERVER, POSTMARK_USERNAME, and POSTMARK_PASSWORD environment variables are required"
     };
   }
 
@@ -682,7 +712,16 @@ Budget Smart AI
 To manage your notification preferences, visit your Email Settings page.`;
 
   try {
-    await transporter.sendMail({
+    const tr = getTransporter();
+    if (!tr) {
+      // Should not reach here since POSTMARK_SERVER is checked above, but guard anyway
+      return {
+        success: false,
+        message: "Email not configured",
+        details: "POSTMARK_SERVER environment variable is missing"
+      };
+    }
+    await tr.sendMail({
       from: fromEmail,
       to: email,
       subject: subject,
@@ -762,7 +801,12 @@ Best regards,
 The Budget Smart AI Team`;
 
   try {
-    await transporter.sendMail({
+    const tr = getTransporter();
+    if (!tr) {
+      console.log("[Email] SMTP not configured, skipping invitation email.");
+      return false;
+    }
+    await tr.sendMail({
       from: fromEmail,
       to: toEmail,
       subject: subject,
@@ -810,7 +854,12 @@ Best regards,
 The Budget Smart AI Team`;
 
   try {
-    await transporter.sendMail({
+    const tr = getTransporter();
+    if (!tr) {
+      console.log("[Email] SMTP not configured, skipping verification email.");
+      return false;
+    }
+    await tr.sendMail({
       from: fromEmail,
       to: toEmail,
       subject: subject,
