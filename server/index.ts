@@ -37,7 +37,7 @@ app.use(
     store: new PgStore({
       conString: process.env.DATABASE_URL,
       tableName: "session",
-      createTableIfMissing: true,
+      createTableIfMissing: false,
     }),
     secret: process.env.SESSION_SECRET || "budgetsmart-dev-secret-change-me",
     resave: false,
@@ -47,10 +47,12 @@ app.use(
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       maxAge: SESSION_MAX_AGE,
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      // Share the session across all subdomains (e.g. app.budgetsmart.io and
-      // budgetsmart.io) so there is only one login for the entire platform.
-      domain: process.env.NODE_ENV === "production" ? `.${process.env.MAIN_DOMAIN || "budgetsmart.io"}` : undefined,
+      sameSite: "lax",
+      // Only set a specific cookie domain when MAIN_DOMAIN is explicitly
+      // configured; omitting it allows the cookie to work on any host
+      // (e.g. Railway, Replit, or a custom domain) without the browser
+      // rejecting a cookie whose domain doesn't match the current origin.
+      domain: process.env.MAIN_DOMAIN ? `.${process.env.MAIN_DOMAIN}` : undefined,
     },
   })
 );
