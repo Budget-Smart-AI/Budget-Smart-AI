@@ -1,3 +1,12 @@
+// Prevent unhandled exceptions/rejections (e.g. transient SMTP errors) from
+// killing the container.  Log the error and keep the process alive.
+process.on("uncaughtException", (err) => {
+  console.error("[Fatal] Uncaught exception (process will continue):", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[Fatal] Unhandled promise rejection (process will continue):", reason);
+});
+
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";

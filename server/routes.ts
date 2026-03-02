@@ -73,15 +73,28 @@ function parseCSV(csvText: string): Record<string, string>[] {
   return rows;
 }
 
-const contactTransporter = nodemailer.createTransport({
-  host: process.env.POSTMARK_SERVER || "smtp.postmarkapp.com",
-  port: parseInt(process.env.POSTMARK_PORT || "587"),
-  secure: false,
-  auth: {
-    user: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_USERNAME,
-    pass: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_PASSWORD,
-  },
-});
+// Lazy contact transporter – avoids crashes when POSTMARK vars are absent
+let _contactTransporter: ReturnType<typeof nodemailer.createTransport> | null = null;
+function getContactTransporter(): ReturnType<typeof nodemailer.createTransport> | null {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME || !process.env.POSTMARK_PASSWORD) {
+    return null;
+  }
+  if (!_contactTransporter) {
+    _contactTransporter = nodemailer.createTransport({
+      host: process.env.POSTMARK_SERVER,
+      port: parseInt(process.env.POSTMARK_PORT || "587"),
+      secure: false,
+      auth: {
+        user: process.env.POSTMARK_USERNAME,
+        pass: process.env.POSTMARK_PASSWORD,
+      },
+      connectionTimeout: 10000,
+      socketTimeout: 10000,
+      greetingTimeout: 10000,
+    });
+  }
+  return _contactTransporter;
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -2442,6 +2455,11 @@ Return JSON: { "income": [...] }`;
         return res.status(500).json({ error: "Email configuration missing" });
       }
 
+      const contactTransporter = getContactTransporter();
+      if (!contactTransporter) {
+        return res.status(500).json({ error: "Email not configured on this server" });
+      }
+
       await contactTransporter.sendMail({
         from: fromEmail,
         to: "support@budgetsmart.io",
@@ -2489,7 +2507,12 @@ Return JSON: { "income": [...] }`;
       const typeLabel = typeLabels[type] || "Support Request";
       const priorityLabel = priority ? ` [${priority.toUpperCase()}]` : "";
 
-      await contactTransporter.sendMail({
+      const supportTransporter = getContactTransporter();
+      if (!supportTransporter) {
+        return res.status(500).json({ error: "Email not configured on this server" });
+      }
+
+      await supportTransporter.sendMail({
         from: fromEmail,
         to: "support@budgetsmart.io",
         replyTo: email,
@@ -2640,8 +2663,9 @@ Return JSON: { "income": [...] }`;
       // Send email notification to sales team
       try {
         const fromEmail = process.env.ALERT_EMAIL_FROM;
-        if (fromEmail) {
-          await contactTransporter.sendMail({
+        const salesTransporter = getContactTransporter();
+        if (fromEmail && salesTransporter) {
+          await salesTransporter.sendMail({
             from: fromEmail,
             to: "sales@budgetsmart.io",
             replyTo: parsed.data.email,
@@ -7549,19 +7573,9 @@ ${JSON.stringify(txSummary)}`;
       const inviteLink = `${appUrl}/?ref=${referralCode.code}`;
 
       const fromEmail = process.env.ALERT_EMAIL_FROM;
-      if (fromEmail) {
-        const nodemailer = await import("nodemailer");
-        const transporter = nodemailer.default.createTransport({
-          host: process.env.POSTMARK_SERVER || "smtp.postmarkapp.com",
-          port: parseInt(process.env.POSTMARK_PORT || "587"),
-          secure: false,
-          auth: {
-            user: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_USERNAME,
-            pass: process.env.POSTMARK_SERVER_TOKEN || process.env.POSTMARK_PASSWORD,
-          },
-        });
-
-        await transporter.sendMail({
+      const referralTransporter = getContactTransporter();
+      if (fromEmail && referralTransporter) {
+        await referralTransporter.sendMail({
           from: fromEmail,
           to: email,
           subject: `${user?.firstName || user?.username || "A friend"} invited you to Budget Smart AI!`,
