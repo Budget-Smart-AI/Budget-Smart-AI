@@ -26,9 +26,9 @@ export function withTimeout<T>(
 }
 
 /**
- * Timeout for AI operations - 25 seconds to avoid Railway 502 errors
+ * Timeout for AI operations - 60 seconds to allow DeepSeek multi-step tool calls to complete
  */
-export const AI_TIMEOUT_MS = 25000;
+export const AI_TIMEOUT_MS = 60000;
 
 /**
  * Wrapper for AI operations with timeout
