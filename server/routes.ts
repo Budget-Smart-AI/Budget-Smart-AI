@@ -2568,11 +2568,6 @@ Return JSON: { "income": [...] }`;
       }
 
       const { name, email, type, subject, priority, message } = parsed.data;
-      const fromEmail = process.env.ALERT_EMAIL_FROM;
-
-      if (!fromEmail) {
-        return res.status(500).json({ error: "Email configuration missing" });
-      }
 
       const typeLabels: Record<string, string> = {
         ticket: "Support Ticket",
@@ -2583,28 +2578,52 @@ Return JSON: { "income": [...] }`;
       const typeLabel = typeLabels[type] || "Support Request";
       const priorityLabel = priority ? ` [${priority.toUpperCase()}]` : "";
 
-      const supportTransporter = getContactTransporter();
-      if (!supportTransporter) {
-        return res.status(500).json({ error: "Email not configured on this server" });
+      // Always persist the ticket to the database first so no request is ever lost
+      const ticket = await storage.createSupportTicket({
+        name,
+        email,
+        type,
+        subject,
+        priority: priority || null,
+        message,
+        status: "open",
+        emailSent: "false",
+        createdAt: new Date().toISOString(),
+      });
+
+      // Attempt to send email notification; if this fails the ticket is still saved
+      let emailSent = false;
+      const fromEmail = process.env.ALERT_EMAIL_FROM;
+      const supportTransporter = fromEmail ? getContactTransporter() : null;
+
+      if (supportTransporter && fromEmail) {
+        try {
+          await supportTransporter.sendMail({
+            from: fromEmail,
+            to: "support@budgetsmart.io",
+            replyTo: email,
+            subject: `[Budget Smart AI ${typeLabel}]${priorityLabel} ${subject}`,
+            text: `Type: ${typeLabel}\nPriority: ${priority || "N/A"}\nName: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
+            html: `
+              <h2>New ${typeLabel}</h2>
+              <p><strong>Type:</strong> ${typeLabel}</p>
+              ${priority ? `<p><strong>Priority:</strong> ${priority.charAt(0).toUpperCase() + priority.slice(1)}</p>` : ""}
+              <p><strong>Name:</strong> ${name}</p>
+              <p><strong>Email:</strong> ${email}</p>
+              <p><strong>Subject:</strong> ${subject}</p>
+              <h3>Details:</h3>
+              <p>${message.replace(/\n/g, '<br>')}</p>
+            `,
+          });
+          emailSent = true;
+        } catch (emailError) {
+          console.error("Support email notification failed (ticket saved to database):", emailError);
+        }
       }
 
-      await supportTransporter.sendMail({
-        from: fromEmail,
-        to: "support@budgetsmart.io",
-        replyTo: email,
-        subject: `[Budget Smart AI ${typeLabel}]${priorityLabel} ${subject}`,
-        text: `Type: ${typeLabel}\nPriority: ${priority || "N/A"}\nName: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
-        html: `
-          <h2>New ${typeLabel}</h2>
-          <p><strong>Type:</strong> ${typeLabel}</p>
-          ${priority ? `<p><strong>Priority:</strong> ${priority.charAt(0).toUpperCase() + priority.slice(1)}</p>` : ""}
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Subject:</strong> ${subject}</p>
-          <h3>Details:</h3>
-          <p>${message.replace(/\n/g, '<br>')}</p>
-        `,
-      });
+      if (emailSent) {
+        await storage.updateSupportTicket(ticket.id, { emailSent: "true" });
+      }
 
       res.json({ success: true, message: "Support request submitted successfully" });
     } catch (error) {

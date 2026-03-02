@@ -54,6 +54,8 @@ import {
   type SpendabilitySnapshot, type InsertSpendabilitySnapshot,
   type PaydayRecommendation, type InsertPaydayRecommendation,
   type Receipt, type InsertReceipt,
+  type SupportTicket, type InsertSupportTicket,
+  supportTickets,
   users, bills, expenses, income, budgets, savingsGoals,
   plaidItems, plaidAccounts, plaidTransactions,
   mxMembers, mxAccounts, mxTransactions,
@@ -512,6 +514,11 @@ export interface IStorage {
   createReceipt(receipt: InsertReceipt & { userId: string }): Promise<Receipt>;
   updateReceipt(id: string, updates: Partial<InsertReceipt>): Promise<Receipt | undefined>;
   deleteReceipt(id: string): Promise<boolean>;
+
+  // Support Tickets
+  createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket>;
+  getSupportTickets(): Promise<SupportTicket[]>;
+  updateSupportTicket(id: string, updates: Partial<SupportTicket>): Promise<SupportTicket | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -1081,6 +1088,13 @@ export class MemStorage implements IStorage {
   }
   async updateReceipt(_id: string, _updates: Partial<InsertReceipt>): Promise<Receipt | undefined> { return undefined; }
   async deleteReceipt(_id: string): Promise<boolean> { return false; }
+
+  // Support Tickets stubs (MemStorage)
+  async createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket> {
+    return { id: randomUUID(), ...ticket, status: ticket.status || "open", emailSent: ticket.emailSent || "false", createdAt: new Date().toISOString() } as SupportTicket;
+  }
+  async getSupportTickets(): Promise<SupportTicket[]> { return []; }
+  async updateSupportTicket(_id: string, _updates: Partial<SupportTicket>): Promise<SupportTicket | undefined> { return undefined; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3514,6 +3528,26 @@ export class DatabaseStorage implements IStorage {
   async deleteReceipt(id: string): Promise<boolean> {
     const result = await db.delete(receipts).where(eq(receipts.id, id)).returning();
     return result.length > 0;
+  }
+
+  // Support Tickets
+  async createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket> {
+    const result = await db.insert(supportTickets).values({
+      ...ticket,
+      status: ticket.status || "open",
+      emailSent: ticket.emailSent || "false",
+      createdAt: ticket.createdAt || new Date().toISOString(),
+    }).returning();
+    return result[0];
+  }
+
+  async getSupportTickets(): Promise<SupportTicket[]> {
+    return db.select().from(supportTickets).orderBy(desc(supportTickets.createdAt));
+  }
+
+  async updateSupportTicket(id: string, updates: Partial<SupportTicket>): Promise<SupportTicket | undefined> {
+    const result = await db.update(supportTickets).set(updates).where(eq(supportTickets.id, id)).returning();
+    return result[0];
   }
 }
 
