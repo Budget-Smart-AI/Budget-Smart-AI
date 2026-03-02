@@ -1860,24 +1860,30 @@ Return JSON: { "income": [...] }`;
         return res.status(404).json({ error: "Demo account not available" });
       }
 
-      // Set up session for demo user
-      req.session.userId = demoUser.id;
-      req.session.username = demoUser.username;
-      req.session.isAdmin = false; // Never grant admin to demo
-      req.session.mfaVerified = true;
-      req.session.pendingMfa = false;
-      (req.session as any).isDemo = true;
-
-      req.session.save((err) => {
+      // Regenerate session to prevent session fixation for demo user
+      req.session.regenerate((err) => {
         if (err) {
-          console.error("Session save error:", err);
-          return res.status(500).json({ error: "Session save failed" });
+          console.error("Session regenerate error:", err);
+          return res.status(500).json({ error: "Session error" });
         }
-        res.json({
-          success: true,
-          username: demoUser.username,
-          isAdmin: false,
-          isDemo: true
+        req.session.userId = demoUser.id;
+        req.session.username = demoUser.username;
+        req.session.isAdmin = false; // Never grant admin to demo
+        req.session.mfaVerified = true;
+        req.session.pendingMfa = false;
+        (req.session as any).isDemo = true;
+
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("Session save error:", saveErr);
+            return res.status(500).json({ error: "Session save failed" });
+          }
+          res.json({
+            success: true,
+            username: demoUser.username,
+            isAdmin: false,
+            isDemo: true
+          });
         });
       });
     } catch (error) {
@@ -1921,59 +1927,86 @@ Return JSON: { "income": [...] }`;
 
       // Check if MFA setup is required (for email signups that haven't set up MFA yet)
       if (user.mfaRequired === "true" && user.mfaEnabled !== "true") {
-        // Partially authenticate - allow MFA setup only
+        // Regenerate session to prevent session fixation, then partially authenticate
+        return req.session.regenerate((regenErr) => {
+          if (regenErr) {
+            console.error("Session regenerate error:", regenErr);
+            return res.status(500).json({ error: "Session error" });
+          }
+          req.session.userId = user.id;
+          req.session.username = user.username;
+          req.session.isAdmin = user.isAdmin === "true";
+          (req.session as any).mfaSetupRequired = true;
+          req.session.mfaVerified = false;
+          req.session.pendingMfa = false;
+
+          req.session.save((err) => {
+            if (err) {
+              console.error("Session save error:", err);
+              return res.status(500).json({ error: "Session save failed" });
+            }
+            res.json({
+              mfaSetupRequired: true,
+              message: "Please set up two-factor authentication to continue"
+            });
+          });
+        });
+      }
+
+      if (user.mfaEnabled === "true" && user.mfaSecret) {
+        // Regenerate session to prevent session fixation, then set pending MFA
+        return req.session.regenerate((regenErr) => {
+          if (regenErr) {
+            console.error("Session regenerate error:", regenErr);
+            return res.status(500).json({ error: "Session error" });
+          }
+          req.session.userId = user.id;
+          req.session.username = user.username;
+          req.session.isAdmin = user.isAdmin === "true";
+          req.session.pendingMfa = true;
+          req.session.mfaVerified = false;
+          req.session.save((err) => {
+            if (err) {
+              console.error("Session save error:", err);
+              return res.status(500).json({ error: "Session save failed" });
+            }
+            res.json({ mfaRequired: true });
+          });
+        });
+      }
+
+      // Regenerate session to prevent session fixation before setting authenticated state
+      req.session.regenerate(async (regenErr) => {
+        if (regenErr) {
+          console.error("Session regenerate error:", regenErr);
+          return res.status(500).json({ error: "Session error" });
+        }
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.isAdmin = user.isAdmin === "true";
-        (req.session as any).mfaSetupRequired = true;
-        req.session.mfaVerified = false;
+        req.session.mfaVerified = true;
         req.session.pendingMfa = false;
 
-        return req.session.save((err) => {
+        // Load household info into session
+        try {
+          await loadHouseholdIntoSession(req);
+        } catch (householdErr) {
+          console.error("Failed to load household into session:", householdErr);
+          // Continue login even if household info fails to load
+        }
+
+        req.session.save((err) => {
           if (err) {
             console.error("Session save error:", err);
             return res.status(500).json({ error: "Session save failed" });
           }
           res.json({
-            mfaSetupRequired: true,
-            message: "Please set up two-factor authentication to continue"
+            success: true,
+            username: user.username,
+            isAdmin: user.isAdmin === "true",
+            householdId: req.session.householdId,
+            householdRole: req.session.householdRole
           });
-        });
-      }
-
-      req.session.userId = user.id;
-      req.session.username = user.username;
-      req.session.isAdmin = user.isAdmin === "true";
-
-      if (user.mfaEnabled === "true" && user.mfaSecret) {
-        req.session.pendingMfa = true;
-        req.session.mfaVerified = false;
-        return req.session.save((err) => {
-          if (err) {
-            console.error("Session save error:", err);
-            return res.status(500).json({ error: "Session save failed" });
-          }
-          res.json({ mfaRequired: true });
-        });
-      }
-
-      req.session.mfaVerified = true;
-      req.session.pendingMfa = false;
-
-      // Load household info into session
-      await loadHouseholdIntoSession(req);
-
-      req.session.save((err) => {
-        if (err) {
-          console.error("Session save error:", err);
-          return res.status(500).json({ error: "Session save failed" });
-        }
-        res.json({
-          success: true,
-          username: user.username,
-          isAdmin: user.isAdmin === "true",
-          householdId: req.session.householdId,
-          householdRole: req.session.householdRole
         });
       });
     } catch (error) {
@@ -2172,6 +2205,12 @@ Return JSON: { "income": [...] }`;
   });
 
   app.get("/api/auth/session", async (req, res) => {
+    // Prevent the browser from caching this response.  A stale cached
+    // "authenticated:false" would block the user from entering the app
+    // even after a successful login (manifests as 304 responses right after
+    // POST /api/auth/login returns 200).
+    res.set("Cache-Control", "no-store");
+
     // Check if user needs mandatory MFA setup
     if (req.session.userId && (req.session as any).mfaSetupRequired) {
       const user = await storage.getUser(req.session.userId);
