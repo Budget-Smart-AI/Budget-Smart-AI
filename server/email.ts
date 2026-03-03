@@ -15,15 +15,15 @@ function getTransporter(): ReturnType<typeof nodemailer.createTransport> | null 
   if (!_transporter) {
     _transporter = nodemailer.createTransport({
       host: process.env.POSTMARK_SERVER,
-      port: parseInt(process.env.POSTMARK_PORT || "587"),
+      port: 587,
       secure: false,
       auth: {
         user: process.env.POSTMARK_USERNAME,
         pass: process.env.POSTMARK_PASSWORD,
       },
-      connectionTimeout: 10000,
-      socketTimeout: 10000,
-      greetingTimeout: 10000,
+      tls: {
+        rejectUnauthorized: false
+      },
     });
   }
   return _transporter;
@@ -120,6 +120,10 @@ function formatCurrency(amount: string | number): string {
 }
 
 async function sendBillReminder(bill: Bill, dueDate: Date): Promise<boolean> {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+    console.warn('[Email] Postmark not configured, skipping email send');
+    return false;
+  }
   const fromEmail = process.env.ALERT_EMAIL_FROM;
   const toEmail = process.env.ALERT_EMAIL_TO;
 
@@ -405,6 +409,10 @@ async function generateMonthlySummary(userId: string): Promise<MonthlySummary> {
 
 // Send weekly digest email
 async function sendWeeklyDigest(userId: string, email: string): Promise<boolean> {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+    console.warn('[Email] Postmark not configured, skipping email send');
+    return false;
+  }
   const fromEmail = process.env.ALERT_EMAIL_FROM;
   if (!fromEmail) {
     console.log("Email configuration missing, skipping weekly digest");
@@ -498,6 +506,10 @@ To manage your email preferences, visit your settings at ${process.env.APP_URL |
 
 // Send monthly report email
 async function sendMonthlyReport(userId: string, email: string): Promise<boolean> {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+    console.warn('[Email] Postmark not configured, skipping email send');
+    return false;
+  }
   const fromEmail = process.env.ALERT_EMAIL_FROM;
   if (!fromEmail) {
     console.log("Email configuration missing, skipping monthly report");
@@ -768,6 +780,10 @@ export async function sendHouseholdInvitation(
   role: string,
   inviteToken: string
 ): Promise<boolean> {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+    console.warn('[Email] Postmark not configured, skipping email send');
+    return false;
+  }
   const fromEmail = process.env.ALERT_EMAIL_FROM;
   const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
 
@@ -826,6 +842,10 @@ export async function sendEmailVerification(
   firstName: string,
   verificationToken: string
 ): Promise<boolean> {
+  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+    console.warn('[Email] Postmark not configured, skipping email send');
+    return false;
+  }
   const fromEmail = process.env.ALERT_EMAIL_FROM;
   const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
 

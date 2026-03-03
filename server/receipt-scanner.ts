@@ -3,6 +3,8 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import Anthropic from "@anthropic-ai/sdk";
 import { v4 as uuidv4 } from "uuid";
 import * as path from "path";
+import * as os from "os";
+import { fromBuffer } from "pdf2pic";
 import { EXPENSE_CATEGORIES } from "@shared/schema";
 
 // Lazy-initialized clients to avoid startup failures when credentials are missing
@@ -188,32 +190,43 @@ export async function testR2Connection(): Promise<{ success: boolean; message: s
 
 /**
  * Extract text from receipt buffer directly (no R2 required)
- * Supports images and PDFs via Anthropic's API
+ * Supports images and PDFs via pdf2pic conversion
  */
 export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string): Promise<string> {
   const anthropic = getAnthropicClient();
 
-  // PDF support via Anthropic's document type (requires beta header)
+  // PDF support: convert first page to PNG using pdf2pic, then send as image
   if (mimetype === 'application/pdf') {
-    const pdfBase64 = buffer.toString('base64');
+    console.log("Processing PDF receipt...");
+    const tmpDir = os.tmpdir();
     try {
-      const message = await anthropic.beta.messages.create({
-        model: "claude-3-5-haiku-20241022",
+      const converter = fromBuffer(buffer, {
+        density: 150,
+        saveFilename: `receipt-${Date.now()}`,
+        savePath: tmpDir,
+        format: "png",
+        width: 1200,
+        height: 1600,
+      });
+      const result = await converter(1, { responseType: "buffer" });
+      const pngBuffer: Buffer = result.buffer as Buffer;
+      const pngBase64 = pngBuffer.toString('base64');
+      const message = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
-        betas: ["pdfs-2024-09-25"],
         system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
         messages: [
           {
             role: "user",
             content: [
               {
-                type: "document",
+                type: "image",
                 source: {
                   type: "base64",
-                  media_type: "application/pdf",
-                  data: pdfBase64,
+                  media_type: "image/png",
+                  data: pngBase64,
                 },
-              } as any,
+              },
               {
                 type: "text",
                 text: RECEIPT_EXTRACT_PROMPT,
@@ -226,7 +239,7 @@ export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string)
       return firstBlock?.type === "text" ? firstBlock.text : "";
     } catch (pdfError) {
       console.error("PDF extraction failed:", pdfError);
-      throw new Error("Failed to extract text from PDF. Please upload an image of the receipt instead.");
+      throw new Error("Failed to extract text from PDF receipt.");
     }
   }
 
@@ -240,7 +253,7 @@ export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string)
     : "image/jpeg";
 
   const message = await anthropic.messages.create({
-    model: "claude-3-5-haiku-20241022",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 1024,
     system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
     messages: [
@@ -287,7 +300,7 @@ export async function extractReceiptText(imageUrl: string): Promise<string> {
       : "image/jpeg";
     
     const message = await getAnthropicClient().messages.create({
-      model: "claude-3-5-haiku-20241022",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
       messages: [
