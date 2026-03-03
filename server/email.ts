@@ -168,8 +168,16 @@ This is an automated reminder from Budget Smart AI.`;
     });
     console.log(`Email sent for bill: ${bill.name}`);
     return true;
-  } catch (error) {
-    console.error(`Failed to send email for bill ${bill.name}:`, error);
+  } catch (error: any) {
+    if (error?.statusCode === 422 && error?.code === 400) {
+      console.error(
+        `[Email] Failed to send bill reminder — the 'From' address "${fromEmail}" is not a verified Sender Signature on your Postmark account. ` +
+        `Please go to https://account.postmarkapp.com/signature_domains and add/verify "${fromEmail}", ` +
+        `or update the ALERT_EMAIL_FROM environment variable to a verified sender address.`
+      );
+    } else {
+      console.error(`Failed to send email for bill ${bill.name}:`, error);
+    }
     return false;
   }
 }
@@ -423,7 +431,7 @@ async function generateMonthlySummary(userId: string): Promise<MonthlySummary> {
 
 // Send weekly digest email
 async function sendWeeklyDigest(userId: string, email: string): Promise<boolean> {
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+  if (!process.env.POSTMARK_USERNAME) {
     console.warn('[Email] Postmark not configured, skipping email send');
     return false;
   }
@@ -520,7 +528,7 @@ To manage your email preferences, visit your settings at ${process.env.APP_URL |
 
 // Send monthly report email
 async function sendMonthlyReport(userId: string, email: string): Promise<boolean> {
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+  if (!process.env.POSTMARK_USERNAME) {
     console.warn('[Email] Postmark not configured, skipping email send');
     return false;
   }
