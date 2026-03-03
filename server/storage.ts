@@ -82,6 +82,7 @@ import {
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, and, gte, lte, inArray, desc, like } from "drizzle-orm";
+import { awsKmsService, AWSKMSService } from "./aws-kms";
 
 export interface IStorage {
   // Users
@@ -1397,23 +1398,27 @@ export class DatabaseStorage implements IStorage {
 
   // Plaid Items
   async getPlaidItems(userId: string): Promise<PlaidItem[]> {
-    return db.select().from(plaidItems).where(eq(plaidItems.userId, userId));
+    const items = await db.select().from(plaidItems).where(eq(plaidItems.userId, userId));
+    return Promise.all(items.map(item => this._decryptPlaidItem(item)));
   }
 
   async getPlaidItem(id: string): Promise<PlaidItem | undefined> {
     const result = await db.select().from(plaidItems).where(eq(plaidItems.id, id));
-    return result[0];
+    if (!result[0]) return undefined;
+    return this._decryptPlaidItem(result[0]);
   }
 
   async getPlaidItemByItemId(itemId: string): Promise<PlaidItem | undefined> {
     const result = await db.select().from(plaidItems).where(eq(plaidItems.itemId, itemId));
-    return result[0];
+    if (!result[0]) return undefined;
+    return this._decryptPlaidItem(result[0]);
   }
 
   async createPlaidItem(item: InsertPlaidItem): Promise<PlaidItem> {
+    const encryptedToken = await awsKmsService.encryptField(item.accessToken);
     const result = await db.insert(plaidItems).values({
       userId: item.userId,
-      accessToken: item.accessToken,
+      accessToken: encryptedToken,
       itemId: item.itemId,
       institutionId: item.institutionId || null,
       institutionName: item.institutionName || null,
@@ -1421,7 +1426,18 @@ export class DatabaseStorage implements IStorage {
       status: "active",
       createdAt: new Date().toISOString(),
     }).returning();
-    return result[0];
+    return this._decryptPlaidItem(result[0]);
+  }
+
+  /** Decrypt the accessToken of a PlaidItem returned from the database. */
+  private async _decryptPlaidItem(item: PlaidItem): Promise<PlaidItem> {
+    try {
+      const decrypted = await awsKmsService.decryptField(item.accessToken);
+      return { ...item, accessToken: decrypted };
+    } catch (err) {
+      console.error(`[KMS] Failed to decrypt accessToken for PlaidItem ${item.id} — re-throwing so the caller can surface the error:`, err);
+      throw err;
+    }
   }
 
   async updatePlaidItem(id: string, updates: Partial<PlaidItem>): Promise<PlaidItem | undefined> {

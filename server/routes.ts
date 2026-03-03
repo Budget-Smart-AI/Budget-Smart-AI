@@ -34,6 +34,7 @@ import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
+import { awsKmsService, AWSKMSService } from "./aws-kms";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -114,6 +115,23 @@ export async function registerRoutes(
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
   app.use("/api/vault", vaultRouter);
+
+  // KMS encryption status endpoint (admin only)
+  app.get("/api/kms/status", requireAuth, requireAdmin, async (_req, res) => {
+    const configured = awsKmsService.isConfigured();
+    const connected = configured ? await awsKmsService.testConnection() : false;
+    res.json({
+      configured,
+      connected,
+      keyConfigured: !!process.env.AWS_KMS_KEY_ID,
+      region: process.env.AWS_REGION || "us-east-1",
+      message: !configured
+        ? "KMS is not configured. Set AWS_KMS_KEY_ID, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY to enable encryption."
+        : connected
+        ? "KMS is active. New Plaid access tokens are encrypted at rest."
+        : "KMS credentials are set but the key could not be reached. Check AWS_KMS_KEY_ID and IAM permissions.",
+    });
+  });
 
   // Test route for debugging landing page API
   app.get("/api/landing-test", (_req, res) => res.json({ test: "ok" }));
