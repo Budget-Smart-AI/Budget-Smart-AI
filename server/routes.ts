@@ -10804,20 +10804,20 @@ The Budget Smart AI Team`,
 
       const bySlot = await (db as any).$client.query(
         `SELECT task_slot,
-                COUNT(*)::int AS calls,
-                SUM(estimated_cost_usd)::float AS cost,
+                COUNT(*)::int AS call_count,
+                SUM(estimated_cost_usd)::float AS total_cost,
                 AVG(duration_ms)::float AS avg_ms
          FROM ai_usage_log
          WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
          GROUP BY task_slot
-         ORDER BY cost DESC`,
+         ORDER BY total_cost DESC`,
         [days],
       );
 
       const byProvider = await (db as any).$client.query(
         `SELECT provider,
-                COUNT(*)::int AS calls,
-                SUM(estimated_cost_usd)::float AS cost
+                COUNT(*)::int AS call_count,
+                SUM(estimated_cost_usd)::float AS total_cost
          FROM ai_usage_log
          WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
          GROUP BY provider`,
@@ -10825,29 +10825,49 @@ The Budget Smart AI Team`,
       );
 
       const daily = await (db as any).$client.query(
-        `SELECT DATE(created_at) AS day,
+        `SELECT DATE(created_at) AS date,
                 provider,
                 SUM(estimated_cost_usd)::float AS cost,
                 COUNT(*)::int AS calls
          FROM ai_usage_log
          WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
          GROUP BY DATE(created_at), provider
-         ORDER BY day`,
+         ORDER BY date`,
         [days],
       );
 
       const topUsers = await (db as any).$client.query(
-        `SELECT user_id,
-                COUNT(*)::int AS calls,
-                SUM(estimated_cost_usd)::float AS cost
-         FROM ai_usage_log
-         WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
-           AND user_id IS NOT NULL
-         GROUP BY user_id
-         ORDER BY cost DESC
+        `SELECT l.user_id,
+                u.username,
+                COUNT(*)::int AS call_count,
+                SUM(l.estimated_cost_usd)::float AS total_cost
+         FROM ai_usage_log l
+         LEFT JOIN users u ON u.id = l.user_id
+         WHERE l.created_at >= NOW() - ($1 * INTERVAL '1 day')
+           AND l.user_id IS NOT NULL
+         GROUP BY l.user_id, u.username
+         ORDER BY total_cost DESC
          LIMIT 10`,
         [days],
       );
+
+      // Pivot daily rows into one object per date with per-provider columns.
+      // Note: the chart dataKeys (deepseek_cost, openai_cost) match only these two providers;
+      // if additional providers are introduced the chart columns will also need updating.
+      const dailyMap: Record<string, { date: string; deepseek_cost: number; openai_cost: number; deepseek_calls: number; openai_calls: number }> = {};
+      for (const row of daily.rows) {
+        const dateStr = row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10);
+        if (!dailyMap[dateStr]) {
+          dailyMap[dateStr] = { date: dateStr, deepseek_cost: 0, openai_cost: 0, deepseek_calls: 0, openai_calls: 0 };
+        }
+        if (row.provider === "deepseek") {
+          dailyMap[dateStr].deepseek_cost = row.cost ?? 0;
+          dailyMap[dateStr].deepseek_calls = row.calls ?? 0;
+        } else if (row.provider === "openai") {
+          dailyMap[dateStr].openai_cost = row.cost ?? 0;
+          dailyMap[dateStr].openai_calls = row.calls ?? 0;
+        }
+      }
 
       const s = summary.rows[0];
       res.json({
@@ -10855,12 +10875,12 @@ The Budget Smart AI Team`,
         totalCalls: s.total_calls ?? 0,
         totalCost: s.total_cost ?? 0,
         successRate: s.total_calls > 0
-          ? ((s.successful_calls / s.total_calls) * 100).toFixed(1)
-          : "100.0",
+          ? parseFloat(((s.successful_calls / s.total_calls) * 100).toFixed(1))
+          : 100.0,
         avgDurationMs: Math.round(s.avg_duration_ms ?? 0),
         bySlot: bySlot.rows,
         byProvider: byProvider.rows,
-        dailyCosts: daily.rows,
+        dailyCosts: Object.values(dailyMap),
         topUsers: topUsers.rows,
       });
     } catch (error) {
