@@ -4,9 +4,7 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } fro
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { v4 as uuidv4 } from "uuid";
 import * as path from "path";
-import * as os from "os";
-import { fromBuffer } from "pdf2pic";
-import Anthropic from "@anthropic-ai/sdk";
+import { extractTextFromFile } from "../vault-extractor";
 import { requireAuth } from "../auth";
 import { createRateLimiter, apiRateLimiter } from "../rate-limiter";
 import { Pool } from "pg";
@@ -37,17 +35,6 @@ function getBucket(): string {
 }
 async function makeSignedUrl(fileKey: string, expiresIn = 3600): Promise<string> {
   return getSignedUrl(getR2(), new GetObjectCommand({ Bucket: getBucket(), Key: fileKey }), { expiresIn });
-}
-
-// ─── Anthropic helper ─────────────────────────────────────────────────────────
-let _ai: Anthropic | null = null;
-function getAI(): Anthropic {
-  if (!_ai) {
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured.");
-    _ai = new Anthropic({ apiKey });
-  }
-  return _ai;
 }
 
 // ─── DB helper ────────────────────────────────────────────────────────────────
@@ -122,78 +109,19 @@ async function processDocumentWithAI(
   category: string,
   fileName: string,
 ): Promise<{ summary: string; extractedData: Record<string, any>; tags: string[]; suggestedCategory: string; suggestedSubcategory: string; expiryDate: string | null }> {
-  const isImage = ["image/jpeg","image/jpg","image/png","image/webp"].includes(mimetype);
-  const isPdf = mimetype === "application/pdf";
-  const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY);
+  // Step 1: Extract text using smart OCR detection (pdf-parse → tesseract fallback → direct text)
+  const extracted = await extractTextFromFile(buffer, mimetype, fileName);
 
-  // Anthropic path: use for vision-capable analysis (PDFs, images) or when explicitly configured
-  if (hasAnthropicKey) {
-    const ai = getAI();
-    let contentParts: Anthropic.MessageParam["content"] = [];
-
-    if (isPdf) {
-      try {
-        const tmpDir = os.tmpdir();
-        const converter = fromBuffer(buffer, {
-          density: 150,
-          saveFilename: `vault-${Date.now()}`,
-          savePath: tmpDir,
-          format: "png",
-          width: 1200,
-          height: 1600,
-        });
-        const result = await converter(1, { responseType: "buffer" });
-        const pngBase64 = (result.buffer as Buffer).toString("base64");
-        contentParts = [
-          { type: "image", source: { type: "base64", media_type: "image/png", data: pngBase64 } },
-          { type: "text", text: `Analyze this financial document (filename: ${fileName}, category hint: ${category}).` },
-        ];
-      } catch {
-        contentParts = [{ type: "text", text: `This is a PDF financial document: ${fileName}. Category: ${category}. Please analyze it as a general financial document.` }];
-      }
-    } else if (isImage) {
-      const base64 = buffer.toString("base64");
-      const mediaType = (mimetype === "image/jpg" ? "image/jpeg" : mimetype) as "image/jpeg"|"image/png"|"image/webp"|"image/gif";
-      contentParts = [
-        { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-        { type: "text", text: `Analyze this financial document image (filename: ${fileName}, category hint: ${category}).` },
-      ];
-    } else {
-      let textContent = `Financial document: ${fileName}\nCategory: ${category}\nFile type: ${mimetype}\n`;
-      try { textContent += `Content preview: ${buffer.toString("utf8").slice(0, 3000)}`; } catch { /* binary */ }
-      contentParts = [{ type: "text", text: textContent }];
-    }
-
-    const message = await ai.messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 2048,
-      system: DOC_ANALYSIS_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: contentParts }],
-    });
-
-    const rawText = message.content[0]?.type === "text" ? message.content[0].text : "{}";
-    const parsed = parseAIJsonResponse(rawText);
-    return {
-      summary: parsed.summary || "",
-      extractedData: parsed.extractedData || {},
-      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
-      suggestedCategory: parsed.suggestedCategory || category || "other",
-      suggestedSubcategory: parsed.suggestedSubcategory || "",
-      expiryDate: parsed.expiryDate || null,
-    };
-  }
-
-  // DeepSeek fallback: text-only analysis (no vision; skip binary images/PDFs without text)
-  const { deepseek, getModelForTask } = await import("../deepseek");
+  // Step 2: Build prompt content from extracted text (or filename/category if extraction failed)
   let textContent = `Financial document: ${fileName}\nCategory: ${category}\nFile type: ${mimetype}\n`;
-  if (isPdf) {
-    textContent += `Note: This is a PDF document. Analyze based on the filename and category.`;
-  } else if (isImage) {
-    textContent += `Note: This is an image document. Analyze based on the filename and category.`;
+  if (extracted.success && extracted.text.length > 0) {
+    textContent += `\nExtracted text:\n${extracted.text.slice(0, 4000)}`;
   } else {
-    try { textContent += `Content preview: ${buffer.toString("utf8").slice(0, 3000)}`; } catch { /* binary */ }
+    textContent += `\nNote: Could not extract text from this document (${extracted.method}). Analyze based on the filename and category.`;
   }
 
+  // Step 3: Use DeepSeek for AI understanding
+  const { deepseek, getModelForTask } = await import("../deepseek");
   const deepseekResponse = await deepseek.chat.completions.create({
     model: getModelForTask("moderate"),
     messages: [
@@ -471,10 +399,9 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
     if (!question) return res.status(400).json({ error: "question is required" });
 
     if (
-      !process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY &&
       !process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API
     ) {
-      return res.status(503).json({ error: "No AI service configured. Please set ANTHROPIC_API_KEY or DEEPSEEK_API_KEY." });
+      return res.status(503).json({ error: "No AI service configured. Please set DEEPSEEK_API_KEY." });
     }
 
     const result = await db.query("SELECT * FROM vault_documents WHERE id=$1", [req.params.id]);
@@ -501,45 +428,25 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
 
     let answer: string;
 
-    if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY) {
-      // Use Anthropic (Claude) — preferred for document Q&A
-      const messages: Anthropic.MessageParam[] = [];
-      messages.push({ role: "user", content: `Document context:\n${docContext}\n\nNow I have a question about this document.` });
-      messages.push({ role: "assistant", content: "I have reviewed the document details. Please ask your question." });
-      for (const conv of convHistory.rows) {
-        messages.push({ role: "user", content: conv.question });
-        messages.push({ role: "assistant", content: conv.answer });
-      }
-      messages.push({ role: "user", content: question });
-
-      const aiResponse = await getAI().messages.create({
-        model: "claude-sonnet-4-5",
-        max_tokens: 1024,
-        system: vaultSystemPrompt,
-        messages,
-      });
-      answer = aiResponse.content[0]?.type === "text" ? aiResponse.content[0].text : "I was unable to process your question.";
-    } else {
-      // Fall back to DeepSeek (OpenAI-compatible) when Anthropic is not configured
-      const { deepseek, getModelForTask } = await import("../deepseek");
-      const openaiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
-        { role: "system", content: vaultSystemPrompt },
-        { role: "user", content: `Document context:\n${docContext}\n\nNow I have a question about this document.` },
-        { role: "assistant", content: "I have reviewed the document details. Please ask your question." },
-        ...convHistory.rows.flatMap((conv: { question: string; answer: string }) => [
-          { role: "user" as const, content: conv.question },
-          { role: "assistant" as const, content: conv.answer },
-        ]),
-        { role: "user", content: question },
-      ];
-      const aiResponse = await deepseek.chat.completions.create({
-        model: getModelForTask("moderate"),
-        messages: openaiMessages,
-        max_tokens: 1024,
-        temperature: 0.7,
-      });
-      answer = aiResponse.choices[0]?.message?.content || "I was unable to process your question.";
-    }
+    // Use DeepSeek for document Q&A
+    const { deepseek, getModelForTask } = await import("../deepseek");
+    const openaiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
+      { role: "system", content: vaultSystemPrompt },
+      { role: "user", content: `Document context:\n${docContext}\n\nNow I have a question about this document.` },
+      { role: "assistant", content: "I have reviewed the document details. Please ask your question." },
+      ...convHistory.rows.flatMap((conv: { question: string; answer: string }) => [
+        { role: "user" as const, content: conv.question },
+        { role: "assistant" as const, content: conv.answer },
+      ]),
+      { role: "user", content: question },
+    ];
+    const aiResponse = await deepseek.chat.completions.create({
+      model: getModelForTask("moderate"),
+      messages: openaiMessages,
+      max_tokens: 1024,
+      temperature: 0.7,
+    });
+    answer = aiResponse.choices[0]?.message?.content || "I was unable to process your question.";
 
     // Save Q&A
     await db.query(
