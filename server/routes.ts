@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage } from "./storage";
+import { db } from "./db";
 import {
   insertBillSchema, insertExpenseSchema, updateBillSchema, updateExpenseSchema,
   insertIncomeSchema, updateIncomeSchema,
@@ -354,9 +355,7 @@ export async function registerRoutes(
     try {
       const userId = req.session.userId!;
       const { plaidClient } = await import("./plaid");
-      const { deepseek, getModelForTask } = await import("./deepseek");
-
-      // Get existing bills to filter out duplicates
+      const { routeAI } = await import("./ai-router");
       const existingBills = await storage.getBills(userId);
       const existingBillNames = existingBills.map(b => b.name.toLowerCase());
 
@@ -444,18 +443,20 @@ Find patterns that occur 2+ times with similar amounts. For each recurring bill,
 Return JSON: { "bills": [...] }`;
 
         try {
-          const response = await deepseek.chat.completions.create({
-        model: getModelForTask("moderate"),
+          const aiRes = await routeAI({
+            taskSlot: "detection_auto",
+            userId: req.session.userId!,
+            featureContext: "bills_detect",
+            jsonMode: true,
+            temperature: 0.2,
+            maxTokens: 4000,
             messages: [
               { role: "system", content: "You are a financial analyst. Identify recurring payment patterns. Return only valid JSON." },
               { role: "user", content: prompt },
             ],
-            response_format: { type: "json_object" },
-            temperature: 0.2,
-            max_tokens: 4000,
           });
 
-          const result = JSON.parse(response.choices[0].message.content || "{}");
+          const result = JSON.parse(aiRes.content || "{}");
           aiSuggestions = result.bills || [];
         } catch (aiError) {
           console.error("AI analysis error:", aiError);
@@ -811,7 +812,7 @@ Return JSON: { "bills": [...] }`;
     try {
       const userId = req.session.userId!;
       const { plaidClient } = await import("./plaid");
-      const { deepseek, getModelForTask } = await import("./deepseek");
+      const { routeAI } = await import("./ai-router");
 
       // Minimum amount threshold to filter out small transfers (e.g., Etsy sales, refunds)
       const MIN_INCOME_THRESHOLD = 200;
@@ -922,18 +923,20 @@ Find patterns that occur 2+ times with similar amounts (within 10% variance). Fo
 Return JSON: { "income": [...] }`;
 
         try {
-          const response = await deepseek.chat.completions.create({
-        model: getModelForTask("moderate"),
+          const aiRes = await routeAI({
+            taskSlot: "detection_auto",
+            userId: req.session.userId!,
+            featureContext: "income_detect",
+            jsonMode: true,
+            temperature: 0.2,
+            maxTokens: 4000,
             messages: [
               { role: "system", content: "You are a financial analyst. Identify significant recurring income patterns only. Ignore small or one-off deposits. Return only valid JSON." },
               { role: "user", content: prompt },
             ],
-            response_format: { type: "json_object" },
-            temperature: 0.2,
-            max_tokens: 4000,
           });
 
-          const result = JSON.parse(response.choices[0].message.content || "{}");
+          const result = JSON.parse(aiRes.content || "{}");
           aiSuggestions = result.income || [];
         } catch (aiError) {
           console.error("AI income analysis error:", aiError);
@@ -2941,10 +2944,12 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         return res.status(503).json({ error: "AI assistant not configured (DEEPSEEK_API_KEY missing)" });
       }
 
-      const { deepseek } = await import("./deepseek");
-      const aiCompletion = await deepseek.chat.completions.create({
-        model: "deepseek-chat",
-        max_tokens: 1024,
+      const { routeAI } = await import("./ai-router");
+      const aiResult = await routeAI({
+        taskSlot: "support_assistant",
+        userId: req.session.userId!,
+        featureContext: "admin_support_assist",
+        maxTokens: 1024,
         messages: [
           {
             role: "system",
@@ -2957,7 +2962,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         ],
       });
 
-      const aiResponse = aiCompletion.choices[0]?.message?.content || "No response generated";
+      const aiResponse = aiResult.content || "No response generated";
       res.json({ response: aiResponse });
     } catch (error) {
       console.error("AI assist error:", error);
@@ -4551,7 +4556,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         return res.status(400).json({ error: "At least 3 months of spending data required for forecasting." });
       }
 
-      const { deepseek, getModelForTask } = await import("./deepseek");
+      const { routeAI } = await import("./ai-router");
 
       const forecastPrompt = `You are a financial analyst AI. Analyze the following historical spending data by month and category, then forecast spending for the next 12 months.
 
@@ -4592,18 +4597,20 @@ Rules:
 
       const { withAITimeout } = await import("./timeout");
       
-      const response = await withAITimeout(() => deepseek.chat.completions.create({
-        model: getModelForTask("moderate"),
+      const aiRes = await withAITimeout(() => routeAI({
+        taskSlot: "planning_advisor",
+        userId: req.session.userId!,
+        featureContext: "budget_forecast",
+        jsonMode: true,
+        temperature: 0.3,
+        maxTokens: 4000,
         messages: [
           { role: "system", content: "You are a financial forecasting AI. Always respond with valid JSON." },
           { role: "user", content: forecastPrompt },
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_tokens: 4000,
       }));
 
-      const resultText = response.choices[0].message.content || "{}";
+      const resultText = aiRes.content || "{}";
       let parsed: any;
       try {
         parsed = JSON.parse(resultText);
@@ -4728,7 +4735,7 @@ Rules:
         });
       }
 
-      const { deepseek, getModelForTask } = await import("./deepseek");
+      const { routeAI } = await import("./ai-router");
 
       const budgetPrompt = `You are a personal finance advisor. Based on the user's spending history, suggest appropriate monthly budget amounts for each category.
 
@@ -4763,18 +4770,20 @@ Rules:
 - suggestedAmount must be a positive number
 - "type" should reflect whether the category is a necessity, discretionary, or has a savings-opportunity`;
 
-      const response = await deepseek.chat.completions.create({
-        model: getModelForTask("moderate"),
+      const aiRes = await routeAI({
+        taskSlot: "planning_advisor",
+        userId: req.session.userId!,
+        featureContext: "budget_suggest",
+        jsonMode: true,
+        temperature: 0.3,
+        maxTokens: 3000,
         messages: [
           { role: "system", content: "You are a budgeting advisor AI. Always respond with valid JSON." },
           { role: "user", content: budgetPrompt },
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_tokens: 3000,
       });
 
-      const resultText = response.choices[0].message.content || "{}";
+      const resultText = aiRes.content || "{}";
       let parsed: any;
       try {
         parsed = JSON.parse(resultText);
@@ -4874,7 +4883,7 @@ Rules:
       const totalMonthlySpending = Math.max(monthlyExpenses + monthlyBills, monthlyPlaidSpending + monthlyBills);
       const estimatedMonthlySurplus = monthlyIncome - totalMonthlySpending;
 
-      const { deepseek, getModelForTask } = await import("./deepseek");
+      const { routeAI } = await import("./ai-router");
 
       const savingsPrompt = `You are a personal finance advisor helping a user plan their savings goal. Analyze their financial situation and provide a personalized savings plan.
 
@@ -4932,18 +4941,20 @@ Rules:
 - suggestedTimelineMonths should account for the currentAmount already saved
 - If the goal seems unrealistic given their finances, say so honestly and suggest alternatives`;
 
-      const response = await deepseek.chat.completions.create({
-        model: getModelForTask("moderate"),
+      const aiRes = await routeAI({
+        taskSlot: "planning_advisor",
+        userId: req.session.userId!,
+        featureContext: "savings_advisor",
+        jsonMode: true,
+        temperature: 0.4,
+        maxTokens: 3000,
         messages: [
           { role: "system", content: "You are a savings advisor AI. Always respond with valid JSON. Be encouraging but realistic." },
           { role: "user", content: savingsPrompt },
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.4,
-        max_tokens: 3000,
       });
 
-      const resultText = response.choices[0].message.content || "{}";
+      const resultText = aiRes.content || "{}";
       let parsed: any;
       try {
         parsed = JSON.parse(resultText);
@@ -5062,7 +5073,7 @@ Rules:
 
       console.log(`Analyzing ${txSummary.length} transactions for recurring patterns...`);
 
-      const { deepseek, getModelForTask } = await import("./deepseek");
+      const { routeAI } = await import("./ai-router");
 
       const INCOME_CATS = ["Salary", "Freelance", "Business", "Investments", "Rental", "Gifts", "Refunds", "Other"];
       const BILL_CATS = ["Rent", "Internet", "Phone", "Subscriptions", "Utilities", "Insurance", "Loans", "Transportation", "Shopping", "Fitness", "Communications", "Business Expense", "Electrical", "Credit Card", "Line of Credit", "Mortgage", "Entertainment", "Travel", "Maintenance", "Car", "Day Care", "Other"];
@@ -5105,18 +5116,20 @@ Return a JSON object with this structure:
 Transactions:
 ${JSON.stringify(txSummary)}`;
 
-      const response = await deepseek.chat.completions.create({
-        model: getModelForTask("moderate"),
+      const aiRes = await routeAI({
+        taskSlot: "detection_auto",
+        userId: req.session.userId!,
+        featureContext: "subscription_detect",
+        jsonMode: true,
+        temperature: 0.2,
+        maxTokens: 8000,
         messages: [
           { role: "system", content: "You are a thorough financial data analyst. Analyze ALL bank transactions to identify EVERY recurring pattern. Be comprehensive - do not miss any recurring bills or income sources. Return only valid JSON." },
           { role: "user", content: prompt },
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-        max_tokens: 8000,
       });
 
-      const analysisResult = response.choices[0].message.content || "{}";
+      const analysisResult = aiRes.content || "{}";
 
       let parsed: { incomeSources?: any[]; recurringBills?: any[] };
       try {
@@ -7685,12 +7698,18 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const includeReviewed = req.query.includeReviewed === "true";
+      const includeDismissed = req.query.includeDismissed === "true";
 
+      // Legacy transaction anomalies
       const anomalies = await storage.getTransactionAnomalies(userId, {
         includeReviewed,
       });
 
-      res.json(anomalies);
+      // AI-powered anomaly alerts
+      const { getAnomalyAlerts } = await import("./anomaly-detector");
+      const alerts = await getAnomalyAlerts(userId, { includeDismissed });
+
+      res.json({ anomalies, alerts });
     } catch (error) {
       console.error("Error fetching anomalies:", error);
       res.status(500).json({ error: "Failed to fetch anomalies" });
@@ -7716,6 +7735,62 @@ ${JSON.stringify(txSummary)}`;
     } catch (error) {
       console.error("Error reviewing anomaly:", error);
       res.status(500).json({ error: "Failed to review anomaly" });
+    }
+  });
+
+  // ===== ANOMALY ALERTS (anomaly_alerts table — AI-powered) =====
+
+  app.patch("/api/anomalies/:id/dismiss", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { id } = req.params;
+      const { dismissAlert } = await import("./anomaly-detector");
+      const alert = await dismissAlert(id, userId);
+      if (!alert) return res.status(404).json({ error: "Anomaly not found" });
+      res.json(alert);
+    } catch (error) {
+      console.error("Error dismissing anomaly:", error);
+      res.status(500).json({ error: "Failed to dismiss anomaly" });
+    }
+  });
+
+  app.patch("/api/anomalies/:id/resolve", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { id } = req.params;
+      const { resolveAlert } = await import("./anomaly-detector");
+      const alert = await resolveAlert(id, userId);
+      if (!alert) return res.status(404).json({ error: "Anomaly not found" });
+      res.json(alert);
+    } catch (error) {
+      console.error("Error resolving anomaly:", error);
+      res.status(500).json({ error: "Failed to resolve anomaly" });
+    }
+  });
+
+  app.post("/api/admin/anomalies/run-detection", requireAdmin, async (req, res) => {
+    try {
+      const { userId: targetUserId } = req.body;
+      const { detectAnomalies } = await import("./anomaly-detector");
+      if (targetUserId) {
+        const alerts = await detectAnomalies(targetUserId);
+        return res.json({ ran: 1, totalAlerts: alerts.length });
+      }
+      // Run for all users
+      const allUsers = await storage.getUsers();
+      let total = 0;
+      for (const user of allUsers) {
+        try {
+          const alerts = await detectAnomalies(user.id);
+          total += alerts.length;
+        } catch (err) {
+          console.error(`Anomaly detection failed for user ${user.id}:`, err);
+        }
+      }
+      res.json({ ran: allUsers.length, totalAlerts: total });
+    } catch (error) {
+      console.error("Error running anomaly detection:", error);
+      res.status(500).json({ error: "Failed to run anomaly detection" });
     }
   });
 
@@ -10588,6 +10663,220 @@ The Budget Smart AI Team`,
     } catch (error) {
       console.error("Error fetching affiliate settings:", error);
       res.status(500).json({ error: "Failed to fetch affiliate settings" });
+    }
+  });
+
+  // ========== ADMIN AI MANAGEMENT ENDPOINTS ==========
+
+  // GET /api/admin/ai-config — all task slots + model config + registry + 7-day stats
+  app.get("/api/admin/ai-config", requireAdmin, async (_req, res) => {
+    try {
+      const { MODEL_REGISTRY } = await import("./ai-models");
+      const configRows = await (db as any).$client.query(
+        `SELECT mc.*,
+                COALESCE(s.call_count,0) AS call_count,
+                COALESCE(s.total_cost,0) AS total_cost
+         FROM ai_model_config mc
+         LEFT JOIN (
+           SELECT task_slot,
+                  COUNT(*)::int AS call_count,
+                  SUM(estimated_cost_usd)::float AS total_cost
+           FROM ai_usage_log
+           WHERE created_at >= NOW() - INTERVAL '7 days'
+           GROUP BY task_slot
+         ) s ON s.task_slot = mc.task_slot
+         WHERE mc.is_active = true
+         ORDER BY mc.category, mc.task_slot`,
+      );
+      res.json({
+        taskSlots: configRows.rows,
+        registry: MODEL_REGISTRY,
+      });
+    } catch (error) {
+      console.error("Error fetching AI config:", error);
+      res.status(500).json({ error: "Failed to fetch AI config" });
+    }
+  });
+
+  // GET /api/admin/ai-config/models
+  app.get("/api/admin/ai-config/models", requireAdmin, async (_req, res) => {
+    try {
+      const { MODEL_REGISTRY } = await import("./ai-models");
+      res.json(MODEL_REGISTRY);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch model registry" });
+    }
+  });
+
+  // GET /api/admin/ai-config/provider-status
+  app.get("/api/admin/ai-config/provider-status", requireAdmin, async (_req, res) => {
+    const deepseekConfigured = !!process.env.DEEPSEEK_API_KEY;
+    const openaiConfigured = !!process.env.OPENAI_API_KEY;
+    const statuses: Array<{ provider: string; configured: boolean; available: boolean }> = [];
+
+    for (const { provider, configured } of [
+      { provider: "deepseek", configured: deepseekConfigured },
+      { provider: "openai", configured: openaiConfigured },
+    ]) {
+      let available = false;
+      if (configured) {
+        try {
+          const OpenAI = (await import("openai")).default;
+          const client = provider === "deepseek"
+            ? new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com" })
+            : new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+          await client.chat.completions.create({
+            model: provider === "deepseek" ? "deepseek-chat" : "gpt-4o-mini",
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1,
+          });
+          available = true;
+        } catch { /* key invalid or network issue */ }
+      }
+      statuses.push({ provider, configured, available });
+    }
+    res.json(statuses);
+  });
+
+  // PATCH /api/admin/ai-config/:taskSlot
+  app.patch("/api/admin/ai-config/:taskSlot", requireAdmin, async (req, res) => {
+    try {
+      const { taskSlot } = req.params;
+      const { provider, modelId } = req.body;
+      const adminUserId = req.session.userId!;
+
+      if (!provider || !modelId) {
+        return res.status(400).json({ error: "provider and modelId are required" });
+      }
+
+      const { MODEL_REGISTRY, getModelDefinition } = await import("./ai-models");
+      const modelDef = getModelDefinition(provider, modelId);
+      if (!modelDef) {
+        return res.status(400).json({ error: "Unknown model. See /api/admin/ai-config/models" });
+      }
+
+      const { rows } = await (db as any).$client.query(
+        `UPDATE ai_model_config
+         SET provider = $1, model_id = $2, updated_at = NOW(), updated_by = $3
+         WHERE task_slot = $4
+         RETURNING *`,
+        [provider, modelId, adminUserId, taskSlot],
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Task slot not found" });
+      }
+
+      const { invalidateModelConfigCache } = await import("./ai-router");
+      invalidateModelConfigCache();
+
+      res.json({ config: rows[0], model: modelDef });
+    } catch (error) {
+      console.error("Error updating AI config:", error);
+      res.status(500).json({ error: "Failed to update AI config" });
+    }
+  });
+
+  // GET /api/admin/ai-stats/overview?period=
+  app.get("/api/admin/ai-stats/overview", requireAdmin, async (req, res) => {
+    try {
+      const period = (req.query.period as string) || "7days";
+      const intervalMap: Record<string, string> = {
+        today: "1 day",
+        "7days": "7 days",
+        "30days": "30 days",
+        "90days": "90 days",
+        all: "3650 days",
+      };
+      const interval = intervalMap[period] ?? "7 days";
+
+      const summary = await (db as any).$client.query(
+        `SELECT
+           COUNT(*)::int AS total_calls,
+           SUM(estimated_cost_usd)::float AS total_cost,
+           SUM(CASE WHEN success THEN 1 ELSE 0 END)::int AS successful_calls,
+           AVG(duration_ms)::float AS avg_duration_ms
+         FROM ai_usage_log
+         WHERE created_at >= NOW() - INTERVAL '${interval}'`,
+      );
+
+      const bySlot = await (db as any).$client.query(
+        `SELECT task_slot,
+                COUNT(*)::int AS calls,
+                SUM(estimated_cost_usd)::float AS cost,
+                AVG(duration_ms)::float AS avg_ms
+         FROM ai_usage_log
+         WHERE created_at >= NOW() - INTERVAL '${interval}'
+         GROUP BY task_slot
+         ORDER BY cost DESC`,
+      );
+
+      const byProvider = await (db as any).$client.query(
+        `SELECT provider,
+                COUNT(*)::int AS calls,
+                SUM(estimated_cost_usd)::float AS cost
+         FROM ai_usage_log
+         WHERE created_at >= NOW() - INTERVAL '${interval}'
+         GROUP BY provider`,
+      );
+
+      const daily = await (db as any).$client.query(
+        `SELECT DATE(created_at) AS day,
+                provider,
+                SUM(estimated_cost_usd)::float AS cost,
+                COUNT(*)::int AS calls
+         FROM ai_usage_log
+         WHERE created_at >= NOW() - INTERVAL '${interval}'
+         GROUP BY DATE(created_at), provider
+         ORDER BY day`,
+      );
+
+      const topUsers = await (db as any).$client.query(
+        `SELECT user_id,
+                COUNT(*)::int AS calls,
+                SUM(estimated_cost_usd)::float AS cost
+         FROM ai_usage_log
+         WHERE created_at >= NOW() - INTERVAL '${interval}'
+           AND user_id IS NOT NULL
+         GROUP BY user_id
+         ORDER BY cost DESC
+         LIMIT 10`,
+      );
+
+      const s = summary.rows[0];
+      res.json({
+        period,
+        totalCalls: s.total_calls ?? 0,
+        totalCost: s.total_cost ?? 0,
+        successRate: s.total_calls > 0
+          ? ((s.successful_calls / s.total_calls) * 100).toFixed(1)
+          : "100.0",
+        avgDurationMs: Math.round(s.avg_duration_ms ?? 0),
+        bySlot: bySlot.rows,
+        byProvider: byProvider.rows,
+        dailyCosts: daily.rows,
+        topUsers: topUsers.rows,
+      });
+    } catch (error) {
+      console.error("Error fetching AI stats:", error);
+      res.status(500).json({ error: "Failed to fetch AI stats" });
+    }
+  });
+
+  // GET /api/admin/ai-stats/errors — last 100 failed calls
+  app.get("/api/admin/ai-stats/errors", requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await (db as any).$client.query(
+        `SELECT id, user_id, task_slot, provider, model_id,
+                error_message, duration_ms, feature_context, created_at
+         FROM ai_usage_log
+         WHERE success = false
+         ORDER BY created_at DESC
+         LIMIT 100`,
+      );
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch AI errors" });
     }
   });
 

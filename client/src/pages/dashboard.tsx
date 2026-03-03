@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { HelpTooltip } from "@/components/help-tooltip";
@@ -23,7 +23,7 @@ import {
   Wallet, AlertTriangle, PiggyBank, Target, Sparkles, Brain, ChevronRight,
   Building2, ArrowRight, Info, CircleDollarSign, AlertCircle, Home, Smartphone,
   UtensilsCrossed, ShoppingCart, Car, Lightbulb, Tv, ShoppingBag, Heart, Shield, X,
-  BarChart3, type LucideIcon
+  BarChart3, ShieldAlert, type LucideIcon
 } from "lucide-react";
 import { format, addMonths, setDate, isBefore, isAfter, addDays, parseISO, startOfMonth, endOfMonth, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isEqual, setDay } from "date-fns";
 import type { Bill, Income, Budget } from "@shared/schema";
@@ -507,9 +507,19 @@ export default function Dashboard() {
   const [vaultBannerDismissed, setVaultBannerDismissed] = useState(
     () => localStorage.getItem("vault_dashboard_dismissed") === "true"
   );
+  const qc = useQueryClient();
 
   const { data: vaultStats } = useQuery<{ success: boolean; data: { totalFiles: number } }>({
     queryKey: ["/api/vault/storage-stats"],
+  });
+
+  const { data: anomalyData } = useQuery<{ anomalies: unknown[]; alerts: Array<{ id: string; severity: string; title: string; description: string; isDismissed: boolean }> }>({
+    queryKey: ["/api/anomalies"],
+  });
+
+  const dismissAnomalyMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("PATCH", `/api/anomalies/${id}/dismiss`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/anomalies"] }),
   });
 
   // Handle subscription success from Stripe checkout
@@ -688,6 +698,66 @@ export default function Dashboard() {
         budgetSpending={budgetedSpending}
         realSpending={realSpendingFromBank}
       />
+
+      {/* ============================================ */}
+      {/* ANOMALY ALERTS WIDGET                        */}
+      {/* ============================================ */}
+      {(() => {
+        const unresolvedAlerts = (anomalyData?.alerts ?? []).filter((a) => !a.isDismissed);
+        if (unresolvedAlerts.length === 0) return null;
+        const topAlerts = unresolvedAlerts.slice(0, 3);
+        return (
+          <Card className="border-2 border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="h-5 w-5 text-amber-500" />
+                  <CardTitle className="text-sm font-semibold">
+                    Security Alerts
+                    <Badge variant="destructive" className="ml-2 h-5 px-1.5 text-xs">
+                      {unresolvedAlerts.length}
+                    </Badge>
+                  </CardTitle>
+                </div>
+                <Link href="/anomalies">
+                  <Button variant="ghost" size="sm" className="text-xs h-7">
+                    View All <ChevronRight className="h-3 w-3 ml-1" />
+                  </Button>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 space-y-2">
+              {topAlerts.map((alert) => (
+                <div
+                  key={alert.id}
+                  className={`flex items-start justify-between gap-3 p-2 rounded-lg bg-white/60 dark:bg-black/20 border ${alert.severity === "high" ? "border-red-200 dark:border-red-900 animate-pulse" : "border-amber-200 dark:border-amber-900"}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-medium">{alert.title}</span>
+                      <Badge
+                        variant={alert.severity === "high" ? "destructive" : "secondary"}
+                        className="text-xs h-4 px-1 capitalize"
+                      >
+                        {alert.severity}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{alert.description}</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0"
+                    onClick={() => dismissAnomalyMutation.mutate(alert.id)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* ============================================ */}
       {/* SECTION A: REAL CASH FLOW (Your Actual Money) */}

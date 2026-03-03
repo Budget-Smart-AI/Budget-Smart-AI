@@ -1,16 +1,6 @@
 import { extractTextFromFile } from './vault-extractor';
-import OpenAI from 'openai';
+import { routeAI } from './ai-router';
 import { EXPENSE_CATEGORIES } from '@shared/schema';
-
-// Deepseek client for receipt analysis — reuses existing DEEPSEEK_API_KEY.
-// Initialized at module load time; null when the key is not set so that
-// the server starts cleanly and `extractReceiptData` degrades gracefully.
-const deepseekClient = process.env.DEEPSEEK_API_KEY
-  ? new OpenAI({
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseURL: 'https://api.deepseek.com',
-    })
-  : null;
 
 export interface ReceiptData {
   merchant: string;
@@ -33,6 +23,7 @@ export async function extractReceiptData(
   fileBuffer: Buffer,
   mimeType: string,
   fileName: string,
+  userId?: string,
 ): Promise<ReceiptData> {
   const fallback: ReceiptData = {
     merchant: 'Unknown',
@@ -58,10 +49,10 @@ export async function extractReceiptData(
       return { ...fallback, confidence: 0 };
     }
 
-    // Step 2: Deepseek V3 to understand the receipt text
-    if (!deepseekClient) {
+    // Step 2: AI to understand the receipt text
+    if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) {
       console.warn(
-        '[Receipt] Deepseek not configured, returning OCR text only',
+        '[Receipt] No AI provider configured, returning OCR text only',
       );
       return { ...fallback, confidence: 0 };
     }
@@ -99,21 +90,23 @@ export async function extractReceiptData(
 
     const startTime = Date.now();
 
-    const response = await deepseekClient.chat.completions.create({
-      model: 'deepseek-chat',
+    const aiRes = await routeAI({
+      taskSlot: 'receipt_analysis',
+      userId,
+      featureContext: 'receipt_extractor',
+      jsonMode: true,
+      temperature: 0.1,
+      maxTokens: 600,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 600,
-      temperature: 0.1,
-      response_format: { type: 'json_object' },
     });
 
     const duration = Date.now() - startTime;
-    const content = response.choices[0]?.message?.content || '';
+    const content = aiRes.content || '';
 
-    console.log(`[Receipt] Deepseek analysis complete in ${duration}ms`);
+    console.log(`[Receipt] AI analysis complete in ${duration}ms`);
 
     // Clean and parse JSON response
     const cleanJson = content

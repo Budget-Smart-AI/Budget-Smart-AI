@@ -1,9 +1,5 @@
-import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API || "",
-});
+import { routeAI } from "./ai-router";
 
 // System prompt for the sales/support chatbot
 export const SALES_CHATBOT_SYSTEM_PROMPT = `You are BudgetBot, the friendly and helpful guide for BudgetSmart.io - an AI-powered personal finance application that helps people take control of their money.
@@ -127,15 +123,16 @@ export async function salesChat(
   }));
 
   try {
-    const response = await deepseek.chat.completions.create({
-    model: "deepseek-chat",
-      messages: [systemMessage, ...formattedMessages],
+    const aiRes = await routeAI({
+      taskSlot: "support_assistant",
+      featureContext: "sales_chat",
+      jsonMode: true,
       temperature: 0.7,
-      max_tokens: 500,
-      response_format: { type: "json_object" },
+      maxTokens: 500,
+      messages: [systemMessage as { role: "system" | "user" | "assistant"; content: string }, ...formattedMessages.map(m => ({ role: m.role as "system" | "user" | "assistant", content: String(m.content) }))],
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = aiRes.content;
 
     if (!content) {
       return {
