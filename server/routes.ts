@@ -2937,40 +2937,27 @@ Submitted: ${ticket.createdAt}
 --- Conversation ---
 ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")}`;
 
-      const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-      if (!apiKey) {
-        return res.status(503).json({ error: "AI assistant not configured (ANTHROPIC_API_KEY missing)" });
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) {
+        return res.status(503).json({ error: "AI assistant not configured (DEEPSEEK_API_KEY missing)" });
       }
 
-      // Use OpenAI-compatible approach via fetch to Anthropic API
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1024,
-          system: "You are a helpful support assistant for BudgetSmart, a personal finance app. You help the support team respond to user tickets professionally and efficiently. When asked to suggest a response, be empathetic, clear, and solution-focused.",
-          messages: [
-            {
-              role: "user",
-              content: `Here is the support ticket context:\n\n${ticketContext}\n\n---\n\nAdmin question: ${question}`,
-            },
-          ],
-        }),
+      const { deepseek } = await import("./deepseek");
+      const aiCompletion = await deepseek.chat.completions.create({
+        model: "deepseek-chat",
+        max_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content: "You are a support assistant for BudgetSmart. Help the admin team respond to tickets professionally. Be empathetic, clear and solution-focused.",
+          },
+          {
+            role: "user",
+            content: `Here is the support ticket context:\n\n${ticketContext}\n\n---\n\nAdmin question: ${question}`,
+          },
+        ],
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Claude API error:", errorText);
-        return res.status(502).json({ error: "AI assistant request failed" });
-      }
-
-      const data = await response.json() as any;
-      const aiResponse = data?.content?.[0]?.text || "No response generated";
+      const aiResponse = aiCompletion.choices[0]?.message?.content || "No response generated";
       res.json({ response: aiResponse });
     } catch (error) {
       console.error("AI assist error:", error);
