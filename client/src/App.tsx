@@ -55,6 +55,8 @@ import LandingPage from "@/pages/landing";
 import AdminLanding from "@/pages/admin-landing";
 import AdminSalesChat from "@/pages/admin-sales-chat";
 import AdminSupport from "@/pages/admin-support";
+import AdminAIManagement from "@/pages/admin-ai-management";
+import AnomaliesPage from "@/pages/anomalies";
 import AffiliatePage from "@/pages/affiliate";
 import AffiliateTerms from "@/pages/affiliate-terms";
 import SignupPage from "@/pages/signup";
@@ -97,6 +99,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/simulator" component={Simulator} />
       <Route path="/receipts" component={Receipts} />
       <Route path="/vault" component={VaultPage} />
+      <Route path="/anomalies" component={AnomaliesPage} />
       <Route path="/support" component={Support} />
       <Route path="/help" component={Help} />
       {isAdmin && (
@@ -105,6 +108,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
           <Route path="/admin/landing" component={AdminLanding} />
           <Route path="/admin/sales-chat" component={AdminSalesChat} />
           <Route path="/admin/support" component={AdminSupport} />
+          <Route path="/admin/ai-management" component={AdminAIManagement} />
         </>
       )}
       <Route component={NotFound} />

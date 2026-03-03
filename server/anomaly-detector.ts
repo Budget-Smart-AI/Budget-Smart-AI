@@ -106,7 +106,7 @@ export async function detectAnomalies(userId: string): Promise<AnomalyAlert[]> {
 
   if (transactions.length === 0) return [];
 
-  // Build a compact summary for the AI (limit tokens)
+  // Build a compact summary for the AI (limit to 400 transactions ≈ ~3 000 tokens)
   const txSummary = transactions.slice(0, 400).map(t => ({
     id: t.id,
     date: t.date,

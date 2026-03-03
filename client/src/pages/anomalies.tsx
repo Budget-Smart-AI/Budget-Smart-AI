@@ -144,7 +144,7 @@ export default function AnomaliesPage() {
                         : alert.severity === "medium"
                         ? "border-amber-200 dark:border-amber-900"
                         : "border-blue-200 dark:border-blue-900"
-                    } ${alert.severity === "high" ? "animate-pulse-slow" : ""}`}
+                    } ${alert.severity === "high" ? "animate-pulse" : ""}`}
                   >
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-4">

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield } from "lucide-react";
+import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import {
   Sidebar,
@@ -44,6 +44,11 @@ const overviewItems = [
     title: "Reports",
     url: "/reports",
     icon: BarChart3,
+  },
+  {
+    title: "Security Alerts",
+    url: "/anomalies",
+    icon: ShieldAlert,
   },
 ];
 
@@ -174,6 +179,11 @@ const adminMenuItems = [
     title: "Support",
     url: "/admin/support",
     icon: HelpCircle,
+  },
+  {
+    title: "AI Management",
+    url: "/admin/ai-management",
+    icon: Cpu,
   },
 ];
 

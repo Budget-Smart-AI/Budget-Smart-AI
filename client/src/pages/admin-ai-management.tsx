@@ -128,7 +128,8 @@ function fmtCost(n: number) {
 }
 
 function fmtPct(n: number) {
-  // Handle both decimal (0–1) and already-percentage (> 1) formats from the API
+  // successRate from /api/admin/ai-stats/overview is already a string percentage like "95.2";
+  // ai_confidence from anomaly_alerts is a decimal 0–1. Support both formats.
   const pct = (n ?? 0) > 1 ? n : n * 100;
   return `${pct.toFixed(1)}%`;
 }

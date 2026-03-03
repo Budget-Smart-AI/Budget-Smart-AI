@@ -10781,14 +10781,15 @@ The Budget Smart AI Team`,
   app.get("/api/admin/ai-stats/overview", requireAdmin, async (req, res) => {
     try {
       const period = (req.query.period as string) || "7days";
-      const intervalMap: Record<string, string> = {
-        today: "1 day",
-        "7days": "7 days",
-        "30days": "30 days",
-        "90days": "90 days",
-        all: "3650 days",
+      // Use integer days as a parameterized value to avoid any string interpolation
+      const daysMap: Record<string, number> = {
+        today: 1,
+        "7days": 7,
+        "30days": 30,
+        "90days": 90,
+        all: 3650,
       };
-      const interval = intervalMap[period] ?? "7 days";
+      const days = daysMap[period] ?? 7;
 
       const summary = await (db as any).$client.query(
         `SELECT
@@ -10797,7 +10798,8 @@ The Budget Smart AI Team`,
            SUM(CASE WHEN success THEN 1 ELSE 0 END)::int AS successful_calls,
            AVG(duration_ms)::float AS avg_duration_ms
          FROM ai_usage_log
-         WHERE created_at >= NOW() - INTERVAL '${interval}'`,
+         WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')`,
+        [days],
       );
 
       const bySlot = await (db as any).$client.query(
@@ -10806,9 +10808,10 @@ The Budget Smart AI Team`,
                 SUM(estimated_cost_usd)::float AS cost,
                 AVG(duration_ms)::float AS avg_ms
          FROM ai_usage_log
-         WHERE created_at >= NOW() - INTERVAL '${interval}'
+         WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
          GROUP BY task_slot
          ORDER BY cost DESC`,
+        [days],
       );
 
       const byProvider = await (db as any).$client.query(
@@ -10816,8 +10819,9 @@ The Budget Smart AI Team`,
                 COUNT(*)::int AS calls,
                 SUM(estimated_cost_usd)::float AS cost
          FROM ai_usage_log
-         WHERE created_at >= NOW() - INTERVAL '${interval}'
+         WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
          GROUP BY provider`,
+        [days],
       );
 
       const daily = await (db as any).$client.query(
@@ -10826,9 +10830,10 @@ The Budget Smart AI Team`,
                 SUM(estimated_cost_usd)::float AS cost,
                 COUNT(*)::int AS calls
          FROM ai_usage_log
-         WHERE created_at >= NOW() - INTERVAL '${interval}'
+         WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
          GROUP BY DATE(created_at), provider
          ORDER BY day`,
+        [days],
       );
 
       const topUsers = await (db as any).$client.query(
@@ -10836,11 +10841,12 @@ The Budget Smart AI Team`,
                 COUNT(*)::int AS calls,
                 SUM(estimated_cost_usd)::float AS cost
          FROM ai_usage_log
-         WHERE created_at >= NOW() - INTERVAL '${interval}'
+         WHERE created_at >= NOW() - ($1 * INTERVAL '1 day')
            AND user_id IS NOT NULL
          GROUP BY user_id
          ORDER BY cost DESC
          LIMIT 10`,
+        [days],
       );
 
       const s = summary.rows[0];

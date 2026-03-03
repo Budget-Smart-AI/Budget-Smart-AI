@@ -1,4 +1,3 @@
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { routeAI } from "./ai-router";
 
 // System prompt for the sales/support chatbot
@@ -112,15 +111,14 @@ export async function salesChat(
   messages: { role: "user" | "assistant"; content: string }[],
   sessionId: string
 ): Promise<SalesChatResponse> {
-  const systemMessage: ChatCompletionMessageParam = {
-    role: "system",
-    content: SALES_CHATBOT_SYSTEM_PROMPT + `\n\nSession ID: ${sessionId}\nCurrent Date: ${new Date().toISOString().split("T")[0]}`
-  };
+  const systemContent = SALES_CHATBOT_SYSTEM_PROMPT + `\n\nSession ID: ${sessionId}\nCurrent Date: ${new Date().toISOString().split("T")[0]}`;
 
-  const formattedMessages: ChatCompletionMessageParam[] = messages.map(m => ({
-    role: m.role,
-    content: m.content
-  }));
+  // Build a typed message array for routeAI
+  type AIRole = "system" | "user" | "assistant";
+  const allMessages: Array<{ role: AIRole; content: string }> = [
+    { role: "system", content: systemContent },
+    ...messages.map(m => ({ role: m.role as AIRole, content: m.content })),
+  ];
 
   try {
     const aiRes = await routeAI({
@@ -129,7 +127,7 @@ export async function salesChat(
       jsonMode: true,
       temperature: 0.7,
       maxTokens: 500,
-      messages: [systemMessage as { role: "system" | "user" | "assistant"; content: string }, ...formattedMessages.map(m => ({ role: m.role as "system" | "user" | "assistant", content: String(m.content) }))],
+      messages: allMessages,
     });
 
     const content = aiRes.content;
