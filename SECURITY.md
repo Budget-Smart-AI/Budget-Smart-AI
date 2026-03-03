@@ -158,16 +158,34 @@ Users can:
 
 1. **Environment Variables**:
    - Use strong, random values for SESSION_SECRET
-   - Never commit secrets to version control
-   - Rotate secrets periodically
+   - **Never commit secrets to version control** — use Railway environment variables and GitHub Actions secrets instead
+   - Rotate secrets periodically, and immediately if they are ever accidentally exposed
 
-2. **Infrastructure**:
+2. **Secrets Management — Correct Architecture**:
+   - **Railway** is the authoritative store for all runtime secrets (database URLs, API keys, etc.)
+     - Set them in the Railway dashboard: _Project → Variables_
+     - Railway encrypts variables at rest and injects them into containers at runtime
+   - **GitHub Actions secrets** hold the same values so that the `setup.yml` workflow can push them into Railway programmatically
+     - Navigate to _Repository → Settings → Secrets and variables → Actions → New repository secret_
+     - **GitHub Actions secrets are NOT the same as Railway variables** — they must be kept in sync manually
+     - If they drift (e.g. a secret is rotated in Railway but not updated in GitHub Actions), the next `setup.yml` run will overwrite Railway with the stale value; always update both at the same time
+     - **Recommended rotation workflow**: (1) generate new credential, (2) update GitHub Actions secret, (3) update Railway dashboard variable, (4) re-deploy
+   - All CI/CD workflows reference secrets via `${{ secrets.VAR_NAME }}` — never hardcoded values
+   - See `.env.example` for the complete list of required variable names
+
+3. **AWS KMS Encryption at Rest**:
+   - Plaid `access_token` values are encrypted with AWS KMS before being written to the database
+   - To activate: set `AWS_KMS_KEY_ID`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` in Railway
+   - Verify encryption is active: `GET /api/kms/status` (admin-only endpoint)
+   - The KMS key ARN and AWS account ID must never be hardcoded in source files
+
+4. **Infrastructure**:
    - Deploy behind HTTPS load balancer
    - Enable HSTS headers
    - Configure CSP headers
    - Enable audit logging
 
-3. **Monitoring**:
+5. **Monitoring**:
    - Log authentication attempts
    - Alert on unusual access patterns
    - Regular security audits

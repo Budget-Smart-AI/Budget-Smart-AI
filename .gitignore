@@ -4,3 +4,10 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Environment / credential files — NEVER commit real secrets
+.env
+.env.*
+!.env.example
+SESSION_SECRET.txt
+*.local
