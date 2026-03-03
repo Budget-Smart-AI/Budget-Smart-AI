@@ -55,7 +55,8 @@ import {
   type PaydayRecommendation, type InsertPaydayRecommendation,
   type Receipt, type InsertReceipt,
   type SupportTicket, type InsertSupportTicket,
-  supportTickets,
+  type SupportTicketMessage, type InsertSupportTicketMessage,
+  supportTickets, supportTicketMessages,
   users, bills, expenses, income, budgets, savingsGoals,
   plaidItems, plaidAccounts, plaidTransactions,
   mxMembers, mxAccounts, mxTransactions,
@@ -518,7 +519,13 @@ export interface IStorage {
   // Support Tickets
   createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket>;
   getSupportTickets(): Promise<SupportTicket[]>;
+  getSupportTicketById(id: string): Promise<SupportTicket | undefined>;
+  getSupportTicketByNumber(ticketNumber: string): Promise<SupportTicket | undefined>;
+  getSupportTicketsByUserId(userId: string): Promise<SupportTicket[]>;
   updateSupportTicket(id: string, updates: Partial<SupportTicket>): Promise<SupportTicket | undefined>;
+  // Support Ticket Messages
+  createSupportTicketMessage(msg: InsertSupportTicketMessage): Promise<SupportTicketMessage>;
+  getMessagesByTicketId(ticketId: string): Promise<SupportTicketMessage[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -1094,7 +1101,14 @@ export class MemStorage implements IStorage {
     return { id: randomUUID(), ...ticket, status: ticket.status || "open", emailSent: ticket.emailSent || "false", createdAt: new Date().toISOString() } as SupportTicket;
   }
   async getSupportTickets(): Promise<SupportTicket[]> { return []; }
+  async getSupportTicketById(_id: string): Promise<SupportTicket | undefined> { return undefined; }
+  async getSupportTicketByNumber(_ticketNumber: string): Promise<SupportTicket | undefined> { return undefined; }
+  async getSupportTicketsByUserId(_userId: string): Promise<SupportTicket[]> { return []; }
   async updateSupportTicket(_id: string, _updates: Partial<SupportTicket>): Promise<SupportTicket | undefined> { return undefined; }
+  async createSupportTicketMessage(msg: InsertSupportTicketMessage): Promise<SupportTicketMessage> {
+    return { id: randomUUID(), ...msg, createdAt: new Date().toISOString() } as SupportTicketMessage;
+  }
+  async getMessagesByTicketId(_ticketId: string): Promise<SupportTicketMessage[]> { return []; }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3537,6 +3551,7 @@ export class DatabaseStorage implements IStorage {
       status: ticket.status || "open",
       emailSent: ticket.emailSent || "false",
       createdAt: ticket.createdAt || new Date().toISOString(),
+      updatedAt: ticket.updatedAt || new Date().toISOString(),
     }).returning();
     return result[0];
   }
@@ -3545,9 +3560,42 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(supportTickets).orderBy(desc(supportTickets.createdAt));
   }
 
-  async updateSupportTicket(id: string, updates: Partial<SupportTicket>): Promise<SupportTicket | undefined> {
-    const result = await db.update(supportTickets).set(updates).where(eq(supportTickets.id, id)).returning();
+  async getSupportTicketById(id: string): Promise<SupportTicket | undefined> {
+    const result = await db.select().from(supportTickets).where(eq(supportTickets.id, id));
     return result[0];
+  }
+
+  async getSupportTicketByNumber(ticketNumber: string): Promise<SupportTicket | undefined> {
+    const result = await db.select().from(supportTickets).where(eq(supportTickets.ticketNumber, ticketNumber));
+    return result[0];
+  }
+
+  async getSupportTicketsByUserId(userId: string): Promise<SupportTicket[]> {
+    return db.select().from(supportTickets)
+      .where(eq(supportTickets.userId, userId))
+      .orderBy(desc(supportTickets.createdAt));
+  }
+
+  async updateSupportTicket(id: string, updates: Partial<SupportTicket>): Promise<SupportTicket | undefined> {
+    const result = await db.update(supportTickets)
+      .set({ ...updates, updatedAt: new Date().toISOString() })
+      .where(eq(supportTickets.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async createSupportTicketMessage(msg: InsertSupportTicketMessage): Promise<SupportTicketMessage> {
+    const result = await db.insert(supportTicketMessages).values({
+      ...msg,
+      createdAt: msg.createdAt || new Date().toISOString(),
+    }).returning();
+    return result[0];
+  }
+
+  async getMessagesByTicketId(ticketId: string): Promise<SupportTicketMessage[]> {
+    return db.select().from(supportTicketMessages)
+      .where(eq(supportTicketMessages.ticketId, ticketId))
+      .orderBy(supportTicketMessages.createdAt);
   }
 }
 
