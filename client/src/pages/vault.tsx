@@ -230,7 +230,7 @@ function UploadModal({ open, onClose, onSuccess }: { open: boolean; onClose: () 
       displayName: f.name.replace(/\.[^.]+$/, ""),
       category: guessCategory(f.name),
       expiryDate: "",
-      id: Math.random().toString(36).slice(2),
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     }));
     setFiles(prev => [...prev, ...mapped].slice(0, 10));
   };
