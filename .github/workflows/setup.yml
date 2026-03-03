@@ -21,6 +21,9 @@ jobs:
       - name: Set all environment variables
         run: |
           railway variables --set "SESSION_SECRET=${{ secrets.SESSION_SECRET }}" || true
+          railway variables --set "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" || true
+          railway variables --set "USER_PASSWORD=${{ secrets.USER_PASSWORD }}" || true
+          railway variables --set "DEMO_PASSWORD=${{ secrets.DEMO_PASSWORD }}" || true
           railway variables --set "PLAID_CLIENT_ID=${{ secrets.PLAID_CLIENT_ID }}" || true
           railway variables --set "PLAID_SECRET=${{ secrets.PLAID_SECRET }}" || true
           railway variables --set "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" || true
@@ -31,15 +34,25 @@ jobs:
           railway variables --set "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}" || true
           railway variables --set "STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}" || true
           railway variables --set "POSTMARK_SERVER_TOKEN=${{ secrets.POSTMARK_SERVER_TOKEN }}" || true
+          railway variables --set "POSTMARK_USERNAME=${{ secrets.POSTMARK_USERNAME }}" || true
+          railway variables --set "POSTMARK_PASSWORD=${{ secrets.POSTMARK_PASSWORD }}" || true
           railway variables --set "ALPHA_ADVANTAGE_API=${{ secrets.ALPHA_ADVANTAGE_API }}" || true
           railway variables --set "ALERT_EMAIL_TO=${{ secrets.ALERT_EMAIL_TO }}" || true
           railway variables --set "ALERT_EMAIL_FROM=${{ secrets.ALERT_EMAIL_FROM }}" || true
+          railway variables --set "SUPPORT_EMAIL=${{ secrets.SUPPORT_EMAIL }}" || true
+          railway variables --set "SALES_EMAIL=${{ secrets.SALES_EMAIL }}" || true
           railway variables --set "GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}" || true
           railway variables --set "GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}" || true
+          railway variables --set "R2_ACCESS_KEY_ID=${{ secrets.R2_ACCESS_KEY_ID }}" || true
+          railway variables --set "R2_SECRET_ACCESS_KEY=${{ secrets.R2_SECRET_ACCESS_KEY }}" || true
+          railway variables --set "R2_ENDPOINT=${{ secrets.R2_ENDPOINT }}" || true
+          railway variables --set "R2_BUCKET_NAME=${{ secrets.R2_BUCKET_NAME }}" || true
           railway variables --set "AWS_KMS_KEY_ID=${{ secrets.AWS_KMS_KEY_ID }}" || true
           railway variables --set "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" || true
           railway variables --set "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" || true
           railway variables --set "AWS_REGION=${{ secrets.AWS_REGION }}" || true
+          railway variables --set "MAIN_DOMAIN=${{ secrets.MAIN_DOMAIN }}" || true
+          railway variables --set "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" || true
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}

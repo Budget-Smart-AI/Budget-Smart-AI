@@ -4,7 +4,7 @@ import { storage } from "./storage";
 
 // DeepSeek configuration - uses OpenAI-compatible API
 export const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.OPENAI_API || "not-configured",
+  apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.OPENAI_API || "",
   baseURL: "https://api.deepseek.com", // DeepSeek API endpoint
   timeout: 55000, // 55 second timeout (slightly under the 60s outer AI_TIMEOUT_MS)
   maxRetries: 2, // Retry failed requests
