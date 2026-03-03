@@ -33,6 +33,7 @@ import { analyzePortfolio, getDetailedHoldingAnalysis, getInvestmentAdvice } fro
 import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
+import vaultRouter from "./routes/vault";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -112,6 +113,7 @@ export async function registerRoutes(
 
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
+  app.use("/api/vault", vaultRouter);
 
   // Test route for debugging landing page API
   app.get("/api/landing-test", (_req, res) => res.json({ test: "ok" }));

@@ -17,7 +17,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -134,6 +134,10 @@ app.use((req, res, next) => {
 
   await ensureSupportTables().catch(err =>
     console.error("Failed to ensure support tables — support ticket system will not work:", err)
+  );
+
+  await ensureVaultTables().catch(err =>
+    console.error("Failed to ensure vault tables — Financial Vault will not work:", err)
   );
 
   await registerRoutes(httpServer, app);
