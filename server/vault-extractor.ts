@@ -1,6 +1,7 @@
 import pdfParse from 'pdf-parse';
 import Tesseract from 'tesseract.js';
 import { fromBuffer } from 'pdf2pic';
+import { withTimeout } from './timeout';
 
 export interface ExtractionResult {
   text: string;
@@ -56,7 +57,11 @@ export async function extractTextFromFile(
         preserveAspectRatio: true,
       });
 
-      const pageImage = await converter(1, { responseType: 'buffer' });
+      const pageImage = await withTimeout(
+        converter(1, { responseType: 'buffer' }),
+        30000,
+        'PDF to image conversion timed out',
+      );
 
       if (!pageImage?.buffer) {
         throw new Error('PDF to image conversion returned empty buffer');
