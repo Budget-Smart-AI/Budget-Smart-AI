@@ -7770,7 +7770,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.post("/api/admin/anomalies/run-detection", requireAdmin, async (req, res) => {
     try {
-      const { userId: targetUserId } = req.body;
+      const { userId: targetUserId } = req.body || {};
       const { detectAnomalies } = await import("./anomaly-detector");
       if (targetUserId) {
         const alerts = await detectAnomalies(targetUserId);
