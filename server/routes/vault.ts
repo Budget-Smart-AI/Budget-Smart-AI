@@ -8,6 +8,7 @@ import { extractTextFromFile } from "../vault-extractor";
 import { requireAuth } from "../auth";
 import { createRateLimiter, apiRateLimiter } from "../rate-limiter";
 import { Pool } from "pg";
+import { sendEmailViaPostmark } from "../email";
 
 const router = express.Router();
 
@@ -586,15 +587,7 @@ export async function checkVaultExpiryNotifications(): Promise<void> {
       const daysRemaining = Math.ceil((expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
       const fromEmail = process.env.ALERT_EMAIL_FROM;
-      if (!fromEmail || !process.env.POSTMARK_SERVER) continue;
-
-      const nodemailer = await import("nodemailer");
-      const transporter = nodemailer.default.createTransport({
-        host: process.env.POSTMARK_SERVER,
-        port: 587,
-        secure: false,
-        auth: { user: process.env.POSTMARK_USERNAME, pass: process.env.POSTMARK_PASSWORD },
-      });
+      if (!fromEmail || !process.env.POSTMARK_USERNAME) continue;
 
       const subject = `⚠️ Document Expiring Soon: ${doc.display_name || doc.file_name}`;
       const body = `Hello,
@@ -613,7 +606,7 @@ Best regards,
 BudgetSmart AI`;
 
       try {
-        await transporter.sendMail({ from: fromEmail, to: doc.email, subject, text: body });
+        await sendEmailViaPostmark({ from: fromEmail, to: doc.email, subject, text: body });
         await db.query("UPDATE vault_documents SET expiry_notified=true WHERE id=$1", [doc.id]);
         console.log(`[Vault] Expiry notification sent for doc ${doc.id}`);
       } catch (emailErr) {
