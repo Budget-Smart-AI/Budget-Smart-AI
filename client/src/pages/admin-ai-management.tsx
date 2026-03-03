@@ -128,7 +128,7 @@ function fmtCost(n: number) {
 }
 
 function fmtPct(n: number) {
-  // successRate from /api/admin/ai-stats/overview is already a string percentage like "95.2";
+  // successRate from /api/admin/ai-stats/overview is a numeric percentage (e.g. 95.2).
   // ai_confidence from anomaly_alerts is a decimal 0–1. Support both formats.
   const pct = (n ?? 0) > 1 ? n : n * 100;
   return `${pct.toFixed(1)}%`;
