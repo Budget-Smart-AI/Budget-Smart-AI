@@ -112,6 +112,11 @@ async function logUsage(
  * Route an AI call to the configured provider/model for the given task slot.
  * Falls back to deepseek-chat if the config table is unavailable.
  */
+/** Invalidate the in-memory model config cache (call after admin updates a slot). */
+export function invalidateModelConfigCache(): void {
+  configCache = null;
+}
+
 export async function routeAI(options: AIRouterOptions): Promise<AIRouterResult> {
   const { taskSlot, messages, userId, maxTokens = 1024, temperature = 0.7, featureContext, jsonMode } = options;
 

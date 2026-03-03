@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema";
 import { startAiCoachScheduler } from "./ai-coach";
 import { checkVaultExpiryNotifications } from "./routes/vault";
+import { db } from "./db";
 
 // Lazy Postmark HTTP client – avoids crashes when POSTMARK_USERNAME is absent.
 // Uses the HTTP API instead of SMTP so it works on Railway (which blocks SMTP).
@@ -234,12 +235,31 @@ export function startEmailScheduler(): void {
     checkAndSendWeeklyDigests().catch(console.error);
     checkAndSendMonthlyReports().catch(console.error);
     checkVaultExpiryNotifications().catch(console.error);
+    // Run data retention cleanup weekly (every Sunday)
+    if (new Date().getDay() === 0) {
+      runDataRetentionCleanup().catch(console.error);
+    }
   }, oneDayMs);
 
   console.log("Email scheduler started - checking reminders, weekly digests, and monthly reports daily");
 
   // Start AI Coach scheduler
   startAiCoachScheduler();
+}
+
+/** Weekly data retention cleanup — removes stale AI logs and dismissed anomaly alerts. */
+async function runDataRetentionCleanup(): Promise<void> {
+  try {
+    const r1 = await (db as any).$client.query(
+      `DELETE FROM ai_usage_log WHERE created_at < NOW() - INTERVAL '90 days'`,
+    );
+    const r2 = await (db as any).$client.query(
+      `DELETE FROM anomaly_alerts WHERE is_dismissed = true AND dismissed_at < NOW() - INTERVAL '180 days'`,
+    );
+    console.log(`[Retention] Deleted ${r1.rowCount} AI log rows and ${r2.rowCount} dismissed anomaly alerts`);
+  } catch (err) {
+    console.error("[Retention] Data retention cleanup failed:", err);
+  }
 }
 
 // Generate weekly financial summary

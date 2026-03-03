@@ -110,6 +110,7 @@ async function processDocumentWithAI(
   mimetype: string,
   category: string,
   fileName: string,
+  userId?: string,
 ): Promise<{ summary: string; extractedData: Record<string, any>; tags: string[]; suggestedCategory: string; suggestedSubcategory: string; expiryDate: string | null }> {
   // Step 1: Extract text using smart OCR detection (pdf-parse → tesseract fallback → direct text)
   const extracted = await extractTextFromFile(buffer, mimetype, fileName);
@@ -122,19 +123,21 @@ async function processDocumentWithAI(
     textContent += `\nNote: Could not extract text from this document (${extracted.method}). Analyze based on the filename and category.`;
   }
 
-  // Step 3: Use DeepSeek for AI understanding
-  const { deepseek, getModelForTask } = await import("../deepseek");
-  const deepseekResponse = await deepseek.chat.completions.create({
-    model: getModelForTask("moderate"),
+  // Step 3: Use AI for document understanding
+  const { routeAI } = await import("../ai-router");
+  const aiRes = await routeAI({
+    taskSlot: "vault_ai",
+    userId,
+    featureContext: "vault_extraction",
+    maxTokens: 2048,
+    temperature: 0.3,
     messages: [
       { role: "system", content: DOC_ANALYSIS_SYSTEM_PROMPT },
       { role: "user", content: textContent },
     ],
-    max_tokens: 2048,
-    temperature: 0.3,
   });
 
-  const rawText = deepseekResponse.choices[0]?.message?.content || "{}";
+  const rawText = aiRes.content || "{}";
   const parsed = parseAIJsonResponse(rawText);
   return {
     summary: parsed.summary || "",
@@ -210,7 +213,7 @@ router.post("/upload", requireAuth, uploadRateLimiter, upload.array("file", 10),
       (async () => {
         try {
           const ai = await withTimeout(
-            processDocumentWithAI(file.buffer, file.mimetype, category, file.originalname),
+            processDocumentWithAI(file.buffer, file.mimetype, category, file.originalname, userId),
             120000,
             "Document AI analysis timed out",
           );
@@ -436,9 +439,9 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
 
     let answer: string;
 
-    // Use DeepSeek for document Q&A
-    const { deepseek, getModelForTask } = await import("../deepseek");
-    const openaiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
+    // Use AI for document Q&A
+    const { routeAI } = await import("../ai-router");
+    const qaMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
       { role: "system", content: vaultSystemPrompt },
       { role: "user", content: `Document context:\n${docContext}\n\nNow I have a question about this document.` },
       { role: "assistant", content: "I have reviewed the document details. Please ask your question." },
@@ -448,13 +451,15 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
       ]),
       { role: "user", content: question },
     ];
-    const aiResponse = await deepseek.chat.completions.create({
-      model: getModelForTask("moderate"),
-      messages: openaiMessages,
-      max_tokens: 1024,
+    const aiRes = await routeAI({
+      taskSlot: "vault_ai",
+      userId,
+      featureContext: "vault_chat",
+      maxTokens: 1024,
       temperature: 0.7,
+      messages: qaMessages,
     });
-    answer = aiResponse.choices[0]?.message?.content || "I was unable to process your question.";
+    answer = aiRes.content || "I was unable to process your question.";
 
     // Save Q&A
     await db.query(
@@ -550,7 +555,7 @@ router.post("/documents/:id/reprocess", requireAuth, vaultRateLimiter, async (re
     const buffer = Buffer.concat(chunks);
 
     const ai = await withTimeout(
-      processDocumentWithAI(buffer, doc.mime_type, doc.category, doc.file_name),
+      processDocumentWithAI(buffer, doc.mime_type, doc.category, doc.file_name, userId),
       120000,
       "Document AI analysis timed out",
     );
