@@ -138,6 +138,17 @@ export async function ensureVaultTables(): Promise<void> {
       ADD COLUMN IF NOT EXISTS ai_processing_status VARCHAR(20) DEFAULT 'pending'
   `);
 
+  // Fix documents that have an ai_summary but still show 'pending' status.
+  // This can happen when the column was added retroactively (ADD COLUMN DEFAULT 'pending')
+  // to rows that were already processed before the column existed.
+  await pool.query(`
+    UPDATE vault_documents
+    SET ai_processing_status = 'completed'
+    WHERE ai_processing_status = 'pending'
+      AND ai_summary IS NOT NULL
+      AND ai_summary != ''
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS vault_ai_conversations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

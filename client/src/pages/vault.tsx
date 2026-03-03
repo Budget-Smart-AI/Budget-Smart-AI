@@ -643,7 +643,7 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed">{currentDoc.ai_summary}</p>
                 </div>
-              ) : (
+              ) : currentDoc.ai_processing_status !== "completed" ? (
                 <div className="rounded-xl border bg-amber-500/5 p-4 flex items-center gap-3">
                   <Loader2 className="h-5 w-5 animate-spin text-amber-400 shrink-0" />
                   <div>
@@ -651,7 +651,7 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
                     <p className="text-xs text-muted-foreground">This usually takes a few seconds</p>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Extracted data */}
               {extractedData && Object.keys(extractedData).length > 0 && (
