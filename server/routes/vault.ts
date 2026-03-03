@@ -8,7 +8,7 @@ import * as os from "os";
 import { fromBuffer } from "pdf2pic";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireAuth } from "../auth";
-import { createRateLimiter } from "../rate-limiter";
+import { createRateLimiter, apiRateLimiter } from "../rate-limiter";
 import { Pool } from "pg";
 
 const router = express.Router();
@@ -599,7 +599,6 @@ export async function checkVaultExpiryNotifications(): Promise<void> {
         port: 587,
         secure: false,
         auth: { user: process.env.POSTMARK_USERNAME, pass: process.env.POSTMARK_PASSWORD },
-        tls: { rejectUnauthorized: false },
       });
 
       const subject = `⚠️ Document Expiring Soon: ${doc.display_name || doc.file_name}`;
