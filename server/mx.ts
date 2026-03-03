@@ -1,28 +1,20 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
 
-// DEBUG: Log which MX API we're using
-console.log(`[MX DEBUG] NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
-console.log(`[MX DEBUG] MX_CLIENT_ID: ${process.env.MX_CLIENT_ID ? 'SET' : 'NOT SET'}`);
-console.log(`[MX DEBUG] MX_API_KEY: ${process.env.MX_API_KEY ? 'SET' : 'NOT SET'}`);
-
-// TEMPORARY FIX (2026-02-18): Hardcoded to development API due to Railway env var caching issue
-// TODO: When production MX keys arrive, revert to dynamic environment-based URL selection
-// const MX_API_BASE_URL = process.env.NODE_ENV === "production" 
-//   ? "https://api.mx.com" 
-//   : "https://int-api.mx.com"; // Integration/Development environment
-
-const MX_API_BASE_URL = "https://int-api.mx.com"; // Development API (temporary hardcode)
-
-console.log(`[MX DEBUG] Using MX API base URL: ${MX_API_BASE_URL} (TEMPORARY: Hardcoded to development)`);
-
 const MX_CLIENT_ID = process.env.MX_CLIENT_ID;
 const MX_API_KEY = process.env.MX_API_KEY;
 
 if (!MX_CLIENT_ID || !MX_API_KEY) {
-  console.warn("Warning: MX_CLIENT_ID or MX_API_KEY not set. MX integration will not work.");
-} else {
-  console.log(`[MX DEBUG] MX credentials loaded successfully`);
+  console.warn("[MX] Warning: MX_CLIENT_ID or MX_API_KEY not set. MX integration will not work.");
 }
+
+// Select API base URL from environment; fall back to the integration (dev) endpoint
+// so the application starts cleanly without crashing.
+const MX_API_BASE_URL = process.env.MX_API_BASE_URL ||
+  (process.env.NODE_ENV === "production"
+    ? "https://api.mx.com"
+    : "https://int-api.mx.com");
+
+console.log(`[MX] Using API base URL: ${MX_API_BASE_URL} (NODE_ENV=${process.env.NODE_ENV || "not set"})`);
 
 const mxClient: AxiosInstance = axios.create({
   baseURL: MX_API_BASE_URL,

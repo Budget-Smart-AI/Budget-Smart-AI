@@ -1,10 +1,11 @@
 // AWS KMS Service for BudgetSmart AI
-// Provides encryption/decryption for sensitive data using AWS KMS
+// Provides encryption/decryption for sensitive data using AWS KMS SDK
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { KMSClient, EncryptCommand, DecryptCommand, DescribeKeyCommand } from "@aws-sdk/client-kms";
 
-const execAsync = promisify(exec);
+// Prefix added to every KMS-encrypted value so we can detect ciphertext vs.
+// legacy plaintext in the database (backward-compatibility).
+const KMS_PREFIX = "KMS_ENC:";
 
 export interface EncryptedField {
   ciphertext: string;
@@ -23,156 +24,143 @@ export interface KMSKeyMetadata {
 export class AWSKMSService {
   private region: string;
   private keyId: string;
+  private client: KMSClient | null = null;
 
   constructor() {
-    this.region = process.env.AWS_REGION || 'us-east-1';
-    this.keyId = process.env.AWS_KMS_KEY_ID || 'arn:aws:kms:us-east-1:345148435194:key/67316091-4ef2-4e39-9684-7af483c9eaeb';
-    
+    this.region = process.env.AWS_REGION || "us-east-1";
+    this.keyId = process.env.AWS_KMS_KEY_ID || "";
+
     if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-      console.warn('AWS credentials not found in environment variables');
+      console.warn("[KMS] AWS credentials not found in environment variables — KMS encryption is disabled");
+    }
+    if (!this.keyId) {
+      console.warn("[KMS] AWS_KMS_KEY_ID not set — KMS encryption is disabled");
     }
   }
 
+  /** Returns true when all required credentials are present. */
+  isConfigured(): boolean {
+    return !!(
+      process.env.AWS_ACCESS_KEY_ID &&
+      process.env.AWS_SECRET_ACCESS_KEY &&
+      this.keyId
+    );
+  }
+
+  private getClient(): KMSClient {
+    if (!this.client) {
+      this.client = new KMSClient({
+        region: this.region,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+        },
+      });
+    }
+    return this.client;
+  }
+
   /**
-   * Encrypt data using AWS KMS
-   * @param plaintext - Data to encrypt
-   * @returns Base64 encoded ciphertext
+   * Encrypt plaintext using AWS KMS.
+   * Returns a prefixed base64-encoded ciphertext blob.
    */
   async encrypt(plaintext: string): Promise<string> {
-    try {
-      // Convert plaintext to base64
-      const base64Plaintext = Buffer.from(plaintext).toString('base64');
-      
-      // Execute AWS CLI encrypt command
-      const command = `aws kms encrypt \
-        --key-id "${this.keyId}" \
-        --plaintext "${base64Plaintext}" \
-        --region "${this.region}" \
-        --output text \
-        --query CiphertextBlob`;
-      
-      const { stdout } = await execAsync(command);
-      return stdout.trim();
-    } catch (error) {
-      console.error('AWS KMS Encryption Error:', error);
-      throw new Error(`Encryption failed: ${error instanceof Error ? error.message : String(error)}`);
+    const command = new EncryptCommand({
+      KeyId: this.keyId,
+      Plaintext: Buffer.from(plaintext),
+    });
+    const response = await this.getClient().send(command);
+    if (!response.CiphertextBlob) {
+      throw new Error("KMS encrypt returned no ciphertext");
     }
+    return KMS_PREFIX + Buffer.from(response.CiphertextBlob).toString("base64");
   }
 
   /**
-   * Decrypt data using AWS KMS
-   * @param ciphertextBlob - Base64 encoded ciphertext
-   * @returns Decrypted plaintext
+   * Decrypt a ciphertext blob previously produced by encrypt().
+   * Strips the prefix before decryption.
    */
   async decrypt(ciphertextBlob: string): Promise<string> {
-    try {
-      // Create temporary file with ciphertext
-      const tempFile = `/tmp/kms_ciphertext_${Date.now()}.bin`;
-      const decodeCommand = `echo "${ciphertextBlob}" | base64 -d > ${tempFile}`;
-      await execAsync(decodeCommand);
-      
-      // Execute AWS CLI decrypt command
-      const command = `aws kms decrypt \
-        --ciphertext-blob fileb://${tempFile} \
-        --region "${this.region}" \
-        --output text \
-        --query Plaintext`;
-      
-      const { stdout } = await execAsync(command);
-      
-      // Clean up temp file
-      await execAsync(`rm -f ${tempFile}`);
-      
-      // Decode base64 result
-      const plaintextBase64 = stdout.trim();
-      return Buffer.from(plaintextBase64, 'base64').toString();
-    } catch (error) {
-      console.error('AWS KMS Decryption Error:', error);
-      throw new Error(`Decryption failed: ${error instanceof Error ? error.message : String(error)}`);
+    const base64 = ciphertextBlob.startsWith(KMS_PREFIX)
+      ? ciphertextBlob.slice(KMS_PREFIX.length)
+      : ciphertextBlob;
+    const command = new DecryptCommand({
+      CiphertextBlob: Buffer.from(base64, "base64"),
+    });
+    const response = await this.getClient().send(command);
+    if (!response.Plaintext) {
+      throw new Error("KMS decrypt returned no plaintext");
     }
+    return Buffer.from(response.Plaintext).toString();
   }
 
   /**
-   * Describe the KMS key
-   * @returns Key information
+   * Returns true if the value was encrypted by this service
+   * (i.e. carries the KMS_ENC: prefix).
+   */
+  static isEncrypted(value: string): boolean {
+    return value.startsWith(KMS_PREFIX);
+  }
+
+  /**
+   * Describe the KMS key to verify it exists and is enabled.
    */
   async describeKey(): Promise<{ KeyMetadata: KMSKeyMetadata }> {
-    try {
-      const keyId = this.keyId.split('/').pop(); // Extract key ID from ARN
-      const command = `aws kms describe-key \
-        --key-id "${keyId}" \
-        --region "${this.region}" \
-        --output json`;
-      
-      const { stdout } = await execAsync(command);
-      return JSON.parse(stdout);
-    } catch (error) {
-      console.error('AWS KMS Describe Key Error:', error);
-      throw new Error(`Describe key failed: ${error instanceof Error ? error.message : String(error)}`);
+    const command = new DescribeKeyCommand({ KeyId: this.keyId });
+    const response = await this.getClient().send(command);
+    if (!response.KeyMetadata) {
+      throw new Error("DescribeKey returned no metadata");
     }
+    return {
+      KeyMetadata: {
+        KeyId: response.KeyMetadata.KeyId ?? "",
+        Arn: response.KeyMetadata.Arn ?? "",
+        KeyState: response.KeyMetadata.KeyState ?? "",
+        Enabled: response.KeyMetadata.Enabled ?? false,
+        Description: response.KeyMetadata.Description,
+      },
+    };
   }
 
   /**
-   * Test KMS connectivity
-   * @returns True if KMS is accessible
+   * Test KMS connectivity — returns true if the key is accessible and enabled.
+   * Never throws; returns false on any error.
    */
   async testConnection(): Promise<boolean> {
+    if (!this.isConfigured()) return false;
     try {
-      const keyInfo = await this.describeKey();
-      return keyInfo.KeyMetadata && keyInfo.KeyMetadata.KeyState === 'Enabled';
-    } catch (error) {
-      console.warn('KMS connection test failed:', error);
+      const info = await this.describeKey();
+      return info.KeyMetadata.Enabled;
+    } catch {
       return false;
     }
   }
 
   /**
-   * Encrypt sensitive field (for database storage)
-   * @param fieldValue - Field value to encrypt
-   * @returns Encrypted result with metadata
+   * Encrypt a sensitive field for database storage.
+   * When KMS is not configured, returns the plaintext unchanged with a warning.
    */
-  async encryptField(fieldValue: string): Promise<EncryptedField> {
-    const ciphertext = await this.encrypt(fieldValue);
-    return {
-      ciphertext,
-      keyId: this.keyId,
-      encryptedAt: new Date().toISOString()
-    };
-  }
-
-  /**
-   * Decrypt sensitive field (from database)
-   * @param ciphertext - Encrypted field value
-   * @returns Decrypted field value
-   */
-  async decryptField(ciphertext: string): Promise<string> {
-    return await this.decrypt(ciphertext);
-  }
-
-  /**
-   * Generate data key for client-side encryption
-   * @returns Base64 encoded data key
-   */
-  async generateDataKey(): Promise<{ plaintext: string; ciphertext: string }> {
-    try {
-      const keyId = this.keyId.split('/').pop();
-      const command = `aws kms generate-data-key \
-        --key-id "${keyId}" \
-        --key-spec AES_256 \
-        --region "${this.region}" \
-        --output json`;
-      
-      const { stdout } = await execAsync(command);
-      const result = JSON.parse(stdout);
-      
-      return {
-        plaintext: result.Plaintext,
-        ciphertext: result.CiphertextBlob
-      };
-    } catch (error) {
-      console.error('AWS KMS Generate Data Key Error:', error);
-      throw new Error(`Generate data key failed: ${error instanceof Error ? error.message : String(error)}`);
+  async encryptField(fieldValue: string): Promise<string> {
+    if (!this.isConfigured()) {
+      console.warn("[KMS] Storing field without encryption (KMS not configured)");
+      return fieldValue;
     }
+    return this.encrypt(fieldValue);
+  }
+
+  /**
+   * Decrypt a field retrieved from the database.
+   * If the value does not carry the KMS prefix (legacy plaintext), returns it as-is.
+   */
+  async decryptField(value: string): Promise<string> {
+    if (!AWSKMSService.isEncrypted(value)) {
+      // Legacy plaintext — not yet encrypted; return as-is
+      return value;
+    }
+    if (!this.isConfigured()) {
+      throw new Error("[KMS] Cannot decrypt: KMS is not configured");
+    }
+    return this.decrypt(value);
   }
 }
 

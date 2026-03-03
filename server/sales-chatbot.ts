@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API || "not-configured",
+  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API || "",
 });
 
 // System prompt for the sales/support chatbot

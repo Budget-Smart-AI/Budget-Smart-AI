@@ -60,6 +60,7 @@ import AffiliateTerms from "@/pages/affiliate-terms";
 import SignupPage from "@/pages/signup";
 import Simulator from "@/pages/simulator";
 import Receipts from "@/pages/receipts";
+import VaultPage from "@/pages/vault";
 import NotFound from "@/pages/not-found";
 import DemoPage from "@/pages/demo";
 import { Loader2 } from "lucide-react";
@@ -95,6 +96,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/split-expenses" component={SplitExpenses} />
       <Route path="/simulator" component={Simulator} />
       <Route path="/receipts" component={Receipts} />
+      <Route path="/vault" component={VaultPage} />
       <Route path="/support" component={Support} />
       <Route path="/help" component={Help} />
       {isAdmin && (

@@ -105,3 +105,44 @@ export async function ensureReceiptsTable(): Promise<void> {
     )
   `);
 }
+
+export async function ensureVaultTables(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vault_documents (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR(255) NOT NULL,
+      file_name VARCHAR(500) NOT NULL,
+      display_name VARCHAR(500),
+      file_key VARCHAR(1000) NOT NULL,
+      file_size BIGINT,
+      file_type VARCHAR(100),
+      mime_type VARCHAR(200),
+      category VARCHAR(100) DEFAULT 'other',
+      subcategory VARCHAR(100),
+      description TEXT,
+      extracted_data JSONB,
+      ai_summary TEXT,
+      tags TEXT[],
+      expiry_date DATE,
+      expiry_notified BOOLEAN DEFAULT false,
+      is_favorite BOOLEAN DEFAULT false,
+      uploaded_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vault_ai_conversations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR(255) NOT NULL,
+      document_id UUID REFERENCES vault_documents(id) ON DELETE CASCADE,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vault_docs_user ON vault_documents(user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vault_docs_category ON vault_documents(user_id, category)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vault_docs_expiry ON vault_documents(expiry_date) WHERE expiry_date IS NOT NULL`);
+}

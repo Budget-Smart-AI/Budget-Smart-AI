@@ -22,7 +22,7 @@ import {
   DollarSign, Receipt, CreditCard, Calendar, TrendingUp, TrendingDown, 
   Wallet, AlertTriangle, PiggyBank, Target, Sparkles, Brain, ChevronRight,
   Building2, ArrowRight, Info, CircleDollarSign, AlertCircle, Home, Smartphone,
-  UtensilsCrossed, ShoppingCart, Car, Lightbulb, Tv, ShoppingBag, Heart, Shield,
+  UtensilsCrossed, ShoppingCart, Car, Lightbulb, Tv, ShoppingBag, Heart, Shield, X,
   BarChart3, type LucideIcon
 } from "lucide-react";
 import { format, addMonths, setDate, isBefore, isAfter, addDays, parseISO, startOfMonth, endOfMonth, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isEqual, setDay } from "date-fns";
@@ -504,6 +504,13 @@ export default function Dashboard() {
   const { toast } = useToast();
   const [location, navigate] = useLocation();
   const [showAIHelper, setShowAIHelper] = useState(false);
+  const [vaultBannerDismissed, setVaultBannerDismissed] = useState(
+    () => localStorage.getItem("vault_dashboard_dismissed") === "true"
+  );
+
+  const { data: vaultStats } = useQuery<{ success: boolean; data: { totalFiles: number } }>({
+    queryKey: ["/api/vault/storage-stats"],
+  });
 
   // Handle subscription success from Stripe checkout
   useEffect(() => {
@@ -868,6 +875,54 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* The Gap - Visual Comparison */}
+      {!vaultBannerDismissed && vaultStats?.data?.totalFiles === 0 && (
+        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-amber-500/20 via-amber-400/10 to-transparent p-5">
+          <button
+            className="absolute top-3 right-3 p-1 rounded-full hover:bg-muted text-muted-foreground"
+            onClick={() => {
+              setVaultBannerDismissed(true);
+              localStorage.setItem("vault_dashboard_dismissed", "true");
+            }}
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <div className="flex flex-col sm:flex-row gap-4 pr-8">
+            <div className="flex items-start gap-3 flex-1">
+              <div className="h-11 w-11 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <Shield className="h-5 w-5 text-amber-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5 font-semibold">NEW</span>
+                  <h3 className="font-bold">🔒 Financial Vault</h3>
+                </div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Store all your financial documents securely with unlimited storage. AI reads and understands every document so you can ask questions instantly.
+                </p>
+                <ul className="space-y-1 mb-4">
+                  {[
+                    "Tax returns, insurance policies, warranties & more",
+                    "Ask AI questions about any document",
+                    "Auto-alerts before documents expire",
+                    "Unlimited storage — included free with your plan",
+                  ].map(item => (
+                    <li key={item} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                      <span className="text-amber-400 mt-0.5">✓</span>{item}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/vault">
+                  <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white">
+                    Explore Financial Vault →
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* The Gap - Visual Comparison */}
       <Card className="border-2 border-dashed">

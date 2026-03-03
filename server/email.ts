@@ -3,6 +3,7 @@ import { format, setDate, isBefore, addMonths, addDays, addWeeks, setDay, subDay
 import { storage } from "./storage";
 import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema";
 import { startAiCoachScheduler } from "./ai-coach";
+import { checkVaultExpiryNotifications } from "./routes/vault";
 
 // Lazy SMTP transporter – only created once POSTMARK_SERVER is confirmed
 // present so that missing env vars can never crash the process at import time.
@@ -205,6 +206,7 @@ export function startEmailScheduler(): void {
   checkAndSendReminders().catch(console.error);
   checkAndSendWeeklyDigests().catch(console.error);
   checkAndSendMonthlyReports().catch(console.error);
+  checkVaultExpiryNotifications().catch(console.error);
 
   // Then run every 24 hours (once per day)
   const oneDayMs = 24 * 60 * 60 * 1000;
@@ -212,6 +214,7 @@ export function startEmailScheduler(): void {
     checkAndSendReminders().catch(console.error);
     checkAndSendWeeklyDigests().catch(console.error);
     checkAndSendMonthlyReports().catch(console.error);
+    checkVaultExpiryNotifications().catch(console.error);
   }, oneDayMs);
 
   console.log("Email scheduler started - checking reminders, weekly digests, and monthly reports daily");

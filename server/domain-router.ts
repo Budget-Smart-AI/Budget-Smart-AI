@@ -4,7 +4,7 @@ import fs from "fs";
 
 // Domain configuration
 const APP_SUBDOMAIN = "app";
-const MAIN_DOMAIN = "budgetsmart.io";
+const MAIN_DOMAIN = process.env.MAIN_DOMAIN || "budgetsmart.io";
 
 /**
  * Check if the request is for the main landing page domain

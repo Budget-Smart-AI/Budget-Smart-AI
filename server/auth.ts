@@ -136,14 +136,19 @@ export async function loadHouseholdIntoSession(req: Request): Promise<void> {
 }
 
 export async function initializeUser(): Promise<void> {
-  const username = "mahabir";
-  const passwordEnv = process.env.USER_PASSWORD;
+  const username = process.env.ADMIN_USERNAME;
+  const password = process.env.USER_PASSWORD;
 
-  if (!passwordEnv) {
-    console.log("Warning: USER_PASSWORD not set. Using default password 'changeme123'");
+  if (!username || !password) {
+    console.error(
+      "[SECURITY] ADMIN_USERNAME and USER_PASSWORD must be set via environment variables. " +
+      "Skipping admin user creation to prevent insecure defaults. " +
+      "Set both variables in Railway and restart."
+    );
+    // Still initialize the demo user even if admin setup is skipped
+    await initializeDemoUser();
+    return;
   }
-
-  const password = passwordEnv || "changeme123";
 
   const existingUser = await storage.getUserByUsername(username);
   if (!existingUser) {
@@ -167,11 +172,17 @@ export async function initializeUser(): Promise<void> {
 }
 
 async function initializeDemoUser(): Promise<void> {
+  const demoPassword = process.env.DEMO_PASSWORD;
+  if (!demoPassword) {
+    console.warn("[SECURITY] DEMO_PASSWORD is not set — skipping demo user creation.");
+    return;
+  }
+
   const demoUsername = "demo";
   const existingDemo = await storage.getUserByUsername(demoUsername);
   
   if (!existingDemo) {
-    const hashedPassword = await hashPassword("demo123");
+    const hashedPassword = await hashPassword(demoPassword);
     // Use direct SQL for demo user creation since we need special fields like isDemo
     const { db } = await import("./db");
     const { users } = await import("@shared/schema");

@@ -1,5 +1,13 @@
 name: Setup Railway Environment
 
+# This workflow pushes secrets stored in GitHub Actions Secrets into Railway.
+# To use it:
+#   1. Add each secret to GitHub → Settings → Secrets and variables → Actions.
+#   2. Run this workflow manually from the Actions tab.
+#
+# NEVER put real credential values directly in this file.
+# All values must come from GitHub Actions secrets (${{ secrets.* }}).
+
 on:
   workflow_dispatch:
 
@@ -9,24 +17,42 @@ jobs:
     steps:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
-      
+
       - name: Set all environment variables
         run: |
-          railway variables --set "SESSION_SECRET=4leOXx1Z83w+RYnQ76joXQ2vbEK3yW15Qd1P0+yfShvjDJ4uJIIZ9bamPfOUUopLhHt6t2bIao4wH4PmgI66kQ==" || true
-          railway variables --set "PLAID_CLIENT_ID=6971432601d9cf0022e4f61a" || true
-          railway variables --set "PLAID_SECRET=f951fe294437c97dee35b68dd590a8" || true
-          railway variables --set "OPENAI_API_KEY=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" || true
-          railway variables --set "MX_API_KEY=1398d4847113a4037ae5b4444cf2fc2eefb9a5da" || true
-          railway variables --set "MX_CLIENT_ID=ffbb4d6b-f101-4d7f-aa39-4f6fa12435fc" || true
-          railway variables --set "MX_BASIC_AUTH_VALUE=ZmZiYjRkNmItZjEwMS00ZDdmLWFhMzktNGY2ZmExMjQzNWZjOjEzOThkNDg0NzExM2E0MDM3YWU1YjQ0NDRjZjJmYzJlZWZiOWE1ZGE=" || true
-          railway variables --set "DEEPSEEK_API_KEY=sk-2cdc03f1879b4dabb4aa04a49e4931bf" || true
-          railway variables --set "STRIPE_SECRET_KEY=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" || true
-          railway variables --set "STRIPE_WEBHOOK_SECRET=whsec_aOMgYppdwRZbbgwtPZQDdnTxqfv2yZcK" || true  
-          railway variables --set "POSTMARK_SERVER_TOKEN=5d826404-9161-4ea0-93be-d661a933ed51" || true
-          railway variables --set "ALPHA_ADVANTAGE_API=13Y5MPJF1HKFIDEV" || true
-          railway variables --set "ALERT_EMAIL_TO=ryan@mahabir.pro" || true
-          railway variables --set "ALERT_EMAIL_FROM=support@budgetsmart.io" || true
-          railway variables --set "GOOGLE_OAUTH_CLIENT_ID=453107768189-57rrd7frrabue5rcoq1nijavj06inp54.apps.googleusercontent.com" || true
-          railway variables --set "GOOGLE_OAUTH_CLIENT_SECRET=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" || true
+          railway variables --set "SESSION_SECRET=${{ secrets.SESSION_SECRET }}" || true
+          railway variables --set "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" || true
+          railway variables --set "USER_PASSWORD=${{ secrets.USER_PASSWORD }}" || true
+          railway variables --set "DEMO_PASSWORD=${{ secrets.DEMO_PASSWORD }}" || true
+          railway variables --set "PLAID_CLIENT_ID=${{ secrets.PLAID_CLIENT_ID }}" || true
+          railway variables --set "PLAID_SECRET=${{ secrets.PLAID_SECRET }}" || true
+          railway variables --set "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" || true
+          railway variables --set "MX_API_KEY=${{ secrets.MX_API_KEY }}" || true
+          railway variables --set "MX_CLIENT_ID=${{ secrets.MX_CLIENT_ID }}" || true
+          railway variables --set "MX_BASIC_AUTH_VALUE=${{ secrets.MX_BASIC_AUTH_VALUE }}" || true
+          railway variables --set "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}" || true
+          railway variables --set "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}" || true
+          railway variables --set "STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}" || true
+          railway variables --set "POSTMARK_SERVER_TOKEN=${{ secrets.POSTMARK_SERVER_TOKEN }}" || true
+          railway variables --set "POSTMARK_USERNAME=${{ secrets.POSTMARK_USERNAME }}" || true
+          railway variables --set "POSTMARK_PASSWORD=${{ secrets.POSTMARK_PASSWORD }}" || true
+          railway variables --set "ALPHA_ADVANTAGE_API=${{ secrets.ALPHA_ADVANTAGE_API }}" || true
+          railway variables --set "ALERT_EMAIL_TO=${{ secrets.ALERT_EMAIL_TO }}" || true
+          railway variables --set "ALERT_EMAIL_FROM=${{ secrets.ALERT_EMAIL_FROM }}" || true
+          railway variables --set "SUPPORT_EMAIL=${{ secrets.SUPPORT_EMAIL }}" || true
+          railway variables --set "SALES_EMAIL=${{ secrets.SALES_EMAIL }}" || true
+          railway variables --set "GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}" || true
+          railway variables --set "GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}" || true
+          railway variables --set "R2_ACCESS_KEY_ID=${{ secrets.R2_ACCESS_KEY_ID }}" || true
+          railway variables --set "R2_SECRET_ACCESS_KEY=${{ secrets.R2_SECRET_ACCESS_KEY }}" || true
+          railway variables --set "R2_ENDPOINT=${{ secrets.R2_ENDPOINT }}" || true
+          railway variables --set "R2_BUCKET_NAME=${{ secrets.R2_BUCKET_NAME }}" || true
+          railway variables --set "AWS_KMS_KEY_ID=${{ secrets.AWS_KMS_KEY_ID }}" || true
+          railway variables --set "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" || true
+          railway variables --set "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" || true
+          railway variables --set "AWS_REGION=${{ secrets.AWS_REGION }}" || true
+          railway variables --set "MAIN_DOMAIN=${{ secrets.MAIN_DOMAIN }}" || true
+          railway variables --set "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" || true
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}

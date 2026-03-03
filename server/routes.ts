@@ -33,6 +33,8 @@ import { analyzePortfolio, getDetailedHoldingAnalysis, getInvestmentAdvice } fro
 import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
+import vaultRouter from "./routes/vault";
+import { awsKmsService, AWSKMSService } from "./aws-kms";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -107,11 +109,37 @@ export async function registerRoutes(
   // Start the email scheduler
   startEmailScheduler();
 
+  // Startup validation — warn about missing email routing configuration
+  if (!process.env.SUPPORT_EMAIL && !process.env.ALERT_EMAIL_TO) {
+    console.warn("[CONFIG] Neither SUPPORT_EMAIL nor ALERT_EMAIL_TO is set. Contact-form and support-ticket emails will not be delivered.");
+  }
+  if (!process.env.SALES_EMAIL && !process.env.ALERT_EMAIL_TO) {
+    console.warn("[CONFIG] Neither SALES_EMAIL nor ALERT_EMAIL_TO is set. Sales-lead notification emails will not be delivered.");
+  }
+
   // Health check endpoint for deployment monitoring
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
+  app.use("/api/vault", vaultRouter);
+
+  // KMS encryption status endpoint (admin only)
+  app.get("/api/kms/status", requireAuth, requireAdmin, async (_req, res) => {
+    const configured = awsKmsService.isConfigured();
+    const connected = configured ? await awsKmsService.testConnection() : false;
+    res.json({
+      configured,
+      connected,
+      keyConfigured: !!process.env.AWS_KMS_KEY_ID,
+      region: process.env.AWS_REGION || "us-east-1",
+      message: !configured
+        ? "KMS is not configured. Set AWS_KMS_KEY_ID, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY to enable encryption."
+        : connected
+        ? "KMS is active. New Plaid access tokens are encrypted at rest."
+        : "KMS credentials are set but the key could not be reached. Check AWS_KMS_KEY_ID and IAM permissions.",
+    });
+  });
 
   // Test route for debugging landing page API
   app.get("/api/landing-test", (_req, res) => res.json({ test: "ok" }));
@@ -2536,9 +2564,15 @@ Return JSON: { "income": [...] }`;
         return res.status(500).json({ error: "Email not configured on this server" });
       }
 
+      const supportTo = process.env.SUPPORT_EMAIL || process.env.ALERT_EMAIL_TO;
+      if (!supportTo) {
+        console.error("[CONFIG] Cannot send contact-form email: SUPPORT_EMAIL and ALERT_EMAIL_TO are not set.");
+        return res.status(500).json({ error: "Email routing not configured on this server" });
+      }
+
       await contactTransporter.sendMail({
         from: fromEmail,
-        to: "support@budgetsmart.io",
+        to: supportTo,
         replyTo: email,
         subject: `[Budget Smart AI Contact] ${subject}`,
         text: `Name: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
@@ -2654,11 +2688,15 @@ Return JSON: { "income": [...] }`;
 
       let emailSent = false;
       if (supportTransporter && fromEmail) {
+        const supportTo = process.env.SUPPORT_EMAIL || process.env.ALERT_EMAIL_TO;
+        if (!supportTo) {
+          console.error("[CONFIG] Cannot send ticket notification: SUPPORT_EMAIL and ALERT_EMAIL_TO are not set.");
+        } else {
         // Notify admin
         try {
           await supportTransporter.sendMail({
             from: fromEmail,
-            to: "support@budgetsmart.io",
+            to: supportTo,
             replyTo: email,
             subject: `[New Ticket #${ticketNumber}] ${subject}`,
             html: buildEmailHtml(`New ${typeLabel}: #${ticketNumber}`, `
@@ -2728,6 +2766,7 @@ Return JSON: { "income": [...] }`;
         } catch (err) {
           console.error("Support user confirmation email failed:", err);
         }
+        } // end else (supportTo configured)
       }
 
       if (emailSent) {
@@ -2852,11 +2891,12 @@ Return JSON: { "income": [...] }`;
       const fromEmail = process.env.ALERT_EMAIL_FROM;
       const transporter = fromEmail ? getContactTransporter() : null;
       if (transporter && fromEmail && ticket.email) {
+        const supportReplyTo = process.env.SUPPORT_EMAIL || process.env.ALERT_EMAIL_TO || fromEmail;
         try {
           await transporter.sendMail({
             from: fromEmail,
             to: ticket.email,
-            replyTo: "support@budgetsmart.io",
+            replyTo: supportReplyTo,
             subject: `[BudgetSmart Support #${ticket.ticketNumber || ticket.id}] New response from support team`,
             html: buildEmailHtml("You have a new response!", `
               <p style="color:#94a3b8;font-size:14px;line-height:1.6;">
@@ -3086,10 +3126,11 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       try {
         const fromEmail = process.env.ALERT_EMAIL_FROM;
         const salesTransporter = getContactTransporter();
-        if (fromEmail && salesTransporter) {
+        const salesTo = process.env.SALES_EMAIL || process.env.ALERT_EMAIL_TO;
+        if (fromEmail && salesTransporter && salesTo) {
           await salesTransporter.sendMail({
             from: fromEmail,
-            to: "sales@budgetsmart.io",
+            to: salesTo,
             replyTo: parsed.data.email,
             subject: `[Sales Lead] ${parsed.data.name} - Chat Inquiry`,
             text: `New sales lead from chat:\n\nName: ${parsed.data.name}\nEmail: ${parsed.data.email}\n\nQuestion:\n${parsed.data.question}\n\nView conversation: ${process.env.APP_URL || "https://app.budgetsmart.io"}/admin/sales-chat?session=${sessionId}`,

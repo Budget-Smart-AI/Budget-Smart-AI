@@ -9,7 +9,10 @@ const execAsync = promisify(exec);
 class AWSKMSCLIService {
   constructor() {
     this.region = process.env.AWS_REGION || 'us-east-1';
-    this.keyId = process.env.AWS_KMS_KEY_ID || 'arn:aws:kms:us-east-1:345148435194:key/67316091-4ef2-4e39-9684-7af483c9eaeb';
+    this.keyId = process.env.AWS_KMS_KEY_ID || '';
+    if (!this.keyId) {
+      console.warn('[KMS] AWS_KMS_KEY_ID is not set — KMS operations will fail. Set this environment variable to enable encryption.');
+    }
   }
 
   /**

@@ -158,21 +158,87 @@ Users can:
 
 1. **Environment Variables**:
    - Use strong, random values for SESSION_SECRET
-   - Never commit secrets to version control
-   - Rotate secrets periodically
+   - **Never commit secrets to version control** — use Railway environment variables and GitHub Actions secrets instead
+   - Rotate secrets periodically, and immediately if they are ever accidentally exposed
 
-2. **Infrastructure**:
+2. **Secrets Management — Correct Architecture**:
+   - **Railway** is the authoritative store for all runtime secrets (database URLs, API keys, etc.)
+     - Set them in the Railway dashboard: _Project → Variables_
+     - Railway encrypts variables at rest and injects them into containers at runtime
+   - **GitHub Actions secrets** hold the same values so that the `setup.yml` workflow can push them into Railway programmatically
+     - Navigate to _Repository → Settings → Secrets and variables → Actions → New repository secret_
+     - **GitHub Actions secrets are NOT the same as Railway variables** — they must be kept in sync manually
+     - If they drift (e.g. a secret is rotated in Railway but not updated in GitHub Actions), the next `setup.yml` run will overwrite Railway with the stale value; always update both at the same time
+     - **Recommended rotation workflow**: (1) generate new credential, (2) update GitHub Actions secret, (3) update Railway dashboard variable, (4) re-deploy
+   - All CI/CD workflows reference secrets via `${{ secrets.VAR_NAME }}` — never hardcoded values
+   - See `.env.example` for the complete list of required variable names
+
+3. **AWS KMS Encryption at Rest**:
+   - Plaid `access_token` values are encrypted with AWS KMS before being written to the database
+   - To activate: set `AWS_KMS_KEY_ID`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` in Railway
+   - Verify encryption is active: `GET /api/kms/status` (admin-only endpoint)
+   - The KMS key ARN and AWS account ID must never be hardcoded in source files
+
+4. **Infrastructure**:
    - Deploy behind HTTPS load balancer
    - Enable HSTS headers
    - Configure CSP headers
    - Enable audit logging
 
-3. **Monitoring**:
+5. **Monitoring**:
    - Log authentication attempts
    - Alert on unusual access patterns
    - Regular security audits
 
-## 7. Contact
+## 7. SOC 2 & NIST Compliance — Secrets Management
+
+BudgetSmart AI is designed to meet SOC 2 Type II and NIST SP 800-53 / NIST CSF requirements for credential and secret management.
+
+### Relevant NIST Controls
+
+| Control | Requirement | Implementation |
+|---------|-------------|----------------|
+| IA-5 | Authenticator Management — no default passwords | `ADMIN_USERNAME` / `USER_PASSWORD` / `DEMO_PASSWORD` are **required** env vars; the application refuses to create accounts if they are absent |
+| SC-28 | Protection of Information at Rest | Plaid access tokens encrypted with AWS KMS before DB storage; passwords hashed with bcrypt (12 rounds) |
+| SC-8 | Transmission Confidentiality | All traffic over TLS 1.2/1.3; HTTPS enforced |
+| SA-3 / CM-3 | Secrets in source code | Zero hardcoded credentials; all secrets injected at runtime via Railway env vars |
+| AU-2 | Audit Events | Authentication attempts logged; KMS operations logged via AWS CloudTrail |
+| AC-2 | Account Management | Admin accounts only created when explicit credentials are set; no default/fallback passwords |
+
+### SOC 2 Trust Service Criteria
+
+| Criteria | How it is met |
+|----------|---------------|
+| CC6.1 — Logical access controls | Credentials stored exclusively in Railway (encrypted at rest); never in source code or build artifacts |
+| CC6.2 — Credential management | No shared/default passwords; each credential is unique and rotated on a defined schedule |
+| CC6.3 — Access removal | Railway variables can be instantly revoked; AWS IAM policies enforce least-privilege KMS access |
+| CC7.2 — System monitoring | Missing credentials log clear errors at startup; `GET /api/kms/status` provides real-time encryption verification |
+| CC9.2 — Vendor risk management | Third-party credentials (Plaid, Stripe, OpenAI, etc.) are each isolated in their own env var with no cross-service defaults |
+
+### Credential Inventory
+
+All credentials are documented in `.env.example` with placeholder values. The following categories must each be set in Railway:
+
+- **Database**: `DATABASE_URL`
+- **Session**: `SESSION_SECRET`
+- **Admin account**: `ADMIN_USERNAME`, `USER_PASSWORD`, `DEMO_PASSWORD`
+- **Banking**: `PLAID_CLIENT_ID`, `PLAID_SECRET`, `MX_CLIENT_ID`, `MX_API_KEY`
+- **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+- **AI services**: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+- **Email**: `POSTMARK_USERNAME`, `POSTMARK_PASSWORD`
+- **OAuth**: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`
+- **Storage**: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET_NAME`
+- **Encryption**: `AWS_KMS_KEY_ID`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+
+### Prohibited Practices
+
+The following are strictly prohibited and enforced by code and `.gitignore` rules:
+- Hardcoding any credential value in source files
+- Using predictable default passwords (e.g. `changeme`, `demo123`, `admin`)
+- Committing `.env` files, `SESSION_SECRET.txt`, or any file containing real credentials
+- Using the same credential across multiple environments (prod / staging / dev)
+
+## 8. Contact
 
 For security concerns or to report vulnerabilities:
 - Email: info@budgetpal.sbs
