@@ -1,33 +1,44 @@
-import nodemailer from "nodemailer";
+import { ServerClient } from "postmark";
 import { format, setDate, isBefore, addMonths, addDays, addWeeks, setDay, subDays, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subMonths, subWeeks } from "date-fns";
 import { storage } from "./storage";
 import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema";
 import { startAiCoachScheduler } from "./ai-coach";
 import { checkVaultExpiryNotifications } from "./routes/vault";
 
-// Lazy SMTP transporter – only created once POSTMARK_SERVER is confirmed
-// present so that missing env vars can never crash the process at import time.
-let _transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
+// Lazy Postmark HTTP client – avoids crashes when POSTMARK_USERNAME is absent.
+// Uses the HTTP API instead of SMTP so it works on Railway (which blocks SMTP).
+let _postmarkClient: ServerClient | null = null;
 
-function getTransporter(): ReturnType<typeof nodemailer.createTransport> | null {
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME || !process.env.POSTMARK_PASSWORD) {
-    return null;
+function getPostmarkClient(): ServerClient | null {
+  const token = process.env.POSTMARK_USERNAME;
+  if (!token) return null;
+  if (!_postmarkClient) {
+    _postmarkClient = new ServerClient(token);
   }
-  if (!_transporter) {
-    _transporter = nodemailer.createTransport({
-      host: process.env.POSTMARK_SERVER,
-      port: 587,
-      secure: false,
-      auth: {
-        user: process.env.POSTMARK_USERNAME,
-        pass: process.env.POSTMARK_PASSWORD,
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-    });
+  return _postmarkClient;
+}
+
+// Shared helper used by this module and other server modules (routes.ts, vault.ts).
+export async function sendEmailViaPostmark(options: {
+  from: string;
+  to: string;
+  replyTo?: string;
+  subject: string;
+  text?: string;
+  html?: string;
+}): Promise<void> {
+  const client = getPostmarkClient();
+  if (!client) {
+    throw new Error("[Email] Postmark not configured: POSTMARK_USERNAME is missing");
   }
-  return _transporter;
+  await client.sendEmail({
+    From: options.from,
+    To: options.to,
+    ReplyTo: options.replyTo,
+    Subject: options.subject,
+    TextBody: options.text,
+    HtmlBody: options.html,
+  });
 }
 
 function getNextDueDate(dueDay: number, recurrence: string, customDates?: string | null, startDate?: string | null): Date {
@@ -121,7 +132,7 @@ function formatCurrency(amount: string | number): string {
 }
 
 async function sendBillReminder(bill: Bill, dueDate: Date): Promise<boolean> {
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+  if (!process.env.POSTMARK_USERNAME) {
     console.warn('[Email] Postmark not configured, skipping email send');
     return false;
   }
@@ -142,18 +153,18 @@ ${bill.notes ? `Notes: ${bill.notes}` : ""}
 
 This is an automated reminder from Budget Smart AI.`;
 
-  const tr = getTransporter();
-  if (!tr) {
-    console.log("[Email] SMTP not configured, skipping bill reminder.");
+  const client = getPostmarkClient();
+  if (!client) {
+    console.log("[Email] Postmark not configured, skipping bill reminder.");
     return false;
   }
 
   try {
-    await tr.sendMail({
-      from: fromEmail,
-      to: toEmail,
-      subject: subject,
-      text: body,
+    await client.sendEmail({
+      From: fromEmail,
+      To: toEmail,
+      Subject: subject,
+      TextBody: body,
     });
     console.log(`Email sent for bill: ${bill.name}`);
     return true;
@@ -486,17 +497,17 @@ Budget Smart AI
 
 To manage your email preferences, visit your settings at ${process.env.APP_URL || "https://app.budgetsmart.io"}/email-settings`;
 
-    const tr = getTransporter();
-    if (!tr) {
-      console.log("[Email] SMTP not configured, skipping weekly digest.");
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping weekly digest.");
       return false;
     }
 
-    await tr.sendMail({
-      from: fromEmail,
-      to: email,
-      subject: subject,
-      text: body,
+    await client.sendEmail({
+      From: fromEmail,
+      To: email,
+      Subject: subject,
+      TextBody: body,
     });
 
     console.log(`Weekly digest sent to: ${email}`);
@@ -590,17 +601,17 @@ Budget Smart AI
 
 To manage your email preferences, visit your settings at ${process.env.APP_URL || "https://app.budgetsmart.io"}/email-settings`;
 
-    const tr = getTransporter();
-    if (!tr) {
-      console.log("[Email] SMTP not configured, skipping monthly report.");
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping monthly report.");
       return false;
     }
 
-    await tr.sendMail({
-      from: fromEmail,
-      to: email,
-      subject: subject,
-      text: body,
+    await client.sendEmail({
+      From: fromEmail,
+      To: email,
+      Subject: subject,
+      TextBody: body,
     });
 
     console.log(`Monthly report sent to: ${email}`);
@@ -677,11 +688,11 @@ export async function sendTestEmail(email: string): Promise<{ success: boolean; 
   const fromEmail = process.env.ALERT_EMAIL_FROM;
 
   // Check configuration
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME || !process.env.POSTMARK_PASSWORD) {
+  if (!process.env.POSTMARK_USERNAME) {
     return {
       success: false,
       message: "Email credentials not configured",
-      details: "POSTMARK_SERVER, POSTMARK_USERNAME, and POSTMARK_PASSWORD environment variables are required"
+      details: "POSTMARK_USERNAME environment variable is required"
     };
   }
 
@@ -727,20 +738,19 @@ Budget Smart AI
 To manage your notification preferences, visit your Email Settings page.`;
 
   try {
-    const tr = getTransporter();
-    if (!tr) {
-      // Should not reach here since POSTMARK_SERVER is checked above, but guard anyway
+    const client = getPostmarkClient();
+    if (!client) {
       return {
         success: false,
         message: "Email not configured",
-        details: "POSTMARK_SERVER environment variable is missing"
+        details: "POSTMARK_USERNAME environment variable is missing"
       };
     }
-    await tr.sendMail({
-      from: fromEmail,
-      to: email,
-      subject: subject,
-      text: body,
+    await client.sendEmail({
+      From: fromEmail,
+      To: email,
+      Subject: subject,
+      TextBody: body,
     });
 
     console.log(`Test email sent successfully to: ${email}`);
@@ -755,14 +765,10 @@ To manage your notification preferences, visit your Email Settings page.`;
     let errorMessage = "Failed to send email";
     let errorDetails = "Unknown error occurred";
 
-    if (error.code === "ECONNREFUSED") {
-      errorDetails = "Could not connect to email server. Check POSTMARK_SERVER configuration.";
-    } else if (error.code === "EAUTH") {
-      errorDetails = "Authentication failed. Check POSTMARK_USERNAME and POSTMARK_PASSWORD.";
-    } else if (error.responseCode === 421 || error.responseCode === 450) {
-      errorDetails = "Email server temporarily unavailable. Please try again later.";
-    } else if (error.responseCode === 550 || error.responseCode === 553) {
-      errorDetails = "Invalid recipient email address or sender not authorized.";
+    if (error.statusCode === 401) {
+      errorDetails = "Authentication failed. Check POSTMARK_USERNAME (server API token).";
+    } else if (error.statusCode === 422) {
+      errorDetails = "Invalid email request. Check sender/recipient addresses.";
     } else if (error.message) {
       errorDetails = error.message;
     }
@@ -783,7 +789,7 @@ export async function sendHouseholdInvitation(
   role: string,
   inviteToken: string
 ): Promise<boolean> {
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+  if (!process.env.POSTMARK_USERNAME) {
     console.warn('[Email] Postmark not configured, skipping email send');
     return false;
   }
@@ -820,16 +826,16 @@ Best regards,
 The Budget Smart AI Team`;
 
   try {
-    const tr = getTransporter();
-    if (!tr) {
-      console.log("[Email] SMTP not configured, skipping invitation email.");
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping invitation email.");
       return false;
     }
-    await tr.sendMail({
-      from: fromEmail,
-      to: toEmail,
-      subject: subject,
-      text: body,
+    await client.sendEmail({
+      From: fromEmail,
+      To: toEmail,
+      Subject: subject,
+      TextBody: body,
     });
     console.log(`Household invitation email sent to: ${toEmail}`);
     return true;
@@ -845,7 +851,7 @@ export async function sendEmailVerification(
   firstName: string,
   verificationToken: string
 ): Promise<boolean> {
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME) {
+  if (!process.env.POSTMARK_USERNAME) {
     console.warn('[Email] Postmark not configured, skipping email send');
     return false;
   }
@@ -877,16 +883,16 @@ Best regards,
 The Budget Smart AI Team`;
 
   try {
-    const tr = getTransporter();
-    if (!tr) {
-      console.log("[Email] SMTP not configured, skipping verification email.");
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping verification email.");
       return false;
     }
-    await tr.sendMail({
-      from: fromEmail,
-      to: toEmail,
-      subject: subject,
-      text: body,
+    await client.sendEmail({
+      From: fromEmail,
+      To: toEmail,
+      Subject: subject,
+      TextBody: body,
     });
     console.log(`Email verification sent to: ${toEmail}`);
     return true;

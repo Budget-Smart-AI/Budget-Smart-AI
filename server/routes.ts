@@ -21,11 +21,10 @@ import {
   BILL_CATEGORIES, EXPENSE_CATEGORIES, RECURRENCE_OPTIONS, MANUAL_ACCOUNT_TYPES, DEBT_TYPES,
   INVESTMENT_ACCOUNT_TYPES, HOLDING_TYPES, ASSET_CATEGORIES, TAX_CATEGORIES
 } from "@shared/schema";
-import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailVerification } from "./email";
+import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailVerification, sendEmailViaPostmark } from "./email";
 import crypto from "crypto";
 import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
 import passport from "passport";
-import nodemailer from "nodemailer";
 import { authRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending } from "./cash-flow";
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
@@ -75,27 +74,9 @@ function parseCSV(csvText: string): Record<string, string>[] {
   return rows;
 }
 
-// Lazy contact transporter – avoids crashes when POSTMARK vars are absent
-let _contactTransporter: ReturnType<typeof nodemailer.createTransport> | null = null;
-function getContactTransporter(): ReturnType<typeof nodemailer.createTransport> | null {
-  if (!process.env.POSTMARK_SERVER || !process.env.POSTMARK_USERNAME || !process.env.POSTMARK_PASSWORD) {
-    return null;
-  }
-  if (!_contactTransporter) {
-    _contactTransporter = nodemailer.createTransport({
-      host: process.env.POSTMARK_SERVER,
-      port: parseInt(process.env.POSTMARK_PORT || "587"),
-      secure: false,
-      auth: {
-        user: process.env.POSTMARK_USERNAME,
-        pass: process.env.POSTMARK_PASSWORD,
-      },
-      connectionTimeout: 10000,
-      socketTimeout: 10000,
-      greetingTimeout: 10000,
-    });
-  }
-  return _contactTransporter;
+// Check whether Postmark is configured for use in routes that send email.
+function isEmailConfigured(): boolean {
+  return !!process.env.POSTMARK_USERNAME;
 }
 
 export async function registerRoutes(
@@ -2559,8 +2540,7 @@ Return JSON: { "income": [...] }`;
         return res.status(500).json({ error: "Email configuration missing" });
       }
 
-      const contactTransporter = getContactTransporter();
-      if (!contactTransporter) {
+      if (!isEmailConfigured()) {
         return res.status(500).json({ error: "Email not configured on this server" });
       }
 
@@ -2570,7 +2550,7 @@ Return JSON: { "income": [...] }`;
         return res.status(500).json({ error: "Email routing not configured on this server" });
       }
 
-      await contactTransporter.sendMail({
+      await sendEmailViaPostmark({
         from: fromEmail,
         to: supportTo,
         replyTo: email,
@@ -2684,17 +2664,17 @@ Return JSON: { "income": [...] }`;
       });
 
       const fromEmail = process.env.ALERT_EMAIL_FROM;
-      const supportTransporter = fromEmail ? getContactTransporter() : null;
+      const emailConfigured = fromEmail && isEmailConfigured();
 
       let emailSent = false;
-      if (supportTransporter && fromEmail) {
+      if (emailConfigured && fromEmail) {
         const supportTo = process.env.SUPPORT_EMAIL || process.env.ALERT_EMAIL_TO;
         if (!supportTo) {
           console.error("[CONFIG] Cannot send ticket notification: SUPPORT_EMAIL and ALERT_EMAIL_TO are not set.");
         } else {
         // Notify admin
         try {
-          await supportTransporter.sendMail({
+          await sendEmailViaPostmark({
             from: fromEmail,
             to: supportTo,
             replyTo: email,
@@ -2736,7 +2716,7 @@ Return JSON: { "income": [...] }`;
 
         // Confirmation email to user
         try {
-          await supportTransporter.sendMail({
+          await sendEmailViaPostmark({
             from: fromEmail,
             to: email,
             subject: `Your BudgetSmart Support Request #${ticketNumber} has been received`,
@@ -2889,11 +2869,10 @@ Return JSON: { "income": [...] }`;
 
       // Notify user by email
       const fromEmail = process.env.ALERT_EMAIL_FROM;
-      const transporter = fromEmail ? getContactTransporter() : null;
-      if (transporter && fromEmail && ticket.email) {
+      if (fromEmail && isEmailConfigured() && ticket.email) {
         const supportReplyTo = process.env.SUPPORT_EMAIL || process.env.ALERT_EMAIL_TO || fromEmail;
         try {
-          await transporter.sendMail({
+          await sendEmailViaPostmark({
             from: fromEmail,
             to: ticket.email,
             replyTo: supportReplyTo,
@@ -3125,10 +3104,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       // Send email notification to sales team
       try {
         const fromEmail = process.env.ALERT_EMAIL_FROM;
-        const salesTransporter = getContactTransporter();
         const salesTo = process.env.SALES_EMAIL || process.env.ALERT_EMAIL_TO;
-        if (fromEmail && salesTransporter && salesTo) {
-          await salesTransporter.sendMail({
+        if (fromEmail && isEmailConfigured() && salesTo) {
+          await sendEmailViaPostmark({
             from: fromEmail,
             to: salesTo,
             replyTo: parsed.data.email,
@@ -8036,9 +8014,8 @@ ${JSON.stringify(txSummary)}`;
       const inviteLink = `${appUrl}/?ref=${referralCode.code}`;
 
       const fromEmail = process.env.ALERT_EMAIL_FROM;
-      const referralTransporter = getContactTransporter();
-      if (fromEmail && referralTransporter) {
-        await referralTransporter.sendMail({
+      if (fromEmail && isEmailConfigured()) {
+        await sendEmailViaPostmark({
           from: fromEmail,
           to: email,
           subject: `${user?.firstName || user?.username || "A friend"} invited you to Budget Smart AI!`,
