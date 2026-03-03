@@ -1,4 +1,4 @@
-import { PDFParse } from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 import Tesseract from 'tesseract.js';
 import { fromBuffer } from 'pdf2pic';
 
@@ -22,8 +22,7 @@ export async function extractTextFromFile(
   // accuracy.
   if (mimeType === 'application/pdf') {
     try {
-      const parser = new PDFParse({ data: fileBuffer });
-      const pdfData = await parser.getText();
+      const pdfData = await pdfParse(fileBuffer);
       const text = pdfData.text?.trim() || '';
 
       if (text.length > 100) {
