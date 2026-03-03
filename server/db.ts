@@ -164,3 +164,78 @@ export async function ensureVaultTables(): Promise<void> {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_vault_docs_category ON vault_documents(user_id, category)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_vault_docs_expiry ON vault_documents(expiry_date) WHERE expiry_date IS NOT NULL`);
 }
+
+export async function ensureAITables(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_model_config (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      task_slot VARCHAR(100) UNIQUE NOT NULL,
+      task_label VARCHAR(200) NOT NULL,
+      task_description TEXT,
+      category VARCHAR(50) NOT NULL,
+      provider VARCHAR(50) NOT NULL DEFAULT 'deepseek',
+      model_id VARCHAR(100) NOT NULL,
+      is_active BOOLEAN DEFAULT true,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      updated_by VARCHAR(255)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_usage_log (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR(255),
+      task_slot VARCHAR(100) NOT NULL,
+      provider VARCHAR(50) NOT NULL,
+      model_id VARCHAR(100) NOT NULL,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      total_tokens INTEGER DEFAULT 0,
+      estimated_cost_usd DECIMAL(10,8) DEFAULT 0,
+      duration_ms INTEGER,
+      success BOOLEAN DEFAULT true,
+      error_message TEXT,
+      feature_context VARCHAR(200),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS anomaly_alerts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR(255) NOT NULL,
+      transaction_id VARCHAR(255),
+      anomaly_type VARCHAR(100) NOT NULL,
+      severity VARCHAR(20) DEFAULT 'medium',
+      title VARCHAR(300) NOT NULL,
+      description TEXT NOT NULL,
+      suggested_action TEXT,
+      is_dismissed BOOLEAN DEFAULT false,
+      is_resolved BOOLEAN DEFAULT false,
+      ai_confidence DECIMAL(3,2),
+      detected_at TIMESTAMP DEFAULT NOW(),
+      dismissed_at TIMESTAMP,
+      metadata JSONB
+    )
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage_log(created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_user ON ai_usage_log(user_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_task ON ai_usage_log(task_slot, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_anomaly_user ON anomaly_alerts(user_id, detected_at DESC)`);
+
+  await pool.query(`
+    INSERT INTO ai_model_config (task_slot, task_label, task_description, category, provider, model_id)
+    VALUES
+      ('chat_assistant', 'AI Chatbot', 'Bottom-right chat widget for quick questions', 'chat', 'deepseek', 'deepseek-chat'),
+      ('chat_fullscreen', 'AI Assistant', 'Full-screen sidebar assistant with canned prompts', 'chat', 'deepseek', 'deepseek-chat'),
+      ('detection_auto', 'AI Detection', 'Detects income, bills, subscriptions automatically', 'detection', 'deepseek', 'deepseek-chat'),
+      ('planning_advisor', 'AI Suggest / AI Advisor', 'Budget recommendations, debt payoff, planning', 'planning', 'deepseek', 'deepseek-reasoner'),
+      ('vault_ai', 'Financial Vault AI', 'All vault AI: extraction, summary, tags, chat Q&A', 'vault', 'deepseek', 'deepseek-chat'),
+      ('receipt_analysis', 'Receipt Scanning', 'Analyzes OCR text for merchant, amount, category', 'receipts', 'deepseek', 'deepseek-chat'),
+      ('anomaly_detection', 'Anomaly Detection', 'Detects duplicate charges, spikes, fraud patterns', 'detection', 'deepseek', 'deepseek-chat'),
+      ('ai_coach', 'AI Financial Coach', 'Personalized daily financial insights per user', 'insights', 'deepseek', 'deepseek-chat'),
+      ('support_assistant', 'Support AI Assistant', 'Helps admin respond to support tickets', 'support', 'deepseek', 'deepseek-chat')
+    ON CONFLICT (task_slot) DO NOTHING
+  `);
+}
