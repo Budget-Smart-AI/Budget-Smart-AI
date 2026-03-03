@@ -94,15 +94,7 @@ const vaultRateLimiter = createRateLimiter({
 });
 
 // ─── AI document processing ───────────────────────────────────────────────────
-async function processDocumentWithAI(
-  buffer: Buffer,
-  mimetype: string,
-  category: string,
-  fileName: string,
-): Promise<{ summary: string; extractedData: Record<string, any>; tags: string[]; suggestedCategory: string; suggestedSubcategory: string; expiryDate: string | null }> {
-  const ai = getAI();
-
-  const systemPrompt = `You are a financial document analyzer for BudgetSmart. Analyze the uploaded document and respond with ONLY a valid JSON object (no markdown fences, no explanation).
+const DOC_ANALYSIS_SYSTEM_PROMPT = `You are a financial document analyzer for BudgetSmart. Analyze the uploaded document and respond with ONLY a valid JSON object (no markdown fences, no explanation).
 
 JSON fields:
 - summary: string (2-3 sentence plain-English summary of what this document is)
@@ -119,57 +111,101 @@ JSON fields:
 - suggestedSubcategory: string (e.g. "T4", "home insurance", "mortgage", "RRSP")
 - expiryDate: string in YYYY-MM-DD format if the document has an expiry/renewal date, else null`;
 
-  let contentParts: Anthropic.MessageParam["content"] = [];
+function parseAIJsonResponse(rawText: string): Record<string, any> {
+  const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  return JSON.parse(cleaned);
+}
 
-  // PDF: convert first page to image
-  if (mimetype === "application/pdf") {
-    try {
-      const tmpDir = os.tmpdir();
-      const converter = fromBuffer(buffer, {
-        density: 150,
-        saveFilename: `vault-${Date.now()}`,
-        savePath: tmpDir,
-        format: "png",
-        width: 1200,
-        height: 1600,
-      });
-      const result = await converter(1, { responseType: "buffer" });
-      const pngBase64 = (result.buffer as Buffer).toString("base64");
+async function processDocumentWithAI(
+  buffer: Buffer,
+  mimetype: string,
+  category: string,
+  fileName: string,
+): Promise<{ summary: string; extractedData: Record<string, any>; tags: string[]; suggestedCategory: string; suggestedSubcategory: string; expiryDate: string | null }> {
+  const isImage = ["image/jpeg","image/jpg","image/png","image/webp"].includes(mimetype);
+  const isPdf = mimetype === "application/pdf";
+  const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY);
+
+  // Anthropic path: use for vision-capable analysis (PDFs, images) or when explicitly configured
+  if (hasAnthropicKey) {
+    const ai = getAI();
+    let contentParts: Anthropic.MessageParam["content"] = [];
+
+    if (isPdf) {
+      try {
+        const tmpDir = os.tmpdir();
+        const converter = fromBuffer(buffer, {
+          density: 150,
+          saveFilename: `vault-${Date.now()}`,
+          savePath: tmpDir,
+          format: "png",
+          width: 1200,
+          height: 1600,
+        });
+        const result = await converter(1, { responseType: "buffer" });
+        const pngBase64 = (result.buffer as Buffer).toString("base64");
+        contentParts = [
+          { type: "image", source: { type: "base64", media_type: "image/png", data: pngBase64 } },
+          { type: "text", text: `Analyze this financial document (filename: ${fileName}, category hint: ${category}).` },
+        ];
+      } catch {
+        contentParts = [{ type: "text", text: `This is a PDF financial document: ${fileName}. Category: ${category}. Please analyze it as a general financial document.` }];
+      }
+    } else if (isImage) {
+      const base64 = buffer.toString("base64");
+      const mediaType = (mimetype === "image/jpg" ? "image/jpeg" : mimetype) as "image/jpeg"|"image/png"|"image/webp"|"image/gif";
       contentParts = [
-        { type: "image", source: { type: "base64", media_type: "image/png", data: pngBase64 } },
-        { type: "text", text: `Analyze this financial document (filename: ${fileName}, category hint: ${category}).` },
+        { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+        { type: "text", text: `Analyze this financial document image (filename: ${fileName}, category hint: ${category}).` },
       ];
-    } catch {
-      // Fall through to text extraction if PDF conversion fails
-      contentParts = [{ type: "text", text: `This is a PDF financial document: ${fileName}. Category: ${category}. Please analyze it as a general financial document.` }];
+    } else {
+      let textContent = `Financial document: ${fileName}\nCategory: ${category}\nFile type: ${mimetype}\n`;
+      try { textContent += `Content preview: ${buffer.toString("utf8").slice(0, 3000)}`; } catch { /* binary */ }
+      contentParts = [{ type: "text", text: textContent }];
     }
-  } else if (["image/jpeg","image/jpg","image/png","image/webp"].includes(mimetype)) {
-    const base64 = buffer.toString("base64");
-    const mediaType = (mimetype === "image/jpg" ? "image/jpeg" : mimetype) as "image/jpeg"|"image/png"|"image/webp"|"image/gif";
-    contentParts = [
-      { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-      { type: "text", text: `Analyze this financial document image (filename: ${fileName}, category hint: ${category}).` },
-    ];
-  } else {
-    // Word/Excel/text: send as text prompt
-    let textContent = `Financial document: ${fileName}\nCategory: ${category}\nFile type: ${mimetype}\n`;
-    try {
-      textContent += `Content preview: ${buffer.toString("utf8").slice(0, 3000)}`;
-    } catch { /* binary content */ }
-    contentParts = [{ type: "text", text: textContent }];
+
+    const message = await ai.messages.create({
+      model: "claude-sonnet-4-5",
+      max_tokens: 2048,
+      system: DOC_ANALYSIS_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: contentParts }],
+    });
+
+    const rawText = message.content[0]?.type === "text" ? message.content[0].text : "{}";
+    const parsed = parseAIJsonResponse(rawText);
+    return {
+      summary: parsed.summary || "",
+      extractedData: parsed.extractedData || {},
+      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+      suggestedCategory: parsed.suggestedCategory || category || "other",
+      suggestedSubcategory: parsed.suggestedSubcategory || "",
+      expiryDate: parsed.expiryDate || null,
+    };
   }
 
-  const message = await ai.messages.create({
-    model: "claude-sonnet-4-5",
+  // DeepSeek fallback: text-only analysis (no vision; skip binary images/PDFs without text)
+  const { deepseek, getModelForTask } = await import("../deepseek");
+  let textContent = `Financial document: ${fileName}\nCategory: ${category}\nFile type: ${mimetype}\n`;
+  if (isPdf) {
+    textContent += `Note: This is a PDF document. Analyze based on the filename and category.`;
+  } else if (isImage) {
+    textContent += `Note: This is an image document. Analyze based on the filename and category.`;
+  } else {
+    try { textContent += `Content preview: ${buffer.toString("utf8").slice(0, 3000)}`; } catch { /* binary */ }
+  }
+
+  const deepseekResponse = await deepseek.chat.completions.create({
+    model: getModelForTask("moderate"),
+    messages: [
+      { role: "system", content: DOC_ANALYSIS_SYSTEM_PROMPT },
+      { role: "user", content: textContent },
+    ],
     max_tokens: 2048,
-    system: systemPrompt,
-    messages: [{ role: "user", content: contentParts }],
+    temperature: 0.3,
   });
 
-  const rawText = message.content[0]?.type === "text" ? message.content[0].text : "{}";
-  const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-  const parsed = JSON.parse(cleaned);
-
+  const rawText = deepseekResponse.choices[0]?.message?.content || "{}";
+  const parsed = parseAIJsonResponse(rawText);
   return {
     summary: parsed.summary || "",
     extractedData: parsed.extractedData || {},
@@ -434,6 +470,13 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
     const { question } = req.body;
     if (!question) return res.status(400).json({ error: "question is required" });
 
+    if (
+      !process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY &&
+      !process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API
+    ) {
+      return res.status(503).json({ error: "No AI service configured. Please set ANTHROPIC_API_KEY or DEEPSEEK_API_KEY." });
+    }
+
     const result = await db.query("SELECT * FROM vault_documents WHERE id=$1", [req.params.id]);
     const doc = result.rows[0];
     if (!doc || doc.user_id !== userId) return res.status(404).json({ error: "Document not found" });
@@ -443,8 +486,6 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
       "SELECT * FROM vault_ai_conversations WHERE document_id=$1 ORDER BY created_at ASC LIMIT 20",
       [req.params.id],
     );
-
-    const messages: Anthropic.MessageParam[] = [];
 
     // Add document context as first user message
     let docContext = `Document: ${doc.display_name || doc.file_name}\nCategory: ${doc.category}\n`;
@@ -456,25 +497,49 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
       } catch { /* ignore */ }
     }
 
-    messages.push({ role: "user", content: `Document context:\n${docContext}\n\nNow I have a question about this document.` });
-    messages.push({ role: "assistant", content: "I have reviewed the document details. Please ask your question." });
+    const vaultSystemPrompt = `You are a financial document assistant for BudgetSmart. The user has uploaded a financial document and wants to ask questions about it. Answer clearly and accurately based only on the document content. If something isn't in the document, say so. Format currency amounts clearly. Flag anything that seems unusual or worth the user's attention.`;
 
-    // Add conversation history
-    for (const conv of convHistory.rows) {
-      messages.push({ role: "user", content: conv.question });
-      messages.push({ role: "assistant", content: conv.answer });
+    let answer: string;
+
+    if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY) {
+      // Use Anthropic (Claude) — preferred for document Q&A
+      const messages: Anthropic.MessageParam[] = [];
+      messages.push({ role: "user", content: `Document context:\n${docContext}\n\nNow I have a question about this document.` });
+      messages.push({ role: "assistant", content: "I have reviewed the document details. Please ask your question." });
+      for (const conv of convHistory.rows) {
+        messages.push({ role: "user", content: conv.question });
+        messages.push({ role: "assistant", content: conv.answer });
+      }
+      messages.push({ role: "user", content: question });
+
+      const aiResponse = await getAI().messages.create({
+        model: "claude-sonnet-4-5",
+        max_tokens: 1024,
+        system: vaultSystemPrompt,
+        messages,
+      });
+      answer = aiResponse.content[0]?.type === "text" ? aiResponse.content[0].text : "I was unable to process your question.";
+    } else {
+      // Fall back to DeepSeek (OpenAI-compatible) when Anthropic is not configured
+      const { deepseek, getModelForTask } = await import("../deepseek");
+      const openaiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
+        { role: "system", content: vaultSystemPrompt },
+        { role: "user", content: `Document context:\n${docContext}\n\nNow I have a question about this document.` },
+        { role: "assistant", content: "I have reviewed the document details. Please ask your question." },
+        ...convHistory.rows.flatMap((conv: { question: string; answer: string }) => [
+          { role: "user" as const, content: conv.question },
+          { role: "assistant" as const, content: conv.answer },
+        ]),
+        { role: "user", content: question },
+      ];
+      const aiResponse = await deepseek.chat.completions.create({
+        model: getModelForTask("moderate"),
+        messages: openaiMessages,
+        max_tokens: 1024,
+        temperature: 0.7,
+      });
+      answer = aiResponse.choices[0]?.message?.content || "I was unable to process your question.";
     }
-
-    messages.push({ role: "user", content: question });
-
-    const aiResponse = await getAI().messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 1024,
-      system: `You are a financial document assistant for BudgetSmart. The user has uploaded a financial document and wants to ask questions about it. Answer clearly and accurately based only on the document content. If something isn't in the document, say so. Format currency amounts clearly. Flag anything that seems unusual or worth the user's attention.`,
-      messages,
-    });
-
-    const answer = aiResponse.content[0]?.type === "text" ? aiResponse.content[0].text : "I was unable to process your question.";
 
     // Save Q&A
     await db.query(
