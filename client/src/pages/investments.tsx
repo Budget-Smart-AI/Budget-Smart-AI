@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -51,7 +51,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, Building2, Wallet, PiggyBank, Bitcoin, RefreshCw, Link2, Brain, Send, Loader2, BarChart3, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
+import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, Building2, Wallet, PiggyBank, Bitcoin, RefreshCw, Link2, Brain, Send, Loader2, BarChart3, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INVESTMENT_ACCOUNT_TYPES, HOLDING_TYPES, type InvestmentAccount, type Holding, type PlaidAccount } from "@shared/schema";
@@ -78,35 +93,64 @@ const holdingFormSchema = z.object({
 type AccountFormValues = z.infer<typeof accountFormSchema>;
 type HoldingFormValues = z.infer<typeof holdingFormSchema>;
 
-interface PortfolioAnalysis {
-  totalValue: number;
-  totalCostBasis: number;
-  totalGainLoss: number;
-  totalGainLossPercent: number;
-  holdings: HoldingAnalysis[];
-  overallRecommendation: string;
-  diversificationScore: number;
-  riskAssessment: string;
-  actionItems: string[];
-  marketOutlook: string;
-  generatedAt: string;
+// ── New advisor data types ────────────────────────────────────────────────────
+interface EnrichedHolding {
+  symbol: string;
+  shares: number;
+  currentPrice: number;
+  avgCost: number;
+  marketValue: number;
+  gainLossDollars: number;
+  gainLossPct: number;
+  week52High: number;
+  week52Low: number;
+  vsHighPct: number;
+  name: string;
 }
 
-interface HoldingAnalysis {
-  holdingId: string;
+interface PortfolioSnapshot {
+  date: string;
+  totalValue: number;
+  totalCostBasis: number;
+}
+
+interface ActionItem {
   symbol: string;
-  name: string;
-  currentPrice: number | null;
-  yourCostBasis: number;
-  quantity: number;
-  currentValue: number;
-  gainLoss: number;
-  gainLossPercent: number;
-  technicalAnalysis: string;
-  recommendation: "strong_buy" | "buy" | "hold" | "sell" | "strong_sell";
+  action: string;
   reasoning: string;
-  riskLevel: "low" | "medium" | "high";
-  confidence: number;
+}
+
+interface NewsArticle {
+  symbol: string;
+  headline: string;
+  source: string;
+  sentiment: string;
+  timePublished: string;
+  url: string;
+}
+
+interface AdvisorData {
+  portfolio: {
+    totalValue: number;
+    totalCostBasis: number;
+    totalGainLoss: number;
+    totalGainLossPct: number;
+    holdings: EnrichedHolding[];
+  };
+  history: PortfolioSnapshot[];
+  news: NewsArticle[];
+  analysis: {
+    content: string;
+    generatedAt: string;
+    fromCache: boolean;
+  };
+  actions: ActionItem[];
+}
+
+interface ChatMessage {
+  role: "user" | "advisor";
+  content: string;
+  timestamp: string;
 }
 
 interface LinkablePlaidAccount extends PlaidAccount {
@@ -138,26 +182,70 @@ function formatAccountType(type: string) {
   return type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function getRecommendationColor(rec: string) {
-  switch (rec) {
-    case "strong_buy": return "text-green-600 bg-green-100";
-    case "buy": return "text-green-500 bg-green-50";
-    case "hold": return "text-yellow-600 bg-yellow-100";
-    case "sell": return "text-red-500 bg-red-50";
-    case "strong_sell": return "text-red-600 bg-red-100";
-    default: return "text-gray-600 bg-gray-100";
+function getActionBadgeClass(action: string): string {
+  switch (action) {
+    case "BUY_MORE": return "bg-green-100 text-green-800";
+    case "CONSIDER_SELLING": return "bg-orange-100 text-orange-800";
+    case "AVERAGE_DOWN": return "bg-blue-100 text-blue-800";
+    case "TAKE_PROFITS": return "bg-purple-100 text-purple-800";
+    case "MONITOR": return "bg-yellow-100 text-yellow-800";
+    default: return "bg-gray-100 text-gray-700"; // HOLD
   }
 }
 
-function getRecommendationIcon(rec: string) {
-  switch (rec) {
-    case "strong_buy":
-    case "buy": return <CheckCircle className="h-4 w-4" />;
-    case "hold": return <AlertTriangle className="h-4 w-4" />;
-    case "sell":
-    case "strong_sell": return <XCircle className="h-4 w-4" />;
-    default: return null;
-  }
+/** Very simple markdown renderer — converts ### headers, **bold**, bullet lists */
+function MarkdownContent({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  lines.forEach((line, i) => {
+    if (line.startsWith("### ")) {
+      elements.push(
+        <h3 key={i} className="text-base font-semibold mt-4 mb-1">
+          {line.slice(4)}
+        </h3>,
+      );
+    } else if (line.startsWith("## ")) {
+      elements.push(
+        <h2 key={i} className="text-lg font-bold mt-5 mb-2">
+          {line.slice(3)}
+        </h2>,
+      );
+    } else if (line.startsWith("# ")) {
+      elements.push(
+        <h1 key={i} className="text-xl font-bold mt-5 mb-2">
+          {line.slice(2)}
+        </h1>,
+      );
+    } else if (line.match(/^[\*\-] /)) {
+      elements.push(
+        <li key={i} className="ml-4 text-sm list-disc">
+          {renderInline(line.slice(2))}
+        </li>,
+      );
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} className="h-2" />);
+    } else {
+      elements.push(
+        <p key={i} className="text-sm">
+          {renderInline(line)}
+        </p>,
+      );
+    }
+  });
+
+  return <div className="space-y-0.5">{elements}</div>;
+}
+
+function renderInline(text: string): React.ReactNode {
+  // Handle **bold**
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
 }
 
 function AccountForm({ account, onClose }: { account?: InvestmentAccount; onClose: () => void }) {
@@ -602,25 +690,122 @@ function LinkPlaidAccountDialog({ onClose }: { onClose: () => void }) {
 }
 
 function AIAdvisor({ holdings }: { holdings: Holding[] }) {
-  const [question, setQuestion] = useState("");
   const { toast } = useToast();
 
-  const { data: analysis, isLoading: analysisLoading, refetch: refetchAnalysis } = useQuery<PortfolioAnalysis>({
-    queryKey: ["/api/investments/analysis"],
+  // ── Chat state ──────────────────────────────────────────────────────────────
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
+    try {
+      const stored = localStorage.getItem("investment_advisor_chat");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [chatInput, setChatInput] = useState("");
+  const [isChatting, setIsChatting] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // ── Sparkline timeframe ─────────────────────────────────────────────────────
+  const [sparklineDays, setSparklineDays] = useState<30 | 90 | 180 | 365>(30);
+
+  // ── Advisor data ────────────────────────────────────────────────────────────
+  const {
+    data: advisorData,
+    isLoading: advisorLoading,
+    refetch: refetchAdvisor,
+    dataUpdatedAt,
+  } = useQuery<AdvisorData>({
+    queryKey: ["/api/investments/advisor-data"],
     enabled: holdings.length > 0,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 25 * 60 * 1000, // 25 min — server cache is 30 min
   });
 
-  const askMutation = useMutation({
-    mutationFn: (q: string) => apiRequest("POST", "/api/investments/ask-advisor", { question: q }),
-    onError: () => toast({ title: "Failed to get advice", variant: "destructive" }),
-  });
+  // Persist chat to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("investment_advisor_chat", JSON.stringify(chatHistory));
+    } catch { /* ignore */ }
+  }, [chatHistory]);
 
-  const handleAsk = () => {
-    if (!question.trim()) return;
-    askMutation.mutate(question);
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory, isChatting]);
+
+  const handleRefresh = () => {
+    queryClient.removeQueries({ queryKey: ["/api/investments/advisor-data"] });
+    refetchAdvisor();
   };
 
+  const handleRegenerateAnalysis = async () => {
+    try {
+      const res = await fetch("/api/investments/advisor-data?refresh=true");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/investments/advisor-data"] });
+      refetchAdvisor();
+    } catch {
+      toast({ title: "Failed to regenerate", variant: "destructive" });
+    }
+  };
+
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || isChatting) return;
+    const question = chatInput.trim();
+    setChatInput("");
+
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: question,
+      timestamp: new Date().toISOString(),
+    };
+    setChatHistory((prev) => [...prev, userMsg]);
+    setIsChatting(true);
+
+    try {
+      const res = await apiRequest("POST", "/api/investments/advisor-chat", {
+        question,
+        chatHistory: chatHistory.map((m) => ({ role: m.role, content: m.content })),
+      });
+      const data = await res.json();
+      setChatHistory((prev) => [
+        ...prev,
+        { role: "advisor", content: data.answer, timestamp: data.timestamp ?? new Date().toISOString() },
+      ]);
+    } catch {
+      toast({ title: "Failed to get response", variant: "destructive" });
+    } finally {
+      setIsChatting(false);
+    }
+  };
+
+  // ── Sparkline data prep ─────────────────────────────────────────────────────
+  const sparklineData = (() => {
+    if (!advisorData?.history?.length) return [];
+    const cutoff = new Date(Date.now() - sparklineDays * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+    const filtered = advisorData.history
+      .filter((s) => s.date >= cutoff)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return filtered.map((s) => ({
+      date: s.date.slice(5), // MM-DD
+      value: s.totalValue,
+      cost: s.totalCostBasis,
+    }));
+  })();
+
+  const sparklineColor =
+    sparklineData.length >= 2 &&
+    sparklineData[sparklineData.length - 1].value >= sparklineData[0].value
+      ? "#16a34a"
+      : "#dc2626";
+
+  // ── Action badge lookup ─────────────────────────────────────────────────────
+  const actionMap = new Map<string, ActionItem>(
+    (advisorData?.actions ?? []).map((a) => [a.symbol, a]),
+  );
+
+  // ── No holdings ─────────────────────────────────────────────────────────────
   if (holdings.length === 0) {
     return (
       <Card>
@@ -639,125 +824,300 @@ function AIAdvisor({ holdings }: { holdings: Holding[] }) {
     );
   }
 
+  const portfolio = advisorData?.portfolio;
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Brain className="h-5 w-5 text-primary" />
-            <CardTitle>AI Investment Advisor</CardTitle>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => refetchAnalysis()} disabled={analysisLoading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${analysisLoading ? "animate-spin" : ""}`} />
-            Refresh Analysis
-          </Button>
-        </div>
-        <CardDescription>
-          AI-powered portfolio analysis with buy/sell recommendations based on technical indicators
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {analysisLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-20" />
-            <Skeleton className="h-40" />
-          </div>
-        ) : analysis ? (
-          <>
-            {/* Overall Assessment */}
-            <div className="p-4 bg-muted/50 rounded-lg">
-              <h4 className="font-medium mb-2">Portfolio Assessment</h4>
-              <p className="text-sm">{analysis.overallRecommendation}</p>
-              <div className="flex gap-4 mt-3 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Diversification:</span>{" "}
-                  <span className={analysis.diversificationScore >= 70 ? "text-green-600" : analysis.diversificationScore >= 40 ? "text-yellow-600" : "text-red-600"}>
-                    {analysis.diversificationScore}/100
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Risk Level:</span>{" "}
-                  <span>{analysis.riskAssessment}</span>
-                </div>
-              </div>
+    <div className="space-y-6">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Brain className="h-5 w-5 text-primary" />
+              <CardTitle>AI Investment Advisor</CardTitle>
             </div>
-
-            {/* Action Items */}
-            {analysis.actionItems.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={handleRegenerateAnalysis} disabled={advisorLoading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${advisorLoading ? "animate-spin" : ""}`} />
+                Regenerate Analysis
+              </Button>
+            </div>
+          </div>
+          {portfolio && (
+            <div className="flex flex-wrap gap-4 mt-2 text-sm">
               <div>
-                <h4 className="font-medium mb-2">Action Items</h4>
-                <ul className="space-y-2">
-                  {analysis.actionItems.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+                <span className="text-muted-foreground">Portfolio Value: </span>
+                <span className="font-semibold">{formatCurrency(portfolio.totalValue)}</span>
               </div>
-            )}
-
-            {/* Individual Holdings Analysis */}
-            <div>
-              <h4 className="font-medium mb-3">Holdings Analysis</h4>
-              <div className="space-y-3">
-                {analysis.holdings.map(h => (
-                  <div key={h.holdingId} className="p-3 border rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{h.symbol}</span>
-                        <Badge className={getRecommendationColor(h.recommendation)}>
-                          {getRecommendationIcon(h.recommendation)}
-                          <span className="ml-1">{h.recommendation.replace("_", " ").toUpperCase()}</span>
-                        </Badge>
-                      </div>
-                      <span className={h.gainLoss >= 0 ? "text-green-600" : "text-red-600"}>
-                        {h.gainLossPercent >= 0 ? "+" : ""}{h.gainLossPercent.toFixed(1)}%
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{h.reasoning}</p>
-                    <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-                      <span>Risk: {h.riskLevel}</span>
-                      <span>Confidence: {h.confidence}%</span>
-                    </div>
-                  </div>
-                ))}
+              <div>
+                <span className="text-muted-foreground">Total Return: </span>
+                <span className={`font-semibold ${portfolio.totalGainLoss >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {portfolio.totalGainLoss >= 0 ? "+" : ""}{formatCurrency(portfolio.totalGainLoss)} ({portfolio.totalGainLossPct >= 0 ? "+" : ""}{portfolio.totalGainLossPct.toFixed(1)}%)
+                </span>
               </div>
-            </div>
-          </>
-        ) : (
-          <p className="text-muted-foreground">Click "Refresh Analysis" to get AI-powered insights.</p>
-        )}
-
-        {/* Ask the Advisor */}
-        <div className="border-t pt-4">
-          <h4 className="font-medium mb-2">Ask the Advisor</h4>
-          <div className="flex gap-2">
-            <Textarea
-              placeholder="Ask any investment question... e.g., 'Should I rebalance my portfolio?' or 'What's the outlook for tech stocks?'"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              className="min-h-[80px]"
-            />
-          </div>
-          <Button
-            className="mt-2"
-            onClick={handleAsk}
-            disabled={askMutation.isPending || !question.trim()}
-          >
-            {askMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-            Ask
-          </Button>
-
-          {askMutation.data && (
-            <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-              <h5 className="font-medium mb-2">Advisor's Response:</h5>
-              <p className="text-sm whitespace-pre-wrap">{(askMutation.data as any).advice}</p>
+              {dataUpdatedAt > 0 && (
+                <div className="text-muted-foreground text-xs self-center">
+                  Updated: {new Date(dataUpdatedAt).toLocaleTimeString()}
+                  {advisorData?.analysis.fromCache && " (cached)"}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      </CardContent>
-    </Card>
+        </CardHeader>
+      </Card>
+
+      {/* ── Portfolio Sparkline ─────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Portfolio History</CardTitle>
+            <div className="flex gap-1">
+              {([30, 90, 180, 365] as const).map((d) => (
+                <Button
+                  key={d}
+                  size="sm"
+                  variant={sparklineDays === d ? "default" : "outline"}
+                  className="text-xs px-2 py-1 h-7"
+                  onClick={() => setSparklineDays(d)}
+                >
+                  {d === 365 ? "1Y" : d === 180 ? "6M" : d === 90 ? "3M" : "1M"}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {advisorLoading ? (
+            <Skeleton className="h-32 w-full" />
+          ) : sparklineData.length < 3 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              Portfolio history builds over time as you use BudgetSmart. Check back tomorrow for your first trend data.
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={140}>
+              <LineChart data={sparklineData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
+                  width={45}
+                />
+                <RechartsTooltip
+                  formatter={(value: number) => [formatCurrency(value), ""]}
+                  labelStyle={{ fontSize: 11 }}
+                />
+                {sparklineData[0]?.cost && (
+                  <ReferenceLine
+                    y={sparklineData[0].cost}
+                    stroke="#94a3b8"
+                    strokeDasharray="4 2"
+                    label={{ value: "Cost basis", fontSize: 10, fill: "#94a3b8" }}
+                  />
+                )}
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke={sparklineColor}
+                  strokeWidth={2}
+                  dot={false}
+                  name="Portfolio Value"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── AI Narrative ───────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">AI Analysis</CardTitle>
+          <CardDescription className="text-xs">
+            🤖 Analysis based on live prices, your cost basis, and recent news • Refreshes every 30 min
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {advisorLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-4/6" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ) : advisorData?.analysis?.content ? (
+            <MarkdownContent content={advisorData.analysis.content} />
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Click "Regenerate Analysis" to get your personalized AI analysis.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Holdings Detail Table ───────────────────────────────────────────── */}
+      {portfolio && portfolio.holdings.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Holdings Detail</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs pl-4">Symbol</TableHead>
+                    <TableHead className="text-right text-xs hidden sm:table-cell">Shares</TableHead>
+                    <TableHead className="text-right text-xs hidden md:table-cell">Avg Cost</TableHead>
+                    <TableHead className="text-right text-xs">Current</TableHead>
+                    <TableHead className="text-right text-xs">Value</TableHead>
+                    <TableHead className="text-right text-xs">Gain/Loss</TableHead>
+                    <TableHead className="text-xs">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {portfolio.holdings.map((h) => {
+                    const isBigMove = Math.abs(h.gainLossPct) > 20;
+                    const action = actionMap.get(h.symbol);
+                    return (
+                      <TableRow key={h.symbol}>
+                        <TableCell className="font-medium text-xs pl-4 py-2">
+                          <div>{h.symbol}</div>
+                          <div className="text-muted-foreground text-xs hidden sm:block truncate max-w-[120px]">{h.name}</div>
+                        </TableCell>
+                        <TableCell className="text-right text-xs hidden sm:table-cell py-2">{h.shares.toLocaleString()}</TableCell>
+                        <TableCell className="text-right text-xs hidden md:table-cell py-2">{formatCurrency(h.avgCost)}</TableCell>
+                        <TableCell className="text-right text-xs py-2">{formatCurrency(h.currentPrice)}</TableCell>
+                        <TableCell className="text-right text-xs py-2">{formatCurrency(h.marketValue)}</TableCell>
+                        <TableCell className={`text-right py-2 ${h.gainLossDollars >= 0 ? "text-green-600" : "text-red-600"} ${isBigMove ? "font-bold text-sm" : "text-xs"}`}>
+                          <div className="flex items-center justify-end gap-0.5">
+                            {h.gainLossDollars >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                            <span>{formatCurrency(Math.abs(h.gainLossDollars))}</span>
+                          </div>
+                          <div className="text-xs">{h.gainLossPct >= 0 ? "+" : ""}{h.gainLossPct.toFixed(1)}%</div>
+                        </TableCell>
+                        <TableCell className="py-2">
+                          {action ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge className={`text-xs cursor-default ${getActionBadgeClass(action.action)}`}>
+                                  {action.action.replace("_", " ")}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs text-xs">{action.reasoning}</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            advisorLoading ? <Skeleton className="h-5 w-12" /> : null
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Ask the Advisor — Persistent Chat ──────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Ask the Advisor</CardTitle>
+            {chatHistory.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground"
+                onClick={() => {
+                  setChatHistory([]);
+                  localStorage.removeItem("investment_advisor_chat");
+                }}
+              >
+                Clear chat
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Chat thread */}
+          {chatHistory.length > 0 && (
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              {chatHistory.map((msg, i) => (
+                <div key={i} className={`flex flex-col gap-0.5 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                  <span className="text-xs text-muted-foreground">
+                    {msg.role === "user" ? "You" : "AI Advisor"} · {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                    {msg.role === "advisor" ? <MarkdownContent content={msg.content} /> : msg.content}
+                  </div>
+                </div>
+              ))}
+              {isChatting && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  AI Advisor is typing…
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+          )}
+
+          {/* Suggested chips — only before first message */}
+          {chatHistory.length === 0 && !isChatting && advisorData && (
+            <div className="flex flex-wrap gap-2">
+              {[
+                portfolio?.holdings.length && portfolio.holdings.some((h) => h.gainLossPct < 0) &&
+                  `Why am I down so much on ${portfolio.holdings.reduce((worst, h) => h.gainLossPct < worst.gainLossPct ? h : worst, portfolio.holdings[0]).symbol}?`,
+                "Should I buy more of my winners?",
+                "Am I too concentrated in any one stock?",
+                "What's the news saying about my holdings?",
+                "Should I rebalance my portfolio?",
+                "What would a 10% market drop do to my portfolio?",
+              ]
+                .filter(Boolean)
+                .map((chip, i) => (
+                  <button
+                    key={i}
+                    className="text-xs rounded-full border px-3 py-1 hover:bg-muted transition-colors"
+                    onClick={() => {
+                      setChatInput(chip as string);
+                    }}
+                  >
+                    {chip}
+                  </button>
+                ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="flex gap-2">
+            <Textarea
+              placeholder="Ask anything about your portfolio…"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              className="min-h-[60px] resize-none text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendChat();
+                }
+              }}
+            />
+            <Button
+              onClick={handleSendChat}
+              disabled={isChatting || !chatInput.trim()}
+              className="self-end"
+              size="sm"
+            >
+              {isChatting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

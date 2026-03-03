@@ -1,361 +1,497 @@
 /**
- * AI Investment Advisor
- * Analyzes portfolio holdings and provides buy/sell recommendations
+ * AI Investment Advisor — rebuilt with genuine personalized analysis
+ * Uses real portfolio data, news sentiment, cost basis context, and
+ * portfolio history to produce a rich AI narrative.
  */
 
-import { openai } from "./openai";
+import { routeAI } from "./ai-router";
 import { storage } from "./storage";
-import { getStockAnalysis, generateAnalysisSummary, type StockQuote, type CompanyOverview, type TechnicalIndicator } from "./alpha-vantage";
-import type { Holding, InvestmentAccount } from "@shared/schema";
+import { db } from "./db";
+import { getCompanyOverview, fetchNewsSentiment, type NewsArticle } from "./alpha-vantage";
+import type { Holding } from "@shared/schema";
 
-export interface HoldingAnalysis {
-  holdingId: string;
+// ─── In-memory cache (30-minute TTL) ────────────────────────────────────────
+interface CacheEntry {
+  data: AdvisorData;
+  expiresAt: number;
+}
+const advisorCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// ─── News cache (4-hour TTL per symbol) ─────────────────────────────────────
+interface NewsCacheEntry {
+  articles: NewsArticle[];
+  expiresAt: number;
+}
+const newsCache = new Map<string, NewsCacheEntry>();
+const NEWS_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+export interface EnrichedHolding {
   symbol: string;
+  shares: number;
+  currentPrice: number;
+  avgCost: number;         // cost basis per share
+  marketValue: number;
+  gainLossDollars: number;
+  gainLossPct: number;
+  week52High: number;
+  week52Low: number;
+  vsHighPct: number;       // (currentPrice - 52wHigh) / 52wHigh * 100  (negative = below peak)
   name: string;
-  currentPrice: number | null;
-  yourCostBasis: number;
-  quantity: number;
-  currentValue: number;
-  gainLoss: number;
-  gainLossPercent: number;
-  technicalAnalysis: string;
-  recommendation: "strong_buy" | "buy" | "hold" | "sell" | "strong_sell";
-  reasoning: string;
-  riskLevel: "low" | "medium" | "high";
-  confidence: number; // 0-100
 }
 
-export interface PortfolioAnalysis {
+export interface PortfolioSnapshot {
+  date: string;
   totalValue: number;
   totalCostBasis: number;
-  totalGainLoss: number;
-  totalGainLossPercent: number;
-  holdings: HoldingAnalysis[];
-  overallRecommendation: string;
-  diversificationScore: number; // 0-100
-  riskAssessment: string;
-  actionItems: string[];
-  marketOutlook: string;
-  generatedAt: string;
 }
 
-/**
- * Analyze a single holding with technical indicators
- */
-async function analyzeHolding(holding: Holding): Promise<HoldingAnalysis> {
-  const analysis = await getStockAnalysis(holding.symbol);
-  const technicalSummary = analysis ? generateAnalysisSummary(analysis) : "Technical data unavailable";
+export interface ActionItem {
+  symbol: string;
+  action: string;
+  reasoning: string;
+}
 
-  const currentPrice = analysis?.quote?.price || parseFloat(holding.currentPrice || "0");
-  const costBasis = parseFloat(holding.costBasis || "0");
-  const quantity = parseFloat(holding.quantity);
-  const currentValue = currentPrice * quantity;
-  const gainLoss = currentValue - costBasis;
-  const gainLossPercent = costBasis > 0 ? (gainLoss / costBasis) * 100 : 0;
+export interface AdvisorData {
+  portfolio: {
+    totalValue: number;
+    totalCostBasis: number;
+    totalGainLoss: number;
+    totalGainLossPct: number;
+    holdings: EnrichedHolding[];
+  };
+  history: PortfolioSnapshot[];
+  news: NewsArticle[];
+  analysis: {
+    content: string;
+    generatedAt: string;
+    fromCache: boolean;
+  };
+  actions: ActionItem[];
+}
 
-  // Default values - AI will override these
-  let recommendation: HoldingAnalysis["recommendation"] = "hold";
-  let reasoning = "Analysis pending";
-  let riskLevel: HoldingAnalysis["riskLevel"] = "medium";
-  let confidence = 50;
+// ─── Portfolio Snapshot helpers ──────────────────────────────────────────────
+async function ensureSnapshotTable(): Promise<void> {
+  try {
+    await (db as any).$client.query(`
+      CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR(255) NOT NULL,
+        total_value DECIMAL(15,2) NOT NULL,
+        total_cost_basis DECIMAL(15,2),
+        total_gain_loss DECIMAL(15,2),
+        snapshot_date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_snapshots_user_date
+        ON portfolio_snapshots(user_id, snapshot_date);
+    `);
+  } catch (e) {
+    // Non-fatal: table may already exist or DB may be read-only
+    console.warn("[investment-advisor] Could not ensure portfolio_snapshots table:", e);
+  }
+}
 
-  // Generate recommendation based on technical indicators
-  if (analysis?.rsi && analysis?.sma50 && analysis?.sma200 && analysis?.quote) {
-    const rsi = analysis.rsi.value;
-    const price = analysis.quote.price;
-    const sma50 = analysis.sma50.value;
-    const sma200 = analysis.sma200.value;
+export async function savePortfolioSnapshot(
+  userId: string,
+  totalValue: number,
+  totalCostBasis: number,
+): Promise<void> {
+  try {
+    await ensureSnapshotTable();
+    const totalGainLoss = totalValue - totalCostBasis;
+    const today = new Date().toISOString().split("T")[0];
+    await (db as any).$client.query(
+      `INSERT INTO portfolio_snapshots (user_id, total_value, total_cost_basis, total_gain_loss, snapshot_date)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, snapshot_date)
+       DO UPDATE SET total_value = EXCLUDED.total_value,
+                     total_cost_basis = EXCLUDED.total_cost_basis,
+                     total_gain_loss = EXCLUDED.total_gain_loss`,
+      [userId, totalValue, totalCostBasis, totalGainLoss, today],
+    );
+  } catch (e) {
+    console.warn("[investment-advisor] Could not save portfolio snapshot:", e);
+  }
+}
 
-    // Technical scoring
-    let score = 0;
+async function getPortfolioHistory(userId: string): Promise<PortfolioSnapshot[]> {
+  try {
+    await ensureSnapshotTable();
+    const result = await (db as any).$client.query(
+      `SELECT snapshot_date, total_value, total_cost_basis
+       FROM portfolio_snapshots
+       WHERE user_id = $1
+       ORDER BY snapshot_date DESC
+       LIMIT 365`,
+      [userId],
+    );
+    return (result.rows as any[]).map((r: any) => ({
+      date: r.snapshot_date instanceof Date
+        ? r.snapshot_date.toISOString().split("T")[0]
+        : String(r.snapshot_date),
+      totalValue: parseFloat(r.total_value),
+      totalCostBasis: parseFloat(r.total_cost_basis ?? "0"),
+    }));
+  } catch {
+    return [];
+  }
+}
 
-    // RSI signals
-    if (rsi < 30) score += 2; // Oversold - buy signal
-    else if (rsi < 40) score += 1;
-    else if (rsi > 70) score -= 2; // Overbought - sell signal
-    else if (rsi > 60) score -= 1;
+// ─── News helpers ────────────────────────────────────────────────────────────
+async function getCachedNews(symbol: string): Promise<NewsArticle[]> {
+  const cached = newsCache.get(symbol);
+  if (cached && Date.now() < cached.expiresAt) return cached.articles;
 
-    // Moving average signals
-    if (price > sma50 && price > sma200) score += 1; // Above both MAs - bullish
-    else if (price < sma50 && price < sma200) score -= 1; // Below both MAs - bearish
+  const articles = await fetchNewsSentiment(symbol, 3);
+  newsCache.set(symbol, { articles, expiresAt: Date.now() + NEWS_CACHE_TTL_MS });
+  return articles;
+}
 
-    // Golden/Death Cross
-    if (sma50 > sma200) score += 1; // Golden Cross - bullish
-    else score -= 1; // Death Cross - bearish
-
-    // Analyst target (if available)
-    if (analysis.overview?.analystTargetPrice) {
-      const upside = (analysis.overview.analystTargetPrice - price) / price;
-      if (upside > 0.2) score += 2;
-      else if (upside > 0.1) score += 1;
-      else if (upside < -0.1) score -= 1;
-      else if (upside < -0.2) score -= 2;
-    }
-
-    // Map score to recommendation
-    if (score >= 3) {
-      recommendation = "strong_buy";
-      confidence = 80;
-    } else if (score >= 1) {
-      recommendation = "buy";
-      confidence = 65;
-    } else if (score <= -3) {
-      recommendation = "strong_sell";
-      confidence = 80;
-    } else if (score <= -1) {
-      recommendation = "sell";
-      confidence = 65;
-    } else {
-      recommendation = "hold";
-      confidence = 50;
-    }
-
-    // Risk assessment based on beta and volatility
-    const beta = analysis.overview?.beta || 1;
-    if (beta > 1.5) riskLevel = "high";
-    else if (beta < 0.8) riskLevel = "low";
-    else riskLevel = "medium";
-
-    // Generate reasoning
-    const reasons: string[] = [];
-    if (rsi < 30) reasons.push("RSI indicates oversold conditions");
-    if (rsi > 70) reasons.push("RSI indicates overbought conditions");
-    if (price > sma200) reasons.push("Price above 200-day moving average (bullish)");
-    if (price < sma200) reasons.push("Price below 200-day moving average (bearish)");
-    if (sma50 > sma200) reasons.push("Golden Cross pattern detected");
-    if (sma50 < sma200) reasons.push("Death Cross pattern detected");
-    if (analysis.overview?.analystTargetPrice) {
-      const upside = ((analysis.overview.analystTargetPrice - price) / price * 100).toFixed(1);
-      reasons.push(`Analyst target suggests ${upside}% potential`);
-    }
-
-    reasoning = reasons.length > 0 ? reasons.join(". ") + "." : "Insufficient signals for strong conviction.";
+// ─── Portfolio history narrative ──────────────────────────────────────────────
+function buildHistoryNarrative(history: PortfolioSnapshot[], currentValue: number): string {
+  if (history.length < 2) {
+    return "Portfolio history is building up — check back tomorrow for trend data.";
   }
 
-  return {
-    holdingId: holding.id,
-    symbol: holding.symbol,
-    name: holding.name,
-    currentPrice,
-    yourCostBasis: costBasis,
-    quantity,
-    currentValue,
-    gainLoss,
-    gainLossPercent,
-    technicalAnalysis: technicalSummary,
-    recommendation,
-    reasoning,
-    riskLevel,
-    confidence,
+  const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date));
+  const now = sorted[sorted.length - 1];
+
+  const ago = (days: number): PortfolioSnapshot | null => {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+    return sorted.findLast((s) => s.date <= cutoff) ?? null;
   };
+
+  const parts: string[] = [];
+
+  const p7 = ago(7);
+  if (p7) {
+    const chg = ((currentValue - p7.totalValue) / p7.totalValue) * 100;
+    parts.push(`7 days ago: $${p7.totalValue.toLocaleString()} → today: $${currentValue.toLocaleString()} (${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%)`);
+  }
+  const p30 = ago(30);
+  if (p30) {
+    const chg = ((currentValue - p30.totalValue) / p30.totalValue) * 100;
+    parts.push(`30 days ago: $${p30.totalValue.toLocaleString()} → today: $${currentValue.toLocaleString()} (${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%)`);
+  }
+
+  const peak = Math.max(...sorted.map((s) => s.totalValue));
+  const peakEntry = sorted.find((s) => s.totalValue === peak);
+  if (peakEntry && peak > currentValue * 1.05) {
+    const drop = ((currentValue - peak) / peak) * 100;
+    parts.push(`Down ${Math.abs(drop).toFixed(1)}% from peak of $${peak.toLocaleString()} on ${peakEntry.date}`);
+  } else if (sorted.length >= 3) {
+    const trough = Math.min(...sorted.slice(0, -1).map((s) => s.totalValue));
+    if (currentValue > trough * 1.05) {
+      const recovery = ((currentValue - trough) / trough) * 100;
+      parts.push(`Up ${recovery.toFixed(1)}% recovery from recent low of $${trough.toLocaleString()}`);
+    }
+  }
+
+  return parts.length > 0 ? parts.join("\n") : "Insufficient history for trend analysis.";
 }
 
-/**
- * Generate comprehensive portfolio analysis with AI insights
- */
-export async function analyzePortfolio(userId: string): Promise<PortfolioAnalysis | null> {
-  try {
-    const holdings = await storage.getHoldingsByUser(userId);
-
-    if (holdings.length === 0) {
-      return null;
-    }
-
-    // Analyze each holding
-    const holdingAnalyses: HoldingAnalysis[] = [];
-    for (const holding of holdings) {
-      const analysis = await analyzeHolding(holding);
-      holdingAnalyses.push(analysis);
-    }
-
-    // Calculate portfolio totals
-    const totalValue = holdingAnalyses.reduce((sum, h) => sum + h.currentValue, 0);
-    const totalCostBasis = holdingAnalyses.reduce((sum, h) => sum + h.yourCostBasis, 0);
-    const totalGainLoss = totalValue - totalCostBasis;
-    const totalGainLossPercent = totalCostBasis > 0 ? (totalGainLoss / totalCostBasis) * 100 : 0;
-
-    // Calculate diversification score (simple version based on holding count and allocation)
-    const holdingCount = holdingAnalyses.length;
-    const maxAllocation = holdingAnalyses.length > 0
-      ? Math.max(...holdingAnalyses.map(h => h.currentValue / totalValue * 100))
-      : 100;
-
-    // Diversification: more holdings and lower max allocation = better
-    let diversificationScore = Math.min(100, holdingCount * 10); // Up to 50 points for count
-    if (maxAllocation < 20) diversificationScore += 50;
-    else if (maxAllocation < 30) diversificationScore += 35;
-    else if (maxAllocation < 50) diversificationScore += 20;
-    diversificationScore = Math.min(100, diversificationScore);
-
-    // Generate action items
-    const actionItems: string[] = [];
-
-    const strongSells = holdingAnalyses.filter(h => h.recommendation === "strong_sell");
-    const strongBuys = holdingAnalyses.filter(h => h.recommendation === "strong_buy");
-    const sells = holdingAnalyses.filter(h => h.recommendation === "sell");
-    const buys = holdingAnalyses.filter(h => h.recommendation === "buy");
-
-    if (strongSells.length > 0) {
-      actionItems.push(`Consider selling: ${strongSells.map(h => h.symbol).join(", ")} - showing strong bearish signals`);
-    }
-    if (sells.length > 0) {
-      actionItems.push(`Review for potential sale: ${sells.map(h => h.symbol).join(", ")}`);
-    }
-    if (strongBuys.length > 0) {
-      actionItems.push(`Strong buying opportunity: ${strongBuys.map(h => h.symbol).join(", ")}`);
-    }
-    if (buys.length > 0) {
-      actionItems.push(`Consider adding to: ${buys.map(h => h.symbol).join(", ")}`);
-    }
-
-    if (maxAllocation > 30) {
-      const topHolding = holdingAnalyses.find(h => h.currentValue / totalValue * 100 >= maxAllocation);
-      if (topHolding) {
-        actionItems.push(`${topHolding.symbol} represents ${maxAllocation.toFixed(1)}% of portfolio - consider rebalancing`);
+// ─── Loss context rules ──────────────────────────────────────────────────────
+function buildLossContextRules(holdings: EnrichedHolding[]): string {
+  const rules = holdings
+    .filter((h) => h.gainLossPct < -25)
+    .map((h) => {
+      if (h.gainLossPct < -50) {
+        return `IMPORTANT: User is down ${h.gainLossPct.toFixed(1)}% on ${h.symbol} ($${Math.abs(h.gainLossDollars).toLocaleString()} loss). Address tax-loss harvesting and whether averaging down makes sense at this level of loss.`;
       }
+      return `NOTE: User is down ${h.gainLossPct.toFixed(1)}% on ${h.symbol} ($${Math.abs(h.gainLossDollars).toLocaleString()} loss). Give loss-aware advice, not a generic buy signal.`;
+    });
+  return rules.join("\n");
+}
+
+// ─── Core analysis function ──────────────────────────────────────────────────
+export async function getAdvisorData(
+  userId: string,
+  forceRefresh = false,
+): Promise<AdvisorData | null> {
+  // Check cache
+  if (!forceRefresh) {
+    const cached = advisorCache.get(userId);
+    if (cached && Date.now() < cached.expiresAt) {
+      const result = { ...cached.data };
+      result.analysis = { ...result.analysis, fromCache: true };
+      return result;
     }
+  }
 
-    if (diversificationScore < 50) {
-      actionItems.push("Portfolio diversification is low - consider adding positions in different sectors");
+  const rawHoldings = await storage.getHoldingsByUser(userId);
+  if (rawHoldings.length === 0) return null;
+
+  // Enrich holdings with 52-week data and cost basis per share
+  const enrichedHoldings: EnrichedHolding[] = await Promise.all(
+    rawHoldings.map(async (h: Holding) => {
+      const shares = parseFloat(h.quantity);
+      const currentPrice = parseFloat(h.currentPrice || "0");
+      const totalCostBasis = parseFloat(h.costBasis || "0");
+      const avgCost = shares > 0 ? totalCostBasis / shares : 0;
+      const marketValue = currentPrice * shares;
+      const gainLossDollars = marketValue - totalCostBasis;
+      const gainLossPct = totalCostBasis > 0 ? (gainLossDollars / totalCostBasis) * 100 : 0;
+
+      // Fetch 52-week data from Alpha Vantage overview (best-effort)
+      let week52High = 0;
+      let week52Low = 0;
+      try {
+        const overview = await getCompanyOverview(h.symbol);
+        week52High = overview?.fiftyTwoWeekHigh ?? 0;
+        week52Low = overview?.fiftyTwoWeekLow ?? 0;
+      } catch {
+        // ignore — proceed without 52w data
+      }
+
+      const vsHighPct =
+        week52High > 0 ? ((currentPrice - week52High) / week52High) * 100 : 0;
+
+      return {
+        symbol: h.symbol,
+        shares,
+        currentPrice,
+        avgCost,
+        marketValue,
+        gainLossDollars,
+        gainLossPct,
+        week52High,
+        week52Low,
+        vsHighPct,
+        name: h.name,
+      };
+    }),
+  );
+
+  // Portfolio-level totals
+  const totalValue = enrichedHoldings.reduce((s, h) => s + h.marketValue, 0);
+  const totalCostBasis = enrichedHoldings.reduce((s, h) => s + h.avgCost * h.shares, 0);
+  const totalGainLoss = totalValue - totalCostBasis;
+  const totalGainLossPct = totalCostBasis > 0 ? (totalGainLoss / totalCostBasis) * 100 : 0;
+
+  // Save today's snapshot (fire-and-forget)
+  savePortfolioSnapshot(userId, totalValue, totalCostBasis).catch((e) => {
+    console.warn("[investment-advisor] Snapshot save failed (non-fatal):", e);
+  });
+
+  // Fetch portfolio history
+  const history = await getPortfolioHistory(userId);
+
+  // Fetch news in parallel (best-effort, rate-limit aware)
+  const newsResults = await Promise.allSettled(
+    enrichedHoldings.map((h) => getCachedNews(h.symbol)),
+  );
+  const allNews: NewsArticle[] = newsResults
+    .flatMap((r) => (r.status === "fulfilled" ? r.value : []))
+    .filter((a) => a.headline);
+
+  // ── Build AI prompt ───────────────────────────────────────────────────────
+  const lossRules = buildLossContextRules(enrichedHoldings);
+  const historyNarrative = buildHistoryNarrative(history, totalValue);
+
+  const systemPrompt = `You are a personalized investment advisor for BudgetSmart. You have access to the user's actual portfolio data including their real cost basis, current gains and losses, recent news about their holdings, and historical portfolio performance.
+
+Your job is to give genuinely personalized advice that acknowledges their specific situation — not generic buy/sell signals. If someone is down significantly on a position, acknowledge that reality directly and give advice in that context. Be honest, empathetic, and specific.
+
+Never give fake precision scores like "Confidence: 65%" or "Diversification Score: 40/100". Instead write like a knowledgeable advisor speaking directly to this specific person about their specific portfolio.
+
+Always cite specific numbers from their portfolio. Always reference recent news when relevant. Format your response in clear sections using markdown headers.${lossRules ? `\n\nCritical loss context for this user:\n${lossRules}` : ""}`;
+
+  const holdingsText = enrichedHoldings
+    .map(
+      (h) => `
+${h.symbol} — ${h.shares} shares (${h.name})
+  Current Price: $${h.currentPrice.toFixed(2)}
+  My Avg Cost: $${h.avgCost.toFixed(2)}/share
+  Current Value: $${h.marketValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+  My Gain/Loss: $${h.gainLossDollars >= 0 ? "+" : ""}${h.gainLossDollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${h.gainLossPct >= 0 ? "+" : ""}${h.gainLossPct.toFixed(1)}%) — ${h.gainLossPct < -50 ? "⚠️ SIGNIFICANT LOSS" : h.gainLossPct < 0 ? "at a loss" : "profitable"}
+  52-Week Range: $${h.week52Low > 0 ? h.week52Low.toFixed(2) : "N/A"} - $${h.week52High > 0 ? h.week52High.toFixed(2) : "N/A"}
+  Current vs 52W High: ${h.vsHighPct !== 0 ? h.vsHighPct.toFixed(1) + "%" : "N/A"}`,
+    )
+    .join("\n");
+
+  const newsText =
+    allNews.length > 0
+      ? allNews
+          .map(
+            (n) =>
+              `${n.symbol}: "${n.headline}" (${n.source}, sentiment: ${n.sentiment}, ${n.timePublished})`,
+          )
+          .join("\n")
+      : "No recent news available for your holdings.";
+
+  const userPrompt = `Analyze my investment portfolio and give me personalized advice.
+
+## My Portfolio Summary
+Total Value: $${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+Total Invested: $${totalCostBasis.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+Total Gain/Loss: $${totalGainLoss >= 0 ? "+" : ""}${totalGainLoss.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${totalGainLossPct >= 0 ? "+" : ""}${totalGainLossPct.toFixed(1)}%)
+${totalGainLoss >= 0 ? "My portfolio is currently profitable overall." : "My portfolio is currently underwater overall."}
+
+## Portfolio Trend
+${historyNarrative}
+
+## My Holdings (with cost basis)
+${holdingsText}
+
+## Recent News For My Holdings
+${newsText}
+
+## What I Need
+Please give me:
+
+### 1. Portfolio Health Narrative
+A frank assessment of how my portfolio is doing. Mention specific positions, cite the news, reference the trend. Talk to me like a real advisor, not a robo-advisor.
+
+### 2. My Biggest Concerns (Holdings at a Loss)
+For each position where I am down more than 15%:
+- Acknowledge my actual loss in dollars
+- Give context: is this company-specific or market-wide?
+- Should I hold, cut losses, or average down?
+- Reference any recent news about this holding
+- Be direct and honest, not falsely optimistic
+
+### 3. My Winners — What To Do
+For positions where I am profitable:
+- Should I take profits, hold, or add more?
+- What's the risk of concentration?
+- Reference relevant news
+
+### 4. Portfolio Risks I Should Know About
+Concentration risk, sector exposure, volatility, anything that stands out.
+
+### 5. One Actionable Recommendation
+The single most important thing I should consider doing with my portfolio this week. Be specific — not "consider diversifying" but reference actual positions and dollar amounts.`;
+
+  let analysisContent = "";
+  try {
+    const result = await routeAI({
+      taskSlot: "planning_advisor",
+      userId,
+      featureContext: "investment_advisor_full_analysis",
+      maxTokens: 2000,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    });
+    analysisContent = result.content;
+  } catch (err) {
+    console.error("[investment-advisor] AI call failed:", err);
+    analysisContent = "Unable to generate analysis at this time. Please try again later.";
+  }
+
+  // ── Extract structured actions ────────────────────────────────────────────
+  let actions: ActionItem[] = [];
+  if (analysisContent && analysisContent.length > 100) {
+    try {
+      const actionResult = await routeAI({
+        taskSlot: "planning_advisor",
+        userId,
+        featureContext: "investment_action_extraction",
+        maxTokens: 400,
+        temperature: 0.1,
+        jsonMode: true,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Extract investment actions from the analysis. Return JSON only as an array of objects with keys: symbol, action, reasoning. action must be one of: HOLD, BUY_MORE, CONSIDER_SELLING, AVERAGE_DOWN, TAKE_PROFITS, MONITOR.",
+          },
+          {
+            role: "user",
+            content: `Based on this analysis:\n${analysisContent}\n\nReturn a JSON array like:\n[{"symbol":"AAPL","action":"HOLD","reasoning":"brief 1 sentence"}]\n\nOnly include symbols mentioned with clear recommendations. If no clear recommendation, use MONITOR.`,
+          },
+        ],
+      });
+
+      const parsed = JSON.parse(actionResult.content);
+      if (Array.isArray(parsed)) {
+        const validActions = ["HOLD", "BUY_MORE", "CONSIDER_SELLING", "AVERAGE_DOWN", "TAKE_PROFITS", "MONITOR"];
+        actions = parsed
+          .filter((a: any) => a.symbol && a.action && validActions.includes(a.action))
+          .map((a: any) => ({
+            symbol: String(a.symbol).toUpperCase(),
+            action: String(a.action),
+            reasoning: String(a.reasoning ?? ""),
+          }));
+      }
+    } catch {
+      // Non-fatal — action extraction is best-effort
     }
+  }
 
-    // Risk assessment
-    const highRiskCount = holdingAnalyses.filter(h => h.riskLevel === "high").length;
-    const lowRiskCount = holdingAnalyses.filter(h => h.riskLevel === "low").length;
-
-    let riskAssessment: string;
-    if (highRiskCount > holdingAnalyses.length / 2) {
-      riskAssessment = "High - Portfolio is heavily weighted toward volatile stocks";
-    } else if (lowRiskCount > holdingAnalyses.length / 2) {
-      riskAssessment = "Low - Portfolio consists mainly of stable, low-beta investments";
-    } else {
-      riskAssessment = "Moderate - Portfolio has a balanced mix of risk levels";
-    }
-
-    // Overall recommendation
-    const avgScore = holdingAnalyses.reduce((sum, h) => {
-      const scores = { strong_buy: 2, buy: 1, hold: 0, sell: -1, strong_sell: -2 };
-      return sum + scores[h.recommendation];
-    }, 0) / holdingAnalyses.length;
-
-    let overallRecommendation: string;
-    if (avgScore > 1) overallRecommendation = "Portfolio shows strong bullish signals overall. Consider adding to winning positions.";
-    else if (avgScore > 0.3) overallRecommendation = "Portfolio outlook is cautiously optimistic. Hold current positions and watch for buying opportunities.";
-    else if (avgScore < -1) overallRecommendation = "Portfolio shows bearish signals. Consider reducing exposure and taking profits where available.";
-    else if (avgScore < -0.3) overallRecommendation = "Portfolio has mixed signals with slight bearish tilt. Review underperforming positions.";
-    else overallRecommendation = "Portfolio is in a neutral state. Maintain current positions and wait for clearer signals.";
-
-    // Market outlook (simplified)
-    const marketOutlook = "Based on your holdings' technical indicators, the overall market sentiment appears mixed. Monitor key economic indicators and earnings reports for directional clarity.";
-
-    return {
+  const advisorData: AdvisorData = {
+    portfolio: {
       totalValue,
       totalCostBasis,
       totalGainLoss,
-      totalGainLossPercent,
-      holdings: holdingAnalyses,
-      overallRecommendation,
-      diversificationScore,
-      riskAssessment,
-      actionItems,
-      marketOutlook,
+      totalGainLossPct,
+      holdings: enrichedHoldings,
+    },
+    history,
+    news: allNews,
+    analysis: {
+      content: analysisContent,
       generatedAt: new Date().toISOString(),
-    };
-  } catch (error) {
-    console.error("Error analyzing portfolio:", error);
-    return null;
-  }
+      fromCache: false,
+    },
+    actions,
+  };
+
+  // Cache for 30 minutes
+  advisorCache.set(userId, {
+    data: advisorData,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+
+  return advisorData;
 }
 
-/**
- * Get AI-generated detailed analysis for a specific holding
- */
-export async function getDetailedHoldingAnalysis(
-  holding: Holding,
-  analysis: HoldingAnalysis
-): Promise<string> {
-  try {
-    const prompt = `You are an expert investment advisor. Analyze this stock holding and provide actionable advice.
-
-Stock: ${holding.symbol} (${holding.name})
-Holding Type: ${holding.holdingType}
-Quantity: ${analysis.quantity}
-Cost Basis: $${analysis.yourCostBasis.toFixed(2)}
-Current Value: $${analysis.currentValue.toFixed(2)}
-Gain/Loss: ${analysis.gainLoss >= 0 ? '+' : ''}$${analysis.gainLoss.toFixed(2)} (${analysis.gainLossPercent.toFixed(2)}%)
-
-Technical Analysis:
-${analysis.technicalAnalysis}
-
-Current Recommendation: ${analysis.recommendation.toUpperCase()}
-Risk Level: ${analysis.riskLevel}
-
-Based on this data, provide:
-1. A brief analysis of the current position (2-3 sentences)
-2. Key factors to watch (3-4 bullet points)
-3. Specific action recommendation with reasoning
-4. Risk considerations
-
-Be concise and actionable. Focus on practical advice for a retail investor.`;
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_tokens: 500,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    return response.choices[0]?.message?.content || "Unable to generate detailed analysis.";
-  } catch (error) {
-    console.error("Error generating detailed analysis:", error);
-    return "Unable to generate detailed analysis at this time.";
-  }
+export function invalidateAdvisorCache(userId: string): void {
+  advisorCache.delete(userId);
 }
 
-/**
- * Get AI investment coaching/advice
- */
-export async function getInvestmentAdvice(
+// ─── Chat helper ─────────────────────────────────────────────────────────────
+export interface ChatMessage {
+  role: "user" | "advisor";
+  content: string;
+}
+
+export async function advisorChat(
   userId: string,
   question: string,
-  portfolioContext?: PortfolioAnalysis
+  chatHistory: ChatMessage[],
+  portfolioContextSummary: string,
+  systemPrompt: string,
 ): Promise<string> {
-  try {
-    let contextStr = "";
-    if (portfolioContext) {
-      const holdingSummary = portfolioContext.holdings
-        .map(h => `- ${h.symbol}: ${h.recommendation} (${h.gainLossPercent.toFixed(1)}% gain/loss)`)
-        .join("\n");
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: portfolioContextSummary },
+    {
+      role: "assistant",
+      content:
+        "I have reviewed your portfolio and am ready to answer your questions.",
+    },
+    ...chatHistory.map((m) => ({
+      role: (m.role === "advisor" ? "assistant" : "user") as "assistant" | "user",
+      content: m.content,
+    })),
+    { role: "user", content: question },
+  ];
 
-      contextStr = `
-User's Portfolio Summary:
-Total Value: $${portfolioContext.totalValue.toFixed(2)}
-Total Gain/Loss: ${portfolioContext.totalGainLoss >= 0 ? '+' : ''}$${portfolioContext.totalGainLoss.toFixed(2)} (${portfolioContext.totalGainLossPercent.toFixed(2)}%)
-Diversification Score: ${portfolioContext.diversificationScore}/100
-Risk Assessment: ${portfolioContext.riskAssessment}
+  const result = await routeAI({
+    taskSlot: "planning_advisor",
+    userId,
+    featureContext: "investment_chat",
+    maxTokens: 800,
+    temperature: 0.5,
+    messages,
+  });
 
-Holdings:
-${holdingSummary}
-
-Current Recommendations:
-${portfolioContext.actionItems.join("\n")}
-`;
-    }
-
-    const prompt = `You are a knowledgeable investment advisor helping a retail investor. ${contextStr}
-
-User Question: ${question}
-
-Provide helpful, educational advice. Be specific but remind them that this is not personalized financial advice and they should consider consulting a licensed financial advisor for major decisions. Keep response under 300 words.`;
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      max_tokens: 400,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    return response.choices[0]?.message?.content || "Unable to generate advice at this time.";
-  } catch (error) {
-    console.error("Error generating investment advice:", error);
-    return "Unable to generate advice at this time. Please try again later.";
-  }
+  return result.content;
 }

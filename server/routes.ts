@@ -29,7 +29,7 @@ import passport from "passport";
 import { authRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending } from "./cash-flow";
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
-import { analyzePortfolio, getDetailedHoldingAnalysis, getInvestmentAdvice } from "./investment-advisor";
+import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
@@ -8801,17 +8801,146 @@ The Budget Smart AI Team`,
     }
   });
 
-  // Get AI portfolio analysis
-  app.get("/api/investments/analysis", requireAuth, async (req, res) => {
+  // ── New AI Advisor endpoints ────────────────────────────────────────────────
+
+  // Get comprehensive advisor data (portfolio + history + news + AI analysis)
+  app.get("/api/investments/advisor-data", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const analysis = await analyzePortfolio(userId);
+      const forceRefresh = req.query.refresh === "true";
+      const data = await getAdvisorData(userId, forceRefresh);
 
-      if (!analysis) {
+      if (!data) {
         return res.json({ message: "No holdings to analyze" });
       }
 
-      res.json(analysis);
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching advisor data:", error);
+      res.status(500).json({ error: "Failed to fetch advisor data" });
+    }
+  });
+
+  // Persistent chat with portfolio context
+  app.post("/api/investments/advisor-chat", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { question, chatHistory = [] } = req.body;
+
+      if (!question || typeof question !== "string") {
+        return res.status(400).json({ error: "Question is required" });
+      }
+
+      // Get cached advisor data for portfolio context (don't re-run full analysis)
+      const advisorData = await getAdvisorData(userId, false);
+
+      let portfolioContextSummary = "The user has no holdings data available.";
+      let systemPrompt = "You are a personalized investment advisor for BudgetSmart. Be honest, empathetic, and specific. Always reference actual portfolio numbers when available.";
+
+      if (advisorData) {
+        const { portfolio } = advisorData;
+        const holdingsSummary = portfolio.holdings
+          .map(
+            (h) =>
+              `${h.symbol}: ${h.shares} shares @ avg $${h.avgCost.toFixed(2)}, current $${h.currentPrice.toFixed(2)}, ${h.gainLossPct >= 0 ? "+" : ""}${h.gainLossPct.toFixed(1)}% (${h.gainLossDollars >= 0 ? "+" : ""}$${h.gainLossDollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+          )
+          .join("\n");
+
+        portfolioContextSummary = `My portfolio summary:
+Total Value: $${portfolio.totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+Total Invested: $${portfolio.totalCostBasis.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+Total Gain/Loss: ${portfolio.totalGainLoss >= 0 ? "+" : ""}$${portfolio.totalGainLoss.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${portfolio.totalGainLossPct >= 0 ? "+" : ""}${portfolio.totalGainLossPct.toFixed(1)}%)
+
+Holdings:
+${holdingsSummary}
+
+Previous AI analysis summary:
+${advisorData.analysis.content.slice(0, 1000)}`;
+
+        const lossPositions = portfolio.holdings.filter((h) => h.gainLossPct < -25);
+        const lossRules = lossPositions
+          .map((h) =>
+            h.gainLossPct < -50
+              ? `IMPORTANT: User is down ${h.gainLossPct.toFixed(1)}% on ${h.symbol}. Address tax-loss harvesting and averaging down context.`
+              : `NOTE: User is down ${h.gainLossPct.toFixed(1)}% on ${h.symbol}. Give loss-aware advice.`,
+          )
+          .join("\n");
+
+        systemPrompt = `You are a personalized investment advisor for BudgetSmart. You have access to the user's actual portfolio data including their real cost basis and gains/losses. Be honest, empathetic, and specific. Always cite actual numbers from their portfolio. Format responses with markdown where helpful.${lossRules ? `\n\nLoss context:\n${lossRules}` : ""}`;
+      }
+
+      const answer = await advisorChat(
+        userId,
+        question,
+        (chatHistory as ChatMessage[]),
+        portfolioContextSummary,
+        systemPrompt,
+      );
+
+      res.json({ answer, timestamp: new Date().toISOString() });
+    } catch (error) {
+      console.error("Error in advisor chat:", error);
+      res.status(500).json({ error: "Failed to get advice" });
+    }
+  });
+
+  // Save portfolio snapshot
+  app.post("/api/investments/save-snapshot", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { totalValue, totalCostBasis } = req.body;
+
+      if (typeof totalValue !== "number" || typeof totalCostBasis !== "number") {
+        return res.status(400).json({ error: "totalValue and totalCostBasis are required numbers" });
+      }
+
+      await savePortfolioSnapshot(userId, totalValue, totalCostBasis);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error saving snapshot:", error);
+      res.status(500).json({ error: "Failed to save snapshot" });
+    }
+  });
+
+  // Legacy: Get AI portfolio analysis (kept for backward compatibility)
+  app.get("/api/investments/analysis", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const data = await getAdvisorData(userId, false);
+
+      if (!data) {
+        return res.json({ message: "No holdings to analyze" });
+      }
+
+      // Return in legacy format for backward compatibility
+      res.json({
+        totalValue: data.portfolio.totalValue,
+        totalCostBasis: data.portfolio.totalCostBasis,
+        totalGainLoss: data.portfolio.totalGainLoss,
+        totalGainLossPercent: data.portfolio.totalGainLossPct,
+        holdings: data.portfolio.holdings.map((h) => ({
+          holdingId: h.symbol,
+          symbol: h.symbol,
+          name: h.name,
+          currentPrice: h.currentPrice,
+          yourCostBasis: h.avgCost * h.shares,
+          quantity: h.shares,
+          currentValue: h.marketValue,
+          gainLoss: h.gainLossDollars,
+          gainLossPercent: h.gainLossPct,
+          technicalAnalysis: "",
+          recommendation: "hold",
+          reasoning: data.analysis.content.slice(0, 200),
+          riskLevel: "medium",
+          confidence: 0,
+        })),
+        overallRecommendation: data.analysis.content.slice(0, 300),
+        diversificationScore: 0,
+        riskAssessment: "See AI analysis",
+        actionItems: data.actions.map((a) => `${a.symbol}: ${a.action} — ${a.reasoning}`),
+        marketOutlook: "",
+        generatedAt: data.analysis.generatedAt,
+      });
     } catch (error) {
       console.error("Error analyzing portfolio:", error);
       res.status(500).json({ error: "Failed to analyze portfolio" });
@@ -8826,38 +8955,32 @@ The Budget Smart AI Team`,
         return res.status(404).json({ error: "Holding not found" });
       }
 
-      // First get the basic analysis
       const analysis = await getStockAnalysis(holding.symbol);
       const summary = analysis ? generateAnalysisSummary(analysis) : "Technical data unavailable";
-
       const currentPrice = analysis?.quote?.price || parseFloat(holding.currentPrice || "0");
       const costBasis = parseFloat(holding.costBasis || "0");
       const quantity = parseFloat(holding.quantity);
       const currentValue = currentPrice * quantity;
 
-      const holdingAnalysis = {
-        holdingId: holding.id,
-        symbol: holding.symbol,
-        name: holding.name,
-        currentPrice,
-        yourCostBasis: costBasis,
-        quantity,
-        currentValue,
-        gainLoss: currentValue - costBasis,
-        gainLossPercent: costBasis > 0 ? ((currentValue - costBasis) / costBasis) * 100 : 0,
-        technicalAnalysis: summary,
-        recommendation: "hold" as const,
-        reasoning: "",
-        riskLevel: "medium" as const,
-        confidence: 50,
-      };
-
-      const detailedAnalysis = await getDetailedHoldingAnalysis(holding, holdingAnalysis);
-
       res.json({
-        holding: holdingAnalysis,
+        holding: {
+          holdingId: holding.id,
+          symbol: holding.symbol,
+          name: holding.name,
+          currentPrice,
+          yourCostBasis: costBasis,
+          quantity,
+          currentValue,
+          gainLoss: currentValue - costBasis,
+          gainLossPercent: costBasis > 0 ? ((currentValue - costBasis) / costBasis) * 100 : 0,
+          technicalAnalysis: summary,
+          recommendation: "hold",
+          reasoning: "",
+          riskLevel: "medium",
+          confidence: 0,
+        },
         technicalData: analysis,
-        aiAnalysis: detailedAnalysis,
+        aiAnalysis: summary,
       });
     } catch (error) {
       console.error("Error getting holding analysis:", error);
@@ -8865,7 +8988,7 @@ The Budget Smart AI Team`,
     }
   });
 
-  // Ask AI investment advisor a question
+  // Legacy: Ask AI investment advisor a question
   app.post("/api/investments/ask-advisor", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -8875,11 +8998,15 @@ The Budget Smart AI Team`,
         return res.status(400).json({ error: "Question is required" });
       }
 
-      // Get portfolio context for better answers
-      const portfolioAnalysis = await analyzePortfolio(userId);
-      const advice = await getInvestmentAdvice(userId, question, portfolioAnalysis || undefined);
+      const answer = await advisorChat(
+        userId,
+        question,
+        [],
+        "User is asking an investment question.",
+        "You are a personalized investment advisor for BudgetSmart. Be helpful, honest, and specific.",
+      );
 
-      res.json({ advice, portfolioContext: portfolioAnalysis ? true : false });
+      res.json({ advice: answer, portfolioContext: false });
     } catch (error) {
       console.error("Error getting investment advice:", error);
       res.status(500).json({ error: "Failed to get advice" });
