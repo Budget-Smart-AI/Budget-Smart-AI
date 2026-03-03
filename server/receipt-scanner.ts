@@ -1,15 +1,12 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import Anthropic from "@anthropic-ai/sdk";
 import { v4 as uuidv4 } from "uuid";
 import * as path from "path";
-import * as os from "os";
-import { fromBuffer } from "pdf2pic";
-import { EXPENSE_CATEGORIES } from "@shared/schema";
+import { extractReceiptData } from "./receipt-extractor";
+export type { ReceiptData } from "./receipt-extractor";
 
 // Lazy-initialized clients to avoid startup failures when credentials are missing
 let _r2Client: S3Client | null = null;
-let _anthropic: Anthropic | null = null;
 
 function getR2Client(): S3Client {
   if (!_r2Client) {
@@ -64,49 +61,12 @@ function getPublicFileUrl(fileKey: string): string | null {
   return `${publicBase}/${encodedKey}`;
 }
 
-function getAnthropicClient(): Anthropic {
-  if (!_anthropic) {
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-    if (!apiKey) {
-      throw new Error("Anthropic API key is not configured. Please set ANTHROPIC_API_KEY environment variable.");
-    }
-    if (!process.env.ANTHROPIC_API_KEY && process.env.CLAUDE_API_KEY) {
-      console.warn("Deprecation warning: CLAUDE_API_KEY is deprecated, please use ANTHROPIC_API_KEY instead.");
-    }
-    _anthropic = new Anthropic({ apiKey });
-  }
-  return _anthropic;
-}
-
 function getBucketName(): string {
   const bucketName = process.env.R2_BUCKET_NAME;
   if (!bucketName) {
     throw new Error("R2 bucket is not configured. Please set R2_BUCKET_NAME environment variable.");
   }
   return bucketName;
-}
-
-const RECEIPT_EXTRACT_PROMPT = `Extract receipt data and respond with ONLY a valid JSON object (no markdown, no explanation).
-JSON fields:
-- merchant: string (store/restaurant name)
-- date: string (YYYY-MM-DD format, today if missing)
-- total: number (final total paid)
-- category: one of [${EXPENSE_CATEGORIES.join(", ")}]
-- items: array of {name: string, price: number} (line items, empty array if none)
-Use null for any field you cannot determine.`;
-
-// Interface for receipt data
-interface ReceiptData {
-  merchant: string;
-  amount: number;
-  date: string;
-  category: string;
-  items: Array<{
-    name: string;
-    price: number;
-    quantity: number;
-  }>;
-  confidence: number;
 }
 
 // Interface for transaction matching
@@ -185,243 +145,6 @@ export async function testR2Connection(): Promise<{ success: boolean; message: s
     return { success: true, message: "R2 storage is reachable and writable", details: `Test write+delete succeeded (key: ${testKey})` };
   } catch (error: any) {
     return { success: false, message: "R2 storage connection failed", details: error?.message || String(error) };
-  }
-}
-
-/**
- * Extract text from receipt buffer directly (no R2 required)
- * Supports images and PDFs via pdf2pic conversion
- */
-export async function extractReceiptFromBuffer(buffer: Buffer, mimetype: string): Promise<string> {
-  const anthropic = getAnthropicClient();
-
-  // PDF support: convert first page to PNG using pdf2pic, then send as image
-  if (mimetype === 'application/pdf') {
-    console.log("Processing PDF receipt...");
-    const tmpDir = os.tmpdir();
-    try {
-      const converter = fromBuffer(buffer, {
-        density: 150,
-        saveFilename: `receipt-${Date.now()}`,
-        savePath: tmpDir,
-        format: "png",
-        width: 1200,
-        height: 1600,
-      });
-      const result = await converter(1, { responseType: "buffer" });
-      const pngBuffer: Buffer = result.buffer as Buffer;
-      const pngBase64 = pngBuffer.toString('base64');
-      const message = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1024,
-        system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: "image/png",
-                  data: pngBase64,
-                },
-              },
-              {
-                type: "text",
-                text: RECEIPT_EXTRACT_PROMPT,
-              }
-            ]
-          }
-        ]
-      });
-      const firstBlock = message.content[0];
-      return firstBlock?.type === "text" ? firstBlock.text : "";
-    } catch (pdfError) {
-      console.error("PDF extraction failed:", pdfError);
-      throw new Error("Failed to extract text from PDF receipt.");
-    }
-  }
-
-  // Image support — convert buffer to base64 and send directly
-  const imageBase64 = buffer.toString('base64');
-  const supportedMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
-  type SupportedMimeType = typeof supportedMimeTypes[number];
-  const rawMimeType = mimetype.split(";")[0].trim();
-  const imageMimeType: SupportedMimeType = supportedMimeTypes.includes(rawMimeType as SupportedMimeType)
-    ? (rawMimeType as SupportedMimeType)
-    : "image/jpeg";
-
-  const message = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: imageMimeType,
-              data: imageBase64
-            }
-          },
-          {
-            type: "text",
-            text: RECEIPT_EXTRACT_PROMPT
-          }
-        ]
-      }
-    ]
-  });
-
-  const firstBlock = message.content[0];
-  return firstBlock.type === "text" ? firstBlock.text : "";
-}
-
-/**
- * Extract text from receipt using Claude Haiku (from a URL)
- */
-export async function extractReceiptText(imageUrl: string): Promise<string> {
-  try {
-    // Download image from URL
-    const response = await fetch(imageUrl);
-    const imageBuffer = await response.arrayBuffer();
-    const imageBase64 = Buffer.from(imageBuffer).toString("base64");
-    
-    // Determine MIME type - extract base type only, must be one of the supported types
-    const rawMimeType = (response.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
-    const supportedMimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
-    type SupportedMimeType = typeof supportedMimeTypes[number];
-    const mimeType: SupportedMimeType = supportedMimeTypes.includes(rawMimeType as SupportedMimeType)
-      ? (rawMimeType as SupportedMimeType)
-      : "image/jpeg";
-    
-    const message = await getAnthropicClient().messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
-      system: "You are a receipt data extractor. Always respond with valid JSON only, no markdown fences.",
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mimeType,
-                data: imageBase64
-              }
-            },
-            {
-              type: "text",
-              text: RECEIPT_EXTRACT_PROMPT
-            }
-          ]
-        }
-      ]
-    });
-    
-    const firstBlock = message.content[0];
-    return firstBlock.type === "text" ? firstBlock.text : "";
-  } catch (error) {
-    console.error("Error extracting receipt text:", error);
-    throw new Error("Failed to extract receipt text");
-  }
-}
-
-/**
- * Parse extracted text into structured data
- */
-export function parseReceiptData(extractedText: string): ReceiptData {
-  try {
-    // Try to parse as JSON first (strip markdown fences if present)
-    const stripped = extractedText.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
-    const jsonMatch = stripped.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-
-      // Validate category against known list; fall back to "Other"
-      const aiCategory: string = parsed.category || "";
-      const validCategory = (EXPENSE_CATEGORIES as readonly string[]).includes(aiCategory)
-        ? aiCategory
-        : "Other";
-
-      return {
-        merchant: parsed.merchant || "Unknown",
-        amount: parseFloat(parsed.total) || 0,
-        date: parsed.date || new Date().toISOString().split('T')[0],
-        category: validCategory,
-        items: (parsed.items || []).map((item: any) => ({
-          name: item.name || "",
-          price: parseFloat(item.price) || 0,
-          quantity: 1,
-        })),
-        confidence: 0.85
-      };
-    }
-    
-    // Fallback: Simple text parsing
-    const lines = extractedText.split('\n');
-    let merchant = "Unknown";
-    let amount = 0;
-    let date = new Date().toISOString().split('T')[0];
-    const items: Array<{name: string, price: number, quantity: number}> = [];
-    
-    for (const line of lines) {
-      const lowerLine = line.toLowerCase();
-      
-      // Extract merchant (common patterns)
-      if (lowerLine.includes("target") || lowerLine.includes("walmart") || 
-          lowerLine.includes("amazon") || lowerLine.includes("starbucks")) {
-        merchant = line.trim();
-      }
-      
-      // Extract total amount
-      const totalMatch = line.match(/total\s*[\$£€]?\s*([\d,]+\.?\d*)/i);
-      if (totalMatch) {
-        amount = parseFloat(totalMatch[1].replace(',', ''));
-      }
-      
-      // Extract date
-      const dateMatch = line.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/);
-      if (dateMatch) {
-        date = dateMatch[1];
-      }
-      
-      // Extract line items (simple pattern)
-      const itemMatch = line.match(/(.+?)\s+[\$£€]?\s*([\d,]+\.?\d*)/);
-      if (itemMatch && !line.toLowerCase().includes("total") && 
-          !line.toLowerCase().includes("subtotal") && 
-          !line.toLowerCase().includes("tax")) {
-        items.push({
-          name: itemMatch[1].trim(),
-          price: parseFloat(itemMatch[2].replace(',', '')),
-          quantity: 1
-        });
-      }
-    }
-    
-    return {
-      merchant,
-      amount,
-      date,
-      category: "Other",
-      items,
-      confidence: 0.65 // Lower confidence for text parsing
-    };
-  } catch (error) {
-    console.error("Error parsing receipt data:", error);
-    return {
-      merchant: "Unknown",
-      amount: 0,
-      date: new Date().toISOString().split('T')[0],
-      category: "Other",
-      items: [],
-      confidence: 0.3
-    };
   }
 }
 
@@ -549,30 +272,26 @@ export async function processReceiptUpload(
     console.warn("R2 upload skipped (not configured or failed):", r2Error?.message);
   }
 
-  // 2. OCR — non-fatal. If it fails we still save the receipt with minimal data.
-  let rawText = "";
+  // 2. OCR + AI analysis — non-fatal. If it fails we still save the receipt with minimal data.
+  let receiptData: ReceiptData;
   let ocrError: string | undefined;
   try {
-    rawText = await extractReceiptFromBuffer(file.buffer, file.mimetype);
+    receiptData = await extractReceiptData(file.buffer, file.mimetype, file.originalname);
   } catch (err: any) {
     ocrError = err?.message || "OCR extraction failed";
     console.error("OCR failed (receipt will be saved without extracted data):", err);
+    receiptData = {
+      merchant: "Unknown",
+      amount: 0,
+      date: new Date().toISOString().split("T")[0],
+      category: "Other",
+      items: [],
+      confidence: 0,
+    };
   }
 
-  // 3. Parse receipt data (fallback defaults when OCR had no output)
-  const receiptData: ReceiptData = rawText
-    ? parseReceiptData(rawText)
-    : {
-        merchant: "Unknown",
-        amount: 0,
-        date: new Date().toISOString().split("T")[0],
-        category: "Uncategorized",
-        items: [],
-        confidence: 0,
-      };
-
-  // 4. Match with transactions (skip if OCR produced no data)
-  const matches = rawText
+  // 3. Match with transactions
+  const matches = receiptData.confidence > 0
     ? await matchReceiptWithTransactions(receiptData, userId, userTransactions)
     : [];
 
@@ -581,7 +300,7 @@ export async function processReceiptUpload(
     matches,
     signedUrl,
     fileKey,
-    rawText,
+    rawText: "",
     ...(ocrError ? { ocrError } : {}),
   };
 }
