@@ -122,6 +122,7 @@ export async function ensureVaultTables(): Promise<void> {
       description TEXT,
       extracted_data JSONB,
       ai_summary TEXT,
+      ai_processing_status VARCHAR(20) DEFAULT 'pending',
       tags TEXT[],
       expiry_date DATE,
       expiry_notified BOOLEAN DEFAULT false,
@@ -129,6 +130,12 @@ export async function ensureVaultTables(): Promise<void> {
       uploaded_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     )
+  `);
+
+  // Add ai_processing_status column to existing tables that may not have it
+  await pool.query(`
+    ALTER TABLE vault_documents
+      ADD COLUMN IF NOT EXISTS ai_processing_status VARCHAR(20) DEFAULT 'pending'
   `);
 
   await pool.query(`

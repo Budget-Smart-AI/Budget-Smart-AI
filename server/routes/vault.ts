@@ -224,8 +224,8 @@ router.post("/upload", requireAuth, uploadRateLimiter, upload.array("file", 10),
       const insertResult = await db.query(
         `INSERT INTO vault_documents
            (id, user_id, file_name, display_name, file_key, file_size, file_type, mime_type,
-            category, description, expiry_date, uploaded_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
+            category, description, expiry_date, ai_processing_status, uploaded_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending',NOW(),NOW())
          RETURNING *`,
         [docId, userId, file.originalname, displayName, fileKey, file.size, fileType,
          file.mimetype, category, description, expiryDateInput || null],
@@ -248,6 +248,7 @@ router.post("/upload", requireAuth, uploadRateLimiter, upload.array("file", 10),
                ai_summary=$1, extracted_data=$2, tags=$3,
                category=$4, subcategory=$5,
                expiry_date=COALESCE($6::date, expiry_date),
+               ai_processing_status='completed',
                updated_at=NOW()
              WHERE id=$7`,
             [
@@ -262,6 +263,15 @@ router.post("/upload", requireAuth, uploadRateLimiter, upload.array("file", 10),
           );
         } catch (aiErr) {
           console.error(`[Vault] AI processing failed for doc ${docId}:`, aiErr);
+          // Mark as failed so the client can show an appropriate error state
+          try {
+            await db.query(
+              `UPDATE vault_documents SET ai_processing_status='failed', updated_at=NOW() WHERE id=$1`,
+              [docId],
+            );
+          } catch (dbErr) {
+            console.error(`[Vault] Failed to mark doc ${docId} as failed:`, dbErr);
+          }
           // Don't rethrow — document was already saved
         }
       })();
@@ -541,6 +551,12 @@ router.post("/documents/:id/reprocess", requireAuth, vaultRateLimiter, async (re
     const doc = result.rows[0];
     if (!doc || doc.user_id !== userId) return res.status(404).json({ error: "Document not found" });
 
+    // Mark as pending before reprocessing
+    await db.query(
+      `UPDATE vault_documents SET ai_processing_status='pending', updated_at=NOW() WHERE id=$1`,
+      [req.params.id],
+    );
+
     // Download from R2
     const { GetObjectCommand: GetObjCmd } = await import("@aws-sdk/client-s3");
     const r2Result = await getR2().send(new GetObjCmd({ Bucket: getBucket(), Key: doc.file_key }));
@@ -555,7 +571,7 @@ router.post("/documents/:id/reprocess", requireAuth, vaultRateLimiter, async (re
 
     const ai = await processDocumentWithAI(buffer, doc.mime_type, doc.category, doc.file_name);
     await db.query(
-      `UPDATE vault_documents SET ai_summary=$1, extracted_data=$2, tags=$3, category=$4, subcategory=$5, expiry_date=COALESCE($6::date, expiry_date), updated_at=NOW() WHERE id=$7`,
+      `UPDATE vault_documents SET ai_summary=$1, extracted_data=$2, tags=$3, category=$4, subcategory=$5, expiry_date=COALESCE($6::date, expiry_date), ai_processing_status='completed', updated_at=NOW() WHERE id=$7`,
       [ai.summary, JSON.stringify(ai.extractedData), ai.tags, ai.suggestedCategory || doc.category, ai.suggestedSubcategory || null, ai.expiryDate || null, req.params.id],
     );
 
@@ -563,6 +579,13 @@ router.post("/documents/:id/reprocess", requireAuth, vaultRateLimiter, async (re
     res.json({ success: true, data: updated.rows[0] });
   } catch (error: any) {
     console.error("[Vault] Reprocess error:", error);
+    // Mark as failed so the client can show an appropriate error state
+    try {
+      await getPool().query(
+        `UPDATE vault_documents SET ai_processing_status='failed', updated_at=NOW() WHERE id=$1`,
+        [req.params.id],
+      );
+    } catch { /* ignore secondary error */ }
     res.status(500).json({ error: "Failed to reprocess document", details: error.message });
   }
 });

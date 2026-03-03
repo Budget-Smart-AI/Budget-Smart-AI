@@ -40,6 +40,7 @@ interface VaultDocument {
   description: string | null;
   extracted_data: Record<string, any> | null;
   ai_summary: string | null;
+  ai_processing_status: string | null;
   tags: string[] | null;
   expiry_date: string | null;
   expiry_notified: boolean;
@@ -407,11 +408,18 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
   const [question, setQuestion] = useState("");
   const [conversations, setConversations] = useState<AiConversation[]>(doc.conversations || []);
   const [asking, setAsking] = useState(false);
+  const [reprocessing, setReprocessing] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const { data: fullDoc, isLoading: loadingDoc } = useQuery<{ success: boolean; data: VaultDocument }>({
     queryKey: [`/api/vault/documents/${doc.id}`],
-    refetchInterval: doc.ai_summary ? false : 3000, // Poll if AI not done
+    // Poll every 3 seconds while AI is still pending; stop once completed or failed
+    refetchInterval: (query) => {
+      const data = query.state.data as { success: boolean; data: VaultDocument } | undefined;
+      const status = data?.data?.ai_processing_status;
+      if (status === "completed" || status === "failed") return false;
+      return 3000;
+    },
   });
 
   const currentDoc = fullDoc?.data || doc;
@@ -464,6 +472,24 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
       toast({ title: "Error", description: "Failed to get AI response", variant: "destructive" });
     } finally {
       setAsking(false);
+    }
+  };
+
+  const handleReprocess = async () => {
+    if (reprocessing) return;
+    setReprocessing(true);
+    try {
+      const res = await fetch(`/api/vault/documents/${doc.id}/reprocess`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "AI analysis started", description: "Analyzing your document again..." });
+      queryClient.invalidateQueries({ queryKey: [`/api/vault/documents/${doc.id}`] });
+    } catch {
+      toast({ title: "Error", description: "Failed to start AI analysis", variant: "destructive" });
+    } finally {
+      setReprocessing(false);
     }
   };
 
@@ -587,12 +613,26 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
           <TabsContent value="ai" className="flex-1 flex flex-col overflow-hidden mt-0 px-0">
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* AI Summary */}
-              {!currentDoc.ai_summary && !loadingDoc ? (
-                <div className="rounded-xl border bg-amber-500/5 p-4 flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-amber-400 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium">AI is reading your document...</p>
-                    <p className="text-xs text-muted-foreground">This usually takes a few seconds</p>
+              {currentDoc.ai_processing_status === "failed" ? (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="shrink-0 mt-0.5 h-5 w-5 rounded-full bg-red-500/20 flex items-center justify-center">
+                      <X className="h-3 w-3 text-red-400" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-red-400">AI analysis could not be completed</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">There was a problem analyzing this document. You can try again.</p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-3 h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        onClick={handleReprocess}
+                        disabled={reprocessing}
+                      >
+                        {reprocessing ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+                        Retry AI Analysis
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ) : currentDoc.ai_summary ? (
@@ -603,7 +643,15 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed">{currentDoc.ai_summary}</p>
                 </div>
-              ) : null}
+              ) : (
+                <div className="rounded-xl border bg-amber-500/5 p-4 flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-amber-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium">AI is reading your document...</p>
+                    <p className="text-xs text-muted-foreground">This usually takes a few seconds</p>
+                  </div>
+                </div>
+              )}
 
               {/* Extracted data */}
               {extractedData && Object.keys(extractedData).length > 0 && (
@@ -736,7 +784,8 @@ function DocumentCard({ doc, onClick, onDelete, onToggleFavorite }: {
   onDelete: () => void;
   onToggleFavorite: () => void;
 }) {
-  const aiProcessing = !doc.ai_summary;
+  const aiProcessing = doc.ai_processing_status === "pending";
+  const aiFailed = doc.ai_processing_status === "failed";
 
   return (
     <div
@@ -748,6 +797,12 @@ function DocumentCard({ doc, onClick, onDelete, onToggleFavorite }: {
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-amber-500/20 border border-amber-500/30 rounded-full px-2 py-0.5">
           <div className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
           <span className="text-[10px] text-amber-400 font-medium">AI Reading...</span>
+        </div>
+      )}
+      {aiFailed && (
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1 bg-red-500/20 border border-red-500/30 rounded-full px-2 py-0.5">
+          <div className="h-1.5 w-1.5 rounded-full bg-red-400" />
+          <span className="text-[10px] text-red-400 font-medium">AI Failed</span>
         </div>
       )}
 
