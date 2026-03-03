@@ -9,6 +9,7 @@ import { requireAuth } from "../auth";
 import { createRateLimiter, apiRateLimiter } from "../rate-limiter";
 import { Pool } from "pg";
 import { sendEmailViaPostmark } from "../email";
+import { withTimeout } from "../timeout";
 
 const router = express.Router();
 
@@ -203,10 +204,16 @@ router.post("/upload", requireAuth, uploadRateLimiter, upload.array("file", 10),
 
       results.push({ ...doc, signedUrl, aiProcessing: true });
 
-      // Async AI processing — do not await, never fail the upload
+      // Async AI processing — do not await, never fail the upload.
+      // A 120-second timeout prevents the status from staying "pending" forever
+      // when pdf2pic or the DeepSeek API call hangs.
       (async () => {
         try {
-          const ai = await processDocumentWithAI(file.buffer, file.mimetype, category, file.originalname);
+          const ai = await withTimeout(
+            processDocumentWithAI(file.buffer, file.mimetype, category, file.originalname),
+            120000,
+            "Document AI analysis timed out",
+          );
           const finalCategory = ai.suggestedCategory || category;
           await db.query(
             `UPDATE vault_documents SET
@@ -542,7 +549,11 @@ router.post("/documents/:id/reprocess", requireAuth, vaultRateLimiter, async (re
     });
     const buffer = Buffer.concat(chunks);
 
-    const ai = await processDocumentWithAI(buffer, doc.mime_type, doc.category, doc.file_name);
+    const ai = await withTimeout(
+      processDocumentWithAI(buffer, doc.mime_type, doc.category, doc.file_name),
+      120000,
+      "Document AI analysis timed out",
+    );
     await db.query(
       `UPDATE vault_documents SET ai_summary=$1, extracted_data=$2, tags=$3, category=$4, subcategory=$5, expiry_date=COALESCE($6::date, expiry_date), ai_processing_status='completed', updated_at=NOW() WHERE id=$7`,
       [ai.summary, JSON.stringify(ai.extractedData), ai.tags, ai.suggestedCategory || doc.category, ai.suggestedSubcategory || null, ai.expiryDate || null, req.params.id],
