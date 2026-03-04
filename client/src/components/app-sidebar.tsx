@@ -185,6 +185,11 @@ const adminMenuItems = [
     url: "/admin/ai-management",
     icon: Cpu,
   },
+  {
+    title: "Bank Providers",
+    url: "/admin/bank-providers",
+    icon: Building2,
+  },
 ];
 
 interface AppSidebarProps {

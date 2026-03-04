@@ -56,6 +56,7 @@ import AdminLanding from "@/pages/admin-landing";
 import AdminSalesChat from "@/pages/admin-sales-chat";
 import AdminSupport from "@/pages/admin-support";
 import AdminAIManagement from "@/pages/admin-ai-management";
+import AdminBankProviders from "@/pages/admin-bank-providers";
 import AnomaliesPage from "@/pages/anomalies";
 import AffiliatePage from "@/pages/affiliate";
 import AffiliateTerms from "@/pages/affiliate-terms";
@@ -109,6 +110,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
           <Route path="/admin/sales-chat" component={AdminSalesChat} />
           <Route path="/admin/support" component={AdminSupport} />
           <Route path="/admin/ai-management" component={AdminAIManagement} />
+          <Route path="/admin/bank-providers" component={AdminBankProviders} />
         </>
       )}
       <Route component={NotFound} />
