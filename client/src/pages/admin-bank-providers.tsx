@@ -189,7 +189,10 @@ export default function AdminBankProviders() {
 
   const { data: providers, isLoading, error } = useQuery<BankProviderRow[]>({
     queryKey: ["/api/admin/bank-providers"],
-    queryFn: () => apiRequest("GET", "/api/admin/bank-providers"),
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/bank-providers");
+      return res.json() as Promise<BankProviderRow[]>;
+    },
   });
 
   const enabledCount = providers?.filter((p) => p.is_enabled).length ?? 0;
