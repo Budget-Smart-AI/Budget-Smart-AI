@@ -254,7 +254,7 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
           enrichment_confidence = $7
          WHERE id = $8`,
         [result.cleanName, result.logoUrl, result.subcategory, result.merchantType,
-         result.isSubscription, result.source, result.confidence, tx.id]
+         result.isSubscription ? 'true' : 'false', result.source, result.confidence, tx.id]
       );
       count++;
       await new Promise(r => setTimeout(r, 150));
@@ -293,7 +293,7 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
           enrichment_confidence = $7
          WHERE id = $8`,
         [result.cleanName, result.logoUrl, result.subcategory, result.merchantType,
-         result.isSubscription, result.source, result.confidence, tx.id]
+         result.isSubscription ? 'true' : 'false', result.source, result.confidence, tx.id]
       );
       count++;
       await new Promise(r => setTimeout(r, 150));

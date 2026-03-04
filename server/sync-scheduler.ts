@@ -155,7 +155,7 @@ export async function initializeSyncScheduler(): Promise<void> {
       pruneEnrichmentCache().catch(err =>
         console.error('[Sync] Merchant cache cleanup failed:', err)
       );
-    }).catch(() => {});
+    }).catch(err => console.error('[Sync] Failed to import merchant-enricher for cleanup:', err));
   }, ONE_WEEK_MS);
 }
 

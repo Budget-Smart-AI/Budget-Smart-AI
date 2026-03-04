@@ -3957,10 +3957,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         if (check.rows.length > 0) {
           const tx = await pool.query(`SELECT name FROM plaid_transactions WHERE id = $1`, [id]);
           if (tx.rows.length > 0) {
-            const { normalizeRawDescription } = await import('./merchant-enricher').then(m => ({
-              normalizeRawDescription: (s: string) => s.toUpperCase().replace(/\s+/g, ' ').trim(),
-            }));
-            const normalized = normalizeRawDescription(tx.rows[0].name);
+            const normalized = (tx.rows[0].name as string).toUpperCase().replace(/\s+/g, ' ').trim();
             await pool.query(
               `UPDATE merchant_enrichment SET category = $1, subcategory = $2, source = 'user_correction', confidence = 1.0 WHERE raw_pattern = $3`,
               [category, subcategory || null, normalized]
