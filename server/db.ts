@@ -240,6 +240,61 @@ export async function ensureAITables(): Promise<void> {
   `);
 }
 
+export async function ensureMerchantEnrichmentTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS merchant_enrichment (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      raw_pattern VARCHAR(500) UNIQUE NOT NULL,
+      clean_name VARCHAR(200) NOT NULL,
+      category VARCHAR(100),
+      subcategory VARCHAR(100),
+      merchant_type VARCHAR(50),
+      is_subscription BOOLEAN DEFAULT false,
+      logo_url VARCHAR(500),
+      website VARCHAR(200),
+      confidence DECIMAL(3,2) DEFAULT 0.5,
+      source VARCHAR(50) DEFAULT 'ai',
+      use_count INTEGER DEFAULT 1,
+      last_used_at TIMESTAMP DEFAULT NOW(),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_merchant_pattern ON merchant_enrichment(raw_pattern)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_merchant_clean ON merchant_enrichment(clean_name)`);
+
+  // Add enrichment columns to plaid_transactions
+  const plaidCols: [string, string][] = [
+    ["merchant_clean_name", "VARCHAR(200)"],
+    ["merchant_logo_url", "VARCHAR(500)"],
+    ["subcategory", "VARCHAR(100)"],
+    ["merchant_type", "VARCHAR(50)"],
+    ["is_subscription", "BOOLEAN DEFAULT false"],
+    ["enrichment_source", "VARCHAR(50)"],
+    ["enrichment_confidence", "DECIMAL(3,2)"],
+  ];
+  for (const [col, colType] of plaidCols) {
+    await pool.query(
+      `ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS "${col}" ${colType}`
+    );
+  }
+
+  // Add enrichment columns to mx_transactions
+  for (const [col, colType] of plaidCols) {
+    await pool.query(
+      `ALTER TABLE mx_transactions ADD COLUMN IF NOT EXISTS "${col}" ${colType}`
+    );
+  }
+
+  // Add enrichment columns to manual_transactions
+  for (const [col, colType] of plaidCols) {
+    await pool.query(
+      `ALTER TABLE manual_transactions ADD COLUMN IF NOT EXISTS "${col}" ${colType}`
+    );
+  }
+}
+
 export async function ensureBankProviderTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_provider_config (

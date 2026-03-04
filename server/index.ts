@@ -17,7 +17,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -146,6 +146,10 @@ app.use((req, res, next) => {
 
   await ensureBankProviderTable().catch(err =>
     console.error("Failed to ensure bank provider table — bank provider management will not work:", err)
+  );
+
+  await ensureMerchantEnrichmentTable().catch(err =>
+    console.error("Failed to ensure merchant enrichment table — transaction enrichment will not work:", err)
   );
 
   await registerRoutes(httpServer, app);

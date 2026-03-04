@@ -358,6 +358,13 @@ export const mxTransactions = pgTable("mx_transactions", {
   taxCategory: text("tax_category"),
   isBusinessExpense: text("is_business_expense").default("false"),
   createdAt: text("created_at"),
+  // Enrichment fields
+  merchantCleanName: varchar("merchant_clean_name", { length: 200 }),
+  merchantLogoUrl: varchar("merchant_logo_url", { length: 500 }),
+  subcategory: varchar("subcategory", { length: 100 }),
+  merchantType: varchar("merchant_type", { length: 50 }),
+  enrichmentSource: varchar("enrichment_source", { length: 50 }),
+  enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
 });
 
 export const insertMxMemberSchema = createInsertSchema(mxMembers).omit({ id: true });
@@ -430,6 +437,14 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   taxCategory: text("tax_category"),
   isBusinessExpense: text("is_business_expense").default("false"),
   createdAt: text("created_at"),
+  // Enrichment fields
+  merchantCleanName: varchar("merchant_clean_name", { length: 200 }),
+  merchantLogoUrl: varchar("merchant_logo_url", { length: 500 }),
+  subcategory: varchar("subcategory", { length: 100 }),
+  merchantType: varchar("merchant_type", { length: 50 }),
+  isSubscription: text("is_subscription").default("false"),
+  enrichmentSource: varchar("enrichment_source", { length: 50 }),
+  enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
 });
 
 // ============ MANUAL ACCOUNTS (Transaction-Centric Architecture) ============
@@ -462,6 +477,14 @@ export const manualTransactions = pgTable("manual_transactions", {
   taxCategory: text("tax_category"),
   isBusinessExpense: text("is_business_expense").default("false"),
   createdAt: text("created_at"),
+  // Enrichment fields
+  merchantCleanName: varchar("merchant_clean_name", { length: 200 }),
+  merchantLogoUrl: varchar("merchant_logo_url", { length: 500 }),
+  subcategory: varchar("subcategory", { length: 100 }),
+  merchantType: varchar("merchant_type", { length: 50 }),
+  isSubscription: text("is_subscription").default("false"),
+  enrichmentSource: varchar("enrichment_source", { length: 50 }),
+  enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
 });
 
 export const insertManualAccountSchema = createInsertSchema(manualAccounts).omit({ id: true, userId: true }).extend({

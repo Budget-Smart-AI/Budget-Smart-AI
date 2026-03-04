@@ -41,6 +41,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Building2,
   RefreshCw,
   Link2,
@@ -55,6 +63,7 @@ import {
   DollarSign,
   Pencil,
   History,
+  RotateCcw,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -65,6 +74,43 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditCardIcon, TrendingUp } from "lucide-react";
 import { TransactionDrilldown } from "@/components/transaction-drilldown";
 import { BankProviderSelectionDialog } from "@/components/bank-provider-selection";
+
+// Category color map mirrors server/merchant-categories.ts CATEGORY_COLORS
+const CATEGORY_COLORS: Record<string, string> = {
+  'Food & Dining':    '#f97316',
+  'Shopping':         '#3b82f6',
+  'Transportation':   '#a855f7',
+  'Housing':          '#22c55e',
+  'Health & Wellness':'#ec4899',
+  'Entertainment':    '#eab308',
+  'Subscriptions':    '#06b6d4',
+  'Financial':        '#6b7280',
+  'Income':           '#10b981',
+  'Personal Care':    '#f43f5e',
+  'Education':        '#6366f1',
+  'Travel':           '#0ea5e9',
+  'Gifts & Donations':'#8b5cf6',
+  'Transfers':        '#64748b',
+  'Other':            '#71717a',
+};
+
+const CATEGORY_TAXONOMY: Record<string, string[]> = {
+  'Food & Dining': ['Groceries','Supermarket','Restaurants','Fast Food','Coffee Shops','Bars & Alcohol','Food Delivery','Meal Kits'],
+  'Shopping': ['Online Shopping','Clothing & Apparel','Electronics','Home & Garden','Sporting Goods','Pharmacies','Department Stores','Wholesale Clubs'],
+  'Transportation': ['Gas & Fuel','Parking','Rideshare','Public Transit','Auto Insurance','Auto Maintenance','Car Payments','Tolls'],
+  'Housing': ['Rent','Mortgage','Home Insurance','Home Maintenance','Utilities - Electric','Utilities - Gas','Utilities - Water','Internet','Cable & Satellite'],
+  'Health & Wellness': ['Doctor & Medical','Dental','Vision','Pharmacy & Prescriptions','Health Insurance','Gym & Fitness','Mental Health'],
+  'Entertainment': ['Streaming Services','Gaming','Movies & Events','Music','Sports & Recreation','Hobbies'],
+  'Subscriptions': ['Software & Apps','News & Magazines','Cloud Storage','Membership Clubs'],
+  'Financial': ['Bank Fees','ATM Withdrawals','Credit Card Payments','Loan Payments','Investment Contributions','Tax Payments'],
+  'Income': ['Salary & Wages','Freelance Income','Business Income','Investment Returns','Government Benefits','Refunds & Cashback'],
+  'Personal Care': ['Hair & Beauty','Spa & Massage','Personal Products'],
+  'Education': ['Tuition & Fees','Books & Supplies','Online Courses','Childcare'],
+  'Travel': ['Hotels & Lodging','Flights','Vacation Packages','Travel Insurance','Car Rental'],
+  'Gifts & Donations': ['Charitable Donations','Gifts','Religious Contributions'],
+  'Transfers': ['Account Transfers','E-Transfers','Peer Payments'],
+  'Other': ['Uncategorized','Miscellaneous'],
+};
 
 function formatCurrency(amount: string | number, currency: string = "CAD") {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -1129,7 +1175,7 @@ export default function BankAccounts() {
   // Filter and sort transactions
   const filteredTransactions = transactions
     .filter((tx) => {
-      const matchesSearch = (tx.merchantName || tx.name).toLowerCase().includes(search.toLowerCase());
+      const matchesSearch = ((tx as any).merchantCleanName || tx.merchantName || tx.name).toLowerCase().includes(search.toLowerCase());
       const matchesFilter = matchFilter === "all" || tx.matchType === matchFilter;
       return matchesSearch && matchesFilter;
     })
@@ -1801,33 +1847,103 @@ export default function BankAccounts() {
                                 className="cursor-pointer hover:text-primary transition-colors group flex items-center gap-2"
                                 onClick={() => setDrilldownTransaction(tx)}
                               >
-                                {tx.logoUrl ? (
+                                {tx.merchantCleanName === null && !tx.merchantLogoUrl && !tx.logoUrl ? (
+                                  <Skeleton className="w-6 h-6 rounded-full flex-shrink-0" />
+                                ) : (tx.merchantLogoUrl || tx.logoUrl) ? (
                                   <img
-                                    src={tx.logoUrl}
+                                    src={(tx.merchantLogoUrl || tx.logoUrl)!}
                                     alt=""
                                     className="w-6 h-6 rounded-full object-contain flex-shrink-0 bg-white"
                                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                                   />
                                 ) : (
-                                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                                    <span className="text-xs font-medium text-muted-foreground">
-                                      {(tx.merchantName || tx.name).charAt(0).toUpperCase()}
+                                  <div
+                                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-white"
+                                    style={{ backgroundColor: CATEGORY_COLORS[(tx as any).category || 'Other'] || '#71717a' }}
+                                  >
+                                    <span className="text-xs font-semibold">
+                                      {((tx as any).merchantCleanName || tx.merchantName || tx.name).charAt(0).toUpperCase()}
                                     </span>
                                   </div>
                                 )}
-                                <p className="text-xs sm:text-sm font-medium group-hover:underline flex items-center gap-1 truncate max-w-[120px] sm:max-w-none">
-                                  {tx.merchantName || tx.name}
-                                  <TrendingUp className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:inline" />
-                                </p>
+                                <div className="flex flex-col min-w-0">
+                                  {(tx as any).merchantCleanName === null ? (
+                                    <Skeleton className="h-3 w-20 mb-1" />
+                                  ) : (
+                                    <p className="text-xs sm:text-sm font-medium group-hover:underline flex items-center gap-1 truncate max-w-[120px] sm:max-w-none">
+                                      {(tx as any).merchantCleanName || tx.merchantName || tx.name}
+                                      {(tx as any).isSubscription === "true" && (
+                                        <span title="Recurring" className="text-cyan-500 flex-shrink-0">
+                                          <RotateCcw className="h-3 w-3" />
+                                        </span>
+                                      )}
+                                      <TrendingUp className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:inline flex-shrink-0" />
+                                    </p>
+                                  )}
+                                </div>
                               </div>
                             </TableCell>
                             <TableCell className={`font-medium text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap ${isDebit ? "text-red-600" : "text-green-600"}`}>
                               {isDebit ? "-" : "+"}{formatCurrency(Math.abs(amount), tx.isoCurrencyCode || "CAD")}
                             </TableCell>
                             <TableCell className="hidden sm:table-cell p-2 sm:p-4">
-                              <Badge variant="outline" className="text-xs">
-                                {tx.personalCategory || "Other"}
-                              </Badge>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button className="focus:outline-none">
+                                    {(tx as any).subcategory ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                                        style={{
+                                          borderColor: CATEGORY_COLORS[(tx as any).category || 'Other'] || '#71717a',
+                                          color: CATEGORY_COLORS[(tx as any).category || 'Other'] || '#71717a',
+                                        }}
+                                      >
+                                        {(tx as any).subcategory}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-xs cursor-pointer hover:opacity-80">
+                                        {tx.personalCategory || "Other"}
+                                      </Badge>
+                                    )}
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto w-52">
+                                  <DropdownMenuLabel className="text-xs text-muted-foreground">Change category</DropdownMenuLabel>
+                                  <DropdownMenuSeparator />
+                                  {Object.entries(CATEGORY_TAXONOMY).map(([cat, subs]) => (
+                                    <div key={cat}>
+                                      <DropdownMenuLabel
+                                        className="text-xs font-semibold py-1"
+                                        style={{ color: CATEGORY_COLORS[cat] || '#71717a' }}
+                                      >
+                                        {cat}
+                                      </DropdownMenuLabel>
+                                      {subs.map((sub) => (
+                                        <DropdownMenuItem
+                                          key={sub}
+                                          className="text-xs pl-4 cursor-pointer"
+                                          onClick={async () => {
+                                            try {
+                                              await apiRequest("PATCH", `/api/transactions/${tx.id}/category`, {
+                                                category: cat,
+                                                subcategory: sub,
+                                                transactionType: 'plaid',
+                                              });
+                                              queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+                                              toast({ title: "Category updated" });
+                                            } catch {
+                                              toast({ title: "Failed to update category", variant: "destructive" });
+                                            }
+                                          }}
+                                        >
+                                          {sub}
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </div>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </TableCell>
                             <TableCell className="hidden sm:table-cell p-2 sm:p-4">
                               {tx.matchType === "unmatched" ? (

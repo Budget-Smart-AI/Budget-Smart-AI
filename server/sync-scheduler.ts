@@ -147,6 +147,16 @@ export async function initializeSyncScheduler(): Promise<void> {
 
   console.log(`[Sync] Found ${enabledCount} enabled sync schedules`);
   console.log("[Sync] Sync scheduler initialized");
+
+  // Run merchant cache cleanup weekly (every 7 days)
+  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  setInterval(() => {
+    import('./merchant-enricher').then(({ pruneEnrichmentCache }) => {
+      pruneEnrichmentCache().catch(err =>
+        console.error('[Sync] Merchant cache cleanup failed:', err)
+      );
+    }).catch(() => {});
+  }, ONE_WEEK_MS);
 }
 
 export function updateSyncScheduleTimer(schedule: SyncSchedule): void {

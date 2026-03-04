@@ -896,7 +896,7 @@ export class MemStorage implements IStorage {
   // Plaid Transactions (MemStorage stubs)
   async getPlaidTransactions(_accountIds: string[], _options?: { startDate?: string; endDate?: string }): Promise<PlaidTransaction[]> { return []; }
   async getPlaidTransactionByTransactionId(_transactionId: string): Promise<PlaidTransaction | undefined> { return undefined; }
-  async createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction> { return { id: randomUUID(), ...transaction, merchantName: transaction.merchantName || null, category: transaction.category || null, personalCategory: transaction.personalCategory || null, pending: transaction.pending || "false", matchType: transaction.matchType || null, matchedBillId: transaction.matchedBillId || null, matchedExpenseId: transaction.matchedExpenseId || null, matchedIncomeId: transaction.matchedIncomeId || null, reconciled: transaction.reconciled || "false", isoCurrencyCode: transaction.isoCurrencyCode || "CAD", createdAt: transaction.createdAt || null }; }
+  async createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction> { return { id: randomUUID(), ...transaction, merchantName: transaction.merchantName || null, category: transaction.category || null, personalCategory: transaction.personalCategory || null, pending: transaction.pending || "false", matchType: transaction.matchType || null, matchedBillId: transaction.matchedBillId || null, matchedExpenseId: transaction.matchedExpenseId || null, matchedIncomeId: transaction.matchedIncomeId || null, reconciled: transaction.reconciled || "false", isoCurrencyCode: transaction.isoCurrencyCode || "CAD", taxDeductible: transaction.taxDeductible || null, taxCategory: transaction.taxCategory || null, isBusinessExpense: transaction.isBusinessExpense || null, logoUrl: transaction.logoUrl || null, createdAt: transaction.createdAt || null, merchantCleanName: null, merchantLogoUrl: null, subcategory: null, merchantType: null, isSubscription: "false", enrichmentSource: null, enrichmentConfidence: null } as PlaidTransaction; }
   async updatePlaidTransaction(_id: string, _updates: Partial<PlaidTransaction>): Promise<PlaidTransaction | undefined> { return undefined; }
   async deleteRemovedTransactions(_transactionIds: string[]): Promise<void> {}
   async getUnmatchedTransactions(_accountIds: string[]): Promise<PlaidTransaction[]> { return []; }
@@ -1544,7 +1544,26 @@ export class DatabaseStorage implements IStorage {
         pending: transaction.pending || "false",
       }
     }).returning();
-    return result[0];
+    const saved = result[0];
+    // Fire-and-forget enrichment
+    import('./merchant-enricher').then(({ enrichTransaction }) => {
+      enrichTransaction({
+        rawDescription: transaction.name,
+        amount: Math.abs(parseFloat(transaction.amount)),
+        providerCategory: transaction.category || undefined,
+      }).then(async (enriched) => {
+        await db.update(plaidTransactions).set({
+          merchantCleanName: enriched.cleanName,
+          merchantLogoUrl: enriched.logoUrl,
+          subcategory: enriched.subcategory,
+          merchantType: enriched.merchantType,
+          isSubscription: enriched.isSubscription ? "true" : "false",
+          enrichmentSource: enriched.source,
+          enrichmentConfidence: String(enriched.confidence),
+        } as any).where(eq(plaidTransactions.id, saved.id));
+      }).catch(err => console.error('[Enricher] Post-save Plaid failed:', err));
+    }).catch(() => {});
+    return saved;
   }
 
   async updatePlaidTransaction(id: string, updates: Partial<PlaidTransaction>): Promise<PlaidTransaction | undefined> {
@@ -1668,7 +1687,7 @@ export class DatabaseStorage implements IStorage {
     if (transactions.length === 0) return;
     
     for (const transaction of transactions) {
-      await db.insert(mxTransactions).values({
+      const result = await db.insert(mxTransactions).values({
         ...transaction,
         createdAt: new Date().toISOString(),
       }).onConflictDoUpdate({
@@ -1681,7 +1700,26 @@ export class DatabaseStorage implements IStorage {
           status: transaction.status,
           postedAt: transaction.postedAt,
         },
-      });
+      }).returning();
+      const saved = result[0];
+      // Fire-and-forget enrichment
+      import('./merchant-enricher').then(({ enrichTransaction }) => {
+        enrichTransaction({
+          rawDescription: transaction.description,
+          amount: Math.abs(parseFloat(transaction.amount)),
+          providerCategory: transaction.category || undefined,
+        }).then(async (enriched) => {
+          await db.update(mxTransactions).set({
+            merchantCleanName: enriched.cleanName,
+            merchantLogoUrl: enriched.logoUrl,
+            subcategory: enriched.subcategory,
+            merchantType: enriched.merchantType,
+            isSubscription: enriched.isSubscription ? "true" : "false",
+            enrichmentSource: enriched.source,
+            enrichmentConfidence: String(enriched.confidence),
+          } as any).where(eq(mxTransactions.id, saved.id));
+        }).catch(err => console.error('[Enricher] Post-save MX failed:', err));
+      }).catch(() => {});
     }
   }
 
