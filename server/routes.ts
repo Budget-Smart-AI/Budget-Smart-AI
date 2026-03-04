@@ -11033,6 +11033,95 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // ========== ADMIN BANK PROVIDER MANAGEMENT ENDPOINTS ==========
+
+  // GET /api/admin/bank-providers — all providers
+  app.get("/api/admin/bank-providers", requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await (db as any).$client.query(
+        `SELECT * FROM bank_provider_config ORDER BY fallback_order ASC, provider_id ASC`,
+      );
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching bank providers:", error);
+      res.status(500).json({ error: "Failed to fetch bank providers" });
+    }
+  });
+
+  // PATCH /api/admin/bank-providers/:providerId — update a provider's config
+  app.patch("/api/admin/bank-providers/:providerId", requireAdmin, async (req, res) => {
+    try {
+      const { providerId } = req.params;
+      const adminUserId = req.session.userId!;
+
+      // Only update fields explicitly provided in the request body
+      const fieldMap: Record<string, string> = {
+        isEnabled: "is_enabled",
+        showInWizard: "show_in_wizard",
+        showInAccounts: "show_in_accounts",
+        fallbackOrder: "fallback_order",
+        status: "status",
+        statusMessage: "status_message",
+        logoUrl: "logo_url",
+        displayName: "display_name",
+        description: "description",
+      };
+
+      const setClauses: string[] = [];
+      const values: unknown[] = [];
+
+      for (const [jsKey, dbCol] of Object.entries(fieldMap)) {
+        if (jsKey in req.body) {
+          values.push(req.body[jsKey]);
+          setClauses.push(`${dbCol} = $${values.length}`);
+        }
+      }
+
+      if (setClauses.length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+
+      values.push(adminUserId);
+      setClauses.push(`updated_at = NOW()`, `updated_by = $${values.length}`);
+      values.push(providerId);
+
+      const { rows } = await (db as any).$client.query(
+        `UPDATE bank_provider_config
+         SET ${setClauses.join(", ")}
+         WHERE provider_id = $${values.length}
+         RETURNING *`,
+        values,
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+
+      const { invalidateProviderCache } = await import("./bank-providers");
+      invalidateProviderCache();
+
+      res.json(rows[0]);
+    } catch (error) {
+      console.error("Error updating bank provider:", error);
+      res.status(500).json({ error: "Failed to update bank provider" });
+    }
+  });
+
+  // GET /api/bank-providers — enabled providers for the current user's country
+  app.get("/api/bank-providers", requireAuth, async (req, res) => {
+    try {
+      const countryCode = (req.query.country as string | undefined)?.toUpperCase();
+      const { getEnabledProviders, getProvidersForCountry } = await import("./bank-providers");
+      const providers = countryCode
+        ? await getProvidersForCountry(countryCode)
+        : await getEnabledProviders();
+      res.json(providers);
+    } catch (error) {
+      console.error("Error fetching bank providers:", error);
+      res.status(500).json({ error: "Failed to fetch bank providers" });
+    }
+  });
+
   // Stripe webhook endpoint (must use raw body)
   app.post("/api/stripe/webhook", async (req, res) => {
     try {

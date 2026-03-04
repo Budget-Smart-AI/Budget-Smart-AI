@@ -17,7 +17,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -142,6 +142,10 @@ app.use((req, res, next) => {
 
   await ensureAITables().catch(err =>
     console.error("Failed to ensure AI tables — AI model management will not work:", err)
+  );
+
+  await ensureBankProviderTable().catch(err =>
+    console.error("Failed to ensure bank provider table — bank provider management will not work:", err)
   );
 
   await registerRoutes(httpServer, app);

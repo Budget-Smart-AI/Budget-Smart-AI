@@ -239,3 +239,75 @@ export async function ensureAITables(): Promise<void> {
     ON CONFLICT (task_slot) DO NOTHING
   `);
 }
+
+export async function ensureBankProviderTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bank_provider_config (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      provider_id VARCHAR(50) UNIQUE NOT NULL,
+      display_name VARCHAR(100) NOT NULL,
+      description TEXT,
+      is_enabled BOOLEAN DEFAULT false,
+      show_in_wizard BOOLEAN DEFAULT true,
+      show_in_accounts BOOLEAN DEFAULT true,
+      supported_countries TEXT[] DEFAULT '{}',
+      primary_regions TEXT[] DEFAULT '{}',
+      fallback_order INTEGER DEFAULT 99,
+      status VARCHAR(20) DEFAULT 'active',
+      status_message TEXT,
+      logo_url VARCHAR(500),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      updated_by VARCHAR(255)
+    )
+  `);
+
+  await pool.query(`
+    INSERT INTO bank_provider_config (
+      provider_id, display_name, description,
+      is_enabled, show_in_wizard, show_in_accounts,
+      supported_countries, primary_regions,
+      fallback_order, status
+    ) VALUES
+      (
+        'plaid',
+        'Plaid',
+        'Connect thousands of financial institutions across US, Canada and internationally.',
+        true, true, true,
+        ARRAY['US','CA','GB','AU','NZ','IE','FR','ES','NL','DE','SE','DK','NO','PL','BE','AT','IT','PT','LT','LV','EE'],
+        ARRAY['GB','AU','NZ','IE','FR','ES','NL','DE','SE','DK','NO','PL','BE','AT','IT','PT','LT','LV','EE'],
+        2,
+        'active'
+      ),
+      (
+        'mx',
+        'MX',
+        'Premium bank data aggregation optimized for US and Canada with best-in-class transaction categorization.',
+        false, true, true,
+        ARRAY['US','CA'],
+        ARRAY['US','CA'],
+        1,
+        'active'
+      ),
+      (
+        'basiq',
+        'Basiq',
+        'Open banking platform for Australia and New Zealand.',
+        false, false, false,
+        ARRAY['AU','NZ'],
+        ARRAY['AU','NZ'],
+        1,
+        'active'
+      ),
+      (
+        'truelayer',
+        'TrueLayer',
+        'Open banking for UK and Europe with PSD2 compliance.',
+        false, false, false,
+        ARRAY['GB','IE','FR','ES','NL','DE','SE','DK','NO','PL','BE','AT','IT','PT','LT','LV','EE'],
+        ARRAY['GB','IE','FR','ES','NL','DE'],
+        1,
+        'active'
+      )
+    ON CONFLICT (provider_id) DO NOTHING
+  `);
+}
