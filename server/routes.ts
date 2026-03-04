@@ -3901,6 +3901,114 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // Get transaction category taxonomy
+  app.get("/api/transactions/categories", requireAuth, async (_req, res) => {
+    try {
+      const { getAllCategories, CATEGORY_TAXONOMY } = await import("./merchant-categories");
+      res.json({ categories: getAllCategories(), taxonomy: CATEGORY_TAXONOMY });
+    } catch (error) {
+      console.error("Error getting category taxonomy:", error);
+      res.status(500).json({ error: "Failed to get categories" });
+    }
+  });
+
+  // Correct category for a transaction (Plaid, MX, or Manual)
+  app.patch("/api/transactions/:id/category", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { category, subcategory, merchantName, transactionType } = req.body as {
+        category: string;
+        subcategory?: string;
+        merchantName?: string;
+        transactionType?: 'plaid' | 'mx' | 'manual';
+      };
+      const userId = req.session.userId!;
+      if (!category) return res.status(400).json({ error: "category is required" });
+
+      const pool = (db as any).$client as import('pg').Pool;
+      const type = transactionType || 'plaid';
+
+      if (type === 'plaid') {
+        // Verify ownership via account
+        const check = await pool.query(
+          `SELECT pt.id FROM plaid_transactions pt
+           JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
+           JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+           WHERE pt.id = $1 AND pi.user_id = $2`,
+          [id, userId]
+        );
+        if (check.rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
+
+        const updateFields: string[] = [
+          'category = $1',
+          'subcategory = $2',
+          'enrichment_source = $3',
+          'enrichment_confidence = $4',
+        ];
+        const values: unknown[] = [category, subcategory || null, 'user_correction', '1.00'];
+        if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
+        values.push(id);
+        const { rows } = await pool.query(
+          `UPDATE plaid_transactions SET ${updateFields.join(', ')} WHERE id = $${values.length} RETURNING *`,
+          values
+        );
+
+        // Update enrichment cache
+        if (check.rows.length > 0) {
+          const tx = await pool.query(`SELECT name FROM plaid_transactions WHERE id = $1`, [id]);
+          if (tx.rows.length > 0) {
+            const normalized = (tx.rows[0].name as string).toUpperCase().replace(/\s+/g, ' ').trim();
+            await pool.query(
+              `UPDATE merchant_enrichment SET category = $1, subcategory = $2, source = 'user_correction', confidence = 1.0 WHERE raw_pattern = $3`,
+              [category, subcategory || null, normalized]
+            ).catch(() => {});
+          }
+        }
+
+        return res.json(rows[0]);
+      } else if (type === 'mx') {
+        const check = await pool.query(
+          `SELECT mt.id FROM mx_transactions mt
+           JOIN mx_accounts ma ON ma.id = mt.mx_account_id
+           JOIN mx_members mm ON mm.id = ma.member_id
+           WHERE mt.id = $1 AND mm.user_id = $2`,
+          [id, userId]
+        );
+        if (check.rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
+
+        const updateFields: string[] = ['category = $1', 'subcategory = $2', 'enrichment_source = $3', 'enrichment_confidence = $4'];
+        const values: unknown[] = [category, subcategory || null, 'user_correction', '1.00'];
+        if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
+        values.push(id);
+        const { rows } = await pool.query(
+          `UPDATE mx_transactions SET ${updateFields.join(', ')} WHERE id = $${values.length} RETURNING *`,
+          values
+        );
+        return res.json(rows[0]);
+      } else {
+        // manual transaction
+        const check = await pool.query(
+          `SELECT id FROM manual_transactions WHERE id = $1 AND user_id = $2`,
+          [id, userId]
+        );
+        if (check.rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
+
+        const updateFields: string[] = ['category = $1', 'subcategory = $2', 'enrichment_source = $3', 'enrichment_confidence = $4'];
+        const values: unknown[] = [category, subcategory || null, 'user_correction', '1.00'];
+        if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
+        values.push(id);
+        const { rows } = await pool.query(
+          `UPDATE manual_transactions SET ${updateFields.join(', ')} WHERE id = $${values.length} RETURNING *`,
+          values
+        );
+        return res.json(rows[0]);
+      }
+    } catch (error) {
+      console.error("Error updating transaction category:", error);
+      res.status(500).json({ error: "Failed to update category" });
+    }
+  });
+
   // Get unmatched transactions
   app.get("/api/plaid/transactions/unmatched", requireAuth, async (req, res) => {
     try {
@@ -11034,6 +11142,64 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   });
 
   // ========== ADMIN BANK PROVIDER MANAGEMENT ENDPOINTS ==========
+
+  // GET /api/admin/enrichment/stats — enrichment coverage statistics
+  app.get("/api/admin/enrichment/stats", requireAdmin, async (_req, res) => {
+    try {
+      const pool = (db as any).$client as import('pg').Pool;
+      const [cacheCount, plaidEnriched, plaidTotal, mxEnriched, mxTotal, logosCount, correctionsCount] = await Promise.all([
+        pool.query(`SELECT COUNT(*) AS cnt FROM merchant_enrichment`),
+        pool.query(`SELECT COUNT(*) AS cnt FROM plaid_transactions WHERE merchant_clean_name IS NOT NULL`),
+        pool.query(`SELECT COUNT(*) AS cnt FROM plaid_transactions`),
+        pool.query(`SELECT COUNT(*) AS cnt FROM mx_transactions WHERE merchant_clean_name IS NOT NULL`),
+        pool.query(`SELECT COUNT(*) AS cnt FROM mx_transactions`),
+        pool.query(`SELECT COUNT(*) AS cnt FROM merchant_enrichment WHERE logo_url IS NOT NULL`),
+        pool.query(
+          `SELECT (SELECT COUNT(*) FROM plaid_transactions WHERE enrichment_source = 'user_correction') +
+                  (SELECT COUNT(*) FROM mx_transactions WHERE enrichment_source = 'user_correction') +
+                  (SELECT COUNT(*) FROM manual_transactions WHERE enrichment_source = 'user_correction') AS cnt`
+        ),
+      ]);
+
+      const enriched = parseInt(plaidEnriched.rows[0].cnt) + parseInt(mxEnriched.rows[0].cnt);
+      const total = parseInt(plaidTotal.rows[0].cnt) + parseInt(mxTotal.rows[0].cnt);
+
+      res.json({
+        merchantsInCache: parseInt(cacheCount.rows[0].cnt),
+        transactionsEnriched: enriched,
+        totalTransactions: total,
+        coveragePct: total > 0 ? Math.round((enriched / total) * 100) : 0,
+        logosFetched: parseInt(logosCount.rows[0].cnt),
+        userCorrections: parseInt(correctionsCount.rows[0].cnt),
+      });
+    } catch (error) {
+      console.error("Error getting enrichment stats:", error);
+      res.status(500).json({ error: "Failed to get enrichment stats" });
+    }
+  });
+
+  // POST /api/admin/enrichment/backfill — run enrichment backfill for all users
+  app.post("/api/admin/enrichment/backfill", requireAdmin, async (_req, res) => {
+    try {
+      const { enrichPendingTransactions } = await import("./merchant-enricher");
+      const users = await storage.getUsers();
+      let usersProcessed = 0;
+      let transactionsEnriched = 0;
+      for (const user of users) {
+        try {
+          const count = await enrichPendingTransactions(String(user.id), 100);
+          transactionsEnriched += count;
+          usersProcessed++;
+        } catch (err) {
+          console.error('[Enricher] Backfill failed for user:', user.id, err);
+        }
+      }
+      res.json({ usersProcessed, transactionsEnriched });
+    } catch (error) {
+      console.error("Error running enrichment backfill:", error);
+      res.status(500).json({ error: "Failed to run backfill" });
+    }
+  });
 
   // GET /api/admin/bank-providers — all providers
   app.get("/api/admin/bank-providers", requireAdmin, async (_req, res) => {

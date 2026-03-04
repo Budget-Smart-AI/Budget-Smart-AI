@@ -735,6 +735,80 @@ function UsageAnalyticsTab() {
   );
 }
 
+// ─── Enrichment Stats Tab ─────────────────────────────────────────────────────
+
+function EnrichmentStatsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data: stats, isLoading } = useQuery<{
+    merchantsInCache: number;
+    transactionsEnriched: number;
+    totalTransactions: number;
+    coveragePct: number;
+    logosFetched: number;
+    userCorrections: number;
+  }>({
+    queryKey: ["/api/admin/enrichment/stats"],
+    queryFn: () => apiRequest("GET", "/api/admin/enrichment/stats").then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/enrichment/backfill"),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      toast({ title: `Backfill complete: enriched ${data.transactionsEnriched} transactions across ${data.usersProcessed} users` });
+      qc.invalidateQueries({ queryKey: ["/api/admin/enrichment/stats"] });
+    },
+    onError: () => toast({ title: "Backfill failed", variant: "destructive" }),
+  });
+
+  const statCards = [
+    { label: "Merchants in cache", value: stats?.merchantsInCache ?? 0 },
+    { label: "Transactions enriched", value: stats?.transactionsEnriched ?? 0 },
+    { label: "Coverage", value: `${stats?.coveragePct ?? 0}%` },
+    { label: "Logos fetched", value: stats?.logosFetched ?? 0 },
+    { label: "User corrections", value: stats?.userCorrections ?? 0 },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Transaction Enrichment</h2>
+          <p className="text-sm text-muted-foreground">
+            AI-powered merchant name cleaning, logo fetching, and category enrichment.
+          </p>
+        </div>
+        <Button
+          onClick={() => backfillMutation.mutate()}
+          disabled={backfillMutation.isPending}
+          variant="outline"
+          size="sm"
+        >
+          {backfillMutation.isPending ? "Running…" : "Run Backfill"}
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {statCards.map(({ label, value }) => (
+          <Card key={label}>
+            <CardContent className="pt-4 pb-3">
+              {isLoading ? (
+                <Skeleton className="h-8 w-16 mb-1" />
+              ) : (
+                <p className="text-2xl font-bold">{value}</p>
+              )}
+              <p className="text-xs text-muted-foreground">{label}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminAIManagement() {
@@ -754,12 +828,16 @@ export default function AdminAIManagement() {
         <TabsList className="mb-6">
           <TabsTrigger value="config">Model Configuration</TabsTrigger>
           <TabsTrigger value="analytics">Usage &amp; Analytics</TabsTrigger>
+          <TabsTrigger value="enrichment">Transaction Enrichment</TabsTrigger>
         </TabsList>
         <TabsContent value="config">
           <ModelConfigTab />
         </TabsContent>
         <TabsContent value="analytics">
           <UsageAnalyticsTab />
+        </TabsContent>
+        <TabsContent value="enrichment">
+          <EnrichmentStatsTab />
         </TabsContent>
       </Tabs>
     </div>
