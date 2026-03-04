@@ -254,6 +254,48 @@ export async function validateSymbol(symbol: string): Promise<boolean> {
   return quote !== null;
 }
 
+export interface NewsArticle {
+  symbol: string;
+  headline: string;
+  source: string;
+  sentiment: string;
+  timePublished: string;
+  url: string;
+}
+
+/**
+ * Fetch news sentiment articles for a given ticker symbol from Alpha Vantage
+ */
+export async function fetchNewsSentiment(symbol: string, limit = 3): Promise<NewsArticle[]> {
+  if (!API_KEY) return [];
+
+  try {
+    const url = `${ALPHA_VANTAGE_BASE_URL}?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(symbol)}&limit=${limit}&apikey=${API_KEY}`;
+    const data = await rateLimitedFetch(url);
+
+    const feed: any[] = data?.feed ?? [];
+    return feed.slice(0, limit).map((item: any) => {
+      // Alpha Vantage returns per-ticker sentiment inside ticker_sentiment array
+      const tickerSentiment = (item.ticker_sentiment as any[])?.find(
+        (t: any) => t.ticker?.toUpperCase() === symbol.toUpperCase(),
+      );
+      const sentimentLabel: string =
+        tickerSentiment?.ticker_sentiment_label ?? item.overall_sentiment_label ?? "Neutral";
+      return {
+        symbol,
+        headline: item.title ?? "",
+        source: item.source ?? "",
+        sentiment: sentimentLabel,
+        timePublished: item.time_published ?? "",
+        url: item.url ?? "",
+      };
+    });
+  } catch (error) {
+    console.error(`Error fetching news for ${symbol}:`, error);
+    return [];
+  }
+}
+
 /**
  * Generate AI-friendly analysis summary for a stock
  */
