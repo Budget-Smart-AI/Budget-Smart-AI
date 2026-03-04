@@ -240,14 +240,38 @@ function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
   );
 }
 
+interface WizardProvider {
+  providerId: string;
+  displayName: string;
+  showInWizard: boolean;
+  isEnabled: boolean;
+}
+
 function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => void; onSkip: () => void; onPlaidOpen?: (isOpen: boolean) => void }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  // MX widget state
+  const [mxWidgetUrl, setMxWidgetUrl] = useState<string | null>(null);
+  const [showMxWidget, setShowMxWidget] = useState(false);
+  const [mxLoading, setMxLoading] = useState(false);
   const { toast } = useToast();
 
+  // Fetch which providers are enabled in the wizard
+  const { data: wizardProviders = [], isLoading: providersLoading } = useQuery<WizardProvider[]>({
+    queryKey: ["/api/bank-providers"],
+  });
+
+  const wizardEnabledProviders = wizardProviders.filter((p) => p.showInWizard);
+  const plaidEnabled = wizardEnabledProviders.some((p) => p.providerId === "plaid");
+  const mxEnabled = wizardEnabledProviders.some((p) => p.providerId === "mx");
+  // Use the first enabled provider as preferred
+  const preferredProvider = wizardEnabledProviders[0]?.providerId ?? null;
+
   useEffect(() => {
+    if (providersLoading) return;
+    if (!plaidEnabled) return; // Only fetch Plaid token when Plaid is enabled
     async function fetchLinkToken() {
       try {
         const res = await apiRequest("POST", "/api/plaid/create-link-token");
@@ -259,7 +283,7 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
       }
     }
     fetchLinkToken();
-  }, []);
+  }, [plaidEnabled, providersLoading]);
 
   const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
     onPlaidOpen?.(false);
@@ -315,6 +339,7 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
     onPlaidOpen?.(false);
   }, [onPlaidOpen]);
 
+  // usePlaidLink must always be called (React hooks rule); token=null is safe when Plaid is disabled
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: onPlaidSuccess,
@@ -326,6 +351,65 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
     open();
   }, [open, onPlaidOpen]);
 
+  // MX connect handler
+  const handleOpenMX = useCallback(async () => {
+    setMxLoading(true);
+    try {
+      const res = await apiRequest("GET", "/api/mx/connect-widget");
+      const data = await res.json();
+      if (data.widgetUrl) {
+        setMxWidgetUrl(data.widgetUrl);
+        setShowMxWidget(true);
+        onPlaidOpen?.(true);
+      } else {
+        toast({ title: "Failed to get connect widget", variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: error.message || "Failed to connect", variant: "destructive" });
+    } finally {
+      setMxLoading(false);
+    }
+  }, [toast, onPlaidOpen]);
+
+  const handleMxDialogChange = useCallback((isOpen: boolean) => {
+    setShowMxWidget(isOpen);
+    if (!isOpen) onPlaidOpen?.(false);
+  }, [onPlaidOpen]);
+
+  // Handle postMessage from MX widget
+  useEffect(() => {
+    if (!mxEnabled) return;
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data?.mx === true) {
+        const { type, metadata } = event.data;
+        if (type === "mx/connect/memberConnected") {
+          try {
+            const memberGuid = metadata?.member_guid;
+            if (memberGuid) {
+              await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`);
+              await apiRequest("POST", "/api/mx/transactions/sync");
+            }
+            toast({ title: "Bank account connected!" });
+          } catch (err) {
+            console.error("[MX wizard] Sync error (background sync will retry):", err);
+            toast({ title: "Bank account connected!", description: "Initial sync encountered an error — transactions will sync shortly." });
+          }
+          setConnected(true);
+          setShowMxWidget(false);
+          onPlaidOpen?.(false);
+          await apiRequest("POST", "/api/onboarding/save-step", { step: 2 });
+        }
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [mxEnabled, toast, onPlaidOpen]);
+
+  const providerName =
+    preferredProvider === "mx" ? "MX" :
+    preferredProvider === "plaid" ? "Plaid" :
+    "bank connection";
+
   return (
     <>
       <DialogHeader>
@@ -335,30 +419,61 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
         </DialogDescription>
       </DialogHeader>
       <div className="py-8">
-        {!connected ? (
+        {providersLoading ? (
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Loading connection options...</p>
+          </div>
+        ) : !connected ? (
           <div className="text-center">
             <Building2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground mb-4">
-              We use Plaid to securely connect to your bank. Your credentials are never stored by Budget Smart AI.
-            </p>
-            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-6 text-left">
-              <p className="text-xs text-amber-800 dark:text-amber-200">
-                <strong>Shared computer?</strong> If others use this browser with their own accounts, please use a private/incognito window to prevent bank login conflicts.
+            {wizardEnabledProviders.length === 0 ? (
+              <p className="text-sm text-muted-foreground mb-4">
+                No automated bank connection is currently available. You can skip and add accounts manually later.
               </p>
-            </div>
-            <Button
-              onClick={handleOpenPlaid}
-              disabled={!ready || !linkToken || isConnecting}
-              className="gap-2"
-              size="lg"
-            >
-              {isConnecting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Building2 className="h-4 w-4" />
-              )}
-              Connect Bank Account
-            </Button>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">
+                  We use {providerName} to securely connect to your bank. Your credentials are never stored by Budget Smart AI.
+                </p>
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-6 text-left">
+                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                    <strong>Shared computer?</strong> If others use this browser with their own accounts, please use a private/incognito window to prevent bank login conflicts.
+                  </p>
+                </div>
+                {/* Show the preferred provider's connect button */}
+                {preferredProvider === "plaid" && (
+                  <Button
+                    onClick={handleOpenPlaid}
+                    disabled={!ready || !linkToken || isConnecting}
+                    className="gap-2"
+                    size="lg"
+                  >
+                    {isConnecting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Building2 className="h-4 w-4" />
+                    )}
+                    Connect Bank Account
+                  </Button>
+                )}
+                {preferredProvider === "mx" && (
+                  <Button
+                    onClick={handleOpenMX}
+                    disabled={mxLoading || isConnecting}
+                    className="gap-2"
+                    size="lg"
+                  >
+                    {mxLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Building2 className="h-4 w-4" />
+                    )}
+                    Connect Bank Account
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         ) : isSyncing ? (
           <div className="text-center">
@@ -378,6 +493,24 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
           </div>
         )}
       </div>
+
+      {/* MX Connect Widget Dialog */}
+      {mxEnabled && showMxWidget && mxWidgetUrl && (
+        <Dialog open={showMxWidget} onOpenChange={handleMxDialogChange}>
+          <DialogContent className="max-w-2xl h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Connect Your Bank</DialogTitle>
+            </DialogHeader>
+            <iframe
+              src={mxWidgetUrl}
+              className="w-full h-full border-0 rounded-lg"
+              title="MX Connect"
+              allow="camera; microphone"
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
       <div className="flex justify-between">
         <Button variant="ghost" onClick={onSkip}>
           Skip for now

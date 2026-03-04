@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Building2, Globe, CheckCircle2, AlertCircle, ChevronLeft, Info } from "lucide-react";
+import { Building2, Globe, CheckCircle2, AlertCircle, ChevronLeft, Info, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface ProviderOption {
@@ -35,41 +36,58 @@ interface BankProviderSelectionDialogProps {
   onSelectManual: () => void;
 }
 
-// Provider ratings (can be updated with real metrics)
-const getProviderOptions = (userCountry: string): ProviderOption[] => {
-  const isNorthAmerica = ["US", "CA", "MX"].includes(userCountry);
-
-  return [
-    {
-      id: "mx",
-      name: "MX",
-      description: "Best for North American banks with excellent reliability",
-      icon: <Building2 className="h-6 w-6" />,
-      coverage: ["US", "CA"],
-      features: {
-        success: 5,
-        longevity: 5,
-        updates: 4,
-      },
-      isDefault: isNorthAmerica,
-      isRecommended: isNorthAmerica,
-    },
-    {
-      id: "plaid",
-      name: "Plaid",
-      description: "Widest global coverage with 12,000+ financial institutions",
-      icon: <Globe className="h-6 w-6" />,
-      coverage: ["US", "CA", "GB", "AU", "FR", "DE", "ES", "IE", "NL", "SE", "DK", "NO", "FI", "BE", "AT", "CH", "IT", "PT", "NZ"],
-      features: {
-        success: 4,
-        longevity: 4,
-        updates: 5,
-      },
-      isDefault: !isNorthAmerica,
-      isRecommended: !isNorthAmerica,
-    },
-  ];
+// Static metadata for known providers (ratings, icons, coverage)
+const PROVIDER_METADATA: Record<string, Omit<ProviderOption, "id" | "isDefault" | "isRecommended">> = {
+  mx: {
+    name: "MX",
+    description: "Best for North American banks with excellent reliability",
+    icon: <Building2 className="h-6 w-6" />,
+    coverage: ["US", "CA"],
+    features: { success: 5, longevity: 5, updates: 4 },
+  },
+  plaid: {
+    name: "Plaid",
+    description: "Widest global coverage with 12,000+ financial institutions",
+    icon: <Globe className="h-6 w-6" />,
+    coverage: ["US", "CA", "GB", "AU", "FR", "DE", "ES", "IE", "NL", "SE", "DK", "NO", "FI", "BE", "AT", "CH", "IT", "PT", "NZ"],
+    features: { success: 4, longevity: 4, updates: 5 },
+  },
 };
+
+interface ApiProvider {
+  providerId: string;
+  displayName: string;
+  description: string;
+  isEnabled: boolean;
+  showInAccounts: boolean;
+  showInWizard: boolean;
+  supportedCountries: string[];
+  primaryRegions: string[];
+  fallbackOrder: number;
+}
+
+function buildProviderOptions(apiProviders: ApiProvider[], userCountry: string): ProviderOption[] {
+  const accountProviders = apiProviders.filter((p) => p.showInAccounts);
+  return accountProviders
+    .filter((p): p is ApiProvider & { providerId: "plaid" | "mx" } =>
+      p.providerId === "plaid" || p.providerId === "mx"
+    )
+    .map((p, idx) => {
+      const meta = PROVIDER_METADATA[p.providerId];
+      const coverage = p.supportedCountries.length > 0 ? p.supportedCountries : (meta?.coverage ?? []);
+      const isRecommended = idx === 0;
+      return {
+        id: p.providerId,
+        name: meta?.name ?? p.displayName,
+        description: meta?.description ?? p.description,
+        icon: meta?.icon ?? <Building2 className="h-6 w-6" />,
+        coverage,
+        features: meta?.features ?? { success: 3, longevity: 3, updates: 3 },
+        isDefault: isRecommended,
+        isRecommended,
+      };
+    });
+}
 
 function FeatureBar({ label, value }: { label: string; value: number }) {
   return (
@@ -101,19 +119,35 @@ export function BankProviderSelectionDialog({
   onSelectProvider,
   onSelectManual,
 }: BankProviderSelectionDialogProps) {
-  const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [showAllOptions, setShowAllOptions] = useState(false);
   const { toast } = useToast();
 
+  // Reset view when dialog re-opens
   useEffect(() => {
-    if (open && userCountry) {
-      setProviders(getProviderOptions(userCountry));
-      setShowAllOptions(false);
-    }
-  }, [open, userCountry]);
+    if (open) setShowAllOptions(false);
+  }, [open]);
 
-  // Get default provider
-  const defaultProvider = providers.find((p) => p.isDefault);
+  // Fetch enabled providers from the backend
+  const { data: apiProviders = [], isLoading: providersLoading } = useQuery<ApiProvider[]>({
+    queryKey: ["/api/bank-providers", userCountry],
+    queryFn: async () => {
+      const url = userCountry
+        ? `/api/bank-providers?country=${encodeURIComponent(userCountry)}`
+        : "/api/bank-providers";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: open,
+    staleTime: 60 * 1000,
+  });
+
+  const providers = useMemo(
+    () => buildProviderOptions(apiProviders, userCountry),
+    [apiProviders, userCountry],
+  );
+
+  // Get recommended provider (first in fallback order)
   const recommendedProvider = providers.find((p) => p.isRecommended);
 
   const handleSelectProvider = (providerId: "plaid" | "mx") => {
@@ -137,8 +171,15 @@ export function BankProviderSelectionDialog({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {/* Loading state */}
+            {providersLoading && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
             {/* Recommended Provider Card */}
-            {recommendedProvider && (
+            {!providersLoading && recommendedProvider && (
               <Card className="border-2 border-primary/50 bg-primary/5">
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-start justify-between">
@@ -177,20 +218,31 @@ export function BankProviderSelectionDialog({
               </Card>
             )}
 
-            {/* Information text */}
-            <p className="text-center text-sm text-muted-foreground px-4">
-              BudgetSmart works with multiple data providers to give you the best connection.
-            </p>
+            {/* No automated providers available */}
+            {!providersLoading && providers.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground px-4">
+                No bank connection services are currently available. You can still add accounts manually.
+              </p>
+            )}
+
+            {/* Information text (only when providers are available) */}
+            {!providersLoading && providers.length > 0 && (
+              <p className="text-center text-sm text-muted-foreground px-4">
+                BudgetSmart works with multiple data providers to give you the best connection.
+              </p>
+            )}
 
             {/* Action buttons */}
             <div className="space-y-2">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => setShowAllOptions(true)}
-              >
-                More Connection Options
-              </Button>
+              {!providersLoading && providers.length > 1 && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setShowAllOptions(true)}
+                >
+                  More Connection Options
+                </Button>
+              )}
 
               <Button
                 variant="ghost"
