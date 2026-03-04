@@ -410,13 +410,27 @@ function AIAnalysisStep({
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const { data: plaidAccounts } = useQuery<any[]>({
+    queryKey: ["/api/plaid/accounts"],
+  });
+
+  const hasConnectedAccounts = Array.isArray(plaidAccounts) && plaidAccounts.length > 0;
+
   useEffect(() => {
+    if (plaidAccounts === undefined) return; // still loading
+    if (!hasConnectedAccounts) {
+      // Clear any stale cached data from a previously-connected account
+      setIncomeSources([]);
+      setRecurringBills([]);
+      setAnalysisComplete(false);
+      return;
+    }
     if (incomeSources.length === 0 && recurringBills.length === 0 && !analysisComplete) {
       runAnalysis();
     } else if (incomeSources.length > 0 || recurringBills.length > 0) {
       setAnalysisComplete(true);
     }
-  }, []);
+  }, [plaidAccounts]);
 
   async function runAnalysis() {
     setIsAnalyzing(true);
@@ -491,7 +505,23 @@ function AIAnalysisStep({
         </DialogDescription>
       </DialogHeader>
 
-      {isAnalyzing ? (
+      {plaidAccounts === undefined ? (
+        <div className="text-center py-12">
+          <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Checking bank connection...</p>
+        </div>
+      ) : !hasConnectedAccounts ? (
+        <div className="text-center py-8 space-y-3">
+          <Building2 className="h-12 w-12 mx-auto text-muted-foreground" />
+          <p className="font-medium">No bank account connected</p>
+          <p className="text-sm text-muted-foreground">
+            Connect a bank account first to detect income and bills automatically.
+          </p>
+          <Button variant="outline" onClick={onBack} className="gap-2">
+            <ArrowLeft className="h-4 w-4" /> Go Back to Connect
+          </Button>
+        </div>
+      ) : isAnalyzing ? (
         <div className="text-center py-12">
           <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
           <p className="font-medium">Analyzing your transactions...</p>
@@ -560,9 +590,11 @@ function AIAnalysisStep({
         <Button variant="outline" onClick={onBack} className="gap-2">
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
-        <Button onClick={onNext} disabled={isAnalyzing} className="gap-2">
-          <CheckCircle2 className="h-4 w-4" /> Complete Setup
-        </Button>
+        {hasConnectedAccounts && (
+          <Button onClick={onNext} disabled={isAnalyzing} className="gap-2">
+            <CheckCircle2 className="h-4 w-4" /> Complete Setup
+          </Button>
+        )}
       </div>
     </>
   );

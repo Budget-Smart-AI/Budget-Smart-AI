@@ -222,7 +222,7 @@ export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, us
   amount: z.string().or(z.number()).transform((val) => String(val)),
   category: z.enum(INCOME_CATEGORIES),
   date: z.string(),
-  isRecurring: z.string().optional(),
+  isRecurring: z.union([z.boolean().transform(val => val ? 'true' : 'false'), z.string()]).optional(),
   recurrence: z.enum(RECURRENCE_OPTIONS).nullable().optional(),
   dueDay: z.number().min(0).max(31).nullable().optional(),
   customDates: z.string().nullable().optional(),
