@@ -18,6 +18,16 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable } from "./db";
+import { encrypt, decrypt } from "./encryption";
+
+try {
+  const test = encrypt("health-check");
+  decrypt(test);
+  console.log("[Encryption] Field encryption operational");
+} catch {
+  console.error("[Encryption] FIELD_ENCRYPTION_KEY missing — halting");
+  process.exit(1);
+}
 
 const app = express();
 const httpServer = createServer(app);

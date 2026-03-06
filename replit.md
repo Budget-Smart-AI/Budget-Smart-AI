@@ -134,3 +134,12 @@ The workflow `Start application` runs `npm run dev` which starts both the Expres
 
 ## Security & Encryption
 See `SECURITY.md` for detailed encryption and security documentation required for Plaid integration.
+
+## Field-Level Encryption (AES-256-GCM)
+Sensitive database columns (Plaid access tokens, MX member GUIDs, user phone numbers) are encrypted at rest using AES-256-GCM via `server/encryption.ts`.
+
+**Generate encryption key:**
+```
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+Add the 64-character hex output as `FIELD_ENCRYPTION_KEY` in your Railway (or Replit) environment variables.
