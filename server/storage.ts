@@ -83,6 +83,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, and, gte, lte, inArray, desc, like } from "drizzle-orm";
 import { awsKmsService, AWSKMSService } from "./aws-kms";
+import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 
 export interface IStorage {
   // Users
@@ -1114,28 +1115,42 @@ export class MemStorage implements IStorage {
 
 export class DatabaseStorage implements IStorage {
   // Users
+
+  /** Decrypt the phone field of a User: prefers AES-256-GCM column, falls back to plaintext. */
+  private _decryptUser(user: User): User {
+    if (user.phoneEnc) {
+      try {
+        return { ...user, phone: fieldDecrypt(user.phoneEnc) };
+      } catch {
+        // fallback to stored phone
+      }
+    }
+    return user;
+  }
+
   async getUser(id: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.id, id));
-    return result[0];
+    return result[0] ? this._decryptUser(result[0]) : undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.username, username));
-    return result[0];
+    return result[0] ? this._decryptUser(result[0]) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.email, email));
-    return result[0];
+    return result[0] ? this._decryptUser(result[0]) : undefined;
   }
 
   async getUserByGoogleId(googleId: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.googleId, googleId));
-    return result[0];
+    return result[0] ? this._decryptUser(result[0]) : undefined;
   }
 
   async getUsers(): Promise<User[]> {
-    return db.select().from(users);
+    const rows = await db.select().from(users);
+    return rows.map(r => this._decryptUser(r));
   }
 
   async createUser(insertUser: InsertUser & { isAdmin?: boolean; isApproved?: boolean; email?: string; firstName?: string; lastName?: string; googleId?: string; trialEmailReminder?: string; selectedPlanId?: string | null; emailVerified?: string; mfaRequired?: string }): Promise<User> {
@@ -1170,12 +1185,23 @@ export class DatabaseStorage implements IStorage {
     if (updates.email !== undefined) updateData.email = updates.email;
     if (updates.firstName !== undefined) updateData.firstName = updates.firstName;
     if (updates.lastName !== undefined) updateData.lastName = updates.lastName;
-    if (updates.phone !== undefined) updateData.phone = updates.phone;
+    if (updates.phone !== undefined) {
+      updateData.phone = updates.phone;
+      if (updates.phone) {
+        try {
+          updateData.phoneEnc = fieldEncrypt(updates.phone);
+        } catch {
+          // FIELD_ENCRYPTION_KEY not set; enc column stays unchanged
+        }
+      } else {
+        updateData.phoneEnc = null;
+      }
+    }
     if (updates.emailVerified !== undefined) updateData.emailVerified = updates.emailVerified;
     if (updates.mxUserGuid !== undefined) updateData.mxUserGuid = updates.mxUserGuid;
 
     const result = await db.update(users).set(updateData).where(eq(users.id, id)).returning();
-    return result[0];
+    return result[0] ? this._decryptUser(result[0]) : undefined;
   }
 
   async deleteUser(id: string): Promise<boolean> {
@@ -1416,6 +1442,14 @@ export class DatabaseStorage implements IStorage {
 
   async createPlaidItem(item: InsertPlaidItem): Promise<PlaidItem> {
     const encryptedToken = await awsKmsService.encryptField(item.accessToken);
+    let accessTokenEnc: string | null = null;
+    let itemIdEnc: string | null = null;
+    try {
+      accessTokenEnc = fieldEncrypt(item.accessToken);
+      itemIdEnc = fieldEncrypt(item.itemId);
+    } catch {
+      // FIELD_ENCRYPTION_KEY not set; enc columns stay null
+    }
     const result = await db.insert(plaidItems).values({
       userId: item.userId,
       accessToken: encryptedToken,
@@ -1425,15 +1459,36 @@ export class DatabaseStorage implements IStorage {
       cursor: null,
       status: "active",
       createdAt: new Date().toISOString(),
+      accessTokenEnc,
+      itemIdEnc,
     }).returning();
     return this._decryptPlaidItem(result[0]);
   }
 
-  /** Decrypt the accessToken of a PlaidItem returned from the database. */
+  /** Decrypt the accessToken (and itemId) of a PlaidItem returned from the database.
+   *  Reads from the new AES-256-GCM encrypted column first, falls back to KMS column. */
   private async _decryptPlaidItem(item: PlaidItem): Promise<PlaidItem> {
     try {
-      const decrypted = await awsKmsService.decryptField(item.accessToken);
-      return { ...item, accessToken: decrypted };
+      let accessToken = item.accessToken;
+      let itemId = item.itemId;
+      // Prefer the new AES-256-GCM encrypted columns when available
+      if (item.accessTokenEnc) {
+        try {
+          accessToken = fieldDecrypt(item.accessTokenEnc);
+        } catch {
+          accessToken = await awsKmsService.decryptField(item.accessToken);
+        }
+      } else {
+        accessToken = await awsKmsService.decryptField(item.accessToken);
+      }
+      if (item.itemIdEnc) {
+        try {
+          itemId = fieldDecrypt(item.itemIdEnc);
+        } catch {
+          // fallback to stored itemId (plaintext)
+        }
+      }
+      return { ...item, accessToken, itemId };
     } catch (err) {
       console.error(`[KMS] Failed to decrypt accessToken for PlaidItem ${item.id} — re-throwing so the caller can surface the error:`, err);
       throw err;
@@ -1588,27 +1643,47 @@ export class DatabaseStorage implements IStorage {
 
   // ============ MX INTEGRATION ============
 
+  /** Decrypt the memberGuid of an MxMember: prefers AES-256-GCM column, falls back to plaintext. */
+  private _decryptMxMember(member: MxMember): MxMember {
+    if (member.memberGuidEnc) {
+      try {
+        return { ...member, memberGuid: fieldDecrypt(member.memberGuidEnc) };
+      } catch {
+        // fallback to stored memberGuid
+      }
+    }
+    return member;
+  }
+
   // MX Members (Bank Connections)
   async getMxMembers(userId: string): Promise<MxMember[]> {
-    return db.select().from(mxMembers).where(eq(mxMembers.userId, userId));
+    const rows = await db.select().from(mxMembers).where(eq(mxMembers.userId, userId));
+    return rows.map(r => this._decryptMxMember(r));
   }
 
   async getMxMember(id: string): Promise<MxMember | undefined> {
     const result = await db.select().from(mxMembers).where(eq(mxMembers.id, id));
-    return result[0];
+    return result[0] ? this._decryptMxMember(result[0]) : undefined;
   }
 
   async getMxMemberByGuid(memberGuid: string): Promise<MxMember | undefined> {
     const result = await db.select().from(mxMembers).where(eq(mxMembers.memberGuid, memberGuid));
-    return result[0];
+    return result[0] ? this._decryptMxMember(result[0]) : undefined;
   }
 
   async createMxMember(member: InsertMxMember): Promise<MxMember> {
+    let memberGuidEnc: string | null = null;
+    try {
+      memberGuidEnc = fieldEncrypt(member.memberGuid);
+    } catch {
+      // FIELD_ENCRYPTION_KEY not set; enc column stays null
+    }
     const result = await db.insert(mxMembers).values({
       ...member,
+      memberGuidEnc,
       createdAt: new Date().toISOString(),
     }).returning();
-    return result[0];
+    return this._decryptMxMember(result[0]);
   }
 
   async updateMxMember(id: string, updates: Partial<MxMember>): Promise<MxMember | undefined> {

@@ -295,6 +295,7 @@ export const mxMembers = pgTable("mx_members", {
   aggregatedAt: text("aggregated_at"),
   successfullyAggregatedAt: text("successfully_aggregated_at"),
   createdAt: text("created_at"),
+  memberGuidEnc: text("member_guid_enc"), // AES-256-GCM encrypted member GUID
 });
 
 // MX Accounts table - individual bank accounts from MX
@@ -392,6 +393,8 @@ export const plaidItems = pgTable("plaid_items", {
   cursor: text("cursor"), // Transaction sync cursor for incremental sync
   status: text("status").default("active"), // active, error, expired
   createdAt: text("created_at"),
+  accessTokenEnc: text("access_token_enc"), // AES-256-GCM encrypted access token
+  itemIdEnc: text("item_id_enc"),           // AES-256-GCM encrypted item id
 });
 
 // Plaid Accounts table - individual bank accounts
@@ -570,6 +573,7 @@ export const users = pgTable("users", {
   mxUserGuid: text("mx_user_guid"),
   // User's country for geo-based bank provider selection (ISO 3166-1 alpha-2 code)
   country: text("country").default("US"),
+  phoneEnc: text("phone_enc"), // AES-256-GCM encrypted phone number
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
