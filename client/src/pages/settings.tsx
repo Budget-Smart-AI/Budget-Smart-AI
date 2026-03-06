@@ -224,7 +224,7 @@ export default function Settings({ onLogout }: SettingsProps) {
           </CardTitle>
           <CardDescription>Update your personal information</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {sessionLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin" />
@@ -232,7 +232,7 @@ export default function Settings({ onLogout }: SettingsProps) {
           ) : (
             <Form {...profileForm}>
               <form onSubmit={profileForm.handleSubmit((data) => updateProfileMutation.mutate(data))} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={profileForm.control}
                     name="firstName"
