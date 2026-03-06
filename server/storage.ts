@@ -82,7 +82,6 @@ import {
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, and, gte, lte, inArray, desc, like } from "drizzle-orm";
-import { awsKmsService, AWSKMSService } from "./aws-kms";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 
 export interface IStorage {
@@ -596,7 +595,8 @@ export class MemStorage implements IStorage {
       emailVerificationExpiry: null,
       mfaRequired: insertUser.mfaRequired || "false",
       createdAt: new Date().toISOString(),
-    };
+      phoneEnc: null,
+    } as User;
     this.users.set(id, user);
     return user;
   }
@@ -882,7 +882,7 @@ export class MemStorage implements IStorage {
   async getPlaidItems(_userId: string): Promise<PlaidItem[]> { return []; }
   async getPlaidItem(_id: string): Promise<PlaidItem | undefined> { return undefined; }
   async getPlaidItemByItemId(_itemId: string): Promise<PlaidItem | undefined> { return undefined; }
-  async createPlaidItem(item: InsertPlaidItem): Promise<PlaidItem> { return { id: randomUUID(), ...item, cursor: item.cursor || null, status: item.status || "active", institutionId: item.institutionId || null, institutionName: item.institutionName || null, createdAt: item.createdAt || null }; }
+  async createPlaidItem(item: InsertPlaidItem): Promise<PlaidItem> { return { id: randomUUID(), ...item, cursor: item.cursor || null, status: item.status || "active", institutionId: item.institutionId || null, institutionName: item.institutionName || null, createdAt: item.createdAt || null, accessTokenEnc: null, itemIdEnc: null }; }
   async updatePlaidItem(_id: string, _updates: Partial<PlaidItem>): Promise<PlaidItem | undefined> { return undefined; }
   async deletePlaidItem(_id: string): Promise<boolean> { return false; }
 
@@ -1425,7 +1425,7 @@ export class DatabaseStorage implements IStorage {
   // Plaid Items
   async getPlaidItems(userId: string): Promise<PlaidItem[]> {
     const items = await db.select().from(plaidItems).where(eq(plaidItems.userId, userId));
-    return Promise.all(items.map(item => this._decryptPlaidItem(item)));
+    return items.map(item => this._decryptPlaidItem(item));
   }
 
   async getPlaidItem(id: string): Promise<PlaidItem | undefined> {
@@ -1441,18 +1441,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPlaidItem(item: InsertPlaidItem): Promise<PlaidItem> {
-    const encryptedToken = await awsKmsService.encryptField(item.accessToken);
-    let accessTokenEnc: string | null = null;
-    let itemIdEnc: string | null = null;
-    try {
-      accessTokenEnc = fieldEncrypt(item.accessToken);
-      itemIdEnc = fieldEncrypt(item.itemId);
-    } catch {
-      // FIELD_ENCRYPTION_KEY not set; enc columns stay null
-    }
+    const accessTokenEnc = fieldEncrypt(item.accessToken);
+    const itemIdEnc = fieldEncrypt(item.itemId);
     const result = await db.insert(plaidItems).values({
       userId: item.userId,
-      accessToken: encryptedToken,
+      // access_token is NOT NULL in the schema; store a sentinel so the
+      // plaintext never lands in the database — all reads use access_token_enc.
+      accessToken: "ENCRYPTED",
       itemId: item.itemId,
       institutionId: item.institutionId || null,
       institutionName: item.institutionName || null,
@@ -1466,31 +1461,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   /** Decrypt the accessToken (and itemId) of a PlaidItem returned from the database.
-   *  Reads from the new AES-256-GCM encrypted column first, falls back to KMS column. */
-  private async _decryptPlaidItem(item: PlaidItem): Promise<PlaidItem> {
+   *  Reads from the AES-256-GCM encrypted column first, falls back to the plaintext
+   *  legacy column for rows created before field encryption was introduced. */
+  private _decryptPlaidItem(item: PlaidItem): PlaidItem {
     try {
-      let accessToken = item.accessToken;
-      let itemId = item.itemId;
-      // Prefer the new AES-256-GCM encrypted columns when available
-      if (item.accessTokenEnc) {
-        try {
-          accessToken = fieldDecrypt(item.accessTokenEnc);
-        } catch {
-          accessToken = await awsKmsService.decryptField(item.accessToken);
-        }
-      } else {
-        accessToken = await awsKmsService.decryptField(item.accessToken);
-      }
-      if (item.itemIdEnc) {
-        try {
-          itemId = fieldDecrypt(item.itemIdEnc);
-        } catch {
-          // fallback to stored itemId (plaintext)
-        }
-      }
+      const accessToken = item.accessTokenEnc
+        ? fieldDecrypt(item.accessTokenEnc)
+        : item.accessToken;
+      const itemId = item.itemIdEnc
+        ? fieldDecrypt(item.itemIdEnc)
+        : item.itemId;
       return { ...item, accessToken, itemId };
     } catch (err) {
-      console.error(`[KMS] Failed to decrypt accessToken for PlaidItem ${item.id} — re-throwing so the caller can surface the error:`, err);
+      console.error(`[Encryption] Failed to decrypt PlaidItem ${item.id}:`, err);
       throw err;
     }
   }

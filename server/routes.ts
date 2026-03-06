@@ -34,7 +34,7 @@ import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
-import { awsKmsService, AWSKMSService } from "./aws-kms";
+import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -106,20 +106,27 @@ export async function registerRoutes(
   app.use("/api/receipts", receiptsRouter);
   app.use("/api/vault", vaultRouter);
 
-  // KMS encryption status endpoint (admin only)
-  app.get("/api/kms/status", requireAuth, requireAdmin, async (_req, res) => {
-    const configured = awsKmsService.isConfigured();
-    const connected = configured ? await awsKmsService.testConnection() : false;
+  // Field encryption status endpoint (admin only)
+  app.get("/api/encryption/status", requireAuth, requireAdmin, (_req, res) => {
+    const keySet = !!process.env.FIELD_ENCRYPTION_KEY;
+    let operational = false;
+    if (keySet) {
+      try {
+        fieldDecrypt(fieldEncrypt("health-check"));
+        operational = true;
+      } catch {
+        operational = false;
+      }
+    }
     res.json({
-      configured,
-      connected,
-      keyConfigured: !!process.env.AWS_KMS_KEY_ID,
-      region: process.env.AWS_REGION || "us-east-1",
-      message: !configured
-        ? "KMS is not configured. Set AWS_KMS_KEY_ID, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY to enable encryption."
-        : connected
-        ? "KMS is active. New Plaid access tokens are encrypted at rest."
-        : "KMS credentials are set but the key could not be reached. Check AWS_KMS_KEY_ID and IAM permissions.",
+      algorithm: "AES-256-GCM",
+      keyConfigured: keySet,
+      operational,
+      message: !keySet
+        ? "FIELD_ENCRYPTION_KEY is not set. Generate a key with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\" and add it to your environment."
+        : operational
+        ? "Field encryption is active. Sensitive columns are encrypted at rest."
+        : "FIELD_ENCRYPTION_KEY is set but encryption failed. Check that the key is exactly 64 hex characters.",
     });
   });
 
