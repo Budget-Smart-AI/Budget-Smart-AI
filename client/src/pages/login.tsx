@@ -217,7 +217,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             onClick={handleGoogleSignIn}
             data-testid="button-google-signin"
           >
-            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
               <g transform="matrix(1, 0, 0, 1, 27.009001, -39.238998)">
                 <path fill="#4285F4" d="M -3.264 51.509 C -3.264 50.719 -3.334 49.969 -3.454 49.239 L -14.754 49.239 L -14.754 53.749 L -8.284 53.749 C -8.574 55.229 -9.424 56.479 -10.684 57.329 L -10.684 60.329 L -6.824 60.329 C -4.564 58.239 -3.264 55.159 -3.264 51.509 Z"/>
                 <path fill="#34A853" d="M -14.754 63.239 C -11.514 63.239 -8.804 62.159 -6.824 60.329 L -10.684 57.329 C -11.764 58.049 -13.134 58.489 -14.754 58.489 C -17.884 58.489 -20.534 56.379 -21.484 53.529 L -25.464 53.529 L -25.464 56.619 C -23.494 60.539 -19.444 63.239 -14.754 63.239 Z"/>
@@ -240,7 +240,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       )}
 
       <Form {...loginForm}>
-        <form onSubmit={loginForm.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4">
+        <form onSubmit={loginForm.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4" aria-label="Sign in form">
           <FormField
           control={loginForm.control}
           name="username"
@@ -249,7 +249,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormLabel>Username</FormLabel>
               <FormControl>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
                     placeholder="Enter username" 
@@ -271,7 +271,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormLabel>Password</FormLabel>
               <FormControl>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
                     type="password" 
@@ -294,7 +294,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         >
           {loginMutation.isPending ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
               Signing in...
             </>
           ) : (
@@ -328,7 +328,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             onClick={handleGoogleSignIn}
             data-testid="button-google-signup"
           >
-            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
+            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
               <g transform="matrix(1, 0, 0, 1, 27.009001, -39.238998)">
                 <path fill="#4285F4" d="M -3.264 51.509 C -3.264 50.719 -3.334 49.969 -3.454 49.239 L -14.754 49.239 L -14.754 53.749 L -8.284 53.749 C -8.574 55.229 -9.424 56.479 -10.684 57.329 L -10.684 60.329 L -6.824 60.329 C -4.564 58.239 -3.264 55.159 -3.264 51.509 Z"/>
                 <path fill="#34A853" d="M -14.754 63.239 C -11.514 63.239 -8.804 62.159 -6.824 60.329 L -10.684 57.329 C -11.764 58.049 -13.134 58.489 -14.754 58.489 C -17.884 58.489 -20.534 56.379 -21.484 53.529 L -25.464 53.529 L -25.464 56.619 C -23.494 60.539 -19.444 63.239 -14.754 63.239 Z"/>
@@ -351,7 +351,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       )}
 
       <Form {...registerForm}>
-        <form onSubmit={registerForm.handleSubmit((data) => registerMutation.mutate(data))} className="space-y-4">
+        <form onSubmit={registerForm.handleSubmit((data) => registerMutation.mutate(data))} className="space-y-4" aria-label="Create account form">
           <div className="grid grid-cols-2 gap-4">
           <FormField
             control={registerForm.control}
@@ -360,7 +360,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormItem>
                 <FormLabel>First Name</FormLabel>
                 <FormControl>
-                  <Input {...field} placeholder="John" data-testid="input-register-firstname" />
+                  <Input {...field} placeholder="John" autoComplete="given-name" data-testid="input-register-firstname" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -373,7 +373,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormItem>
                 <FormLabel>Last Name</FormLabel>
                 <FormControl>
-                  <Input {...field} placeholder="Doe" data-testid="input-register-lastname" />
+                  <Input {...field} placeholder="Doe" autoComplete="family-name" data-testid="input-register-lastname" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -388,7 +388,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormLabel>Email</FormLabel>
               <FormControl>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
                     type="email" 
@@ -411,11 +411,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormLabel>Username</FormLabel>
               <FormControl>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
                     placeholder="Choose a username"
                     className="pl-10"
+                    autoComplete="username"
                     data-testid="input-register-username"
                   />
                 </div>
@@ -432,12 +433,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormLabel>Password</FormLabel>
               <FormControl>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
                     type="password" 
                     placeholder="Create a password (min 8 characters)"
                     className="pl-10"
+                    autoComplete="new-password"
                     data-testid="input-register-password"
                   />
                 </div>
@@ -454,12 +456,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormLabel>Confirm Password</FormLabel>
               <FormControl>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
                     type="password" 
                     placeholder="Confirm your password"
                     className="pl-10"
+                    autoComplete="new-password"
                     data-testid="input-register-confirm-password"
                   />
                 </div>
@@ -476,12 +479,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         >
           {registerMutation.isPending ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
               Creating account...
             </>
           ) : (
             <>
-              <UserPlus className="mr-2 h-4 w-4" />
+              <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
               Create Account
             </>
           )}
@@ -504,7 +507,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
   const renderMfaForm = () => (
     <Form {...mfaForm}>
-      <form onSubmit={mfaForm.handleSubmit((data) => mfaMutation.mutate(data))} className="space-y-4">
+      <form onSubmit={mfaForm.handleSubmit((data) => mfaMutation.mutate(data))} className="space-y-4" aria-label="Two-factor authentication form">
         <FormField
           control={mfaForm.control}
           name="mfaCode"
@@ -513,11 +516,13 @@ export default function Login({ onLoginSuccess }: LoginProps) {
               <FormLabel>Authenticator Code</FormLabel>
               <FormControl>
                 <div className="relative">
-                  <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
                     placeholder="Enter 6-digit code" 
                     maxLength={6}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     className="pl-10 text-center text-lg tracking-widest"
                     data-testid="input-mfa-code"
                   />
@@ -535,7 +540,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         >
           {mfaMutation.isPending ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
               Verifying...
             </>
           ) : (
@@ -581,9 +586,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             {!showMfa && !showRegister ? (
               <>
                 <div className="mx-auto mb-3 relative flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-green-500 to-teal-500 shadow-lg shadow-emerald-500/30">
-                  <Brain className="h-7 w-7 text-white" />
-                  <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-gradient-to-r from-yellow-400 to-amber-400 flex items-center justify-center shadow-sm">
-                    <Zap className="h-2.5 w-2.5 text-white" />
+                  <Brain className="h-7 w-7 text-white" aria-hidden="true" />
+                  <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-gradient-to-r from-yellow-400 to-amber-400 flex items-center justify-center shadow-sm" aria-hidden="true">
+                    <Zap className="h-2.5 w-2.5 text-white" aria-hidden="true" />
                   </div>
                 </div>
                 <CardTitle className="text-2xl font-extrabold bg-gradient-to-r from-emerald-400 via-green-400 to-teal-400 bg-clip-text text-transparent">
@@ -614,23 +619,23 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             <Link href="/privacy" className="hover:text-white transition-colors" data-testid="link-privacy">
               Privacy Policy
             </Link>
-            <span className="text-slate-600">|</span>
+            <span className="text-slate-600" aria-hidden="true">|</span>
             <Link href="/terms" className="hover:text-white transition-colors" data-testid="link-terms">
               Terms of Service
             </Link>
-            <span className="text-slate-600">|</span>
+            <span className="text-slate-600" aria-hidden="true">|</span>
             <Link href="/security" className="hover:text-white transition-colors" data-testid="link-security">
               Security
             </Link>
-            <span className="text-slate-600">|</span>
+            <span className="text-slate-600" aria-hidden="true">|</span>
             <Link href="/trust" className="hover:text-white transition-colors" data-testid="link-trust">
               Trust Center
             </Link>
-            <span className="text-slate-600">|</span>
+            <span className="text-slate-600" aria-hidden="true">|</span>
             <Link href="/contact" className="hover:text-white transition-colors" data-testid="link-contact">
               Contact
             </Link>
-            <span className="text-slate-600">|</span>
+            <span className="text-slate-600" aria-hidden="true">|</span>
             <Link href="/data-retention" className="hover:text-white transition-colors" data-testid="link-data-retention">
               Data Retention Policy
             </Link>
