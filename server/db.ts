@@ -295,6 +295,36 @@ export async function ensureMerchantEnrichmentTable(): Promise<void> {
   }
 }
 
+/**
+ * Ensure the AES-256-GCM encrypted columns added in migration 0017 exist on
+ * the live database.  Uses ADD COLUMN IF NOT EXISTS so it is safe to call on
+ * every startup regardless of whether the columns were already created by a
+ * previous migration run.
+ *
+ * Without these columns the application throws
+ *   error: column "phone_enc" does not exist
+ * on every request that calls getUsers() (email scheduler, budget alerts, etc.)
+ */
+export async function ensureEncryptionColumns(): Promise<void> {
+  // users table – encrypted phone number (migration 0017)
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_enc TEXT`
+  );
+
+  // plaid_items – encrypted access token and item id (migration 0017)
+  await pool.query(
+    `ALTER TABLE plaid_items ADD COLUMN IF NOT EXISTS access_token_enc TEXT`
+  );
+  await pool.query(
+    `ALTER TABLE plaid_items ADD COLUMN IF NOT EXISTS item_id_enc TEXT`
+  );
+
+  // mx_members – encrypted member guid (migration 0017)
+  await pool.query(
+    `ALTER TABLE mx_members ADD COLUMN IF NOT EXISTS member_guid_enc TEXT`
+  );
+}
+
 export async function ensureBankProviderTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_provider_config (

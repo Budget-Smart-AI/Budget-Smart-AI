@@ -17,7 +17,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -160,6 +160,10 @@ app.use((req, res, next) => {
 
   await ensureMerchantEnrichmentTable().catch(err =>
     console.error("Failed to ensure merchant enrichment table — transaction enrichment will not work:", err)
+  );
+
+  await ensureEncryptionColumns().catch(err =>
+    console.error("Failed to ensure encryption columns — field-level encryption will not work:", err)
   );
 
   await registerRoutes(httpServer, app);
