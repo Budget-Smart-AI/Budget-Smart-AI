@@ -48,18 +48,9 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
-// HTTPS redirect in production
-if (process.env.NODE_ENV === "production") {
-  app.use((req, res, next) => {
-    if (req.headers["x-forwarded-proto"] !== "https") {
-      return res.redirect(301, "https://" + req.headers.host + req.url);
-    }
-    next();
-  });
-}
-
-// Health check — registered BEFORE helmet, session, and rate-limiter so
-// Railway's probe is never blocked by CSP headers or rate-limit 429s.
+// Health check — registered BEFORE the HTTPS redirect, helmet, session, and
+// rate-limiter so Railway's internal HTTP probe is never redirected (301) or
+// blocked by CSP headers / rate-limit 429s.
 // During the first 30 s after boot the DB pool may not be ready yet, so
 // we return { status: "starting" } with HTTP 200 to avoid false failures.
 app.get("/health", async (_req, res) => {
@@ -104,6 +95,17 @@ app.get("/health", async (_req, res) => {
     uptime: process.uptime(),
   });
 });
+
+// HTTPS redirect in production — registered AFTER /health so Railway's
+// internal HTTP health probe is not redirected before it can reach the handler.
+if (process.env.NODE_ENV === "production") {
+  app.use((req, res, next) => {
+    if (req.headers["x-forwarded-proto"] !== "https") {
+      return res.redirect(301, "https://" + req.headers.host + req.url);
+    }
+    next();
+  });
+}
 
 // Security headers via helmet
 app.use(
