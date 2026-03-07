@@ -1604,12 +1604,12 @@ Return JSON: { "income": [...] }`;
       }
       res.json({
         success: true,
-        householdName: (updated as any).householdName || null,
+        householdName: updated.householdName || null,
         country: updated.country || null,
-        addressLine1: (updated as any).addressLine1 || null,
-        city: (updated as any).city || null,
-        provinceState: (updated as any).provinceState || null,
-        postalCode: (updated as any).postalCode || null,
+        addressLine1: updated.addressLine1 || null,
+        city: updated.city || null,
+        provinceState: updated.provinceState || null,
+        postalCode: updated.postalCode || null,
       });
     } catch (error) {
       console.error("Household update error:", error);
@@ -1624,12 +1624,12 @@ Return JSON: { "income": [...] }`;
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ error: "User not found" });
       res.json({
-        householdName: (user as any).householdName || null,
+        householdName: user.householdName || null,
         country: user.country || "Canada",
-        addressLine1: (user as any).addressLine1 || null,
-        city: (user as any).city || null,
-        provinceState: (user as any).provinceState || null,
-        postalCode: (user as any).postalCode || null,
+        addressLine1: user.addressLine1 || null,
+        city: user.city || null,
+        provinceState: user.provinceState || null,
+        postalCode: user.postalCode || null,
       });
     } catch (error) {
       console.error("Get household error:", error);

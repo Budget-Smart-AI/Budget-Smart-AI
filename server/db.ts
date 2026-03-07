@@ -367,10 +367,10 @@ export async function ensureHouseholdColumns(): Promise<void> {
       professional_email TEXT NOT NULL,
       professional_name TEXT,
       access_token TEXT NOT NULL,
-      granted_at TEXT DEFAULT NOW()::text,
+      granted_at TEXT DEFAULT to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
       expires_at TEXT NOT NULL,
       is_active TEXT DEFAULT 'true',
-      created_at TEXT DEFAULT NOW()::text
+      created_at TEXT DEFAULT to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
     )
   `);
 }

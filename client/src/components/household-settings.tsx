@@ -470,7 +470,7 @@ export function HouseholdSettings() {
                           <Select onValueChange={field.onChange} value={field.value ?? ""}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder={"Select " + provinceStateLabel} />
+                                <SelectValue placeholder={`Select ${provinceStateLabel}`} />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
