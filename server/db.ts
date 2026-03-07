@@ -495,3 +495,15 @@ export async function ensureAuditLogTable(): Promise<void> {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_target  ON audit_log(target_user_id, created_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`);
 }
+
+/**
+ * Ensure login security columns for account lockout tracking exist on the
+ * users table. Uses ADD COLUMN IF NOT EXISTS so it is safe to call on every
+ * startup.
+ */
+export async function ensureLoginSecurityColumns(): Promise<void> {
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(50)`);
+}

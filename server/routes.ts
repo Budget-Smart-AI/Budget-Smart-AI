@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool } from "./db";
 import multer from "multer";
 import sharp from "sharp";
 import { S3Client as AvatarS3Client, PutObjectCommand as AvatarPutObjectCommand, DeleteObjectCommand as AvatarDeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -103,8 +103,44 @@ export async function registerRoutes(
     console.warn("[CONFIG] Neither SALES_EMAIL nor ALERT_EMAIL_TO is set. Sales-lead notification emails will not be delivered.");
   }
 
-  // Health check endpoint for deployment monitoring
-  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  // Health check endpoint for deployment monitoring (no auth required)
+  app.get("/health", async (_req, res) => {
+    let dbHealthy = false;
+    let encryptionHealthy = false;
+
+    // Database check with 2s timeout
+    try {
+      const { pool: healthPool } = await import("./db");
+      const { encrypt: enc, decrypt: dec } = await import("./encryption");
+
+      await Promise.race([
+        healthPool.query("SELECT 1"),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("DB timeout")), 2000)
+        ),
+      ]);
+      dbHealthy = true;
+
+      // Encryption check
+      const testCipher = enc("health-check");
+      dec(testCipher);
+      encryptionHealthy = true;
+    } catch {
+      // intentionally swallowed — flags remain false
+    }
+
+    const statusCode = dbHealthy ? 200 : 503;
+
+    res.status(statusCode).json({
+      status: dbHealthy ? "healthy" : "unhealthy",
+      timestamp: new Date().toISOString(),
+      checks: {
+        database: dbHealthy ? "ok" : "error",
+        encryption: encryptionHealthy ? "ok" : "error",
+      },
+      uptime: process.uptime(),
+    });
+  });
 
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
@@ -2268,8 +2304,48 @@ Return JSON: { "income": [...] }`;
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
+      // Check account lockout before validating password
+      const lockCheck = await pool.query(
+        `SELECT failed_login_attempts, locked_until FROM users WHERE id = $1`,
+        [user.id]
+      );
+      const lockRow = lockCheck.rows?.[0];
+      if (lockRow?.locked_until && new Date(lockRow.locked_until) > new Date()) {
+        auditLogFromRequest(req, {
+          eventType: "auth.login_failed",
+          eventCategory: "auth",
+          actorId: user.id,
+          action: "login",
+          outcome: "blocked",
+          metadata: { username },
+          errorMessage: "Account locked",
+        });
+        return res.status(423).json({ error: "Account is temporarily locked. Please try again later." });
+      }
+
       const validPassword = await verifyPassword(password, user.password);
       if (!validPassword) {
+        // Increment failed attempts and lock if >= 5
+        const attempts = (lockRow?.failed_login_attempts ?? 0) + 1;
+        if (attempts >= 5) {
+          await pool.query(
+            `UPDATE users SET failed_login_attempts = $1, locked_until = NOW() + INTERVAL '30 minutes' WHERE id = $2`,
+            [attempts, user.id]
+          );
+          auditLogFromRequest(req, {
+            eventType: "auth.account_locked",
+            eventCategory: "auth",
+            actorId: user.id,
+            action: "account_locked",
+            outcome: "blocked",
+            metadata: { username, attempts },
+          });
+        } else {
+          await pool.query(
+            `UPDATE users SET failed_login_attempts = $1 WHERE id = $2`,
+            [attempts, user.id]
+          );
+        }
         auditLogFromRequest(req, {
           eventType: "auth.login_failed",
           eventCategory: "auth",
@@ -2281,6 +2357,13 @@ Return JSON: { "income": [...] }`;
         });
         return res.status(401).json({ error: "Invalid username or password" });
       }
+
+      // Reset failed attempts on successful password check
+      const clientIp = req.ip || req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() || null;
+      await pool.query(
+        `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = NOW(), last_login_ip = $1 WHERE id = $2`,
+        [clientIp, user.id]
+      );
 
       // Check if account is approved
       if (user.isApproved !== "true") {
