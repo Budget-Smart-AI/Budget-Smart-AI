@@ -59,6 +59,7 @@ import AdminSupport from "@/pages/admin-support";
 import AdminAIManagement from "@/pages/admin-ai-management";
 import AdminBankProviders from "@/pages/admin-bank-providers";
 import AdminAuditLog from "@/pages/admin-audit-log";
+import AdminSystemStatus from "@/pages/admin-system-status";
 import AnomaliesPage from "@/pages/anomalies";
 import AffiliatePage from "@/pages/affiliate";
 import AffiliateTerms from "@/pages/affiliate-terms";
@@ -145,6 +146,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
           <Route path="/admin/ai-management" component={AdminAIManagement} />
           <Route path="/admin/bank-providers" component={AdminBankProviders} />
           <Route path="/admin/audit-log" component={AdminAuditLog} />
+          <Route path="/admin/system-status" component={AdminSystemStatus} />
         </>
       )}
       <Route component={NotFound} />

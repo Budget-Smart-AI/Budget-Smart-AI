@@ -12460,6 +12460,108 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // ── Admin System Status ───────────────────────────────────────────────────
+
+  // GET /api/admin/system-status — health checks, security events, recent audit log
+  app.get("/api/admin/system-status", requireAdmin, sensitiveApiRateLimiter, async (_req, res) => {
+    try {
+      const { encrypt, decrypt } = await import("./encryption");
+
+      // ── 1. Database health ──────────────────────────────────────────────
+      let dbStatus: "ok" | "error" = "error";
+      let dbLatencyMs = 0;
+      try {
+        const t0 = Date.now();
+        await pool.query("SELECT 1");
+        dbLatencyMs = Date.now() - t0;
+        dbStatus = "ok";
+      } catch {
+        dbStatus = "error";
+      }
+
+      // ── 2. Encryption health ────────────────────────────────────────────
+      let encStatus: "ok" | "error" = "error";
+      try {
+        const plaintext = "budget-smart-health-check";
+        const ciphertext = encrypt(plaintext);
+        const decrypted = decrypt(ciphertext);
+        encStatus = decrypted === plaintext ? "ok" : "error";
+      } catch {
+        encStatus = "error";
+      }
+
+      // ── 3. Active sessions ──────────────────────────────────────────────
+      let activeSessions = 0;
+      try {
+        const sessionResult = await pool.query(
+          `SELECT COUNT(*) AS cnt FROM session WHERE expire > NOW()`,
+        );
+        activeSessions = parseInt(sessionResult.rows[0]?.cnt ?? "0", 10);
+      } catch {
+        // sessions table may not exist in all environments
+        activeSessions = 0;
+      }
+
+      // ── 4. Uptime ───────────────────────────────────────────────────────
+      const uptimeSeconds = process.uptime();
+      const days = Math.floor(uptimeSeconds / 86400);
+      const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+      const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+      const uptimeFormatted = `${days}d ${hours}h ${minutes}m`;
+
+      // ── 5. Security events last 24 hours ────────────────────────────────
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const securityEventTypes = [
+        "auth.login_failed",
+        "security.rate_limit_exceeded",
+        "auth.account_locked",
+        "admin.data_accessed",
+      ] as const;
+
+      const securityCounts: Record<string, number> = {};
+      for (const eventType of securityEventTypes) {
+        try {
+          const r = await pool.query(
+            `SELECT COUNT(*) AS cnt FROM audit_log WHERE event_type = $1 AND created_at >= $2`,
+            [eventType, since24h],
+          );
+          securityCounts[eventType] = parseInt(r.rows[0]?.cnt ?? "0", 10);
+        } catch {
+          securityCounts[eventType] = 0;
+        }
+      }
+
+      // ── 6. Recent audit log (last 20 entries) ───────────────────────────
+      let recentAuditLog: Record<string, unknown>[] = [];
+      try {
+        const auditResult = await pool.query(
+          `SELECT id, event_type, actor_id, actor_type, actor_ip, outcome, created_at
+             FROM audit_log
+            ORDER BY created_at DESC
+            LIMIT 20`,
+        );
+        recentAuditLog = auditResult.rows;
+      } catch {
+        recentAuditLog = [];
+      }
+
+      res.json({
+        health: {
+          database: { status: dbStatus, latencyMs: dbLatencyMs },
+          encryption: { status: encStatus },
+          activeSessions,
+          uptime: { seconds: uptimeSeconds, formatted: uptimeFormatted },
+        },
+        securityEvents: securityCounts,
+        recentAuditLog,
+      });
+    } catch (error) {
+      console.error("Error fetching system status:", error);
+      res.status(500).json({ error: "Failed to fetch system status" });
+    }
+  });
+
   // GET /api/bank-providers — enabled providers for the current user's country
   app.get("/api/bank-providers", requireAuth, async (req, res) => {
     try {
