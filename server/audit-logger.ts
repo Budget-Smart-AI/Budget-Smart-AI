@@ -4,14 +4,8 @@
  * failure never surfaces to the end user.
  */
 
-import { Pool } from "pg";
+import { pool } from "./db";
 import type { Request } from "express";
-
-// Re-use the same pool that the rest of the server uses.
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-pool.on("error", (err) => {
-  console.error("[AuditLogger] Pool error:", err);
-});
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

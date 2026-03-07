@@ -253,7 +253,6 @@ export async function registerRoutes(
 
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=bills_export.csv");
-      res.send(csvContent);
       auditLogFromRequest(req, {
         eventType: "data.export_requested",
         eventCategory: "data",
@@ -262,6 +261,7 @@ export async function registerRoutes(
         outcome: "success",
         metadata: { count: bills.length },
       });
+      res.send(csvContent);
     } catch (error) {
       console.error("Bills export error:", error);
       res.status(500).json({ error: "Failed to export bills" });
@@ -2437,17 +2437,17 @@ Return JSON: { "income": [...] }`;
 
   app.post("/api/auth/logout", (req, res) => {
     const userId = req.session?.userId ?? null;
-    auditLogFromRequest(req, {
-      eventType: "auth.logout",
-      eventCategory: "auth",
-      actorId: userId,
-      action: "logout",
-      outcome: "success",
-    });
     req.session.destroy((err) => {
       if (err) {
         return res.status(500).json({ error: "Logout failed" });
       }
+      auditLogFromRequest(req, {
+        eventType: "auth.logout",
+        eventCategory: "auth",
+        actorId: userId,
+        action: "logout",
+        outcome: "success",
+      });
       res.json({ success: true });
     });
   });
@@ -4029,7 +4029,6 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         });
       }
 
-      res.json({ success: true, item: { id: plaidItem.id, institutionName: plaidItem.institutionName } });
       auditLogFromRequest(req, {
         eventType: "data.bank_connected",
         eventCategory: "data",
@@ -4038,6 +4037,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         outcome: "success",
         metadata: { itemId: plaidItem.id, institutionName: plaidItem.institutionName },
       });
+      res.json({ success: true, item: { id: plaidItem.id, institutionName: plaidItem.institutionName } });
     } catch (error: any) {
       console.error("Error exchanging token:", error?.response?.data || error);
       res.status(500).json({ error: "Failed to connect bank account" });
@@ -4948,7 +4948,6 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         // Non-critical - item is already removed locally
       }
 
-      res.status(204).send();
       auditLogFromRequest(req, {
         eventType: "data.bank_disconnected",
         eventCategory: "data",
@@ -4957,6 +4956,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         outcome: "success",
         metadata: { itemId: id, institutionName: item.institutionName },
       });
+      res.status(204).send();
     } catch (error) {
       console.error("Error disconnecting bank account:", error);
       res.status(500).json({ error: "Failed to disconnect bank account" });
@@ -5264,7 +5264,6 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         }
       }
 
-      res.status(204).send();
       auditLogFromRequest(req, {
         eventType: "data.bank_disconnected",
         eventCategory: "data",
@@ -5273,6 +5272,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         outcome: "success",
         metadata: { memberId: member.id },
       });
+      res.status(204).send();
     } catch (error: any) {
       console.error("Error deleting MX member:", error);
       res.status(500).json({ error: "Failed to delete member" });
