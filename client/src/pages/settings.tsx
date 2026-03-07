@@ -47,6 +47,7 @@ import { Building2, RefreshCw, Plus, Tag, FileDown, Database } from "lucide-reac
 import { SettingsLayout } from "@/components/settings-layout";
 import MerchantsPage from "@/pages/merchants";
 import EmailSettings from "@/pages/email-settings";
+import { ThemePicker } from "@/components/settings/ThemePicker";
 
 // ─── Types reused from bank-accounts ────────────────────────────────────────
 interface PlaidAccountGroup {
@@ -2610,6 +2611,13 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       {/* ── Preferences Tab ── */}
       {activeTab === "preferences" && (<>
+
+      {/* ── Appearance / Theme Picker ── */}
+      <Card>
+        <CardContent className="pt-6">
+          <ThemePicker />
+        </CardContent>
+      </Card>
 
       {/* ── Preferences Card ── */}
       <Card>

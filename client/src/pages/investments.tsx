@@ -70,6 +70,7 @@ import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, Building2, Wallet, Pigg
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INVESTMENT_ACCOUNT_TYPES, HOLDING_TYPES, type InvestmentAccount, type Holding, type PlaidAccount } from "@shared/schema";
+import { useChartColors } from "@/hooks/useChartColors";
 
 const accountFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -691,6 +692,7 @@ function LinkPlaidAccountDialog({ onClose }: { onClose: () => void }) {
 
 function AIAdvisor({ holdings }: { holdings: Holding[] }) {
   const { toast } = useToast();
+  const colors = useChartColors();
 
   // ── Chat state ──────────────────────────────────────────────────────────────
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => {
@@ -797,8 +799,8 @@ function AIAdvisor({ holdings }: { holdings: Holding[] }) {
   const sparklineColor =
     sparklineData.length >= 2 &&
     sparklineData[sparklineData.length - 1].value >= sparklineData[0].value
-      ? "#16a34a"
-      : "#dc2626";
+      ? colors.success
+      : colors.danger;
 
   // ── Action badge lookup ─────────────────────────────────────────────────────
   const actionMap = new Map<string, ActionItem>(
@@ -910,9 +912,9 @@ function AIAdvisor({ holdings }: { holdings: Holding[] }) {
                 {sparklineData[0]?.cost && (
                   <ReferenceLine
                     y={sparklineData[0].cost}
-                    stroke="#94a3b8"
+                    stroke={colors.muted}
                     strokeDasharray="4 2"
-                    label={{ value: "Cost basis", fontSize: 10, fill: "#94a3b8" }}
+                    label={{ value: "Cost basis", fontSize: 10, fill: colors.muted }}
                   />
                 )}
                 <Line
