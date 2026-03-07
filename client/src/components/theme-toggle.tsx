@@ -29,8 +29,10 @@ export function ThemeToggle() {
             <DropdownMenuItem
               key={id}
               onClick={() => setThemeId(id)}
-              className="flex items-center gap-2 cursor-pointer"
+              className="flex items-center gap-2"
               data-testid={`theme-option-${id}`}
+              aria-checked={themeId === id}
+              role="menuitemradio"
             >
               {/* Colour swatch preview */}
               <span className="flex gap-0.5 shrink-0">

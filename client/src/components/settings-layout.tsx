@@ -92,7 +92,7 @@ export function SettingsLayout({ activeTab, children }: SettingsLayoutProps) {
                   className={cn(
                     "flex flex-col items-center gap-0.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer select-none",
                     isActive
-                      ? "bg-[#1a365d] text-white"
+                      ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                   data-testid={`settings-tab-${tab.slug}`}
@@ -118,7 +118,7 @@ export function SettingsLayout({ activeTab, children }: SettingsLayoutProps) {
                   className={cn(
                     "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer select-none",
                     isActive
-                      ? "bg-[#1a365d] text-white"
+                      ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                   data-testid={`settings-tab-${tab.slug}`}

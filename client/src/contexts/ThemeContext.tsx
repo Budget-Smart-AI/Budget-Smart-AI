@@ -55,8 +55,10 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 export function ThemeContextProvider({ children }: { children: React.ReactNode }) {
   const [themeId, setThemeIdState] = useState<ThemeId>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
-    return stored && stored in THEMES ? stored : DEFAULT_THEME;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return (Object.keys(THEMES) as ThemeId[]).includes(stored as ThemeId)
+      ? (stored as ThemeId)
+      : DEFAULT_THEME;
   });
 
   useEffect(() => {
