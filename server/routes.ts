@@ -6409,6 +6409,199 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // ── Transaction CSV export ──────────────────────────────────────────────────
+  app.get("/api/user/export/transactions", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { startDate, endDate, accountId } = req.query as {
+        startDate?: string;
+        endDate?: string;
+        accountId?: string;
+      };
+
+      const escapeCSV = (value: string | null | undefined): string => {
+        const str = value ?? "";
+        if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      // Build account name lookup map
+      const accountNameMap = new Map<string, string>();
+
+      // Plaid accounts
+      const plaidItems = await storage.getPlaidItems(userId);
+      const plaidAccountGroups = await Promise.all(plaidItems.map(i => storage.getPlaidAccounts(i.id)));
+      const allPlaidAccounts = plaidAccountGroups.flat();
+      for (const acc of allPlaidAccounts) {
+        accountNameMap.set(acc.id, acc.name);
+      }
+
+      // MX accounts
+      const mxAccounts = await storage.getMxAccountsByUserId(userId);
+      for (const acc of mxAccounts) {
+        accountNameMap.set(acc.id, acc.name);
+      }
+
+      // Manual accounts
+      const manualAccounts = await storage.getManualAccounts(userId);
+      for (const acc of manualAccounts) {
+        accountNameMap.set(acc.id, acc.name);
+      }
+
+      const dateOpts: { startDate?: string; endDate?: string } = {};
+      if (startDate) dateOpts.startDate = startDate;
+      if (endDate) dateOpts.endDate = endDate;
+
+      // Gather Plaid transactions
+      const activePlaidIds = accountId
+        ? [accountId]
+        : allPlaidAccounts.filter(a => a.isActive === "true").map(a => a.id);
+      const plaidTxns = activePlaidIds.length > 0
+        ? await storage.getPlaidTransactions(activePlaidIds, dateOpts)
+        : [];
+
+      // Gather MX transactions
+      const activeMxIds = accountId
+        ? [accountId]
+        : mxAccounts.filter(a => a.isActive === "true").map(a => a.id);
+      const mxTxns = activeMxIds.length > 0
+        ? await storage.getMxTransactions(activeMxIds, dateOpts)
+        : [];
+
+      // Gather manual transactions
+      const manualTxns = await storage.getManualTransactionsByUser(userId, dateOpts);
+      const filteredManual = accountId
+        ? manualTxns.filter(t => t.accountId === accountId)
+        : manualTxns;
+
+      // Normalise all transactions to CSV rows
+      interface CsvRow {
+        date: string;
+        description: string;
+        amount: string;
+        category: string;
+        account: string;
+        status: string;
+        notes: string;
+      }
+
+      const rows: CsvRow[] = [
+        ...plaidTxns.map(t => ({
+          date: t.date,
+          description: t.merchantName || t.name || "",
+          amount: t.amount != null ? String(t.amount) : "0.00",
+          category: t.personalCategory || t.category || "",
+          account: accountNameMap.get(t.plaidAccountId) ?? "",
+          status: t.pending === "true" ? "Pending" : "Posted",
+          notes: "",
+        })),
+        ...mxTxns.map(t => ({
+          date: t.date,
+          description: t.description || "",
+          amount: t.amount != null ? String(t.amount) : "0.00",
+          category: t.personalCategory || t.category || "",
+          account: accountNameMap.get(t.mxAccountId) ?? "",
+          status: t.status ?? "Posted",
+          notes: "",
+        })),
+        ...filteredManual.map(t => ({
+          date: t.date,
+          description: t.merchant || "",
+          amount: t.amount != null ? String(t.amount) : "0.00",
+          category: t.category || "",
+          account: accountNameMap.get(t.accountId ?? "") ?? "",
+          status: "Posted",
+          notes: t.notes || "",
+        })),
+      ];
+
+      rows.sort((a, b) => b.date.localeCompare(a.date));
+
+      const header = "Date,Description,Amount,Category,Account,Status,Notes";
+      const csvLines = rows.map(r =>
+        [
+          escapeCSV(r.date),
+          escapeCSV(r.description),
+          escapeCSV(r.amount),
+          escapeCSV(r.category),
+          escapeCSV(r.account),
+          escapeCSV(r.status),
+          escapeCSV(r.notes),
+        ].join(",")
+      );
+
+      const dateLabel = new Date().toISOString().split("T")[0];
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="budgetsmart-transactions-${dateLabel}.csv"`);
+
+      console.log(`[audit] data.export_requested userId=${userId}`);
+
+      res.send([header, ...csvLines].join("\n"));
+    } catch (error) {
+      console.error("Transaction CSV export error:", error);
+      res.status(500).json({ error: "Failed to export transactions" });
+    }
+  });
+
+  // ── Full account data export (JSON) ─────────────────────────────────────────
+  app.get("/api/user/export-data", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+
+      const [billsData, expensesData, incomesData, budgetsData] = await Promise.all([
+        storage.getBills(userId),
+        storage.getExpenses(userId),
+        storage.getIncomes(userId),
+        storage.getBudgets(userId),
+      ]);
+
+      const plaidItems = await storage.getPlaidItems(userId);
+      const plaidAccountGroups = await Promise.all(plaidItems.map(i => storage.getPlaidAccounts(i.id)));
+      const allPlaidAccounts = plaidAccountGroups.flat();
+      const plaidTxns = allPlaidAccounts.length > 0
+        ? await storage.getPlaidTransactions(allPlaidAccounts.map(a => a.id))
+        : [];
+
+      const mxAccounts = await storage.getMxAccountsByUserId(userId);
+      const mxTxns = mxAccounts.length > 0
+        ? await storage.getMxTransactions(mxAccounts.map(a => a.id))
+        : [];
+
+      const manualAccounts = await storage.getManualAccounts(userId);
+      const manualTxns = await storage.getManualTransactionsByUser(userId);
+
+      const user = await storage.getUser(userId);
+
+      console.log(`[audit] data.export_requested userId=${userId}`);
+
+      res.json({
+        exportDate: new Date().toISOString(),
+        profile: user
+          ? { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email, createdAt: user.createdAt }
+          : null,
+        accounts: {
+          plaid: allPlaidAccounts,
+          mx: mxAccounts,
+          manual: manualAccounts,
+        },
+        transactions: {
+          plaid: plaidTxns,
+          mx: mxTxns,
+          manual: manualTxns,
+        },
+        bills: billsData,
+        expenses: expensesData,
+        income: incomesData,
+        budgets: budgetsData,
+      });
+    } catch (error) {
+      console.error("Full data export error:", error);
+      res.status(500).json({ error: "Failed to export data" });
+    }
+  });
+
   app.get("/api/export/csv/:type", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;

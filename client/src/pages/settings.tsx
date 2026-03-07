@@ -39,9 +39,70 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { HouseholdSettings } from "@/components/household-settings";
 import { PWAInstallCard } from "@/components/pwa-install-prompt";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Building2, RefreshCw, Plus, Tag, FileDown, Database } from "lucide-react";
+
+// ─── Types reused from bank-accounts ────────────────────────────────────────
+interface PlaidAccountGroup {
+  id: string;
+  institutionName: string | null;
+  institutionId: string | null;
+  status: string | null;
+  accounts: Array<{
+    id: string;
+    plaidItemId: string;
+    accountId: string;
+    name: string;
+    officialName: string | null;
+    type: string;
+    subtype: string | null;
+    mask: string | null;
+    balanceCurrent: string | null;
+    balanceAvailable: string | null;
+    balanceLimit: string | null;
+    isoCurrencyCode: string | null;
+    lastSynced: string | null;
+    isActive: string | null;
+  }>;
+}
+
+interface MxMemberGroup {
+  id: string;
+  memberGuid: string;
+  institutionName: string;
+  institutionCode: string;
+  connectionStatus: string | null;
+  aggregatedAt: string | null;
+  accounts: Array<{
+    id: string;
+    accountGuid: string;
+    name: string;
+    type: string;
+    subtype: string | null;
+    balance: string | null;
+    availableBalance: string | null;
+    creditLimit: string | null;
+    currencyCode: string | null;
+    isActive: string | null;
+    mask: string | null;
+    lastSynced: string | null;
+  }>;
+}
+
+interface UnifiedAccount {
+  id: string;
+  name: string;
+  type: string;
+  subtype: string | null;
+  balance: string | null;
+  currency: string | null;
+  source: "plaid" | "mx" | "manual";
+  isActive: boolean;
+  lastSynced: string | null;
+}
 
 // ─── IANA Timezone list (common subset) ───────────────────────────────────────
 const TIMEZONES = [
@@ -151,6 +212,438 @@ const MONTHS = [
 function getDaysInMonth(month: string, year: string): number {
   if (!month || !year) return 31;
   return new Date(parseInt(year), parseInt(month), 0).getDate();
+}
+
+// ─── Accounts Tab ─────────────────────────────────────────────────────────────
+function AccountsTab() {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { data: plaidGroups = [], isLoading: plaidLoading, refetch: refetchPlaid } =
+    useQuery<PlaidAccountGroup[]>({ queryKey: ["/api/plaid/accounts"] });
+
+  const { data: mxMembers = [], isLoading: mxLoading, refetch: refetchMx } =
+    useQuery<MxMemberGroup[]>({ queryKey: ["/api/mx/members"] });
+
+  const { data: unifiedAccounts = [], refetch: refetchUnified } =
+    useQuery<UnifiedAccount[]>({ queryKey: ["/api/accounts"] });
+
+  const togglePlaidActive = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) =>
+      apiRequest("PATCH", `/api/plaid/accounts/${id}/toggle-active`, { isActive }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      toast({ title: "Account updated" });
+    },
+    onError: () => toast({ title: "Failed to update account", variant: "destructive" }),
+  });
+
+  const toggleMxActive = useMutation({
+    mutationFn: async (id: string) => apiRequest("PATCH", `/api/mx/accounts/${id}/toggle`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      toast({ title: "Account updated" });
+    },
+    onError: () => toast({ title: "Failed to update account", variant: "destructive" }),
+  });
+
+  const disconnectPlaid = useMutation({
+    mutationFn: async (itemId: string) => apiRequest("DELETE", `/api/plaid/items/${itemId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      toast({ title: "Account disconnected" });
+    },
+    onError: () => toast({ title: "Failed to disconnect account", variant: "destructive" }),
+  });
+
+  const disconnectMx = useMutation({
+    mutationFn: async (memberId: string) => apiRequest("DELETE", `/api/mx/members/${memberId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      toast({ title: "Account disconnected" });
+    },
+    onError: () => toast({ title: "Failed to disconnect account", variant: "destructive" }),
+  });
+
+  const handleRefreshAll = async () => {
+    setRefreshing(true);
+    try {
+      await apiRequest("POST", "/api/plaid/accounts/refresh-balances");
+      await refetchPlaid();
+      await refetchMx();
+      await refetchUnified();
+      toast({ title: "Accounts refreshed" });
+    } catch {
+      toast({ title: "Refresh failed", variant: "destructive" });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const formatBalance = (balance: string | null, currency: string | null = "CAD") => {
+    if (balance === null || balance === undefined) return "—";
+    const num = parseFloat(balance);
+    if (isNaN(num)) return "—";
+    return new Intl.NumberFormat("en-CA", { style: "currency", currency: currency || "CAD" }).format(num);
+  };
+
+  const isLoading = plaidLoading || mxLoading;
+  const hasNoAccounts = plaidGroups.length === 0 && mxMembers.length === 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Linked Bank Accounts</h2>
+          <p className="text-sm text-muted-foreground">Manage your connected financial institutions</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleRefreshAll} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh All
+          </Button>
+          <Button size="sm" onClick={() => navigate("/accounts")}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Account
+          </Button>
+        </div>
+      </div>
+
+      {isLoading && (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">Loading accounts…</CardContent>
+        </Card>
+      )}
+
+      {!isLoading && hasNoAccounts && (
+        <Card>
+          <CardContent className="py-12 text-center space-y-3">
+            <Building2 className="h-10 w-10 mx-auto text-muted-foreground" />
+            <p className="text-muted-foreground">No bank accounts linked yet.</p>
+            <Button onClick={() => navigate("/accounts")}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Account
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Plaid institution groups */}
+      {plaidGroups.map((group) => (
+        <Card key={group.id}>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Building2 className="h-4 w-4" />
+              {group.institutionName || "Unknown Institution"}
+              <Badge variant={group.status === "active" ? "default" : "destructive"} className="ml-auto text-xs">
+                {group.status || "active"}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {group.accounts.map((acc) => (
+              <div key={acc.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{acc.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">
+                    {acc.type}{acc.subtype ? ` · ${acc.subtype}` : ""}
+                    {acc.mask ? ` ···${acc.mask}` : ""}
+                  </p>
+                  {acc.lastSynced && (
+                    <p className="text-xs text-muted-foreground">
+                      Last synced: {new Date(acc.lastSynced).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold tabular-nums">
+                    {formatBalance(acc.balanceCurrent, acc.isoCurrencyCode)}
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => togglePlaidActive.mutate({ id: acc.id, isActive: acc.isActive !== "true" })}
+                    >
+                      {acc.isActive === "true" ? "Hide" : "Show"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => disconnectPlaid.mutate(group.id)}
+                    >
+                      Unlink
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+
+      {/* MX institution groups */}
+      {mxMembers.map((member) => (
+        <Card key={member.id}>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Building2 className="h-4 w-4" />
+              {member.institutionName || "Unknown Institution"}
+              <Badge
+                variant={member.connectionStatus === "CONNECTED" ? "default" : "secondary"}
+                className="ml-auto text-xs"
+              >
+                {member.connectionStatus || "connected"}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {member.accounts.map((acc) => (
+              <div key={acc.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{acc.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">
+                    {acc.type}{acc.subtype ? ` · ${acc.subtype}` : ""}
+                    {acc.mask ? ` ···${acc.mask}` : ""}
+                  </p>
+                  {acc.lastSynced && (
+                    <p className="text-xs text-muted-foreground">
+                      Last synced: {new Date(acc.lastSynced).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold tabular-nums">
+                    {formatBalance(acc.balance, acc.currencyCode)}
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => toggleMxActive.mutate(acc.id)}
+                    >
+                      {acc.isActive === "true" ? "Hide" : "Show"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => disconnectMx.mutate(member.id)}
+                    >
+                      Unlink
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+
+    </div>
+  );
+}
+
+// ─── Categories Tab ────────────────────────────────────────────────────────────
+function CategoriesTab() {
+  const [, navigate] = useLocation();
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Tag className="h-5 w-5" />
+            Categories
+          </CardTitle>
+          <CardDescription>Manage your expense, income, and bill categories</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Create and manage custom categories to organize your finances. Custom categories appear
+            in all transaction dropdowns alongside the built-in defaults.
+          </p>
+          <Button onClick={() => navigate("/categories")}>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Open Categories Manager
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Data Tab ──────────────────────────────────────────────────────────────────
+function DataTab() {
+  const { toast } = useToast();
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [accountId, setAccountId] = useState("all");
+  const [downloading, setDownloading] = useState(false);
+  const [downloadingFull, setDownloadingFull] = useState(false);
+
+  const { data: accounts = [] } = useQuery<UnifiedAccount[]>({ queryKey: ["/api/accounts"] });
+
+  const handleDownloadCSV = async () => {
+    setDownloading(true);
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", endDate);
+      if (accountId && accountId !== "all") params.set("accountId", accountId);
+      const url = `/api/user/export/transactions${params.toString() ? `?${params}` : ""}`;
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+      const href = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `budgetsmart-transactions-${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(href);
+      document.body.removeChild(a);
+      toast({ title: "Transactions exported" });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleDownloadFull = async () => {
+    setDownloadingFull(true);
+    try {
+      const response = await fetch("/api/user/export-data", { credentials: "include" });
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+      const href = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `budgetsmart-full-export-${new Date().toISOString().split("T")[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(href);
+      document.body.removeChild(a);
+      toast({ title: "Full export downloaded" });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    } finally {
+      setDownloadingFull(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Export Transactions Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileDown className="h-5 w-5" />
+            Export Your Data
+          </CardTitle>
+          <CardDescription>Download your financial data in CSV or JSON format</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Download Transactions */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Download Transactions</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="data-start-date" className="text-xs">Start Date</Label>
+                <Input
+                  id="data-start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="data-end-date" className="text-xs">End Date</Label>
+                <Input
+                  id="data-end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="data-account" className="text-xs">Account</Label>
+                <Select value={accountId} onValueChange={setAccountId}>
+                  <SelectTrigger id="data-account">
+                    <SelectValue placeholder="All accounts" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All accounts</SelectItem>
+                    {accounts.map((acc) => (
+                      <SelectItem key={acc.id} value={acc.id}>
+                        {acc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Button onClick={handleDownloadCSV} disabled={downloading}>
+              {downloading ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Downloading…</>
+              ) : (
+                <><Download className="h-4 w-4 mr-2" />Download CSV</>
+              )}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Includes all transactions in the selected date range.
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* Full Account Export */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">Export Full Account Data</h3>
+            <p className="text-sm text-muted-foreground">
+              Download a complete export of your BudgetSmart data including profile, accounts,
+              transactions, budgets, and bills in JSON format.
+            </p>
+            <Button variant="outline" onClick={handleDownloadFull} disabled={downloadingFull}>
+              {downloadingFull ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Downloading…</>
+              ) : (
+                <><Download className="h-4 w-4 mr-2" />Download Full Export</>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Privacy Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Privacy
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex items-center gap-2">
+            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+            <Link href="/privacy" className="text-sm text-primary hover:underline">Privacy Policy</Link>
+          </div>
+          <div className="flex items-center gap-2">
+            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+            <Link href="/terms" className="text-sm text-primary hover:underline">Terms of Service</Link>
+          </div>
+          <div className="flex items-center gap-2">
+            <ExternalLink className="h-4 w-4 text-muted-foreground" />
+            <Link href="/security" className="text-sm text-primary hover:underline">Security Settings</Link>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 interface SettingsProps {
@@ -544,7 +1037,7 @@ export default function Settings({ onLogout }: SettingsProps) {
   const userEmail = sessionData?.email || "";
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-4xl">
       <div>
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold" data-testid="text-settings-title">Settings</h1>
@@ -555,6 +1048,29 @@ export default function Settings({ onLogout }: SettingsProps) {
         </div>
         <p className="text-muted-foreground">Manage your account and security settings</p>
       </div>
+
+      <Tabs defaultValue="account" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="account">
+            <User className="h-4 w-4 mr-2" />
+            Account
+          </TabsTrigger>
+          <TabsTrigger value="accounts">
+            <Building2 className="h-4 w-4 mr-2" />
+            Accounts
+          </TabsTrigger>
+          <TabsTrigger value="categories">
+            <Tag className="h-4 w-4 mr-2" />
+            Categories
+          </TabsTrigger>
+          <TabsTrigger value="data">
+            <Database className="h-4 w-4 mr-2" />
+            Data
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── Account Tab (existing content) ── */}
+        <TabsContent value="account" className="space-y-6">
 
       {/* ── Profile Information Card ── */}
       <Card>
@@ -1513,6 +2029,25 @@ export default function Settings({ onLogout }: SettingsProps) {
           </div>
         </CardContent>
       </Card>
+
+        </TabsContent>
+
+        {/* ── Accounts Tab ── */}
+        <TabsContent value="accounts" className="space-y-4">
+          <AccountsTab />
+        </TabsContent>
+
+        {/* ── Categories Tab ── */}
+        <TabsContent value="categories" className="space-y-4">
+          <CategoriesTab />
+        </TabsContent>
+
+        {/* ── Data Tab ── */}
+        <TabsContent value="data" className="space-y-4">
+          <DataTab />
+        </TabsContent>
+
+      </Tabs>
 
       {/* ── Delete Account Multi-Step Dialog ── */}
       <Dialog
