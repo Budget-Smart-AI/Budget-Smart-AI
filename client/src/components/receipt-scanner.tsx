@@ -199,7 +199,7 @@ export default function ReceiptScanner() {
     canvas.toBlob(blob => {
       if (blob) {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const file = new File([blob], `receipt-${timestamp}.jpg`, { type: 'image/jpeg' });
+        const file = new (File as any)([blob], `receipt-${timestamp}.jpg`, { type: 'image/jpeg' });
         setSelectedFiles(prev => [...prev, file]);
         toast({ title: 'Photo captured', description: 'Receipt photo added. You can take more or process now.' });
       }

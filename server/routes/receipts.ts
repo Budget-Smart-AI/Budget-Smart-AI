@@ -232,7 +232,7 @@ router.get('/test-storage', authenticate, async (req, res) => {
 router.get('/:receiptId', authenticate, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? '');
-    const receipt = await storage.getReceipt(req.params.receiptId);
+    const receipt = await storage.getReceipt((req.params.receiptId as string));
     if (!receipt || receipt.userId !== userId) {
       return res.status(404).json({ error: 'Receipt not found' });
     }
@@ -250,7 +250,7 @@ router.get('/:receiptId', authenticate, async (req, res) => {
 router.post('/:receiptId/create-expense', authenticate, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? '');
-    const { receiptId } = req.params;
+    const receiptId = req.params.receiptId as string;
 
     const receipt = await storage.getReceipt(receiptId);
     if (!receipt || receipt.userId !== userId) {
@@ -299,7 +299,7 @@ router.post('/:receiptId/match', authenticate, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? '');
     const { transactionId } = req.body;
-    const { receiptId } = req.params;
+    const receiptId = req.params.receiptId as string;
 
     const receipt = await storage.getReceipt(receiptId);
     if (!receipt || receipt.userId !== userId) {
@@ -330,7 +330,7 @@ router.post('/:receiptId/match', authenticate, async (req, res) => {
 router.patch('/:receiptId', authenticate, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? '');
-    const { receiptId } = req.params;
+    const receiptId = req.params.receiptId as string;
 
     const receipt = await storage.getReceipt(receiptId);
     if (!receipt || receipt.userId !== userId) {
@@ -361,7 +361,7 @@ router.patch('/:receiptId', authenticate, async (req, res) => {
 router.delete('/:receiptId', authenticate, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? '');
-    const { receiptId } = req.params;
+    const receiptId = req.params.receiptId as string;
 
     const receipt = await storage.getReceipt(receiptId);
     if (!receipt || receipt.userId !== userId) {
@@ -386,7 +386,7 @@ router.delete('/:receiptId', authenticate, async (req, res) => {
 router.get('/:receiptId/image', authenticate, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? '');
-    const receipt = await storage.getReceipt(req.params.receiptId);
+    const receipt = await storage.getReceipt((req.params.receiptId as string));
     if (!receipt || receipt.userId !== userId) {
       return res.status(404).json({ error: 'Receipt not found' });
     }
@@ -408,7 +408,7 @@ router.get('/:receiptId/image', authenticate, async (req, res) => {
  */
 router.get('/:fileKey/url', authenticate, async (req, res) => {
   try {
-    const { fileKey } = req.params;
+    const fileKey = req.params.fileKey as string;
     const signedUrl = await generateSignedUrl(String(fileKey));
     res.json({ success: true, signedUrl, expiresIn: '24 hours' });
   } catch (error: any) {

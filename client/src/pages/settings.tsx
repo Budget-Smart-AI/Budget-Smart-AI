@@ -649,6 +649,205 @@ function DataTab() {
   );
 }
 
+// ─── Privacy Tab ──────────────────────────────────────────────────────────────
+function PrivacyTab({ onLogout }: { onLogout: () => void }) {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [downloading, setDownloading] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+
+  const handleDownloadData = async () => {
+    setDownloading(true);
+    try {
+      const response = await fetch("/api/user/export-data", { credentials: "include" });
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+      const href = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `budgetsmart-data-export-${new Date().toISOString().split("T")[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(href);
+      document.body.removeChild(a);
+      toast({ title: "Data exported", description: "Your data has been downloaded." });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/user/delete-account", {
+        password: deletePassword,
+        reason: deleteReason || undefined,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Account deleted", description: "Your account has been permanently deleted." });
+      setDeleteDialogOpen(false);
+      onLogout();
+      navigate("/");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Deletion failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Download My Data */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="h-5 w-5" />
+            Download My Data
+          </CardTitle>
+          <CardDescription>
+            Export a copy of all your BudgetSmart data (GDPR / PIPEDA data portability right).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Your download will include: profile information, accounts, transactions, bills, income,
+            budgets, savings goals, vault document metadata, and support tickets — in JSON format.
+          </p>
+          <Button onClick={handleDownloadData} disabled={downloading}>
+            {downloading ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Preparing download…</>
+            ) : (
+              <><Download className="h-4 w-4 mr-2" />Download My Data</>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Data Retention Policy */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Data Retention Policy
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>We keep your data only as long as required for legal, regulatory, and business purposes:</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><span className="font-medium text-foreground">Transaction records</span> — 7 years (legal / tax requirement)</li>
+            <li><span className="font-medium text-foreground">Audit logs</span> — 2 years (SOC 2 compliance)</li>
+            <li><span className="font-medium text-foreground">Read notifications</span> — 90 days</li>
+            <li><span className="font-medium text-foreground">AI usage logs</span> — 90 days</li>
+            <li><span className="font-medium text-foreground">Closed support tickets</span> — 3 years</li>
+            <li><span className="font-medium text-foreground">Inactive sessions</span> — 30 days</li>
+          </ul>
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <Link href="/privacy" className="text-primary hover:underline flex items-center gap-1 text-sm">
+              <ExternalLink className="h-3 w-3" /> Privacy Policy
+            </Link>
+            <Link href="/terms" className="text-primary hover:underline flex items-center gap-1 text-sm">
+              <ExternalLink className="h-3 w-3" /> Terms of Service
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Delete My Account */}
+      <Card className="border-destructive/40">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <Trash2 className="h-5 w-5" />
+            Delete My Account
+          </CardTitle>
+          <CardDescription>
+            Permanently remove your personal data from BudgetSmart.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Deleting your account will anonymise all personal information and cancel your
+            subscription. Transaction history is retained for 7 years as required by law.
+            <strong className="text-foreground"> This cannot be undone.</strong>
+          </p>
+          <Button
+            variant="destructive"
+            onClick={() => { setDeletePassword(""); setDeleteReason(""); setDeleteDialogOpen(true); }}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete My Account
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Confirm Account Deletion
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete your account and all personal data. Enter your password to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1">
+              <Label htmlFor="privacy-delete-password">Current Password</Label>
+              <div className="relative">
+                <Input
+                  id="privacy-delete-password"
+                  type={showDeletePassword ? "text" : "password"}
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Enter your password"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  onClick={() => setShowDeletePassword((v) => !v)}
+                >
+                  {showDeletePassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="privacy-delete-reason">Reason (optional)</Label>
+              <Input
+                id="privacy-delete-reason"
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder="Tell us why you're leaving (optional)"
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!deletePassword || deleteAccountMutation.isPending}
+                onClick={() => deleteAccountMutation.mutate()}
+              >
+                {deleteAccountMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting…</>
+                ) : (
+                  "Delete My Account"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ─── Billing Tab ──────────────────────────────────────────────────────────────
 interface BillingPaymentMethod {
   brand: string;
@@ -2501,6 +2700,9 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       {/* ── Data Tab ── */}
       {activeTab === "data" && <DataTab />}
+
+      {/* ── Privacy Tab ── */}
+      {activeTab === "privacy" && <PrivacyTab onLogout={onLogout} />}
 
       {/* ── Billing Tab ── */}
       {activeTab === "billing" && <BillingTab />}

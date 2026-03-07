@@ -113,6 +113,9 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/settings/data">
         <Settings onLogout={onLogout} />
       </Route>
+      <Route path="/settings/privacy">
+        <Settings onLogout={onLogout} />
+      </Route>
       <Route path="/settings/billing">
         <Settings onLogout={onLogout} />
       </Route>
