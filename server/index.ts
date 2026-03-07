@@ -18,6 +18,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
+import { apiRateLimiter } from "./rate-limiter";
 import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
@@ -227,6 +228,10 @@ app.use((req, res, next) => {
   await ensureLoginSecurityColumns().catch(err =>
     console.error("Failed to ensure login security columns — account lockout will not work:", err)
   );
+
+  // Apply apiRateLimiter globally to all /api routes before route definitions.
+  // Auth routes additionally apply authRateLimiter (stricter: 10 req/15 min).
+  app.use("/api", apiRateLimiter);
 
   await registerRoutes(httpServer, app);
 
