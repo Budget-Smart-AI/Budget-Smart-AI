@@ -227,7 +227,7 @@ async function initializeDemoUser(): Promise<void> {
       isDemo: "true",
       emailVerified: "true",
       subscriptionStatus: "active",
-      subscriptionPlan: "Family"
+      subscriptionPlanId: "Family"
     }).onConflictDoNothing();
     
     console.log("Created demo user account");

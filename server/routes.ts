@@ -601,7 +601,7 @@ Return JSON: { "bills": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid bill data", details: parsed.error });
       }
-      const bill = await storage.updateBill(req.params.id, parsed.data);
+      const bill = await storage.updateBill((req.params.id as string), parsed.data);
       if (!bill) {
         return res.status(404).json({ error: "Bill not found" });
       }
@@ -613,7 +613,7 @@ Return JSON: { "bills": [...] }`;
 
   app.delete("/api/bills/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const deleted = await storage.deleteBill(req.params.id);
+      const deleted = await storage.deleteBill((req.params.id as string));
       if (!deleted) {
         return res.status(404).json({ error: "Bill not found" });
       }
@@ -725,7 +725,7 @@ Return JSON: { "bills": [...] }`;
 
   app.get("/api/expenses/:id", requireAuth, async (req, res) => {
     try {
-      const expense = await storage.getExpense(req.params.id);
+      const expense = await storage.getExpense((req.params.id as string));
       if (!expense) {
         return res.status(404).json({ error: "Expense not found" });
       }
@@ -755,7 +755,7 @@ Return JSON: { "bills": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid expense data", details: parsed.error });
       }
-      const expense = await storage.updateExpense(req.params.id, parsed.data);
+      const expense = await storage.updateExpense((req.params.id as string), parsed.data);
       if (!expense) {
         return res.status(404).json({ error: "Expense not found" });
       }
@@ -767,7 +767,7 @@ Return JSON: { "bills": [...] }`;
 
   app.delete("/api/expenses/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const deleted = await storage.deleteExpense(req.params.id);
+      const deleted = await storage.deleteExpense((req.params.id as string));
       if (!deleted) {
         return res.status(404).json({ error: "Expense not found" });
       }
@@ -1064,7 +1064,7 @@ Return JSON: { "income": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid income data", details: parsed.error });
       }
-      const income = await storage.updateIncome(req.params.id, parsed.data);
+      const income = await storage.updateIncome((req.params.id as string), parsed.data);
       if (!income) {
         return res.status(404).json({ error: "Income not found" });
       }
@@ -1076,7 +1076,7 @@ Return JSON: { "income": [...] }`;
 
   app.delete("/api/income/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const deleted = await storage.deleteIncome(req.params.id);
+      const deleted = await storage.deleteIncome((req.params.id as string));
       if (!deleted) {
         return res.status(404).json({ error: "Income not found" });
       }
@@ -1114,9 +1114,9 @@ Return JSON: { "income": [...] }`;
       let budgets;
       if (householdId) {
         const memberIds = await storage.getHouseholdMemberUserIds(householdId);
-        budgets = await storage.getBudgetsByUserIdsAndMonth(memberIds, req.params.month);
+        budgets = await storage.getBudgetsByUserIdsAndMonth(memberIds, (req.params.month as string));
       } else {
-        budgets = await storage.getBudgetsByMonth(userId, req.params.month);
+        budgets = await storage.getBudgetsByMonth(userId, (req.params.month as string));
       }
 
       res.json(budgets);
@@ -1145,7 +1145,7 @@ Return JSON: { "income": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid budget data", details: parsed.error });
       }
-      const budget = await storage.updateBudget(req.params.id, parsed.data);
+      const budget = await storage.updateBudget((req.params.id as string), parsed.data);
       if (!budget) {
         return res.status(404).json({ error: "Budget not found" });
       }
@@ -1157,7 +1157,7 @@ Return JSON: { "income": [...] }`;
 
   app.delete("/api/budgets/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const deleted = await storage.deleteBudget(req.params.id);
+      const deleted = await storage.deleteBudget((req.params.id as string));
       if (!deleted) {
         return res.status(404).json({ error: "Budget not found" });
       }
@@ -1189,7 +1189,7 @@ Return JSON: { "income": [...] }`;
 
   app.get("/api/savings-goals/:id", requireAuth, async (req, res) => {
     try {
-      const goal = await storage.getSavingsGoal(req.params.id);
+      const goal = await storage.getSavingsGoal((req.params.id as string));
       if (!goal) {
         return res.status(404).json({ error: "Savings goal not found" });
       }
@@ -1219,7 +1219,7 @@ Return JSON: { "income": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid savings goal data", details: parsed.error });
       }
-      const goal = await storage.updateSavingsGoal(req.params.id, parsed.data);
+      const goal = await storage.updateSavingsGoal((req.params.id as string), parsed.data);
       if (!goal) {
         return res.status(404).json({ error: "Savings goal not found" });
       }
@@ -1231,7 +1231,7 @@ Return JSON: { "income": [...] }`;
 
   app.delete("/api/savings-goals/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const deleted = await storage.deleteSavingsGoal(req.params.id);
+      const deleted = await storage.deleteSavingsGoal((req.params.id as string));
       if (!deleted) {
         return res.status(404).json({ error: "Savings goal not found" });
       }
@@ -1262,7 +1262,7 @@ Return JSON: { "income": [...] }`;
   // Get single debt detail
   app.get("/api/debts/:id", requireAuth, async (req, res) => {
     try {
-      const debt = await storage.getDebtDetail(req.params.id);
+      const debt = await storage.getDebtDetail((req.params.id as string));
       if (!debt) {
         return res.status(404).json({ error: "Debt not found" });
       }
@@ -1294,7 +1294,7 @@ Return JSON: { "income": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid debt data", details: parsed.error });
       }
-      const debt = await storage.updateDebtDetail(req.params.id, parsed.data);
+      const debt = await storage.updateDebtDetail((req.params.id as string), parsed.data);
       if (!debt) {
         return res.status(404).json({ error: "Debt not found" });
       }
@@ -1307,7 +1307,7 @@ Return JSON: { "income": [...] }`;
   // Delete debt detail
   app.delete("/api/debts/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const deleted = await storage.deleteDebtDetail(req.params.id);
+      const deleted = await storage.deleteDebtDetail((req.params.id as string));
       if (!deleted) {
         return res.status(404).json({ error: "Debt not found" });
       }
@@ -1391,7 +1391,7 @@ Return JSON: { "income": [...] }`;
   app.patch("/api/households/:id", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const householdId = req.params.id;
+      const householdId = req.params.id as string;
 
       // Verify user is owner
       const member = await storage.getHouseholdMember(householdId, userId);
@@ -1415,7 +1415,7 @@ Return JSON: { "income": [...] }`;
   app.delete("/api/households/:id", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const householdId = req.params.id;
+      const householdId = req.params.id as string;
 
       // Verify user is owner
       const member = await storage.getHouseholdMember(householdId, userId);
@@ -1470,7 +1470,7 @@ Return JSON: { "income": [...] }`;
   app.delete("/api/households/members/:userId", requireAuth, async (req, res) => {
     try {
       const currentUserId = req.session.userId!;
-      const targetUserId = req.params.userId;
+      const targetUserId = req.params.userId as string;
       const householdId = req.session.householdId;
 
       if (!householdId) {
@@ -1577,7 +1577,7 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
       const householdId = req.session.householdId;
-      const invitationId = req.params.id;
+      const invitationId = req.params.id as string;
 
       if (!householdId) {
         return res.status(400).json({ error: "You are not in a household" });
@@ -2000,7 +2000,7 @@ Return JSON: { "income": [...] }`;
   app.post("/api/invitations/:token/accept", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const invitation = await storage.getInvitationByToken(req.params.token);
+      const invitation = await storage.getInvitationByToken((req.params.token as string));
 
       if (!invitation) {
         return res.status(404).json({ error: "Invitation not found" });
@@ -2045,7 +2045,7 @@ Return JSON: { "income": [...] }`;
   // Decline invitation
   app.post("/api/invitations/:token/decline", requireAuth, async (req, res) => {
     try {
-      const invitation = await storage.getInvitationByToken(req.params.token);
+      const invitation = await storage.getInvitationByToken((req.params.token as string));
 
       if (!invitation) {
         return res.status(404).json({ error: "Invitation not found" });
@@ -2146,7 +2146,7 @@ Return JSON: { "income": [...] }`;
   // Email verification endpoint
   app.get("/api/auth/verify-email/:token", async (req, res) => {
     try {
-      const { token } = req.params;
+      const token = req.params.token as string;
 
       const user = await storage.getUserByVerificationToken(token);
       if (!user) {
@@ -2288,7 +2288,7 @@ Return JSON: { "income": [...] }`;
         return res.status(423).json({ error: "Account is temporarily locked. Please try again later." });
       }
 
-      const validPassword = await verifyPassword(password, user.password);
+      const validPassword = await verifyPassword(password, user.password!);
       if (!validPassword) {
         // Increment failed attempts and lock if >= MAX_FAILED_LOGIN_ATTEMPTS
         const attempts = (lockRow?.failed_login_attempts ?? 0) + 1;
@@ -2542,13 +2542,13 @@ Return JSON: { "income": [...] }`;
       }
 
       // Verify current password
-      const validCurrent = await verifyPassword(currentPassword, user.password);
+      const validCurrent = await verifyPassword(currentPassword, user.password!);
       if (!validCurrent) {
         return res.status(400).json({ error: "Current password is incorrect" });
       }
 
       // New password must differ from current
-      const sameAsCurrent = await verifyPassword(newPassword, user.password);
+      const sameAsCurrent = await verifyPassword(newPassword, user.password!);
       if (sameAsCurrent) {
         return res.status(400).json({ error: "New password must be different from your current password" });
       }
@@ -2729,6 +2729,144 @@ Return JSON: { "income": [...] }`;
       });
     } catch (error) {
       console.error("Account deletion error:", error);
+      res.status(500).json({ error: "Failed to delete account" });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /api/user/delete-account — GDPR / privacy-compliant soft-delete
+  // Verifies password, cancels Stripe subscription, disconnects all bank
+  // accounts, anonymises the user record, wipes sessions/alerts/notifications/
+  // vault docs, then sends a confirmation email.
+  // ──────────────────────────────────────────────────────────────────────────
+  app.post("/api/user/delete-account", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { password, reason } = req.body as { password?: string; reason?: string };
+
+      if (!password) {
+        return res.status(400).json({ error: "Password is required to delete your account" });
+      }
+
+      // 1. Verify password
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const passwordValid = await verifyPassword(password, user.password!);
+      if (!passwordValid) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+
+      // 2. Audit log
+      auditLogFromRequest(req, {
+        eventType: "data.account_deleted",
+        eventCategory: "data",
+        actorId: userId,
+        action: "delete_account",
+        outcome: "success",
+        metadata: { reason: reason || null },
+      });
+
+      // 3. Cancel active Stripe subscription (best-effort)
+      if (user.stripeSubscriptionId) {
+        try {
+          const { cancelSubscription } = await import("./stripe");
+          await cancelSubscription(user.stripeSubscriptionId, true);
+        } catch (stripeErr) {
+          console.warn("[DeleteAccount] Stripe cancellation failed (continuing):", stripeErr);
+        }
+      }
+
+      // 4. Disconnect all Plaid bank accounts (best-effort)
+      try {
+        const plaidItems = await storage.getPlaidItems(userId);
+        const { plaidClient } = await import("./plaid");
+        for (const item of plaidItems) {
+          try {
+            await plaidClient.itemRemove({ access_token: item.accessToken });
+          } catch {
+            // non-critical
+          }
+        }
+      } catch (plaidErr) {
+        console.warn("[DeleteAccount] Plaid disconnect failed (continuing):", plaidErr);
+      }
+
+      // 4b. Disconnect all MX bank connections (best-effort)
+      if (user.mxUserGuid) {
+        try {
+          const mxMembers = await storage.getMxMembers(userId);
+          const { deleteMember: deleteMxMember } = await import("./mx");
+          for (const member of mxMembers) {
+            try {
+              await deleteMxMember(user.mxUserGuid, member.memberGuid);
+            } catch {
+              // non-critical
+            }
+          }
+        } catch (mxErr) {
+          console.warn("[DeleteAccount] MX disconnect failed (continuing):", mxErr);
+        }
+      }
+
+      // 5. Anonymise user record (soft-delete — keeps row for FK integrity)
+      // Capture email BEFORE anonymization so confirmation email is sent to correct address
+      const confirmEmail = user.email;
+      await pool.query(
+        `UPDATE users SET
+           email      = 'deleted_' || id || '@deleted.local',
+           username   = 'deleted_' || id,
+           first_name = 'Deleted',
+           last_name  = 'User',
+           password   = '',
+           phone      = NULL,
+           phone_enc  = NULL,
+           google_id  = NULL,
+           mx_user_guid = NULL,
+           is_deleted = true,
+           deleted_at = NOW()
+         WHERE id = $1`,
+        [userId],
+      );
+
+      // 6. Destroy all sessions for this user (best-effort via session table)
+      try {
+        await pool.query(
+          `DELETE FROM session WHERE sess->>'userId' = $1`,
+          [userId],
+        );
+      } catch {
+        // session table may use a different JSON shape — non-critical
+      }
+
+      // 7. Delete anomaly alerts, notifications, vault documents
+      try {
+        await pool.query(`DELETE FROM anomaly_alerts WHERE user_id = $1`, [userId]);
+      } catch { /* table may not exist */ }
+      await storage.deleteAllNotificationsByUser(userId);
+      try {
+        await pool.query(`DELETE FROM vault_documents WHERE user_id = $1`, [userId]);
+      } catch { /* table may not exist */ }
+
+      // 8. Transactions are retained for 7-year legal requirement — not deleted.
+
+      // 9. Send confirmation email (best-effort — use email captured before anonymization)
+      if (confirmEmail && process.env.POSTMARK_USERNAME && process.env.ALERT_EMAIL_FROM) {
+        sendEmailViaPostmark({
+          from: process.env.ALERT_EMAIL_FROM,
+          to: confirmEmail,
+          subject: "Your BudgetSmart account has been deleted",
+          text: `Hi ${user.firstName || "there"},\n\nYour BudgetSmart account has been permanently deleted as requested.\n\nAll personal information has been removed. Transaction history is retained for 7 years as required by law.\n\nIf you did not request this deletion, please contact support immediately.\n\nBudgetSmart Team`,
+        }).catch((e) => console.warn("[DeleteAccount] Confirmation email failed:", e));
+      }
+
+      // Destroy the current session
+      req.session.destroy((err) => {
+        if (err) console.error("[DeleteAccount] Session destroy error:", err);
+        res.json({ success: true, message: "Account deleted. Goodbye!" });
+      });
+    } catch (error: any) {
+      console.error("[DeleteAccount] Error:", error);
       res.status(500).json({ error: "Failed to delete account" });
     }
   });
@@ -3474,7 +3612,7 @@ Return JSON: { "income": [...] }`;
   app.get("/api/support/my-tickets/:id", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const ticket = await storage.getSupportTicketById(req.params.id);
+      const ticket = await storage.getSupportTicketById((req.params.id as string));
       if (!ticket) return res.status(404).json({ error: "Ticket not found" });
       if (ticket.userId !== userId) return res.status(403).json({ error: "Forbidden" });
       const messages = await storage.getMessagesByTicketId(ticket.id);
@@ -3492,7 +3630,7 @@ Return JSON: { "income": [...] }`;
       const { message } = req.body;
       if (!message || !message.trim()) return res.status(400).json({ error: "Message is required" });
 
-      const ticket = await storage.getSupportTicketById(req.params.id);
+      const ticket = await storage.getSupportTicketById((req.params.id as string));
       if (!ticket) return res.status(404).json({ error: "Ticket not found" });
       if (ticket.userId !== userId) return res.status(403).json({ error: "Forbidden" });
       if (ticket.status === "closed") return res.status(400).json({ error: "Cannot reply to a closed ticket" });
@@ -3616,7 +3754,7 @@ Return JSON: { "income": [...] }`;
   // Get single ticket with messages (admin)
   app.get("/api/admin/support/tickets/:id", requireAdmin, async (req, res) => {
     try {
-      const ticket = await storage.getSupportTicketById(req.params.id);
+      const ticket = await storage.getSupportTicketById((req.params.id as string));
       if (!ticket) return res.status(404).json({ error: "Ticket not found" });
       const messages = await storage.getMessagesByTicketId(ticket.id);
       res.json({ ticket, messages });
@@ -3633,7 +3771,7 @@ Return JSON: { "income": [...] }`;
       const { message } = req.body;
       if (!message || !message.trim()) return res.status(400).json({ error: "Message is required" });
 
-      const ticket = await storage.getSupportTicketById(req.params.id);
+      const ticket = await storage.getSupportTicketById((req.params.id as string));
       if (!ticket) return res.status(404).json({ error: "Ticket not found" });
 
       await storage.createSupportTicketMessage({
@@ -3692,7 +3830,7 @@ Return JSON: { "income": [...] }`;
       const updates: Record<string, string> = {};
       if (status) updates.status = status;
       if (priority) updates.priority = priority;
-      const ticket = await storage.updateSupportTicket(req.params.id, updates as any);
+      const ticket = await storage.updateSupportTicket((req.params.id as string), updates as any);
       if (!ticket) return res.status(404).json({ error: "Ticket not found" });
       res.json(ticket);
     } catch (error) {
@@ -4716,7 +4854,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   // Correct category for a transaction (Plaid, MX, or Manual)
   app.patch("/api/transactions/:id/category", requireAuth, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const { category, subcategory, merchantName, transactionType } = req.body as {
         category: string;
         subcategory?: string;
@@ -5058,7 +5196,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const { memberGuid } = req.params;
+      const memberGuid = req.params.memberGuid as string;
       
       if (!user?.mxUserGuid) {
         return res.status(400).json({ error: "MX user not configured" });
@@ -5252,7 +5390,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       }
 
       const newActive = account.isActive === "true" ? "false" : "true";
-      const updated = await storage.updateMxAccount(req.params.id, { isActive: newActive });
+      const updated = await storage.updateMxAccount((req.params.id as string), { isActive: newActive });
       res.json(updated);
     } catch (error: any) {
       console.error("Error toggling MX account:", error);
@@ -5284,7 +5422,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const member = await storage.getMxMember(req.params.id);
+      const member = await storage.getMxMember((req.params.id as string));
       
       if (!member) {
         return res.status(404).json({ error: "Member not found" });
@@ -5332,7 +5470,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const member = await storage.getMxMember(req.params.id);
+      const member = await storage.getMxMember((req.params.id as string));
       
       if (!member) {
         return res.status(404).json({ error: "Member not found" });
@@ -5617,7 +5755,7 @@ Rules:
 
       // Build category summaries
       const categorySummaries: any[] = [];
-      const allMonths = [...new Set(merged.map(i => i.date.substring(0, 7)))].sort();
+      const allMonths = Array.from(new Set(merged.map(i => i.date.substring(0, 7)))).sort();
       const analysisMonths = allMonths.length;
 
       for (const [category, months] of Object.entries(categoryMonthly)) {
@@ -5649,7 +5787,7 @@ Rules:
       }
 
       // Get existing budgets for target month
-      const existingBudgets = await storage.getBudgetsByMonth(targetMonth);
+      const existingBudgets = await storage.getBudgetsByMonth(userId, targetMonth);
       const existingCategories = existingBudgets.map(b => b.category);
 
       // Filter out categories that already have budgets
@@ -5936,7 +6074,7 @@ Rules:
       const userId = req.session.userId!;
       
       // For demo users, just return success without actually updating
-      if (req.session.isDemo) {
+      if ((req.session as any).isDemo) {
         return res.json({ success: true, demo: true });
       }
       
@@ -6111,6 +6249,7 @@ ${JSON.stringify(txSummary)}`;
             isRecurring: "true",
             recurrence: inc.recurrence || "monthly",
             dueDay: inc.dueDay || 1,
+            isActive: "true",
           });
           incomeCount++;
         }
@@ -6127,7 +6266,7 @@ ${JSON.stringify(txSummary)}`;
             recurrence: bill.recurrence || "monthly",
             notes: "Added during onboarding",
             startDate: new Date().toISOString().split("T")[0],
-          });
+          } as any);
           billCount++;
         }
       }
@@ -6368,7 +6507,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.patch("/api/custom-categories/:id", requireAuth, async (req, res) => {
     try {
-      const category = await storage.updateCustomCategory(req.params.id, req.body);
+      const category = await storage.updateCustomCategory((req.params.id as string), req.body);
       if (!category) {
         return res.status(404).json({ error: "Category not found" });
       }
@@ -6381,7 +6520,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.delete("/api/custom-categories/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteCustomCategory(req.params.id);
+      const success = await storage.deleteCustomCategory((req.params.id as string));
       if (!success) {
         return res.status(404).json({ error: "Category not found" });
       }
@@ -6427,7 +6566,7 @@ ${JSON.stringify(txSummary)}`;
     res.setHeader("Deprecation", "true");
     res.setHeader("Link", '</api/bills/:id>; rel="successor-version"');
     try {
-      const expense = await storage.updateRecurringExpense(req.params.id, req.body);
+      const expense = await storage.updateRecurringExpense((req.params.id as string), req.body);
       if (!expense) {
         return res.status(404).json({ error: "Recurring expense not found" });
       }
@@ -6442,7 +6581,7 @@ ${JSON.stringify(txSummary)}`;
     res.setHeader("Deprecation", "true");
     res.setHeader("Link", '</api/bills/:id>; rel="successor-version"');
     try {
-      const success = await storage.deleteRecurringExpense(req.params.id);
+      const success = await storage.deleteRecurringExpense((req.params.id as string));
       if (!success) {
         return res.status(404).json({ error: "Recurring expense not found" });
       }
@@ -6480,7 +6619,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.delete("/api/reconciliation-rules/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteReconciliationRule(req.params.id);
+      const success = await storage.deleteReconciliationRule((req.params.id as string));
       if (!success) {
         return res.status(404).json({ error: "Rule not found" });
       }
@@ -6518,7 +6657,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.patch("/api/sync-schedules/:id", requireAuth, async (req, res) => {
     try {
-      const schedule = await storage.updateSyncSchedule(req.params.id, req.body);
+      const schedule = await storage.updateSyncSchedule((req.params.id as string), req.body);
       if (!schedule) {
         return res.status(404).json({ error: "Sync schedule not found" });
       }
@@ -6531,7 +6670,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.delete("/api/sync-schedules/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteSyncSchedule(req.params.id);
+      const success = await storage.deleteSyncSchedule((req.params.id as string));
       if (!success) {
         return res.status(404).json({ error: "Sync schedule not found" });
       }
@@ -6567,7 +6706,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.post("/api/notifications/:id/read", requireAuth, async (req, res) => {
     try {
-      await storage.markNotificationRead(req.params.id);
+      await storage.markNotificationRead((req.params.id as string));
       res.json({ success: true });
     } catch (error) {
       console.error("Error marking notification read:", error);
@@ -6587,7 +6726,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.delete("/api/notifications/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteNotification(req.params.id);
+      const success = await storage.deleteNotification((req.params.id as string));
       if (!success) {
         return res.status(404).json({ error: "Notification not found" });
       }
@@ -6621,8 +6760,8 @@ ${JSON.stringify(txSummary)}`;
       const [billsData, expensesData, incomesData, budgetsData, recurringExpensesData] = await Promise.all([
         storage.getBills(userId),
         storage.getExpenses(userId),
-        storage.getIncomes(),
-        storage.getBudgets(),
+        storage.getIncomes(userId),
+        storage.getBudgets(userId),
         storage.getRecurringExpenses(userId),
       ]);
 
@@ -6794,11 +6933,21 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
 
-      const [billsData, expensesData, incomesData, budgetsData] = await Promise.all([
+      auditLogFromRequest(req, {
+        eventType: "data.export_requested",
+        eventCategory: "data",
+        actorId: userId,
+        action: "export_data",
+        outcome: "success",
+      });
+
+      const [billsData, expensesData, incomesData, budgetsData, savingsGoalsData, supportTicketsData] = await Promise.all([
         storage.getBills(userId),
         storage.getExpenses(userId),
         storage.getIncomes(userId),
         storage.getBudgets(userId),
+        storage.getSavingsGoals(userId),
+        storage.getSupportTicketsByUserId(userId),
       ]);
 
       const plaidItems = await storage.getPlaidItems(userId);
@@ -6818,9 +6967,18 @@ ${JSON.stringify(txSummary)}`;
 
       const user = await storage.getUser(userId);
 
-      console.log(`[audit] data.export_requested userId=${userId}`);
+      // Vault documents — metadata only (no file content)
+      let vaultDocuments: any[] = [];
+      try {
+        const vaultResult = await pool.query(
+          `SELECT id, display_name, file_name, category, file_size, mime_type, created_at, expires_at
+             FROM vault_documents WHERE user_id = $1`,
+          [userId],
+        );
+        vaultDocuments = vaultResult.rows;
+      } catch { /* vault table may not exist */ }
 
-      res.json({
+      const exportPayload = {
         exportDate: new Date().toISOString(),
         profile: user
           ? { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email, createdAt: user.createdAt }
@@ -6839,7 +6997,13 @@ ${JSON.stringify(txSummary)}`;
         expenses: expensesData,
         income: incomesData,
         budgets: budgetsData,
-      });
+        savingsGoals: savingsGoalsData,
+        vaultDocuments,
+        supportTickets: supportTicketsData,
+      };
+
+      res.setHeader("Content-Disposition", 'attachment; filename="budgetsmart-data-export.json"');
+      res.json(exportPayload);
     } catch (error) {
       console.error("Full data export error:", error);
       res.status(500).json({ error: "Failed to export data" });
@@ -6849,7 +7013,7 @@ ${JSON.stringify(txSummary)}`;
   app.get("/api/export/csv/:type", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { type } = req.params;
+      const type = req.params.type as string;
       let data: any[] = [];
       let headers: string[] = [];
       let filename = "";
@@ -6866,7 +7030,7 @@ ${JSON.stringify(txSummary)}`;
           filename = "expenses.csv";
           break;
         case "income":
-          data = await storage.getIncomes();
+          data = await storage.getIncomes(userId);
           headers = ["source", "amount", "date", "category", "isRecurring", "recurrence", "notes"];
           filename = "income.csv";
           break;
@@ -6948,7 +7112,7 @@ ${JSON.stringify(txSummary)}`;
       const userId = req.session.userId!;
       const [expenses, incomes] = await Promise.all([
         storage.getExpenses(userId),
-        storage.getIncomes(),
+        storage.getIncomes(userId),
       ]);
 
       // Group by month
@@ -6987,7 +7151,7 @@ ${JSON.stringify(txSummary)}`;
       const userId = req.session.userId!;
       const month = (req.query.month as string) || new Date().toISOString().substring(0, 7);
       const [budgets, expenses] = await Promise.all([
-        storage.getBudgetsByMonth(month),
+        storage.getBudgetsByMonth(userId, month),
         storage.getExpenses(userId),
       ]);
 
@@ -7697,7 +7861,7 @@ ${JSON.stringify(txSummary)}`;
           const debt = debtDetails.find(d => d.id === change.debtId);
           if (debt) {
             const principal = parseFloat(debt.currentBalance || "0");
-            const rate = parseFloat(debt.interestRate || "0") / 100 / 12;
+            const rate = parseFloat((debt as any).interestRate || "0") / 100 / 12;
             const minPayment = parseFloat(debt.minimumPayment || "0");
             
             // Calculate months to pay off with current payment
@@ -7825,13 +7989,14 @@ ${JSON.stringify(txSummary)}`;
           daysGained,
           debtPayoffChange,
         },
+
+
         message: daysGained > 0 
           ? `This change gives you ${daysGained} extra safe days!`
           : monthlyImpact > 0
           ? `This saves you ${formatCurrency(monthlyImpact)} per month.`
           : "This change affects your cash flow.",
       });
-
       // Helper function to format currency
       function formatCurrency(amount: number): string {
         return new Intl.NumberFormat('en-US', {
@@ -7841,6 +8006,7 @@ ${JSON.stringify(txSummary)}`;
           maximumFractionDigits: 0,
         }).format(amount);
       }
+
     } catch (error) {
       console.error("Error running what-if simulation:", error);
       res.status(500).json({ error: "Failed to run simulation" });
@@ -7888,7 +8054,7 @@ ${JSON.stringify(txSummary)}`;
           id: d.id,
           name: d.name,
           balance: d.currentBalance,
-          interestRate: d.interestRate,
+          interestRate: (d as any).interestRate,
           minimumPayment: d.minimumPayment,
         })),
       });
@@ -7963,11 +8129,11 @@ ${JSON.stringify(txSummary)}`;
       }
 
       // Detect patterns
-      for (const [merchantKey, txs] of merchantGroups) {
+      for (const [merchantKey, txs] of Array.from(merchantGroups)) {
         if (txs.length < 2) continue;
 
         // Sort by date
-        txs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        txs.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
         // Check for recurring small charges (under $50)
         const avgAmount = txs.reduce((sum, t) => sum + t.amount, 0) / txs.length;
@@ -8042,6 +8208,7 @@ ${JSON.stringify(txSummary)}`;
       res.json({
         leaks: leaks.sort((a, b) => b.monthlyImpact - a.monthlyImpact),
         summary: {
+
           totalLeaksFound: leaks.length,
           totalMonthlyLeaks: Math.round(totalMonthlyLeaks * 100) / 100,
           totalYearlyLeaks: Math.round(totalYearlyLeaks * 100) / 100,
@@ -8052,7 +8219,7 @@ ${JSON.stringify(txSummary)}`;
           : "No obvious money leaks detected.",
       });
 
-      // Helper function
+      // Helper function to format currency
       function formatCurrency(amount: number): string {
         return new Intl.NumberFormat('en-US', {
           style: 'currency',
@@ -8061,6 +8228,7 @@ ${JSON.stringify(txSummary)}`;
           maximumFractionDigits: 0,
         }).format(amount);
       }
+
     } catch (error) {
       console.error("Error detecting money leaks:", error);
       res.status(500).json({ error: "Failed to detect money leaks" });
@@ -8082,7 +8250,7 @@ ${JSON.stringify(txSummary)}`;
   // Dismiss a leak alert
   app.post("/api/leaks/alerts/:id/dismiss", requireAuth, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const alert = await storage.dismissLeakAlert(id);
       if (!alert) {
         return res.status(404).json({ error: "Alert not found" });
@@ -8111,7 +8279,7 @@ ${JSON.stringify(txSummary)}`;
   // Create autopilot rule
   app.post("/api/autopilot/rules", requireAuth, async (req, res) => {
     try {
-      if (req.session.isDemo) {
+      if ((req.session as any).isDemo) {
         return res.status(403).json({ error: "Demo accounts cannot create autopilot rules" });
       }
       const userId = req.session.userId!;
@@ -8119,10 +8287,10 @@ ${JSON.stringify(txSummary)}`;
       
       const rule = await storage.createAutopilotRule({
         userId,
+        name: ruleType || "Autopilot Rule",
         ruleType: ruleType || "spending_limit",
         category: category || null,
         threshold: threshold?.toString() || "0",
-        action: action || "alert",
         isActive: isActive !== false ? "true" : "false",
       });
       
@@ -8136,10 +8304,10 @@ ${JSON.stringify(txSummary)}`;
   // Update autopilot rule
   app.patch("/api/autopilot/rules/:id", requireAuth, async (req, res) => {
     try {
-      if (req.session.isDemo) {
+      if ((req.session as any).isDemo) {
         return res.status(403).json({ error: "Demo accounts cannot update autopilot rules" });
       }
-      const { id } = req.params;
+      const id = req.params.id as string;
       const rule = await storage.updateAutopilotRule(id, req.body);
       if (!rule) {
         return res.status(404).json({ error: "Rule not found" });
@@ -8154,10 +8322,10 @@ ${JSON.stringify(txSummary)}`;
   // Delete autopilot rule
   app.delete("/api/autopilot/rules/:id", requireAuth, async (req, res) => {
     try {
-      if (req.session.isDemo) {
+      if ((req.session as any).isDemo) {
         return res.status(403).json({ error: "Demo accounts cannot delete autopilot rules" });
       }
-      const { id } = req.params;
+      const id = req.params.id as string;
       await storage.deleteAutopilotRule(id);
       res.json({ success: true });
     } catch (error) {
@@ -8210,7 +8378,7 @@ ${JSON.stringify(txSummary)}`;
       const today = new Date();
       const upcomingBills = bills.filter(bill => {
         if (bill.isPaused === "true") return false;
-        const dueDay = parseInt(bill.dueDay);
+        const dueDay = bill.dueDay;
         const todayDay = today.getDate();
         const daysUntilDue = dueDay >= todayDay 
           ? dueDay - todayDay 
@@ -8230,8 +8398,8 @@ ${JSON.stringify(txSummary)}`;
       const nextIncomeDate = incomes
         .filter(i => i.isActive !== "false")
         .map(i => {
-          const payDay = parseInt(i.payFrequency === "weekly" ? "7" : 
-            i.payFrequency === "biweekly" ? "14" : "30");
+          const payDay = parseInt((i as any).payFrequency === "weekly" ? "7" : 
+            (i as any).payFrequency === "biweekly" ? "14" : "30");
           return payDay;
         })[0] || 14;
       
@@ -8246,6 +8414,7 @@ ${JSON.stringify(txSummary)}`;
       }
 
       res.json({
+
         currentBalance: Math.round(currentBalance * 100) / 100,
         safeToSpend: Math.round(safeToSpend * 100) / 100,
         dailyAllowance: Math.round(dailyAllowance * 100) / 100,
@@ -8259,7 +8428,7 @@ ${JSON.stringify(txSummary)}`;
           ? "Be careful - limited spending room"
           : `You can safely spend ${formatCurrency(dailyAllowance)}/day`,
       });
-
+      // Helper function to format currency
       function formatCurrency(amount: number): string {
         return new Intl.NumberFormat('en-US', {
           style: 'currency',
@@ -8268,6 +8437,7 @@ ${JSON.stringify(txSummary)}`;
           maximumFractionDigits: 0,
         }).format(amount);
       }
+
     } catch (error) {
       console.error("Error calculating spendability:", error);
       res.status(500).json({ error: "Failed to calculate spendability" });
@@ -8295,8 +8465,8 @@ ${JSON.stringify(txSummary)}`;
       const payDates: number[] = incomes
         .filter(i => i.isActive !== "false")
         .flatMap(i => {
-          const payDay = parseInt(i.payFrequency === "monthly" ? i.amount.split("-")[0] || "15" : "15");
-          if (i.payFrequency === "biweekly") {
+          const payDay = parseInt((i as any).payFrequency === "monthly" ? i.amount.split("-")[0] || "15" : "15");
+          if ((i as any).payFrequency === "biweekly") {
             return [1, 15]; // Approximate biweekly as 1st and 15th
           }
           return [payDay];
@@ -8313,7 +8483,7 @@ ${JSON.stringify(txSummary)}`;
 
       for (const bill of bills) {
         if (bill.isPaused === "true") continue;
-        const dueDay = parseInt(bill.dueDay);
+        const dueDay = bill.dueDay;
         
         // Find the closest pay date that comes before the due date
         const sortedPayDates = payDates.sort((a, b) => a - b);
@@ -8326,7 +8496,7 @@ ${JSON.stringify(txSummary)}`;
           reason = "Move after mid-month paycheck for better cash flow";
         }
         // Check if clustered with many other bills
-        const sameDayBills = bills.filter(b => parseInt(b.dueDay) === dueDay);
+        const sameDayBills = bills.filter(b => b.dueDay === dueDay);
         if (sameDayBills.length > 2) {
           optimalDueDay = dueDay + 3; // Spread out
           reason = "Spread out clustered bills for smoother cash flow";
@@ -8346,7 +8516,7 @@ ${JSON.stringify(txSummary)}`;
       // Calculate bill clustering score
       const dueDayCounts = new Map<number, number>();
       bills.forEach(b => {
-        const day = parseInt(b.dueDay);
+        const day = b.dueDay;
         dueDayCounts.set(day, (dueDayCounts.get(day) || 0) + 1);
       });
       const clusteringScore = Math.max(...Array.from(dueDayCounts.values()), 0);
@@ -8426,6 +8596,7 @@ ${JSON.stringify(txSummary)}`;
       // Check balance status
       if (spendabilityResponse.balance < 500) {
         insights.push({
+
           type: "warning",
           title: "Low Balance Alert",
           message: `Your account balance is ${formatCurrency(spendabilityResponse.balance)}. Consider reducing spending.`,
@@ -8436,7 +8607,7 @@ ${JSON.stringify(txSummary)}`;
       const today = new Date();
       const upcomingBills = bills.filter(bill => {
         if (bill.isPaused === "true") return false;
-        const dueDay = parseInt(bill.dueDay);
+        const dueDay = bill.dueDay;
         const todayDay = today.getDate();
         return Math.abs(dueDay - todayDay) <= 2;
       });
@@ -8482,11 +8653,12 @@ ${JSON.stringify(txSummary)}`;
 
       function getGreeting(): string {
         const hour = new Date().getHours();
-        if (hour < 12) return "Good morning";
-        if (hour < 18) return "Good afternoon";
-        return "Good evening";
+        if (hour < 12) return 'Good morning';
+        if (hour < 18) return 'Good afternoon';
+        return 'Good evening';
       }
 
+      // Helper function to format currency
       function formatCurrency(amount: number): string {
         return new Intl.NumberFormat('en-US', {
           style: 'currency',
@@ -8495,6 +8667,7 @@ ${JSON.stringify(txSummary)}`;
           maximumFractionDigits: 0,
         }).format(amount);
       }
+
     } catch (error) {
       console.error("Error getting daily briefing:", error);
       res.status(500).json({ error: "Failed to get daily briefing" });
@@ -8550,7 +8723,7 @@ ${JSON.stringify(txSummary)}`;
         currentPhase: currentPhase || null,
         valueRealized,
         showConversionModal: currentPhase !== null,
-        isPremium: user.isPremium === "true",
+        isPremium: (user as any).isPremium === "true",
       });
     } catch (error) {
       console.error("Error getting trial status:", error);
@@ -8568,7 +8741,7 @@ ${JSON.stringify(txSummary)}`;
         userId,
         eventType,
         eventData: eventData || null,
-        occurredAt: new Date(),
+        createdAt: new Date().toISOString(),
       });
 
       res.json(event);
@@ -8787,7 +8960,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.post("/api/ai/insights/:id/read", requireAuth, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const insight = await storage.updateAiInsight(id, { isRead: "true" });
       if (!insight) {
         return res.status(404).json({ error: "Insight not found" });
@@ -8801,7 +8974,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.post("/api/ai/insights/:id/dismiss", requireAuth, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const insight = await storage.updateAiInsight(id, { isDismissed: "true" });
       if (!insight) {
         return res.status(404).json({ error: "Insight not found" });
@@ -8839,7 +9012,7 @@ ${JSON.stringify(txSummary)}`;
 
   app.post("/api/anomalies/:id/review", requireAuth, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
       const { isFalsePositive } = req.body;
 
       const anomaly = await storage.updateTransactionAnomaly(id, {
@@ -8864,7 +9037,7 @@ ${JSON.stringify(txSummary)}`;
   app.patch("/api/anomalies/:id/dismiss", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { id } = req.params;
+      const id = req.params.id as string;
       const { dismissAlert } = await import("./anomaly-detector");
       const alert = await dismissAlert(id, userId);
       if (!alert) return res.status(404).json({ error: "Anomaly not found" });
@@ -8878,7 +9051,7 @@ ${JSON.stringify(txSummary)}`;
   app.patch("/api/anomalies/:id/resolve", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { id } = req.params;
+      const id = req.params.id as string;
       const { resolveAlert } = await import("./anomaly-detector");
       const alert = await resolveAlert(id, userId);
       if (!alert) return res.status(404).json({ error: "Anomaly not found" });
@@ -8945,7 +9118,7 @@ ${JSON.stringify(txSummary)}`;
       // Get user's bills, expenses, and income for matching
       const [bills, incomes] = await Promise.all([
         storage.getBills(userId),
-        storage.getIncomes(),
+        storage.getIncomes(userId),
       ]);
 
       // Get existing reconciliation rules
@@ -9330,7 +9503,7 @@ The Budget Smart AI Team`,
   // Update manual account
   app.patch("/api/accounts/manual/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const accountId = req.params.id;
+      const accountId = req.params.id as string;
       const userId = req.session.userId!;
 
       // Verify ownership
@@ -9355,7 +9528,7 @@ The Budget Smart AI Team`,
   // Delete manual account
   app.delete("/api/accounts/manual/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const accountId = req.params.id;
+      const accountId = req.params.id as string;
       const userId = req.session.userId!;
 
       // Verify ownership
@@ -9377,7 +9550,7 @@ The Budget Smart AI Team`,
   // Get transactions for a specific manual account
   app.get("/api/transactions/manual/account/:accountId", requireAuth, async (req, res) => {
     try {
-      const accountId = req.params.accountId;
+      const accountId = req.params.accountId as string;
       const userId = req.session.userId!;
       const { startDate, endDate } = req.query;
 
@@ -9450,7 +9623,7 @@ The Budget Smart AI Team`,
   // Update manual transaction
   app.patch("/api/transactions/manual/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const transactionId = req.params.id;
+      const transactionId = req.params.id as string;
       const userId = req.session.userId!;
 
       // Verify ownership
@@ -9475,7 +9648,7 @@ The Budget Smart AI Team`,
   // Delete manual transaction
   app.delete("/api/transactions/manual/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
-      const transactionId = req.params.id;
+      const transactionId = req.params.id as string;
       const userId = req.session.userId!;
 
       // Verify ownership
@@ -9515,7 +9688,7 @@ The Budget Smart AI Team`,
   app.post("/api/transactions/manual/import/:accountId", requireAuth, requireWriteAccess, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const accountId = req.params.accountId;
+      const accountId = req.params.accountId as string;
       const { csvData } = req.body;
 
       // Verify account ownership
@@ -9542,7 +9715,7 @@ The Budget Smart AI Team`,
             date: row.date,
             amount: String(amount),
             merchant: row.merchant || "Unknown",
-            category: row.category || null,
+            category: (row.category || null) as any,
             notes: row.notes || null,
           });
           results.imported++;
@@ -9707,7 +9880,7 @@ The Budget Smart AI Team`,
 
   app.get("/api/investment-accounts/:id", requireAuth, async (req, res) => {
     try {
-      const account = await storage.getInvestmentAccount(req.params.id);
+      const account = await storage.getInvestmentAccount((req.params.id as string));
       if (!account || account.userId !== req.session.userId) {
         return res.status(404).json({ error: "Investment account not found" });
       }
@@ -9734,12 +9907,12 @@ The Budget Smart AI Team`,
 
   app.patch("/api/investment-accounts/:id", requireAuth, async (req, res) => {
     try {
-      const existing = await storage.getInvestmentAccount(req.params.id);
+      const existing = await storage.getInvestmentAccount((req.params.id as string));
       if (!existing || existing.userId !== req.session.userId) {
         return res.status(404).json({ error: "Investment account not found" });
       }
       const data = updateInvestmentAccountSchema.parse(req.body);
-      const account = await storage.updateInvestmentAccount(req.params.id, data);
+      const account = await storage.updateInvestmentAccount((req.params.id as string), data);
       res.json(account);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -9751,18 +9924,18 @@ The Budget Smart AI Team`,
 
   app.delete("/api/investment-accounts/:id", requireAuth, async (req, res) => {
     try {
-      const existing = await storage.getInvestmentAccount(req.params.id);
+      const existing = await storage.getInvestmentAccount((req.params.id as string));
       if (!existing || existing.userId !== req.session.userId) {
         return res.status(404).json({ error: "Investment account not found" });
       }
 
       // Also delete any holdings associated with this account
-      const accountHoldings = await storage.getHoldings(req.params.id);
+      const accountHoldings = await storage.getHoldings((req.params.id as string));
       for (const holding of accountHoldings) {
         await storage.deleteHolding(holding.id);
       }
 
-      await storage.deleteInvestmentAccount(req.params.id);
+      await storage.deleteInvestmentAccount((req.params.id as string));
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting investment account:", error);
@@ -9785,11 +9958,11 @@ The Budget Smart AI Team`,
 
   app.get("/api/investment-accounts/:accountId/holdings", requireAuth, async (req, res) => {
     try {
-      const account = await storage.getInvestmentAccount(req.params.accountId);
+      const account = await storage.getInvestmentAccount((req.params.accountId as string));
       if (!account || account.userId !== req.session.userId) {
         return res.status(404).json({ error: "Investment account not found" });
       }
-      const holdings = await storage.getHoldings(req.params.accountId);
+      const holdings = await storage.getHoldings((req.params.accountId as string));
       res.json(holdings);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch holdings" });
@@ -9820,12 +9993,12 @@ The Budget Smart AI Team`,
 
   app.patch("/api/holdings/:id", requireAuth, async (req, res) => {
     try {
-      const existing = await storage.getHolding(req.params.id);
+      const existing = await storage.getHolding((req.params.id as string));
       if (!existing || existing.userId !== req.session.userId) {
         return res.status(404).json({ error: "Holding not found" });
       }
       const data = updateHoldingSchema.parse(req.body);
-      const holding = await storage.updateHolding(req.params.id, data);
+      const holding = await storage.updateHolding((req.params.id as string), data);
       res.json(holding);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -9837,11 +10010,11 @@ The Budget Smart AI Team`,
 
   app.delete("/api/holdings/:id", requireAuth, async (req, res) => {
     try {
-      const existing = await storage.getHolding(req.params.id);
+      const existing = await storage.getHolding((req.params.id as string));
       if (!existing || existing.userId !== req.session.userId) {
         return res.status(404).json({ error: "Holding not found" });
       }
-      await storage.deleteHolding(req.params.id);
+      await storage.deleteHolding((req.params.id as string));
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete holding" });
@@ -9853,7 +10026,7 @@ The Budget Smart AI Team`,
   // Get real-time stock quote
   app.get("/api/stocks/:symbol/quote", requireAuth, async (req, res) => {
     try {
-      const quote = await getStockQuote(req.params.symbol.toUpperCase());
+      const quote = await getStockQuote((req.params.symbol as string).toUpperCase());
       if (!quote) {
         return res.status(404).json({ error: "Quote not found or API unavailable" });
       }
@@ -9867,7 +10040,7 @@ The Budget Smart AI Team`,
   // Get comprehensive stock analysis (quote + technicals + fundamentals)
   app.get("/api/stocks/:symbol/analysis", requireAuth, async (req, res) => {
     try {
-      const analysis = await getStockAnalysis(req.params.symbol.toUpperCase());
+      const analysis = await getStockAnalysis((req.params.symbol as string).toUpperCase());
       if (!analysis) {
         return res.status(404).json({ error: "Analysis not available" });
       }
@@ -9890,11 +10063,11 @@ The Budget Smart AI Team`,
       }
 
       // Get unique symbols (excluding crypto for now - Alpha Vantage has limited crypto support)
-      const stockSymbols = [...new Set(
+      const stockSymbols = Array.from(new Set(
         holdings
           .filter(h => h.holdingType !== "crypto")
           .map(h => h.symbol)
-      )];
+      ));
 
       const quotes = await batchUpdatePrices(stockSymbols);
       let updatedCount = 0;
@@ -10072,7 +10245,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   // Get detailed AI analysis for a specific holding
   app.get("/api/holdings/:id/ai-analysis", requireAuth, async (req, res) => {
     try {
-      const holding = await storage.getHolding(req.params.id);
+      const holding = await storage.getHolding((req.params.id as string));
       if (!holding || holding.userId !== req.session.userId) {
         return res.status(404).json({ error: "Holding not found" });
       }
@@ -10176,10 +10349,10 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const investmentAccount = await storage.createInvestmentAccount({
         userId,
         name: plaidAccount.name || "Linked Investment Account",
-        accountType,
+        accountType: accountType as any,
         institution: plaidAccount.officialName || plaidAccount.name || undefined,
         accountNumber: plaidAccount.mask || plaidAccount.accountId.slice(-4),
-        balance: plaidAccount.currentBalance || "0",
+        balance: plaidAccount.balanceCurrent || "0",
         notes: `Linked from Plaid account: ${plaidAccount.accountId}`,
       });
 
@@ -10242,7 +10415,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.get("/api/assets/:id", requireAuth, async (req, res) => {
     try {
-      const asset = await storage.getAsset(req.params.id);
+      const asset = await storage.getAsset((req.params.id as string));
       if (!asset || asset.userId !== req.session.userId) {
         return res.status(404).json({ error: "Asset not found" });
       }
@@ -10278,7 +10451,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.patch("/api/assets/:id", requireAuth, async (req, res) => {
     try {
-      const existing = await storage.getAsset(req.params.id);
+      const existing = await storage.getAsset((req.params.id as string));
       if (!existing || existing.userId !== req.session.userId) {
         return res.status(404).json({ error: "Asset not found" });
       }
@@ -10287,14 +10460,14 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       // If value changed, record history
       if (data.currentValue && data.currentValue !== existing.currentValue) {
         await storage.createAssetValueHistory({
-          assetId: req.params.id,
+          assetId: (req.params.id as string),
           date: new Date().toISOString().split('T')[0],
           value: data.currentValue,
           notes: "Value update",
         });
       }
 
-      const asset = await storage.updateAsset(req.params.id, data);
+      const asset = await storage.updateAsset((req.params.id as string), data);
       res.json(asset);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -10306,11 +10479,11 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/assets/:id", requireAuth, async (req, res) => {
     try {
-      const existing = await storage.getAsset(req.params.id);
+      const existing = await storage.getAsset((req.params.id as string));
       if (!existing || existing.userId !== req.session.userId) {
         return res.status(404).json({ error: "Asset not found" });
       }
-      await storage.deleteAsset(req.params.id);
+      await storage.deleteAsset((req.params.id as string));
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete asset" });
@@ -10319,11 +10492,11 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.get("/api/assets/:id/history", requireAuth, async (req, res) => {
     try {
-      const asset = await storage.getAsset(req.params.id);
+      const asset = await storage.getAsset((req.params.id as string));
       if (!asset || asset.userId !== req.session.userId) {
         return res.status(404).json({ error: "Asset not found" });
       }
-      const history = await storage.getAssetValueHistory(req.params.id);
+      const history = await storage.getAssetValueHistory((req.params.id as string));
       res.json(history);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch asset history" });
@@ -10367,7 +10540,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       // Plaid accounts (checking, savings = cash; credit = liability)
       // Only include explicitly active accounts (isActive === "true")
       for (const acc of plaidAccounts.filter(a => a.isActive === "true")) {
-        const balance = parseFloat(acc.currentBalance || "0");
+        const balance = parseFloat(acc.balanceCurrent || "0");
         if (acc.type === "depository") {
           cashAndBank += balance;
         } else if (acc.type === "credit") {
@@ -10471,7 +10644,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
       // Only include explicitly active accounts (isActive === "true")
       for (const acc of plaidAccounts.filter(a => a.isActive === "true")) {
-        const balance = parseFloat(acc.currentBalance || "0");
+        const balance = parseFloat(acc.balanceCurrent || "0");
         if (acc.type === "depository") cashAndBank += balance;
         else if (acc.type === "credit") creditCards += Math.abs(balance);
         else if (acc.type === "loan") loans += Math.abs(balance);
@@ -10869,13 +11042,13 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.patch("/api/split-expenses/:id", requireAuth, async (req, res) => {
     try {
       const householdId = req.session.householdId;
-      const existing = await storage.getSplitExpense(req.params.id);
+      const existing = await storage.getSplitExpense((req.params.id as string));
       if (!existing || existing.householdId !== householdId) {
         return res.status(404).json({ error: "Split expense not found" });
       }
 
       const data = updateSplitExpenseSchema.parse(req.body);
-      const split = await storage.updateSplitExpense(req.params.id, data);
+      const split = await storage.updateSplitExpense((req.params.id as string), data);
       res.json(split);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -10888,12 +11061,12 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.delete("/api/split-expenses/:id", requireAuth, async (req, res) => {
     try {
       const householdId = req.session.householdId;
-      const existing = await storage.getSplitExpense(req.params.id);
+      const existing = await storage.getSplitExpense((req.params.id as string));
       if (!existing || existing.householdId !== householdId) {
         return res.status(404).json({ error: "Split expense not found" });
       }
 
-      await storage.deleteSplitExpense(req.params.id);
+      await storage.deleteSplitExpense((req.params.id as string));
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete split expense" });
@@ -10903,7 +11076,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   // Mark participant as paid
   app.patch("/api/split-participants/:id/pay", requireAuth, async (req, res) => {
     try {
-      const participant = await storage.updateSplitParticipant(req.params.id, {
+      const participant = await storage.updateSplitParticipant((req.params.id as string), {
         isPaid: "true",
         paidAt: new Date().toISOString(),
       });
@@ -11240,13 +11413,13 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   // Get session detail with all messages
   app.get("/api/admin/sales-chat/sessions/:id", requireAdmin, async (req, res) => {
     try {
-      const session = await storage.getSalesChatSession(req.params.id);
+      const session = await storage.getSalesChatSession((req.params.id as string));
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
       }
 
-      const messages = await storage.getSalesChatMessages(req.params.id);
-      const lead = await storage.getSalesLeadBySession(req.params.id);
+      const messages = await storage.getSalesChatMessages((req.params.id as string));
+      const lead = await storage.getSalesLeadBySession((req.params.id as string));
 
       res.json({
         session,
@@ -11289,7 +11462,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     try {
       const { status, notes } = req.body;
 
-      const lead = await storage.updateSalesLead(req.params.id, { status, notes });
+      const lead = await storage.updateSalesLead((req.params.id as string), { status, notes });
       if (!lead) {
         return res.status(404).json({ error: "Lead not found" });
       }
@@ -11318,7 +11491,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.put("/api/admin/landing/settings/:key", requireAdmin, async (req, res) => {
     try {
       const { value, type } = req.body;
-      const setting = await storage.upsertLandingSetting(req.params.key, value, type);
+      const setting = await storage.upsertLandingSetting((req.params.key as string), value, type);
       res.json(setting);
     } catch (error) {
       console.error("Error updating landing setting:", error);
@@ -11328,7 +11501,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/admin/landing/settings/:key", requireAdmin, async (req, res) => {
     try {
-      const success = await storage.deleteLandingSetting(req.params.key);
+      const success = await storage.deleteLandingSetting((req.params.key as string));
       res.json({ success });
     } catch (error) {
       console.error("Error deleting landing setting:", error);
@@ -11359,7 +11532,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.put("/api/admin/landing/features/:id", requireAdmin, async (req, res) => {
     try {
-      const feature = await storage.updateLandingFeature(req.params.id, req.body);
+      const feature = await storage.updateLandingFeature((req.params.id as string), req.body);
       if (!feature) {
         return res.status(404).json({ error: "Feature not found" });
       }
@@ -11372,7 +11545,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/admin/landing/features/:id", requireAdmin, async (req, res) => {
     try {
-      const success = await storage.deleteLandingFeature(req.params.id);
+      const success = await storage.deleteLandingFeature((req.params.id as string));
       res.json({ success });
     } catch (error) {
       console.error("Error deleting landing feature:", error);
@@ -11403,7 +11576,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.put("/api/admin/landing/testimonials/:id", requireAdmin, async (req, res) => {
     try {
-      const testimonial = await storage.updateLandingTestimonial(req.params.id, req.body);
+      const testimonial = await storage.updateLandingTestimonial((req.params.id as string), req.body);
       if (!testimonial) {
         return res.status(404).json({ error: "Testimonial not found" });
       }
@@ -11416,7 +11589,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/admin/landing/testimonials/:id", requireAdmin, async (req, res) => {
     try {
-      const success = await storage.deleteLandingTestimonial(req.params.id);
+      const success = await storage.deleteLandingTestimonial((req.params.id as string));
       res.json({ success });
     } catch (error) {
       console.error("Error deleting landing testimonial:", error);
@@ -11447,7 +11620,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.put("/api/admin/landing/pricing/:id", requireAdmin, async (req, res) => {
     try {
-      const pricing = await storage.updateLandingPricing(req.params.id, req.body);
+      const pricing = await storage.updateLandingPricing((req.params.id as string), req.body);
       if (!pricing) {
         return res.status(404).json({ error: "Pricing plan not found" });
       }
@@ -11460,7 +11633,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/admin/landing/pricing/:id", requireAdmin, async (req, res) => {
     try {
-      const success = await storage.deleteLandingPricing(req.params.id);
+      const success = await storage.deleteLandingPricing((req.params.id as string));
       res.json({ success });
     } catch (error) {
       console.error("Error deleting landing pricing:", error);
@@ -11491,7 +11664,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.put("/api/admin/landing/comparison/:id", requireAdmin, async (req, res) => {
     try {
-      const row = await storage.updateLandingComparison(req.params.id, req.body);
+      const row = await storage.updateLandingComparison((req.params.id as string), req.body);
       if (!row) {
         return res.status(404).json({ error: "Comparison row not found" });
       }
@@ -11504,7 +11677,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/admin/landing/comparison/:id", requireAdmin, async (req, res) => {
     try {
-      const success = await storage.deleteLandingComparison(req.params.id);
+      const success = await storage.deleteLandingComparison((req.params.id as string));
       res.json({ success });
     } catch (error) {
       console.error("Error deleting landing comparison:", error);
@@ -11535,7 +11708,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.put("/api/admin/landing/faqs/:id", requireAdmin, async (req, res) => {
     try {
-      const faq = await storage.updateLandingFaq(req.params.id, req.body);
+      const faq = await storage.updateLandingFaq((req.params.id as string), req.body);
       if (!faq) {
         return res.status(404).json({ error: "FAQ not found" });
       }
@@ -11548,7 +11721,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/admin/landing/faqs/:id", requireAdmin, async (req, res) => {
     try {
-      const success = await storage.deleteLandingFaq(req.params.id);
+      const success = await storage.deleteLandingFaq((req.params.id as string));
       res.json({ success });
     } catch (error) {
       console.error("Error deleting landing FAQ:", error);
@@ -11579,7 +11752,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.put("/api/admin/landing/video-annotations/:id", requireAdmin, async (req, res) => {
     try {
-      const annotation = await storage.updateVideoAnnotation(req.params.id, req.body);
+      const annotation = await storage.updateVideoAnnotation((req.params.id as string), req.body);
       res.json(annotation);
     } catch (error) {
       console.error("Error updating video annotation:", error);
@@ -11589,7 +11762,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   app.delete("/api/admin/landing/video-annotations/:id", requireAdmin, async (req, res) => {
     try {
-      const success = await storage.deleteVideoAnnotation(req.params.id);
+      const success = await storage.deleteVideoAnnotation((req.params.id as string));
       res.json({ success });
     } catch (error) {
       console.error("Error deleting video annotation:", error);
@@ -11990,7 +12163,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   // PATCH /api/admin/ai-config/:taskSlot
   app.patch("/api/admin/ai-config/:taskSlot", requireAdmin, async (req, res) => {
     try {
-      const { taskSlot } = req.params;
+      const taskSlot = req.params.taskSlot as string;
       const { provider, modelId } = req.body;
       const adminUserId = req.session.userId!;
 
@@ -12231,7 +12404,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   // PATCH /api/admin/bank-providers/:providerId — update a provider's config
   app.patch("/api/admin/bank-providers/:providerId", requireAdmin, async (req, res) => {
     try {
-      const { providerId } = req.params;
+      const providerId = req.params.providerId as string;
       const adminUserId = req.session.userId!;
 
       // Only update fields explicitly provided in the request body

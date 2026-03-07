@@ -391,6 +391,14 @@ export async function ensurePreferenceColumns(): Promise<void> {
   }
 }
 
+/**
+ * Ensure soft-delete columns for GDPR / privacy-law account deletion exist.
+ */
+export async function ensureDeletionColumns(): Promise<void> {
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`);
+}
+
 export async function ensureBankProviderTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_provider_config (

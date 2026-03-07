@@ -712,6 +712,10 @@ export class MemStorage implements IStorage {
       startingBalance: insertBill.startingBalance || null,
       paymentsRemaining: insertBill.paymentsRemaining || null,
       startDate: insertBill.startDate || null,
+      endDate: insertBill.endDate ?? null,
+      isPaused: insertBill.isPaused || null,
+      merchant: insertBill.merchant || null,
+      linkedPlaidAccountId: insertBill.linkedPlaidAccountId ?? null,
     };
     this.bills.set(id, bill);
     return bill;
@@ -762,7 +766,10 @@ export class MemStorage implements IStorage {
       ...insertExpense, 
       id,
       userId: insertExpense.userId,
-      notes: insertExpense.notes || null
+      notes: insertExpense.notes || null,
+      taxDeductible: insertExpense.taxDeductible ?? null,
+      taxCategory: insertExpense.taxCategory ?? null,
+      isBusinessExpense: insertExpense.isBusinessExpense ?? null,
     };
     this.expenses.set(id, expense);
     return expense;
@@ -805,6 +812,9 @@ export class MemStorage implements IStorage {
       dueDay: insertIncome.dueDay ?? null,
       customDates: insertIncome.customDates || null,
       notes: insertIncome.notes || null,
+      linkedPlaidAccountId: insertIncome.linkedPlaidAccountId ?? null,
+      amountChangeDate: insertIncome.amountChangeDate ?? null,
+      futureAmount: insertIncome.futureAmount ?? null,
     };
     this.incomes.set(id, incomeRecord);
     return incomeRecord;
@@ -1148,6 +1158,113 @@ export class MemStorage implements IStorage {
     return { id: randomUUID(), ...msg, createdAt: new Date().toISOString() } as SupportTicketMessage;
   }
   async getMessagesByTicketId(_ticketId: string): Promise<SupportTicketMessage[]> { return []; }
+
+  // Stub implementations for methods not used by MemStorage
+  async getNotificationSettings(_userId: string): Promise<NotificationSettings | undefined> { return undefined; }
+  async createNotificationSettings(_settings: InsertNotificationSettings): Promise<NotificationSettings> { return undefined as any; }
+  async updateNotificationSettings(_userId: string, _updates: Partial<NotificationSettings>): Promise<NotificationSettings | undefined> { return undefined; }
+  async getCustomCategories(_userId: string): Promise<CustomCategory[]> { return []; }
+  async createCustomCategory(_category: InsertCustomCategory): Promise<CustomCategory> { return undefined as any; }
+  async updateCustomCategory(_id: string, _updates: Partial<CustomCategory>): Promise<CustomCategory | undefined> { return undefined; }
+  async deleteCustomCategory(_id: string): Promise<boolean> { return false; }
+  async getNotifications(_userId: string, _limit?: number): Promise<Notification[]> { return []; }
+  async getUnreadNotificationCount(_userId: string): Promise<number> { return 0; }
+  async createNotification(_notification: InsertNotification): Promise<Notification> { return undefined as any; }
+  async markNotificationRead(_id: string): Promise<void> {}
+  async markAllNotificationsRead(_userId: string): Promise<void> {}
+  async deleteNotification(_id: string): Promise<boolean> { return false; }
+  async getReconciliationRules(_userId: string): Promise<ReconciliationRule[]> { return []; }
+  async getReconciliationRule(_id: string): Promise<ReconciliationRule | undefined> { return undefined; }
+  async findMatchingRule(_userId: string, _merchantName: string): Promise<ReconciliationRule | undefined> { return undefined; }
+  async createReconciliationRule(_rule: InsertReconciliationRule): Promise<ReconciliationRule> { return undefined as any; }
+  async updateReconciliationRule(_id: string, _updates: Partial<ReconciliationRule>): Promise<ReconciliationRule | undefined> { return undefined; }
+  async deleteReconciliationRule(_id: string): Promise<boolean> { return false; }
+  async getRecurringExpenses(_userId: string): Promise<RecurringExpense[]> { return []; }
+  async getRecurringExpense(_id: string): Promise<RecurringExpense | undefined> { return undefined; }
+  async createRecurringExpense(_expense: InsertRecurringExpense): Promise<RecurringExpense> { return undefined as any; }
+  async updateRecurringExpense(_id: string, _updates: Partial<RecurringExpense>): Promise<RecurringExpense | undefined> { return undefined; }
+  async deleteRecurringExpense(_id: string): Promise<boolean> { return false; }
+  async getSyncSchedules(_userId: string): Promise<SyncSchedule[]> { return []; }
+  async getSyncSchedule(_id: string): Promise<SyncSchedule | undefined> { return undefined; }
+  async getDueSyncSchedules(): Promise<SyncSchedule[]> { return []; }
+  async createSyncSchedule(_schedule: InsertSyncSchedule): Promise<SyncSchedule> { return undefined as any; }
+  async updateSyncSchedule(_id: string, _updates: Partial<SyncSchedule>): Promise<SyncSchedule | undefined> { return undefined; }
+  async deleteSyncSchedule(_id: string): Promise<boolean> { return false; }
+  async getBudgetAlerts(_userId: string, _month?: string): Promise<BudgetAlert[]> { return []; }
+  async createBudgetAlert(_alert: InsertBudgetAlert): Promise<BudgetAlert> { return undefined as any; }
+  async updateBudgetAlert(_id: string, _updates: Partial<BudgetAlert>): Promise<BudgetAlert | undefined> { return undefined; }
+  async getReferralCode(_userId: string): Promise<ReferralCode | undefined> { return undefined; }
+  async getReferralCodeByCode(_code: string): Promise<ReferralCode | undefined> { return undefined; }
+  async createReferralCode(_userId: string, _code: string): Promise<ReferralCode> { return undefined as any; }
+  async getReferrals(_referrerId: string): Promise<Referral[]> { return []; }
+  async getReferralByEmail(_email: string): Promise<Referral | undefined> { return undefined; }
+  async createReferral(_referral: InsertReferral): Promise<Referral> { return undefined as any; }
+  async updateReferralStatus(_id: string, _status: string, _referredUserId?: string): Promise<Referral | undefined> { return undefined; }
+  async incrementReferralCount(_userId: string, _successful?: boolean): Promise<void> {}
+  async getInvestmentAccounts(_userId: string): Promise<InvestmentAccount[]> { return []; }
+  async getInvestmentAccount(_id: string): Promise<InvestmentAccount | undefined> { return undefined; }
+  async createInvestmentAccount(_account: InsertInvestmentAccount & { userId: string }): Promise<InvestmentAccount> { return undefined as any; }
+  async updateInvestmentAccount(_id: string, _updates: Partial<InsertInvestmentAccount>): Promise<InvestmentAccount | undefined> { return undefined; }
+  async deleteInvestmentAccount(_id: string): Promise<boolean> { return false; }
+  async getHoldings(_investmentAccountId: string): Promise<Holding[]> { return []; }
+  async getHoldingsByUser(_userId: string): Promise<Holding[]> { return []; }
+  async getHolding(_id: string): Promise<Holding | undefined> { return undefined; }
+  async createHolding(_holding: InsertHolding & { userId: string }): Promise<Holding> { return undefined as any; }
+  async updateHolding(_id: string, _updates: Partial<InsertHolding>): Promise<Holding | undefined> { return undefined; }
+  async deleteHolding(_id: string): Promise<boolean> { return false; }
+  async getHoldingsHistory(_holdingId: string, _options?: { startDate?: string; endDate?: string }): Promise<HoldingsHistory[]> { return []; }
+  async createHoldingsHistory(_history: InsertHoldingsHistory): Promise<HoldingsHistory> { return undefined as any; }
+  async getAssets(_userId: string): Promise<Asset[]> { return []; }
+  async getAsset(_id: string): Promise<Asset | undefined> { return undefined; }
+  async createAsset(_asset: InsertAsset & { userId: string }): Promise<Asset> { return undefined as any; }
+  async updateAsset(_id: string, _updates: Partial<InsertAsset>): Promise<Asset | undefined> { return undefined; }
+  async deleteAsset(_id: string): Promise<boolean> { return false; }
+  async getAssetValueHistory(_assetId: string): Promise<AssetValueHistory[]> { return []; }
+  async createAssetValueHistory(_history: InsertAssetValueHistory): Promise<AssetValueHistory> { return undefined as any; }
+  async getNetWorthSnapshots(_userId: string, _options?: { limit?: number }): Promise<NetWorthSnapshot[]> { return []; }
+  async getLatestNetWorthSnapshot(_userId: string): Promise<NetWorthSnapshot | undefined> { return undefined; }
+  async createNetWorthSnapshot(_snapshot: InsertNetWorthSnapshot & { userId: string }): Promise<NetWorthSnapshot> { return undefined as any; }
+  async getSplitExpenses(_householdId: string): Promise<SplitExpense[]> { return []; }
+  async getSplitExpense(_id: string): Promise<SplitExpense | undefined> { return undefined; }
+  async createSplitExpense(_expense: InsertSplitExpense): Promise<SplitExpense> { return undefined as any; }
+  async updateSplitExpense(_id: string, _updates: Partial<InsertSplitExpense>): Promise<SplitExpense | undefined> { return undefined; }
+  async deleteSplitExpense(_id: string): Promise<boolean> { return false; }
+  async getSplitParticipants(_splitExpenseId: string): Promise<SplitParticipant[]> { return []; }
+  async createSplitParticipant(_participant: InsertSplitParticipant): Promise<SplitParticipant> { return undefined as any; }
+  async updateSplitParticipant(_id: string, _updates: Partial<SplitParticipant>): Promise<SplitParticipant | undefined> { return undefined; }
+  async deleteSplitParticipant(_id: string): Promise<boolean> { return false; }
+  async getSettlementPayments(_householdId: string): Promise<SettlementPayment[]> { return []; }
+  async createSettlementPayment(_payment: InsertSettlementPayment): Promise<SettlementPayment> { return undefined as any; }
+  async deleteAllInvestmentAccountsByUser(_userId: string): Promise<void> {}
+  async deleteAllHoldingsByUser(_userId: string): Promise<void> {}
+  async deleteAllAssetsByUser(_userId: string): Promise<void> {}
+  async deleteAllNetWorthSnapshotsByUser(_userId: string): Promise<void> {}
+  async getAutopilotRules(_userId: string): Promise<AutopilotRule[]> { return []; }
+  async getAutopilotRule(_id: string): Promise<AutopilotRule | undefined> { return undefined; }
+  async createAutopilotRule(_rule: InsertAutopilotRule & { userId: string }): Promise<AutopilotRule> { return undefined as any; }
+  async updateAutopilotRule(_id: string, _updates: Partial<InsertAutopilotRule>): Promise<AutopilotRule | undefined> { return undefined; }
+  async deleteAutopilotRule(_id: string): Promise<boolean> { return false; }
+  async getLeakAlerts(_userId: string, _options?: { includeDismissed?: boolean }): Promise<LeakAlert[]> { return []; }
+  async getLeakAlert(_id: string): Promise<LeakAlert | undefined> { return undefined; }
+  async createLeakAlert(_alert: InsertLeakAlert & { userId: string }): Promise<LeakAlert> { return undefined as any; }
+  async updateLeakAlert(_id: string, _updates: Partial<LeakAlert>): Promise<LeakAlert | undefined> { return undefined; }
+  async dismissLeakAlert(_id: string): Promise<LeakAlert | undefined> { return undefined; }
+  async deleteLeakAlert(_id: string): Promise<boolean> { return false; }
+  async getTrialEvents(_userId: string): Promise<TrialEvent[]> { return []; }
+  async createTrialEvent(_event: InsertTrialEvent & { userId: string }): Promise<TrialEvent> { return undefined as any; }
+  async hasTrialEvent(_userId: string, _eventType: string): Promise<boolean> { return false; }
+  async getWhatIfScenarios(_userId: string, _savedOnly?: boolean): Promise<WhatIfScenario[]> { return []; }
+  async getWhatIfScenario(_id: string): Promise<WhatIfScenario | undefined> { return undefined; }
+  async createWhatIfScenario(_scenario: InsertWhatIfScenario & { userId: string }): Promise<WhatIfScenario> { return undefined as any; }
+  async updateWhatIfScenario(_id: string, _updates: Partial<InsertWhatIfScenario>): Promise<WhatIfScenario | undefined> { return undefined; }
+  async deleteWhatIfScenario(_id: string): Promise<boolean> { return false; }
+  async getSpendabilitySnapshot(_userId: string, _date: string): Promise<SpendabilitySnapshot | undefined> { return undefined; }
+  async createSpendabilitySnapshot(_snapshot: InsertSpendabilitySnapshot & { userId: string }): Promise<SpendabilitySnapshot> { return undefined as any; }
+  async getPaydayRecommendations(_userId: string): Promise<PaydayRecommendation[]> { return []; }
+  async getPaydayRecommendation(_id: string): Promise<PaydayRecommendation | undefined> { return undefined; }
+  async createPaydayRecommendation(_recommendation: InsertPaydayRecommendation & { userId: string }): Promise<PaydayRecommendation> { return undefined as any; }
+  async updatePaydayRecommendation(_id: string, _updates: Partial<PaydayRecommendation>): Promise<PaydayRecommendation | undefined> { return undefined; }
+  async deletePaydayRecommendation(_id: string): Promise<boolean> { return false; }
 }
 
 export class DatabaseStorage implements IStorage {

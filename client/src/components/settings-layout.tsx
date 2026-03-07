@@ -11,6 +11,7 @@ import {
   Download,
   CreditCard,
   Bell,
+  Lock,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ const SETTINGS_TABS = [
   { title: "Categories", slug: "categories", icon: Tag },
   { title: "Merchants", slug: "merchants", icon: Store },
   { title: "Data", slug: "data", icon: Download },
+  { title: "Privacy", slug: "privacy", icon: Lock },
   { title: "Billing", slug: "billing", icon: CreditCard },
   { title: "Notifications", slug: "notifications", icon: Bell },
 ] as const;

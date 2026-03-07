@@ -2123,7 +2123,7 @@ export default function BankAccounts() {
           onOpenChange={(open) => { if (!open) setDrilldownTransaction(null); }}
           merchant={drilldownTransaction.merchantName || drilldownTransaction.name}
           category={drilldownTransaction.personalCategory || undefined}
-          initialTransaction={drilldownTransaction}
+          initialTransaction={drilldownTransaction as any}
         />
       )}
 

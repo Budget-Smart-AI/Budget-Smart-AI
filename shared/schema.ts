@@ -593,6 +593,9 @@ export const users = pgTable("users", {
   prefNeedsReview: boolean("pref_needs_review").default(true),
   prefEditPending: boolean("pref_edit_pending").default(false),
   prefMerchantDisplay: varchar("pref_merchant_display", { length: 20 }).default("enriched"),
+  // Soft-delete / GDPR account deletion
+  isDeleted: boolean("is_deleted").default(false),
+  deletedAt: text("deleted_at"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

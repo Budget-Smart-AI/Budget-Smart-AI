@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -279,6 +279,10 @@ app.use((req, res, next) => {
 
   await ensureLoginSecurityColumns().catch(err =>
     console.error("Failed to ensure login security columns — account lockout will not work:", err)
+  );
+
+  await ensureDeletionColumns().catch(err =>
+    console.error("Failed to ensure deletion columns — account deletion will not work:", err)
   );
 
   // Apply apiRateLimiter globally to all /api routes before route definitions.

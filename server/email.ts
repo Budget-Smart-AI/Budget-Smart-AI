@@ -282,9 +282,14 @@ export function startEmailScheduler(): void {
   startAiCoachScheduler();
 }
 
-/** Weekly data retention cleanup — removes stale AI logs and dismissed anomaly alerts. */
+/** Weekly data retention cleanup — removes stale sessions, AI logs, notifications, and old support tickets. */
 async function runDataRetentionCleanup(): Promise<void> {
   try {
+    // Sessions older than 30 days
+    const r0 = await (db as any).$client.query(
+      `DELETE FROM session WHERE expire < NOW() - INTERVAL '30 days'`,
+    );
+    // AI usage logs older than 90 days
     const r1 = await (db as any).$client.query(
       `DELETE FROM ai_usage_log WHERE created_at < NOW() - INTERVAL '90 days'`,
     );
@@ -295,10 +300,22 @@ async function runDataRetentionCleanup(): Promise<void> {
     const r3 = await (db as any).$client.query(
       `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '2 years'`,
     );
+    // Read notifications older than 90 days
+    const r4 = await (db as any).$client.query(
+      `DELETE FROM notifications WHERE is_read = 'true' AND created_at < NOW() - INTERVAL '90 days'`,
+    );
+    // Closed support tickets older than 3 years (keep open tickets forever)
+    const r5 = await (db as any).$client.query(
+      `DELETE FROM support_tickets WHERE status = 'closed' AND created_at < NOW() - INTERVAL '3 years'`,
+    );
+    // NOTE: transactions are NOT deleted (7-year legal requirement)
     console.log(
-      `[Retention] Deleted ${r1.rowCount} AI log rows, ` +
+      `[Retention] Deleted ${r0.rowCount} expired sessions, ` +
+      `${r1.rowCount} AI log rows, ` +
       `${r2.rowCount} dismissed anomaly alerts, ` +
-      `${r3.rowCount} expired audit log entries`,
+      `${r3.rowCount} expired audit log entries, ` +
+      `${r4.rowCount} read notifications, ` +
+      `${r5.rowCount} closed support tickets`,
     );
   } catch (err) {
     console.error("[Retention] Data retention cleanup failed:", err);
