@@ -1,5 +1,6 @@
 import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu } from "lucide-react";
 import { useLocation, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -12,7 +13,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const overviewItems = [
   {
@@ -200,6 +201,16 @@ interface AppSidebarProps {
 export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
   const [location] = useLocation();
 
+  const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
+  const s = session as any;
+  const displayName = s?.displayName || s?.firstName || username || "User";
+  const avatarUrl = s?.avatarUrl || null;
+  const firstName = s?.firstName || "";
+  const lastName = s?.lastName || "";
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`.toUpperCase()
+    : (username || "U")[0]?.toUpperCase() || "U";
+
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
@@ -351,12 +362,13 @@ export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
           <Link href="/settings">
             <div className="flex items-center gap-3 p-2 rounded-md hover-elevate cursor-pointer" data-testid="sidebar-user-profile">
               <Avatar className="h-8 w-8">
+                {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
                 <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                  {username ? username.charAt(0).toUpperCase() : <User className="h-4 w-4" />}
+                  {initials || <User className="h-4 w-4" />}
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-sm font-medium truncate">{username || "User"}</span>
+                <span className="text-sm font-medium truncate">{displayName}</span>
                 <span className="text-xs text-muted-foreground">Personal Account</span>
               </div>
             </div>

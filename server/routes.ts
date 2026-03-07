@@ -2257,7 +2257,11 @@ Return JSON: { "income": [...] }`;
         isDemo: user?.isDemo === "true",
         onboardingComplete: user?.onboardingComplete === "true",
         householdId: req.session.householdId || null,
-        householdRole: req.session.householdRole || null
+        householdRole: req.session.householdRole || null,
+        displayName: user?.displayName || null,
+        birthday: user?.birthday || null,
+        timezone: user?.timezone || "America/Toronto",
+        avatarUrl: user?.avatarUrl || null,
       });
     } else if (req.session.userId && req.session.pendingMfa && !req.session.mfaVerified) {
       res.json({ authenticated: false, mfaRequired: true });
@@ -2284,6 +2288,17 @@ Return JSON: { "income": [...] }`;
         }
       }
 
+      // Validate birthday is a valid past date (not future)
+      if (updates.birthday) {
+        const bday = new Date(updates.birthday);
+        if (isNaN(bday.getTime())) {
+          return res.status(400).json({ error: "Invalid birthday date" });
+        }
+        if (bday > new Date()) {
+          return res.status(400).json({ error: "Birthday cannot be in the future" });
+        }
+      }
+
       const updatedUser = await storage.updateUser(req.session.userId!, updates);
       if (!updatedUser) {
         return res.status(404).json({ error: "User not found" });
@@ -2296,12 +2311,110 @@ Return JSON: { "income": [...] }`;
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
         phone: updatedUser.phone,
+        displayName: updatedUser.displayName || null,
+        birthday: updatedUser.birthday || null,
+        timezone: updatedUser.timezone || "America/Toronto",
+        avatarUrl: updatedUser.avatarUrl || null,
       });
     } catch (error) {
       console.error("Profile update error:", error);
       res.status(500).json({ error: "Failed to update profile" });
     }
   });
+
+  // Avatar upload route
+  (() => {
+    const multer = require("multer");
+    const sharp = require("sharp");
+    const { S3Client, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+
+    const avatarUpload = multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req: any, file: any, cb: any) => {
+        const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+        if (allowed.includes(file.mimetype)) cb(null, true);
+        else cb(new Error("Only image files (jpg/png/webp/gif) are allowed"));
+      },
+    });
+
+    function getAvatarR2Client(): any {
+      const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+      const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_TOKEN_VALUE;
+      const rawEndpoint = process.env.R2_ENDPOINT;
+      if (!accessKeyId || !secretAccessKey || !rawEndpoint) {
+        throw new Error("R2 storage is not configured.");
+      }
+      const stripped = rawEndpoint.replace(/^["']+|["']+$/g, "");
+      let endpoint: string;
+      try { endpoint = new URL(stripped).origin; } catch { endpoint = stripped; }
+      return new S3Client({ region: "auto", endpoint, forcePathStyle: true, credentials: { accessKeyId, secretAccessKey } });
+    }
+
+    function getAvatarPublicUrl(fileKey: string): string {
+      const raw = process.env.R2_PUBLIC_URL;
+      if (raw) {
+        const base = raw.replace(/^["']+|["']+$/g, "").replace(/\/$/, "");
+        return `${base}/${fileKey}`;
+      }
+      return `/api/user/avatar/${fileKey}`;
+    }
+
+    app.post("/api/user/avatar", requireAuth, avatarUpload.single("avatar"), async (req: any, res: any) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        // Resize to 256x256 webp using sharp
+        const resized = await sharp(req.file.buffer)
+          .resize(256, 256, { fit: "cover" })
+          .webp({ quality: 85 })
+          .toBuffer();
+
+        const fileKey = `avatars/${req.session.userId}.webp`;
+        const bucket = process.env.R2_BUCKET_NAME;
+        if (!bucket) {
+          return res.status(500).json({ error: "R2 storage not configured" });
+        }
+
+        await getAvatarR2Client().send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: fileKey,
+          Body: resized,
+          ContentType: "image/webp",
+          CacheControl: "public, max-age=86400",
+        }));
+
+        const avatarUrl = getAvatarPublicUrl(fileKey);
+        await storage.updateUser(req.session.userId!, { avatarUrl });
+
+        res.json({ avatarUrl });
+      } catch (error: any) {
+        console.error("Avatar upload error:", error);
+        res.status(500).json({ error: "Failed to upload avatar" });
+      }
+    });
+
+    app.delete("/api/user/avatar", requireAuth, async (req: any, res: any) => {
+      try {
+        const fileKey = `avatars/${req.session.userId}.webp`;
+        const bucket = process.env.R2_BUCKET_NAME;
+        if (bucket) {
+          try {
+            await getAvatarR2Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: fileKey }));
+          } catch {
+            // Ignore R2 deletion errors (file may not exist)
+          }
+        }
+        await storage.updateUser(req.session.userId!, { avatarUrl: null });
+        res.json({ success: true });
+      } catch (error: any) {
+        console.error("Avatar delete error:", error);
+        res.status(500).json({ error: "Failed to remove avatar" });
+      }
+    });
+  })();
 
   // 2FA status endpoint
   app.get("/api/auth/2fa/status", requireAuth, async (req, res) => {

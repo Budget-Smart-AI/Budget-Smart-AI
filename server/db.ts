@@ -337,6 +337,18 @@ export async function ensureTotpColumns(): Promise<void> {
   );
 }
 
+/**
+ * Ensure the profile enhancement columns (display_name, birthday, timezone, avatar_url)
+ * exist on the users table. Uses ADD COLUMN IF NOT EXISTS so it is safe to call on
+ * every startup.
+ */
+export async function ensureProfileColumns(): Promise<void> {
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(100)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(100) DEFAULT 'America/Toronto'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+}
+
 export async function ensureBankProviderTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_provider_config (
