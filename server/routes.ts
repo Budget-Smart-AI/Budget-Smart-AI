@@ -6491,7 +6491,7 @@ ${JSON.stringify(txSummary)}`;
         ...plaidTxns.map(t => ({
           date: t.date,
           description: t.merchantName || t.name || "",
-          amount: t.amount ?? "",
+          amount: t.amount != null ? String(t.amount) : "0.00",
           category: t.personalCategory || t.category || "",
           account: accountNameMap.get(t.plaidAccountId) ?? "",
           status: t.pending === "true" ? "Pending" : "Posted",
@@ -6500,7 +6500,7 @@ ${JSON.stringify(txSummary)}`;
         ...mxTxns.map(t => ({
           date: t.date,
           description: t.description || "",
-          amount: t.amount ?? "",
+          amount: t.amount != null ? String(t.amount) : "0.00",
           category: t.personalCategory || t.category || "",
           account: accountNameMap.get(t.mxAccountId) ?? "",
           status: t.status ?? "Posted",
@@ -6509,7 +6509,7 @@ ${JSON.stringify(txSummary)}`;
         ...filteredManual.map(t => ({
           date: t.date,
           description: t.merchant || "",
-          amount: t.amount ?? "",
+          amount: t.amount != null ? String(t.amount) : "0.00",
           category: t.category || "",
           account: accountNameMap.get(t.accountId ?? "") ?? "",
           status: "Posted",

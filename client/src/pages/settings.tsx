@@ -287,9 +287,9 @@ function AccountsTab() {
 
   const formatBalance = (balance: string | null, currency: string | null = "CAD") => {
     if (balance === null || balance === undefined) return "—";
-    return new Intl.NumberFormat("en-CA", { style: "currency", currency: currency || "CAD" }).format(
-      parseFloat(balance)
-    );
+    const num = parseFloat(balance);
+    if (isNaN(num)) return "—";
+    return new Intl.NumberFormat("en-CA", { style: "currency", currency: currency || "CAD" }).format(num);
   };
 
   const isLoading = plaidLoading || mxLoading;
