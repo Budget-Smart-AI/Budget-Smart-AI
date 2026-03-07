@@ -575,6 +575,11 @@ export const users = pgTable("users", {
   country: text("country").default("US"),
   phoneEnc: text("phone_enc"), // AES-256-GCM encrypted phone number
   mfaBackupCodes: text("mfa_backup_codes").array(), // TOTP backup codes
+  // Profile enhancements
+  displayName: text("display_name"), // Preferred display name (used in greetings/emails)
+  birthday: text("birthday"), // ISO date YYYY-MM-DD
+  timezone: text("timezone").default("America/Toronto"), // IANA timezone string
+  avatarUrl: text("avatar_url"), // Cloudflare R2 public URL for avatar photo
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -613,6 +618,9 @@ export const updateProfileSchema = z.object({
   email: z.string().email("Valid email required").optional().nullable(),
   phone: z.string().optional().nullable(),
   country: z.string().optional().nullable(),
+  displayName: z.string().max(100).optional().nullable(),
+  birthday: z.string().optional().nullable(), // YYYY-MM-DD or null
+  timezone: z.string().optional().nullable(),
 });
 
 export const registerSchema = z.object({

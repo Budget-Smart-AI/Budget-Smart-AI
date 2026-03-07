@@ -92,7 +92,7 @@ export interface IStorage {
   getUserByGoogleId(googleId: string): Promise<User | undefined>;
   getUsers(): Promise<User[]>;
   createUser(user: InsertUser & { isAdmin?: boolean; isApproved?: boolean; email?: string; firstName?: string; lastName?: string; googleId?: string; emailVerified?: string; mfaRequired?: string }): Promise<User>;
-  updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string }): Promise<User | undefined>;
+  updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string; displayName?: string | null; birthday?: string | null; timezone?: string | null; avatarUrl?: string | null; country?: string | null }): Promise<User | undefined>;
   deleteUser(id: string): Promise<boolean>;
   updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean, backupCodes?: string[]): Promise<User | undefined>;
   // Email verification
@@ -601,7 +601,7 @@ export class MemStorage implements IStorage {
     return user;
   }
 
-  async updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string }): Promise<User | undefined> {
+  async updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string; displayName?: string | null; birthday?: string | null; timezone?: string | null; avatarUrl?: string | null; country?: string | null }): Promise<User | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
 
@@ -616,6 +616,11 @@ export class MemStorage implements IStorage {
       ...(updates.lastName !== undefined && { lastName: updates.lastName }),
       ...(updates.phone !== undefined && { phone: updates.phone }),
       ...(updates.emailVerified !== undefined && { emailVerified: updates.emailVerified }),
+      ...(updates.displayName !== undefined && { displayName: updates.displayName }),
+      ...(updates.birthday !== undefined && { birthday: updates.birthday }),
+      ...(updates.timezone !== undefined && { timezone: updates.timezone }),
+      ...(updates.avatarUrl !== undefined && { avatarUrl: updates.avatarUrl }),
+      ...(updates.country !== undefined && { country: updates.country }),
     };
     this.users.set(id, updatedUser);
     return updatedUser;
@@ -1176,7 +1181,7 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string }): Promise<User | undefined> {
+  async updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string; displayName?: string | null; birthday?: string | null; timezone?: string | null; avatarUrl?: string | null; country?: string | null }): Promise<User | undefined> {
     const updateData: Partial<User> = {};
     if (updates.username) updateData.username = updates.username;
     if (updates.password) updateData.password = updates.password;
@@ -1200,6 +1205,11 @@ export class DatabaseStorage implements IStorage {
     }
     if (updates.emailVerified !== undefined) updateData.emailVerified = updates.emailVerified;
     if (updates.mxUserGuid !== undefined) updateData.mxUserGuid = updates.mxUserGuid;
+    if (updates.displayName !== undefined) updateData.displayName = updates.displayName;
+    if (updates.birthday !== undefined) updateData.birthday = updates.birthday;
+    if (updates.timezone !== undefined) updateData.timezone = updates.timezone;
+    if (updates.avatarUrl !== undefined) updateData.avatarUrl = updates.avatarUrl;
+    if (updates.country !== undefined) updateData.country = updates.country;
 
     const result = await db.update(users).set(updateData).where(eq(users.id, id)).returning();
     return result[0] ? this._decryptUser(result[0]) : undefined;

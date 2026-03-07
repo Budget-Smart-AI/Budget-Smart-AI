@@ -17,7 +17,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -168,6 +168,10 @@ app.use((req, res, next) => {
 
   await ensureTotpColumns().catch(err =>
     console.error("Failed to ensure TOTP columns — 2FA backup codes will not work:", err)
+  );
+
+  await ensureProfileColumns().catch(err =>
+    console.error("Failed to ensure profile columns — avatar/display name/birthday/timezone will not work:", err)
   );
 
   await registerRoutes(httpServer, app);

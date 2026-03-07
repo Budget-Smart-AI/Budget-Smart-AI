@@ -507,7 +507,13 @@ export default function Dashboard() {
   const [vaultBannerDismissed, setVaultBannerDismissed] = useState(
     () => localStorage.getItem("vault_dashboard_dismissed") === "true"
   );
+  const [birthdayBannerDismissed, setBirthdayBannerDismissed] = useState(
+    () => localStorage.getItem("birthday_banner_dismissed") === new Date().toDateString()
+  );
   const qc = useQueryClient();
+
+  const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
+  const sessionData = session as any;
 
   const { data: vaultStats } = useQuery<{ success: boolean; data: { totalFiles: number } }>({
     queryKey: ["/api/vault/storage-stats"],
@@ -675,11 +681,52 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Birthday Banner */}
+      {(() => {
+        if (birthdayBannerDismissed) return null;
+        const birthday = sessionData?.birthday;
+        if (!birthday) return null;
+        const today = new Date();
+        const parts = birthday.split("-");
+        if (parts.length !== 3) return null;
+        const isBirthday = parseInt(parts[1]) === today.getMonth() + 1 && parseInt(parts[2]) === today.getDate();
+        if (!isBirthday) return null;
+        const name = sessionData?.displayName || sessionData?.firstName || sessionData?.username || "there";
+        return (
+          <div className="flex items-center justify-between gap-3 p-4 rounded-xl bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-orange-500/10 border border-pink-300/40 dark:border-pink-700/40">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🎂</span>
+              <div>
+                <p className="font-semibold text-pink-700 dark:text-pink-300">
+                  Happy Birthday, {name}!
+                </p>
+                <p className="text-sm text-muted-foreground">We hope you have a wonderful day.</p>
+              </div>
+            </div>
+            <button
+              className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+              onClick={() => {
+                localStorage.setItem("birthday_banner_dismissed", new Date().toDateString());
+                setBirthdayBannerDismissed(true);
+              }}
+              aria-label="Dismiss birthday banner"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Header */}
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent" data-testid="text-dashboard-title">
-            Financial Dashboard
+            {(() => {
+              const hour = new Date().getHours();
+              const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+              const name = sessionData?.displayName || sessionData?.firstName;
+              return name ? `${greeting}, ${name}!` : "Financial Dashboard";
+            })()}
           </h1>
           <HelpTooltip
             title="About Your Dashboard"

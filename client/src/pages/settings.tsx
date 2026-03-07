@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,7 +13,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { COUNTRIES } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2, AlertTriangle, Database, CreditCard, Calendar, Sparkles, ExternalLink, Copy, Download, Check } from "lucide-react";
+import {
+  Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2,
+  AlertTriangle, Database, CreditCard, Calendar, Sparkles, ExternalLink, Copy,
+  Download, Check, Camera, Globe, Cake,
+} from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +39,50 @@ import { useLocation } from "wouter";
 import { HouseholdSettings } from "@/components/household-settings";
 import { PWAInstallCard } from "@/components/pwa-install-prompt";
 
+// ─── IANA Timezone list (common subset) ───────────────────────────────────────
+const TIMEZONES = [
+  "America/Toronto", "America/New_York", "America/Chicago", "America/Denver",
+  "America/Los_Angeles", "America/Vancouver", "America/Edmonton", "America/Winnipeg",
+  "America/Halifax", "America/St_Johns", "America/Phoenix", "America/Anchorage",
+  "America/Honolulu", "America/Sao_Paulo", "America/Argentina/Buenos_Aires",
+  "America/Bogota", "America/Lima", "America/Mexico_City", "America/Caracas",
+  "Europe/London", "Europe/Dublin", "Europe/Paris", "Europe/Berlin", "Europe/Rome",
+  "Europe/Madrid", "Europe/Amsterdam", "Europe/Brussels", "Europe/Stockholm",
+  "Europe/Oslo", "Europe/Copenhagen", "Europe/Zurich", "Europe/Warsaw",
+  "Europe/Prague", "Europe/Budapest", "Europe/Vienna", "Europe/Athens",
+  "Europe/Helsinki", "Europe/Bucharest", "Europe/Istanbul", "Europe/Moscow",
+  "Africa/Johannesburg", "Africa/Lagos", "Africa/Cairo", "Africa/Nairobi",
+  "Asia/Dubai", "Asia/Kolkata", "Asia/Karachi", "Asia/Dhaka", "Asia/Bangkok",
+  "Asia/Singapore", "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Tokyo",
+  "Asia/Seoul", "Asia/Jakarta", "Asia/Manila", "Asia/Taipei", "Asia/Kuala_Lumpur",
+  "Australia/Sydney", "Australia/Melbourne", "Australia/Brisbane", "Australia/Perth",
+  "Australia/Adelaide", "Pacific/Auckland", "Pacific/Fiji",
+  "UTC",
+];
+
+function getTimezoneLabel(tz: string): string {
+  try {
+    const offset = new Intl.DateTimeFormat("en", {
+      timeZone: tz,
+      timeZoneName: "short",
+    }).formatToParts(new Date()).find((p) => p.type === "timeZoneName")?.value || "";
+    return `${tz.replace(/_/g, " ")} (${offset})`;
+  } catch {
+    return tz.replace(/_/g, " ");
+  }
+}
+
+// Returns a consistent color based on the first letter of a name
+function getInitialColor(name: string): string {
+  const colors = [
+    "bg-emerald-500", "bg-teal-500", "bg-cyan-500", "bg-blue-500",
+    "bg-indigo-500", "bg-violet-500", "bg-purple-500", "bg-pink-500",
+    "bg-rose-500", "bg-orange-500", "bg-amber-500", "bg-green-500",
+  ];
+  const idx = (name.charCodeAt(0) || 0) % colors.length;
+  return colors[idx];
+}
+
 const mfaCodeSchema = z.object({
   code: z.string().length(6, "Code must be 6 digits"),
 });
@@ -45,13 +93,30 @@ const profileSchema = z.object({
   email: z.string().email("Valid email required").optional().or(z.literal("")),
   phone: z.string().optional(),
   country: z.string().optional(),
+  displayName: z.string().max(100).optional(),
+  birthday: z.string().optional(),
+  timezone: z.string().optional(),
 });
 
 type MfaCodeFormData = z.infer<typeof mfaCodeSchema>;
 type ProfileFormData = z.infer<typeof profileSchema>;
 
-// 2FA modal step type
 type MfaModalStep = "qr" | "verify" | "backup";
+
+// Month names and days helpers
+const MONTHS = [
+  { value: "01", label: "January" }, { value: "02", label: "February" },
+  { value: "03", label: "March" }, { value: "04", label: "April" },
+  { value: "05", label: "May" }, { value: "06", label: "June" },
+  { value: "07", label: "July" }, { value: "08", label: "August" },
+  { value: "09", label: "September" }, { value: "10", label: "October" },
+  { value: "11", label: "November" }, { value: "12", label: "December" },
+];
+
+function getDaysInMonth(month: string, year: string): number {
+  if (!month || !year) return 31;
+  return new Date(parseInt(year), parseInt(month), 0).getDate();
+}
 
 interface SettingsProps {
   onLogout: () => void;
@@ -60,6 +125,8 @@ interface SettingsProps {
 export default function Settings({ onLogout }: SettingsProps) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // 2FA modal state
   const [mfaModalOpen, setMfaModalOpen] = useState(false);
   const [mfaModalStep, setMfaModalStep] = useState<MfaModalStep>("qr");
@@ -67,6 +134,18 @@ export default function Settings({ onLogout }: SettingsProps) {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [disableMfaModalOpen, setDisableMfaModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Avatar state
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+
+  // Birthday separate state (month, day, year)
+  const [bdMonth, setBdMonth] = useState("");
+  const [bdDay, setBdDay] = useState("");
+  const [bdYear, setBdYear] = useState("");
+
+  // Timezone search
+  const [tzSearch, setTzSearch] = useState("");
 
   const mfaForm = useForm<MfaCodeFormData>({
     resolver: zodResolver(mfaCodeSchema),
@@ -81,11 +160,8 @@ export default function Settings({ onLogout }: SettingsProps) {
   const profileForm = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      country: "US",
+      firstName: "", lastName: "", email: "", phone: "", country: "US",
+      displayName: "", birthday: "", timezone: "America/Toronto",
     },
   });
 
@@ -93,26 +169,21 @@ export default function Settings({ onLogout }: SettingsProps) {
     queryKey: ["/api/auth/session"],
   });
 
-  // 2FA status query (more reliable than reading from session alone)
   const { data: mfaStatus, refetch: refetchMfaStatus } = useQuery({
     queryKey: ["/api/auth/2fa/status"],
   });
 
-  // Subscription status query
   const { data: subscriptionData, isLoading: subscriptionLoading } = useQuery({
     queryKey: ["/api/stripe/subscription"],
   });
 
-  // Billing portal mutation
   const billingPortalMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/stripe/create-portal-session");
       return response.json();
     },
     onSuccess: (data: any) => {
-      if (data.url) {
-        window.open(data.url, "_blank");
-      }
+      if (data.url) window.open(data.url, "_blank");
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -121,15 +192,38 @@ export default function Settings({ onLogout }: SettingsProps) {
 
   useEffect(() => {
     if (session && (session as any).authenticated) {
+      const s = session as any;
+      // Parse birthday into parts
+      if (s.birthday) {
+        const parts = s.birthday.split("-");
+        if (parts.length === 3) {
+          setBdYear(parts[0]);
+          setBdMonth(parts[1]);
+          setBdDay(parts[2]);
+        }
+      }
       profileForm.reset({
-        firstName: (session as any).firstName || "",
-        lastName: (session as any).lastName || "",
-        email: (session as any).email || "",
-        phone: (session as any).phone || "",
-        country: (session as any).country || "US",
+        firstName: s.firstName || "",
+        lastName: s.lastName || "",
+        email: s.email || "",
+        phone: s.phone || "",
+        country: s.country || "US",
+        displayName: s.displayName || "",
+        birthday: s.birthday || "",
+        timezone: s.timezone || "America/Toronto",
       });
+      if (s.avatarUrl) setAvatarPreview(s.avatarUrl);
     }
   }, [session]);
+
+  // Build birthday string whenever parts change
+  useEffect(() => {
+    if (bdYear && bdMonth && bdDay) {
+      profileForm.setValue("birthday", `${bdYear}-${bdMonth}-${bdDay}`);
+    } else {
+      profileForm.setValue("birthday", "");
+    }
+  }, [bdYear, bdMonth, bdDay]);
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: ProfileFormData) => {
@@ -139,11 +233,14 @@ export default function Settings({ onLogout }: SettingsProps) {
         email: data.email || null,
         phone: data.phone || null,
         country: data.country || null,
+        displayName: data.displayName || null,
+        birthday: data.birthday || null,
+        timezone: data.timezone || null,
       });
       return response.json();
     },
     onSuccess: () => {
-      toast({ title: "Profile Updated", description: "Your profile has been saved" });
+      toast({ title: "Profile Saved", description: "Your profile has been updated successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
     },
     onError: (error: Error) => {
@@ -151,7 +248,47 @@ export default function Settings({ onLogout }: SettingsProps) {
     },
   });
 
-  // Step 1: Fetch QR code and secret from server, open modal
+  const uploadAvatarMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("avatar", file);
+      const response = await fetch("/api/user/avatar", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Upload failed");
+      }
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      setAvatarPreview(data.avatarUrl);
+      setAvatarFile(null);
+      toast({ title: "Photo Saved", description: "Your profile photo has been updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Upload Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeAvatarMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("DELETE", "/api/user/avatar");
+      return response.json();
+    },
+    onSuccess: () => {
+      setAvatarPreview(null);
+      setAvatarFile(null);
+      toast({ title: "Photo Removed", description: "Your profile photo has been removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Remove Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const setupMfaMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("GET", "/api/auth/mfa/setup");
@@ -167,7 +304,6 @@ export default function Settings({ onLogout }: SettingsProps) {
     },
   });
 
-  // Step 2: Verify code and get backup codes
   const enableMfaMutation = useMutation({
     mutationFn: async (data: MfaCodeFormData) => {
       const response = await apiRequest("POST", "/api/auth/mfa/enable", { code: data.code });
@@ -208,7 +344,6 @@ export default function Settings({ onLogout }: SettingsProps) {
       return response.json();
     },
     onSuccess: () => {
-      // Clear ALL cached data to prevent data leakage between users
       queryClient.clear();
       toast({ title: "Logged Out", description: "You have been logged out successfully" });
       onLogout();
@@ -236,12 +371,9 @@ export default function Settings({ onLogout }: SettingsProps) {
 
   const handleDownloadBackupCodes = () => {
     const content = [
-      "BudgetSmart 2FA Backup Codes",
-      "============================",
-      "Keep these codes safe. Each code can only be used once.",
-      "",
-      ...backupCodes.map((c, i) => `${i + 1}. ${c}`),
-      "",
+      "BudgetSmart 2FA Backup Codes", "============================",
+      "Keep these codes safe. Each code can only be used once.", "",
+      ...backupCodes.map((c, i) => `${i + 1}. ${c}`), "",
       `Generated: ${new Date().toLocaleString()}`,
     ].join("\n");
     const blob = new Blob([content], { type: "text/plain" });
@@ -253,9 +385,53 @@ export default function Settings({ onLogout }: SettingsProps) {
     URL.revokeObjectURL(url);
   };
 
-  // Use the dedicated 2FA status endpoint for reliability
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setAvatarPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    setAvatarFile(file);
+  };
+
   const mfaEnabled = (mfaStatus as any)?.enabled ?? (session as any)?.mfaEnabled ?? false;
   const sessionData = session as any;
+
+  // Initials and color for avatar fallback
+  const firstName = sessionData?.firstName || "";
+  const lastName = sessionData?.lastName || "";
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`.toUpperCase()
+    : (firstName || sessionData?.username || "?")[0]?.toUpperCase() || "?";
+  const avatarColor = getInitialColor(firstName || sessionData?.username || "");
+
+  // Current local time for timezone display
+  const watchTz = profileForm.watch("timezone") || "America/Toronto";
+  const [localTime, setLocalTime] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      try {
+        setLocalTime(new Intl.DateTimeFormat("en-US", {
+          timeZone: watchTz,
+          hour: "numeric", minute: "2-digit", second: "2-digit",
+          hour12: true, weekday: "short",
+        }).format(new Date()));
+      } catch { setLocalTime(""); }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [watchTz]);
+
+  // Current year for birthday year range
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 120 }, (_, i) => String(currentYear - i));
+  const daysInMonth = getDaysInMonth(bdMonth, bdYear);
+  const days = Array.from({ length: daysInMonth }, (_, i) => String(i + 1).padStart(2, "0"));
+
+  const filteredTimezones = TIMEZONES.filter((tz) =>
+    tz.toLowerCase().replace(/_/g, " ").includes(tzSearch.toLowerCase())
+  );
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -264,125 +440,288 @@ export default function Settings({ onLogout }: SettingsProps) {
           <h1 className="text-2xl font-bold" data-testid="text-settings-title">Settings</h1>
           <HelpTooltip
             title="About Settings"
-            content="Manage your profile information, change your password, and configure multi-factor authentication (MFA) for enhanced security. Use a TOTP authenticator app like Google Authenticator or Authy."
+            content="Manage your profile information, change your password, and configure multi-factor authentication (MFA) for enhanced security."
           />
         </div>
         <p className="text-muted-foreground">Manage your account and security settings</p>
       </div>
 
+      {/* ── Profile Information Card ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <User className="w-5 h-5" />
             Profile Information
           </CardTitle>
-          <CardDescription>Update your personal information</CardDescription>
+          <CardDescription>Update your personal information and how BudgetSmart addresses you</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           {sessionLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin" />
             </div>
           ) : (
-            <Form {...profileForm}>
-              <form onSubmit={profileForm.handleSubmit((data) => updateProfileMutation.mutate(data))} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={profileForm.control}
-                    name="firstName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>First Name</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="John" data-testid="input-first-name" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
+            <>
+              {/* ── Avatar Section ── */}
+              <div className="flex flex-col items-center gap-3">
+                <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                  <div className={`w-24 h-24 rounded-full overflow-hidden flex items-center justify-center text-white text-2xl font-bold shadow-lg ${!avatarPreview ? avatarColor : ""}`}>
+                    {avatarPreview ? (
+                      <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{initials}</span>
                     )}
-                  />
-                  <FormField
-                    control={profileForm.control}
-                    name="lastName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Last Name</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Doe" data-testid="input-last-name" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  </div>
+                  <div className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1">
+                    <Camera className="w-5 h-5 text-white" />
+                    <span className="text-white text-xs font-medium">Change photo</span>
+                  </div>
                 </div>
-                <FormField
-                  control={profileForm.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="email" placeholder="john@example.com" data-testid="input-email" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileChange}
                 />
-                <FormField
-                  control={profileForm.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="tel" placeholder="+1 (555) 123-4567" data-testid="input-phone" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                <div className="flex gap-2">
+                  {avatarFile && (
+                    <Button
+                      size="sm"
+                      onClick={() => uploadAvatarMutation.mutate(avatarFile)}
+                      disabled={uploadAvatarMutation.isPending}
+                      data-testid="button-save-photo"
+                    >
+                      {uploadAvatarMutation.isPending ? (
+                        <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Saving...</>
+                      ) : (
+                        <><Camera className="w-3 h-3 mr-1" />Save Photo</>
+                      )}
+                    </Button>
                   )}
-                />
-                <FormField
-                  control={profileForm.control}
-                  name="country"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Country</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "US"}>
+                  {(avatarPreview && !avatarFile) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => removeAvatarMutation.mutate()}
+                      disabled={removeAvatarMutation.isPending}
+                      data-testid="button-remove-photo"
+                    >
+                      {removeAvatarMutation.isPending ? (
+                        <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Removing...</>
+                      ) : (
+                        "Remove Photo"
+                      )}
+                    </Button>
+                  )}
+                  {!avatarPreview && !avatarFile && (
+                    <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                      <Camera className="w-3 h-3 mr-1" />Upload Photo
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Profile Form ── */}
+              <Form {...profileForm}>
+                <form onSubmit={profileForm.handleSubmit((data) => updateProfileMutation.mutate(data))} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={profileForm.control}
+                      name="firstName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>First Name</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="John" data-testid="input-first-name" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={profileForm.control}
+                      name="lastName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Last Name</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="Doe" data-testid="input-last-name" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={profileForm.control}
+                    name="displayName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                          Display Name
+                        </FormLabel>
                         <FormControl>
-                          <SelectTrigger data-testid="select-country">
-                            <SelectValue placeholder="Select your country" />
-                          </SelectTrigger>
+                          <Input {...field} placeholder="e.g. Johnny" data-testid="input-display-name" />
                         </FormControl>
+                        <p className="text-xs text-muted-foreground">We'll address you by this name in the app and emails</p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={profileForm.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="email" placeholder="john@example.com" data-testid="input-email" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={profileForm.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="tel" placeholder="+1 (555) 123-4567" data-testid="input-phone" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={profileForm.control}
+                    name="country"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Country</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || "US"}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-country">
+                              <SelectValue placeholder="Select your country" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {COUNTRIES.map((country) => (
+                              <SelectItem key={country.code} value={country.code}>
+                                {country.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Birthday */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium flex items-center gap-1">
+                      <Cake className="w-3.5 h-3.5 text-pink-500" />
+                      Birthday
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Select value={bdMonth} onValueChange={setBdMonth}>
+                        <SelectTrigger data-testid="select-bd-month">
+                          <SelectValue placeholder="Month" />
+                        </SelectTrigger>
                         <SelectContent>
-                          {COUNTRIES.map((country) => (
-                            <SelectItem key={country.code} value={country.code}>
-                              {country.name}
-                            </SelectItem>
+                          {MONTHS.map((m) => (
+                            <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button 
-                  type="submit" 
-                  disabled={updateProfileMutation.isPending}
-                  data-testid="button-save-profile"
-                >
-                  {updateProfileMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Profile
-                    </>
-                  )}
-                </Button>
-              </form>
-            </Form>
+                      <Select value={bdDay} onValueChange={setBdDay}>
+                        <SelectTrigger data-testid="select-bd-day">
+                          <SelectValue placeholder="Day" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {days.map((d) => (
+                            <SelectItem key={d} value={d}>{parseInt(d)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={bdYear} onValueChange={setBdYear}>
+                        <SelectTrigger data-testid="select-bd-year">
+                          <SelectValue placeholder="Year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {years.map((y) => (
+                            <SelectItem key={y} value={y}>{y}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Helps us personalize your experience</p>
+                  </div>
+
+                  {/* Timezone */}
+                  <FormField
+                    control={profileForm.control}
+                    name="timezone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-1">
+                          <Globe className="w-3.5 h-3.5 text-blue-500" />
+                          Timezone
+                        </FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || "America/Toronto"}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-timezone">
+                              <SelectValue placeholder="Select timezone" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <div className="p-2">
+                              <input
+                                className="w-full px-2 py-1 text-sm border rounded mb-1 bg-background"
+                                placeholder="Search timezones..."
+                                value={tzSearch}
+                                onChange={(e) => setTzSearch(e.target.value)}
+                              />
+                            </div>
+                            {filteredTimezones.map((tz) => (
+                              <SelectItem key={tz} value={tz}>
+                                {getTimezoneLabel(tz)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {localTime && (
+                          <p className="text-xs text-muted-foreground">
+                            Current local time: <span className="font-medium text-foreground">{localTime}</span>
+                          </p>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <Button
+                    type="submit"
+                    disabled={updateProfileMutation.isPending}
+                    data-testid="button-save-profile"
+                  >
+                    {updateProfileMutation.isPending ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</>
+                    ) : (
+                      <><Save className="w-4 h-4 mr-2" />Save Changes</>
+                    )}
+                  </Button>
+                </form>
+              </Form>
+            </>
           )}
         </CardContent>
       </Card>
@@ -450,9 +789,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                   <span className="text-sm">
                     Trial ends on{" "}
                     {new Date((subscriptionData as any)?.trialEndsAt).toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
+                      month: "long", day: "numeric", year: "numeric",
                     })}
                   </span>
                 </div>
@@ -463,9 +800,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                   <span>Next billing date</span>
                   <span>
                     {new Date((subscriptionData as any)?.subscriptionEndsAt).toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
+                      month: "long", day: "numeric", year: "numeric",
                     })}
                   </span>
                 </div>
@@ -478,15 +813,9 @@ export default function Settings({ onLogout }: SettingsProps) {
                 className="w-full"
               >
                 {billingPortalMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Opening...
-                  </>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Opening...</>
                 ) : (
-                  <>
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Manage Subscription
-                  </>
+                  <><ExternalLink className="w-4 h-4 mr-2" />Manage Subscription</>
                 )}
               </Button>
             </>
@@ -543,15 +872,9 @@ export default function Settings({ onLogout }: SettingsProps) {
               data-testid="button-setup-mfa"
             >
               {setupMfaMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Loading...
-                </>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading...</>
               ) : (
-                <>
-                  <QrCode className="w-4 h-4 mr-2" />
-                  Enable 2FA
-                </>
+                <><QrCode className="w-4 h-4 mr-2" />Enable 2FA</>
               )}
             </Button>
           )}
@@ -569,13 +892,9 @@ export default function Settings({ onLogout }: SettingsProps) {
         </CardContent>
       </Card>
 
-      {/* ── 2FA Setup Modal (3 steps) ── */}
+      {/* ── 2FA Setup Modal ── */}
       <Dialog open={mfaModalOpen} onOpenChange={(open) => {
-        if (!open) {
-          setMfaModalOpen(false);
-          setMfaSetupData(null);
-          mfaForm.reset();
-        }
+        if (!open) { setMfaModalOpen(false); setMfaSetupData(null); mfaForm.reset(); }
       }}>
         <DialogContent className="sm:max-w-md">
           {mfaModalStep === "qr" && mfaSetupData && (
@@ -614,9 +933,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                     </Button>
                   </div>
                 </div>
-                <Button className="w-full" onClick={() => setMfaModalStep("verify")}>
-                  Continue
-                </Button>
+                <Button className="w-full" onClick={() => setMfaModalStep("verify")}>Continue</Button>
               </div>
             </>
           )}
@@ -656,18 +973,11 @@ export default function Settings({ onLogout }: SettingsProps) {
                     )}
                   />
                   <div className="flex gap-2">
-                    <Button type="button" variant="outline" onClick={() => setMfaModalStep("qr")} className="flex-1">
-                      Back
-                    </Button>
+                    <Button type="button" variant="outline" onClick={() => setMfaModalStep("qr")} className="flex-1">Back</Button>
                     <Button type="submit" disabled={enableMfaMutation.isPending} className="flex-1" data-testid="button-enable-mfa">
                       {enableMfaMutation.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Verifying...
-                        </>
-                      ) : (
-                        "Verify"
-                      )}
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying...</>
+                      ) : "Verify"}
                     </Button>
                   </div>
                 </form>
@@ -697,21 +1007,14 @@ export default function Settings({ onLogout }: SettingsProps) {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {backupCodes.map((code) => (
-                    <code key={code} className="text-center font-mono text-sm bg-muted rounded px-2 py-1">
-                      {code}
-                    </code>
+                    <code key={code} className="text-center font-mono text-sm bg-muted rounded px-2 py-1">{code}</code>
                   ))}
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={handleDownloadBackupCodes} className="flex-1">
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
+                    <Download className="w-4 h-4 mr-2" />Download
                   </Button>
-                  <Button onClick={() => {
-                    setMfaModalOpen(false);
-                    setMfaSetupData(null);
-                    setBackupCodes([]);
-                  }} className="flex-1">
+                  <Button onClick={() => { setMfaModalOpen(false); setMfaSetupData(null); setBackupCodes([]); }} className="flex-1">
                     Done
                   </Button>
                 </div>
@@ -723,10 +1026,7 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       {/* ── Disable 2FA Modal ── */}
       <Dialog open={disableMfaModalOpen} onOpenChange={(open) => {
-        if (!open) {
-          setDisableMfaModalOpen(false);
-          disableMfaForm.reset();
-        }
+        if (!open) { setDisableMfaModalOpen(false); disableMfaForm.reset(); }
       }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -762,18 +1062,11 @@ export default function Settings({ onLogout }: SettingsProps) {
                 )}
               />
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setDisableMfaModalOpen(false)} className="flex-1">
-                  Cancel
-                </Button>
+                <Button type="button" variant="outline" onClick={() => setDisableMfaModalOpen(false)} className="flex-1">Cancel</Button>
                 <Button type="submit" variant="destructive" disabled={disableMfaMutation.isPending} className="flex-1">
                   {disableMfaMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Disabling...
-                    </>
-                  ) : (
-                    "Disable 2FA"
-                  )}
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Disabling...</>
+                  ) : "Disable 2FA"}
                 </Button>
               </div>
             </form>
@@ -789,9 +1082,7 @@ export default function Settings({ onLogout }: SettingsProps) {
             <Database className="w-5 h-5" />
             Account Data
           </CardTitle>
-          <CardDescription>
-            Manage your account data and deletion options
-          </CardDescription>
+          <CardDescription>Manage your account data and deletion options</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/20">
@@ -833,22 +1124,16 @@ export default function Settings({ onLogout }: SettingsProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={() => logoutMutation.mutate()}
             disabled={logoutMutation.isPending}
             data-testid="button-logout"
           >
             {logoutMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Logging out...
-              </>
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Logging out...</>
             ) : (
-              <>
-                <LogOut className="w-4 h-4 mr-2" />
-                Log Out
-              </>
+              <><LogOut className="w-4 h-4 mr-2" />Log Out</>
             )}
           </Button>
         </CardContent>
@@ -873,9 +1158,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                 <li>Categories and reconciliation rules</li>
                 <li>All personal and profile information</li>
               </ul>
-              <p className="font-medium text-destructive">
-                This action cannot be undone.
-              </p>
+              <p className="font-medium text-destructive">This action cannot be undone.</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -887,15 +1170,9 @@ export default function Settings({ onLogout }: SettingsProps) {
               data-testid="button-confirm-delete"
             >
               {deleteAccountMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Deleting...</>
               ) : (
-                <>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Yes, Delete My Account
-                </>
+                <><Trash2 className="w-4 h-4 mr-2" />Yes, Delete My Account</>
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
