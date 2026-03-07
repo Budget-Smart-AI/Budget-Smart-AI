@@ -181,6 +181,11 @@ const adminMenuItems = [
     url: "/admin/bank-providers",
     icon: Building2,
   },
+  {
+    title: "Audit Log",
+    url: "/admin/audit-log",
+    icon: Shield,
+  },
 ];
 
 interface AppSidebarProps {

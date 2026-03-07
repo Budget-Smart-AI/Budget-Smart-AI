@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "@shared/schema";
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
@@ -461,4 +461,37 @@ export async function ensureBankProviderTable(): Promise<void> {
       )
     ON CONFLICT (provider_id) DO NOTHING
   `);
+}
+
+/**
+ * Ensure the audit_log table and its indexes exist.
+ * Safe to call on every startup (uses IF NOT EXISTS throughout).
+ * Minimum retention is 2 years — enforced by the weekly cleanup job in email.ts.
+ */
+export async function ensureAuditLogTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      event_type VARCHAR(100) NOT NULL,
+      event_category VARCHAR(50) NOT NULL,
+      actor_id VARCHAR(255),
+      actor_type VARCHAR(50) DEFAULT 'user',
+      actor_ip VARCHAR(50),
+      actor_user_agent TEXT,
+      target_type VARCHAR(100),
+      target_id VARCHAR(255),
+      target_user_id VARCHAR(255),
+      action VARCHAR(100) NOT NULL,
+      outcome VARCHAR(20) DEFAULT 'success',
+      metadata JSONB,
+      error_message TEXT,
+      session_id VARCHAR(255),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_actor   ON audit_log(actor_id,       created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_event   ON audit_log(event_type,     created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_target  ON audit_log(target_user_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`);
 }
