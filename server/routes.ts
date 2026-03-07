@@ -38,6 +38,7 @@ import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
+import { auditLogFromRequest } from "./audit-logger";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -253,6 +254,14 @@ export async function registerRoutes(
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=bills_export.csv");
       res.send(csvContent);
+      auditLogFromRequest(req, {
+        eventType: "data.export_requested",
+        eventCategory: "data",
+        actorId: userId,
+        action: "export_bills_csv",
+        outcome: "success",
+        metadata: { count: bills.length },
+      });
     } catch (error) {
       console.error("Bills export error:", error);
       res.status(500).json({ error: "Failed to export bills" });
@@ -2113,6 +2122,14 @@ Return JSON: { "income": [...] }`;
       await sendEmailVerification(email, firstName, verificationToken);
 
       // Return response indicating email verification is required
+      auditLogFromRequest(req, {
+        eventType: "user.created",
+        eventCategory: "user",
+        actorId: user.id,
+        action: "register",
+        outcome: "success",
+        metadata: { username, email },
+      });
       res.json({
         success: true,
         emailVerificationRequired: true,
@@ -2239,11 +2256,29 @@ Return JSON: { "income": [...] }`;
       const user = await storage.getUserByUsername(username);
       
       if (!user) {
+        auditLogFromRequest(req, {
+          eventType: "auth.login_failed",
+          eventCategory: "auth",
+          actorId: null,
+          action: "login",
+          outcome: "failure",
+          metadata: { username },
+          errorMessage: "User not found",
+        });
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
       const validPassword = await verifyPassword(password, user.password);
       if (!validPassword) {
+        auditLogFromRequest(req, {
+          eventType: "auth.login_failed",
+          eventCategory: "auth",
+          actorId: user.id,
+          action: "login",
+          outcome: "failure",
+          metadata: { username },
+          errorMessage: "Invalid password",
+        });
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
@@ -2336,6 +2371,14 @@ Return JSON: { "income": [...] }`;
             console.error("Session save error:", err);
             return res.status(500).json({ error: "Session save failed" });
           }
+          auditLogFromRequest(req, {
+            eventType: "auth.login",
+            eventCategory: "auth",
+            actorId: user.id,
+            action: "login",
+            outcome: "success",
+            metadata: { username: user.username, isAdmin: user.isAdmin === "true" },
+          });
           res.json({
             success: true,
             username: user.username,
@@ -2393,6 +2436,14 @@ Return JSON: { "income": [...] }`;
   });
 
   app.post("/api/auth/logout", (req, res) => {
+    const userId = req.session?.userId ?? null;
+    auditLogFromRequest(req, {
+      eventType: "auth.logout",
+      eventCategory: "auth",
+      actorId: userId,
+      action: "logout",
+      outcome: "success",
+    });
     req.session.destroy((err) => {
       if (err) {
         return res.status(500).json({ error: "Logout failed" });
@@ -2472,6 +2523,14 @@ Return JSON: { "income": [...] }`;
       }
 
       console.log(`[audit] auth.password_change userId=${userId}`);
+
+      auditLogFromRequest(req, {
+        eventType: "auth.password_change",
+        eventCategory: "auth",
+        actorId: userId,
+        action: "change_password",
+        outcome: "success",
+      });
 
       res.json({ success: true });
     } catch (error) {
@@ -2607,6 +2666,13 @@ Return JSON: { "income": [...] }`;
       await storage.deleteUser(userId);
 
       // Destroy the session
+      auditLogFromRequest(req, {
+        eventType: "data.account_deleted",
+        eventCategory: "data",
+        actorId: userId,
+        action: "delete_account",
+        outcome: "success",
+      });
       req.session.destroy((err) => {
         if (err) {
           console.error("Session destroy error after account deletion:", err);
@@ -2937,7 +3003,7 @@ Return JSON: { "income": [...] }`;
   });
 
   // Admin: User Management Routes
-  app.get("/api/admin/users", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/users", requireAdmin, async (req, res) => {
     try {
       const users = await storage.getUsers();
       // Return users without sensitive data
@@ -2954,6 +3020,15 @@ Return JSON: { "income": [...] }`;
         subscriptionPlanId: user.subscriptionPlanId,
         subscriptionStatus: user.subscriptionStatus,
       }));
+      auditLogFromRequest(req, {
+        eventType: "admin.user_viewed",
+        eventCategory: "admin",
+        actorId: req.session.userId,
+        actorType: "admin",
+        action: "list_users",
+        outcome: "success",
+        metadata: { count: safeUsers.length },
+      });
       res.json(safeUsers);
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -3083,6 +3158,16 @@ Return JSON: { "income": [...] }`;
         return res.status(404).json({ error: "User not found" });
       }
 
+      auditLogFromRequest(req, {
+        eventType: "user.deleted",
+        eventCategory: "user",
+        actorId: req.session.userId,
+        actorType: "admin",
+        targetType: "user",
+        targetId: userId,
+        action: "admin_delete_user",
+        outcome: "success",
+      });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting user:", error);
@@ -3377,6 +3462,93 @@ Return JSON: { "income": [...] }`;
     } catch (error) {
       console.error("Ticket reply error:", error);
       res.status(500).json({ error: "Failed to send reply" });
+    }
+  });
+
+  // ==================== ADMIN AUDIT LOG ROUTES ====================
+
+  app.get("/api/admin/audit-log", requireAdmin, async (req, res) => {
+    try {
+      const {
+        from,
+        to,
+        eventType,
+        outcome,
+        actorId,
+        targetUserId,
+        limit = "200",
+        offset = "0",
+      } = req.query as Record<string, string>;
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let idx = 1;
+
+      if (from) {
+        conditions.push(`created_at >= $${idx++}`);
+        params.push(new Date(from));
+      }
+      if (to) {
+        conditions.push(`created_at <= $${idx++}`);
+        params.push(new Date(to));
+      }
+      if (eventType) {
+        conditions.push(`event_type = $${idx++}`);
+        params.push(eventType);
+      }
+      if (outcome) {
+        conditions.push(`outcome = $${idx++}`);
+        params.push(outcome);
+      }
+      if (actorId) {
+        conditions.push(`actor_id = $${idx++}`);
+        params.push(actorId);
+      }
+      if (targetUserId) {
+        conditions.push(`target_user_id = $${idx++}`);
+        params.push(targetUserId);
+      }
+
+      const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      const limitN = Math.min(parseInt(limit, 10) || 200, 1000);
+      const offsetN = parseInt(offset, 10) || 0;
+
+      const pool = (db as any).$client as import("pg").Pool;
+      const result = await pool.query(
+        `SELECT id, event_type, event_category, actor_id, actor_type,
+                actor_ip, actor_user_agent, target_type, target_id, target_user_id,
+                action, outcome, metadata, error_message, session_id, created_at
+           FROM audit_log
+          ${where}
+          ORDER BY created_at DESC
+          LIMIT $${idx++} OFFSET $${idx++}`,
+        [...params, limitN, offsetN],
+      );
+
+      const countResult = await pool.query(
+        `SELECT COUNT(*) AS total FROM audit_log ${where}`,
+        params,
+      );
+
+      auditLogFromRequest(req, {
+        eventType: "admin.data_accessed",
+        eventCategory: "admin",
+        actorId: req.session.userId,
+        actorType: "admin",
+        action: "view_audit_log",
+        outcome: "success",
+        metadata: { filters: { from, to, eventType, outcome, actorId, targetUserId }, returned: result.rowCount },
+      });
+
+      res.json({
+        rows: result.rows,
+        total: parseInt(countResult.rows[0]?.total ?? "0", 10),
+        limit: limitN,
+        offset: offsetN,
+      });
+    } catch (error) {
+      console.error("Error fetching audit log:", error);
+      res.status(500).json({ error: "Failed to fetch audit log" });
     }
   });
 
@@ -3858,6 +4030,14 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       }
 
       res.json({ success: true, item: { id: plaidItem.id, institutionName: plaidItem.institutionName } });
+      auditLogFromRequest(req, {
+        eventType: "data.bank_connected",
+        eventCategory: "data",
+        actorId: req.session.userId,
+        action: "plaid_bank_connected",
+        outcome: "success",
+        metadata: { itemId: plaidItem.id, institutionName: plaidItem.institutionName },
+      });
     } catch (error: any) {
       console.error("Error exchanging token:", error?.response?.data || error);
       res.status(500).json({ error: "Failed to connect bank account" });
@@ -4769,6 +4949,14 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       }
 
       res.status(204).send();
+      auditLogFromRequest(req, {
+        eventType: "data.bank_disconnected",
+        eventCategory: "data",
+        actorId: req.session.userId,
+        action: "plaid_bank_disconnected",
+        outcome: "success",
+        metadata: { itemId: id, institutionName: item.institutionName },
+      });
     } catch (error) {
       console.error("Error disconnecting bank account:", error);
       res.status(500).json({ error: "Failed to disconnect bank account" });
@@ -5077,6 +5265,14 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       }
 
       res.status(204).send();
+      auditLogFromRequest(req, {
+        eventType: "data.bank_disconnected",
+        eventCategory: "data",
+        actorId: req.session.userId,
+        action: "mx_bank_disconnected",
+        outcome: "success",
+        metadata: { memberId: member.id },
+      });
     } catch (error: any) {
       console.error("Error deleting MX member:", error);
       res.status(500).json({ error: "Failed to delete member" });

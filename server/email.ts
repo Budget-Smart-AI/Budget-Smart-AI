@@ -256,7 +256,15 @@ async function runDataRetentionCleanup(): Promise<void> {
     const r2 = await (db as any).$client.query(
       `DELETE FROM anomaly_alerts WHERE is_dismissed = true AND dismissed_at < NOW() - INTERVAL '180 days'`,
     );
-    console.log(`[Retention] Deleted ${r1.rowCount} AI log rows and ${r2.rowCount} dismissed anomaly alerts`);
+    // SOC 2: Retain audit logs for a minimum of 2 years
+    const r3 = await (db as any).$client.query(
+      `DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '2 years'`,
+    );
+    console.log(
+      `[Retention] Deleted ${r1.rowCount} AI log rows, ` +
+      `${r2.rowCount} dismissed anomaly alerts, ` +
+      `${r3.rowCount} expired audit log entries`,
+    );
   } catch (err) {
     console.error("[Retention] Data retention cleanup failed:", err);
   }

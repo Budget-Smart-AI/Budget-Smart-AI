@@ -17,7 +17,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -180,6 +180,10 @@ app.use((req, res, next) => {
 
   await ensurePreferenceColumns().catch(err =>
     console.error("Failed to ensure preference columns — user preferences and needs-review flag will not work:", err)
+  );
+
+  await ensureAuditLogTable().catch(err =>
+    console.error("Failed to ensure audit log table — SOC 2 audit logging will not work:", err)
   );
 
   await registerRoutes(httpServer, app);
