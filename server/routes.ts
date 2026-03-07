@@ -2088,7 +2088,7 @@ Return JSON: { "income": [...] }`;
   });
 
   // Change password endpoint
-  app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+  app.post("/api/auth/change-password", authRateLimiter, requireAuth, async (req, res) => {
     try {
       const { currentPassword, newPassword, confirmPassword } = req.body;
 

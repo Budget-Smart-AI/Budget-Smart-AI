@@ -1433,7 +1433,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                       <li>Budgets, savings goals, and financial reports</li>
                       <li>Categories and reconciliation rules</li>
                       <li>All personal and profile information</li>
-                      <li>Documents uploaded to your vault</li>
+                      <li>documents uploaded to your vault</li>
                     </ul>
                     <p className="font-semibold text-destructive">This action cannot be undone.</p>
                   </div>
