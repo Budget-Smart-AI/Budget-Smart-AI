@@ -30,7 +30,9 @@ export type AuditEventType =
   | "security.rate_limit_exceeded"
   | "security.suspicious_activity"
   | "billing.subscription_created"
-  | "billing.subscription_cancelled";
+  | "billing.subscription_cancelled"
+  | "billing.bill_reminder_sent"
+  | "data.ai_coach_run";
 
 export type AuditOutcome = "success" | "failure" | "blocked";
 

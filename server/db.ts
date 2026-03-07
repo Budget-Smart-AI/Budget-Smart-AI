@@ -490,6 +490,19 @@ export async function ensureAuditLogTable(): Promise<void> {
     )
   `);
 
+  // Ensure all columns exist for deployments where the table was created by an older schema.
+  // ADD COLUMN IF NOT EXISTS is a no-op when the column already exists.
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_type VARCHAR(50) DEFAULT 'user'`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_ip VARCHAR(50)`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_user_agent TEXT`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS target_type VARCHAR(100)`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS target_id VARCHAR(255)`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS target_user_id VARCHAR(255)`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS outcome VARCHAR(20) DEFAULT 'success'`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS metadata JSONB`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS error_message TEXT`);
+  await pool.query(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS session_id VARCHAR(255)`);
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_actor   ON audit_log(actor_id,       created_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_event   ON audit_log(event_type,     created_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_target  ON audit_log(target_user_id, created_at DESC)`);
