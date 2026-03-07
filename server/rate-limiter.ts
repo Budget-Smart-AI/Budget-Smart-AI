@@ -46,6 +46,22 @@ export function createRateLimiter(config: RateLimitConfig) {
     res.setHeader("X-RateLimit-Reset", Math.ceil(entry.resetAt / 1000));
     
     if (entry.count > config.maxRequests) {
+      // Fire-and-forget audit log for rate limit exceeded
+      import("./audit-logger").then(({ auditLog, getClientIp }) => {
+        auditLog({
+          eventType: "security.rate_limit_exceeded",
+          eventCategory: "security",
+          actorId: userId === "anonymous" ? null : userId,
+          actorIp: getClientIp(req),
+          actorUserAgent: req.headers?.["user-agent"] ?? null,
+          action: "rate_limit_exceeded",
+          outcome: "blocked",
+          metadata: { path: req.path, ip },
+        });
+      }).catch((err) => {
+        console.error("[RateLimiter] Failed to write audit entry:", err);
+      });
+
       return res.status(429).json({
         error: config.message || "Too many requests, please try again later"
       });
@@ -62,8 +78,8 @@ export const authRateLimiter = createRateLimiter({
 });
 
 export const apiRateLimiter = createRateLimiter({
-  windowMs: 60 * 1000,
-  maxRequests: 100,
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 500,
   message: "Too many requests, please slow down"
 });
 

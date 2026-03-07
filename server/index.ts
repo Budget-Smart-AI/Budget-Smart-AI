@@ -10,6 +10,7 @@ process.on("unhandledRejection", (reason) => {
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -17,7 +18,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -43,13 +44,50 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
+// HTTPS redirect in production
+if (process.env.NODE_ENV === "production") {
+  app.use((req, res, next) => {
+    if (req.headers["x-forwarded-proto"] !== "https") {
+      return res.redirect(301, "https://" + req.headers.host + req.url);
+    }
+    next();
+  });
+}
+
+// Security headers via helmet
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.plaid.com", "https://assets.mx.com"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: [
+          "'self'",
+          "https://api.plaid.com",
+          "https://api.mx.com",
+          "https://api.deepseek.com",
+          "https://api.openai.com",
+          "https://api.brandfetch.io",
+        ],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+      },
+    },
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    noSniff: true,
+    referrerPolicy: { policy: "strict-origin" },
+  })
+);
+
 const PgStore = connectPgSimple(session);
 
 if (!process.env.DATABASE_URL) {
   console.warn("Warning: DATABASE_URL not set. Session store will not work correctly.");
 }
 
-const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+const SESSION_MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
 app.use(
   session({
@@ -66,7 +104,7 @@ app.use(
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       maxAge: SESSION_MAX_AGE,
-      sameSite: "lax",
+      sameSite: "strict",
       // Only set a specific cookie domain when MAIN_DOMAIN is explicitly
       // configured; omitting it allows the cookie to work on any host
       // (e.g. Railway, Replit, or a custom domain) without the browser
@@ -184,6 +222,10 @@ app.use((req, res, next) => {
 
   await ensureAuditLogTable().catch(err =>
     console.error("Failed to ensure audit log table — SOC 2 audit logging will not work:", err)
+  );
+
+  await ensureLoginSecurityColumns().catch(err =>
+    console.error("Failed to ensure login security columns — account lockout will not work:", err)
   );
 
   await registerRoutes(httpServer, app);
