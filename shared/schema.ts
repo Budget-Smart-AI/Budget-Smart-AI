@@ -580,6 +580,12 @@ export const users = pgTable("users", {
   birthday: text("birthday"), // ISO date YYYY-MM-DD
   timezone: text("timezone").default("America/Toronto"), // IANA timezone string
   avatarUrl: text("avatar_url"), // Cloudflare R2 public URL for avatar photo
+  // Household / address fields
+  householdName: text("household_name"), // e.g. "The Smith Family"
+  addressLine1: text("address_line1"),
+  city: text("city"),
+  provinceState: text("province_state"),
+  postalCode: text("postal_code"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -1856,3 +1862,36 @@ export const insertSupportTicketMessageSchema = createInsertSchema(supportTicket
 });
 export type SupportTicketMessage = typeof supportTicketMessages.$inferSelect;
 export type InsertSupportTicketMessage = z.infer<typeof insertSupportTicketMessageSchema>;
+
+// Financial Professional Access table
+export const financialProfessionals = pgTable("financial_professionals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
+  professionalEmail: text("professional_email").notNull(),
+  professionalName: text("professional_name"),
+  accessToken: text("access_token").notNull(),
+  grantedAt: text("granted_at"),
+  expiresAt: text("expires_at").notNull(),
+  isActive: text("is_active").default("true"),
+  createdAt: text("created_at"),
+});
+
+export type FinancialProfessional = typeof financialProfessionals.$inferSelect;
+
+// Zod schema for updating household/address info on the users record
+export const updateHouseholdSchema = z.object({
+  householdName: z.string().max(200).optional().nullable(),
+  country: z.string().optional().nullable(),
+  addressLine1: z.string().max(255).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
+  provinceState: z.string().max(100).optional().nullable(),
+  postalCode: z.string().max(20).optional().nullable(),
+});
+export type UpdateHouseholdInput = z.infer<typeof updateHouseholdSchema>;
+
+// Zod schema for granting financial professional access
+export const grantFinancialAccessSchema = z.object({
+  professionalEmail: z.string().email("Valid email required"),
+  professionalName: z.string().max(255).optional(),
+});
+export type GrantFinancialAccessInput = z.infer<typeof grantFinancialAccessSchema>;

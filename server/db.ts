@@ -349,6 +349,32 @@ export async function ensureProfileColumns(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
 }
 
+export async function ensureHouseholdColumns(): Promise<void> {
+  // Household / address columns on users table
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS household_name VARCHAR(200)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS address_line1 VARCHAR(255)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS city VARCHAR(100)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS province_state VARCHAR(100)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)`);
+  // country column already exists (added by initial schema), just ensure it has a default
+  await pool.query(`ALTER TABLE users ALTER COLUMN country SET DEFAULT 'Canada'`);
+
+  // Financial professional access table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS financial_professionals (
+      id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+      professional_email TEXT NOT NULL,
+      professional_name TEXT,
+      access_token TEXT NOT NULL,
+      granted_at TEXT DEFAULT NOW()::text,
+      expires_at TEXT NOT NULL,
+      is_active TEXT DEFAULT 'true',
+      created_at TEXT DEFAULT NOW()::text
+    )
+  `);
+}
+
 export async function ensureBankProviderTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_provider_config (

@@ -56,6 +56,7 @@ import {
   type Receipt, type InsertReceipt,
   type SupportTicket, type InsertSupportTicket,
   type SupportTicketMessage, type InsertSupportTicketMessage,
+  type FinancialProfessional,
   supportTickets, supportTicketMessages,
   users, bills, expenses, income, budgets, savingsGoals,
   plaidItems, plaidAccounts, plaidTransactions,
@@ -77,7 +78,8 @@ import {
   salesChatSessions, salesChatMessages, salesLeads,
   autopilotRules, leakAlerts, trialEvents, whatIfScenarios,
   spendabilitySnapshots, paydayRecommendations,
-  receipts
+  receipts,
+  financialProfessionals
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -272,6 +274,14 @@ export interface IStorage {
   getBudgetsByUserIdsAndMonth(userIds: string[], month: string): Promise<Budget[]>;
   getSavingsGoalsByUserIds(userIds: string[]): Promise<SavingsGoal[]>;
   getPlaidItemsByUserIds(userIds: string[]): Promise<PlaidItem[]>;
+
+  // Household address / general info
+  updateUserHousehold(userId: string, updates: { householdName?: string | null; country?: string | null; addressLine1?: string | null; city?: string | null; provinceState?: string | null; postalCode?: string | null }): Promise<User | undefined>;
+
+  // Financial Professional Access
+  getFinancialProfessional(userId: string): Promise<FinancialProfessional | undefined>;
+  grantFinancialAccess(userId: string, professionalEmail: string, professionalName: string | undefined, accessToken: string, expiresAt: string): Promise<FinancialProfessional>;
+  revokeFinancialAccess(userId: string): Promise<boolean>;
 
   // Referral Program
   getReferralCode(userId: string): Promise<ReferralCode | undefined>;
@@ -961,6 +971,13 @@ export class MemStorage implements IStorage {
   async getBudgetsByUserIdsAndMonth(_userIds: string[], _month: string): Promise<Budget[]> { return []; }
   async getSavingsGoalsByUserIds(_userIds: string[]): Promise<SavingsGoal[]> { return []; }
   async getPlaidItemsByUserIds(_userIds: string[]): Promise<PlaidItem[]> { return []; }
+
+  async updateUserHousehold(_userId: string, _updates: { householdName?: string | null; country?: string | null; addressLine1?: string | null; city?: string | null; provinceState?: string | null; postalCode?: string | null }): Promise<User | undefined> { return undefined; }
+  async getFinancialProfessional(_userId: string): Promise<FinancialProfessional | undefined> { return undefined; }
+  async grantFinancialAccess(_userId: string, professionalEmail: string, professionalName: string | undefined, accessToken: string, expiresAt: string): Promise<FinancialProfessional> {
+    return { id: randomUUID(), userId: _userId, professionalEmail, professionalName: professionalName || null, accessToken, grantedAt: new Date().toISOString(), expiresAt, isActive: "true", createdAt: new Date().toISOString() };
+  }
+  async revokeFinancialAccess(_userId: string): Promise<boolean> { return false; }
 
   // Manual Accounts stubs (MemStorage)
   async getManualAccounts(_userId: string): Promise<ManualAccount[]> { return []; }
@@ -2213,6 +2230,57 @@ export class DatabaseStorage implements IStorage {
   async getPlaidItemsByUserIds(userIds: string[]): Promise<PlaidItem[]> {
     if (userIds.length === 0) return [];
     return db.select().from(plaidItems).where(inArray(plaidItems.userId, userIds));
+  }
+
+  async updateUserHousehold(userId: string, updates: { householdName?: string | null; country?: string | null; addressLine1?: string | null; city?: string | null; provinceState?: string | null; postalCode?: string | null }): Promise<User | undefined> {
+    const updateData: Record<string, unknown> = {};
+    if (updates.householdName !== undefined) updateData.householdName = updates.householdName;
+    if (updates.country !== undefined) updateData.country = updates.country;
+    if (updates.addressLine1 !== undefined) updateData.addressLine1 = updates.addressLine1;
+    if (updates.city !== undefined) updateData.city = updates.city;
+    if (updates.provinceState !== undefined) updateData.provinceState = updates.provinceState;
+    if (updates.postalCode !== undefined) updateData.postalCode = updates.postalCode;
+    if (Object.keys(updateData).length === 0) {
+      return db.select().from(users).where(eq(users.id, userId)).then(r => r[0]);
+    }
+    const result = await db.update(users).set(updateData as Partial<User>).where(eq(users.id, userId)).returning();
+    return result[0] ? this._decryptUser(result[0]) : undefined;
+  }
+
+  async getFinancialProfessional(userId: string): Promise<FinancialProfessional | undefined> {
+    const result = await db.select().from(financialProfessionals)
+      .where(and(eq(financialProfessionals.userId, userId), eq(financialProfessionals.isActive, "true")))
+      .orderBy(desc(financialProfessionals.createdAt))
+      .limit(1);
+    return result[0];
+  }
+
+  async grantFinancialAccess(userId: string, professionalEmail: string, professionalName: string | undefined, accessToken: string, expiresAt: string): Promise<FinancialProfessional> {
+    // Revoke any existing active access first
+    await db.update(financialProfessionals)
+      .set({ isActive: "false" })
+      .where(and(eq(financialProfessionals.userId, userId), eq(financialProfessionals.isActive, "true")));
+    const now = new Date().toISOString();
+    const result = await db.insert(financialProfessionals).values({
+      id: randomUUID(),
+      userId,
+      professionalEmail,
+      professionalName: professionalName || null,
+      accessToken,
+      grantedAt: now,
+      expiresAt,
+      isActive: "true",
+      createdAt: now,
+    }).returning();
+    return result[0];
+  }
+
+  async revokeFinancialAccess(userId: string): Promise<boolean> {
+    const result = await db.update(financialProfessionals)
+      .set({ isActive: "false" })
+      .where(and(eq(financialProfessionals.userId, userId), eq(financialProfessionals.isActive, "true")))
+      .returning();
+    return result.length > 0;
   }
 
   // Referral Program

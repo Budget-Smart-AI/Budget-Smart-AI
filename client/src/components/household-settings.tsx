@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -167,17 +167,20 @@ export function HouseholdSettings() {
 
   const { data: addressData, isLoading: addressLoading } = useQuery<HouseholdAddressData>({
     queryKey: ["/api/user/household"],
-    onSuccess: (data: HouseholdAddressData) => {
-      generalForm.reset({
-        householdName: data.householdName || "",
-        country: data.country || "Canada",
-        addressLine1: data.addressLine1 || "",
-        city: data.city || "",
-        provinceState: data.provinceState || "",
-        postalCode: data.postalCode || "",
-      });
-    },
   });
+
+  useEffect(() => {
+    if (addressData) {
+      generalForm.reset({
+        householdName: addressData.householdName || "",
+        country: addressData.country || "Canada",
+        addressLine1: addressData.addressLine1 || "",
+        city: addressData.city || "",
+        provinceState: addressData.provinceState || "",
+        postalCode: addressData.postalCode || "",
+      });
+    }
+  }, [addressData, generalForm]);
 
   const { data: professionalData, isLoading: professionalLoading } = useQuery<{ professional: FinancialProfessional | null }>({
     queryKey: ["/api/financial-professional"],
@@ -349,8 +352,6 @@ export function HouseholdSettings() {
       : "Province / State";
 
   const isLoading = householdLoading || addressLoading || professionalLoading;
-
-  void addressData;
 
   if (isLoading) {
     return (
