@@ -81,6 +81,30 @@ export default {
           busy: "rgb(239 68 68)",
           offline: "rgb(156 163 175)",
         },
+
+        // ── RGB channel-based design tokens (multi-theme skin system) ──────────
+        // Variables store raw "R G B" channels so Tailwind alpha modifiers work:
+        //   bg-bg/50  →  rgb(249 249 251 / 0.5)
+        //   text-fg   →  rgb(23 23 28)
+        // -----------------------------------------------------------------------
+
+        // Short-form page-level tokens
+        bg:           "rgb(var(--color-bg) / <alpha-value>)",
+        fg:           "rgb(var(--color-fg) / <alpha-value>)",
+
+        // Card / raised-surface tokens
+        surface:      "rgb(var(--color-surface) / <alpha-value>)",
+        "surface-fg": "rgb(var(--color-surface-fg) / <alpha-value>)",
+
+        // Semantic financial tokens (new — identified in theme audit)
+        income:       "rgb(var(--color-income) / <alpha-value>)",
+        expense:      "rgb(var(--color-expense) / <alpha-value>)",
+
+        // Warning / amber CTA accent (vault page, trial badges, etc.)
+        warning: {
+          DEFAULT: "rgb(var(--color-warning) / <alpha-value>)",
+          fg:      "rgb(var(--color-warning-fg) / <alpha-value>)",
+        },
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
