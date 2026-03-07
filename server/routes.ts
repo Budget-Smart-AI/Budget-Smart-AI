@@ -2351,7 +2351,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
-  app.post("/api/auth/mfa/enable", requireAuth, async (req, res) => {
+  app.post("/api/auth/mfa/enable", authRateLimiter, requireAuth, async (req, res) => {
     try {
       const { code } = req.body;
       const pendingSecret = (req.session as any).pendingMfaSecret;
@@ -2390,7 +2390,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
-  app.post("/api/auth/mfa/disable", requireAuth, async (req, res) => {
+  app.post("/api/auth/mfa/disable", authRateLimiter, requireAuth, async (req, res) => {
     try {
       const { code, password } = req.body;
       const user = await storage.getUser(req.session.userId!);
