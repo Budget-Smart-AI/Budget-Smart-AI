@@ -2257,114 +2257,6 @@ export default function Settings({ onLogout }: SettingsProps) {
         </DialogContent>
       </Dialog>
 
-      </>)}
-
-      {/* ── Household Tab ── */}
-      {activeTab === "household" && (
-        <HouseholdSettings />
-      )}
-
-      {/* ── Preferences Tab ── */}
-      {activeTab === "preferences" && (<>
-
-      {/* ── Preferences Card ── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <SlidersHorizontal className="w-5 h-5" />
-            Preferences
-          </CardTitle>
-          <CardDescription>Customize how BudgetSmart handles your transactions</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Toggle 1 — Needs Review */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <Label className="text-sm font-medium">Mark uncategorized transactions as Needs Review</Label>
-              <p className="text-xs text-muted-foreground">
-                Any new uncategorized synced transaction will be flagged. They'll appear in the Needs Review filter on your transactions page.
-              </p>
-            </div>
-            <Switch
-              checked={prefNeedsReview}
-              onCheckedChange={(val) => {
-                setPrefNeedsReview(val);
-                updatePrefMutation.mutate({ prefNeedsReview: val });
-              }}
-            />
-          </div>
-
-          <Separator />
-
-          {/* Toggle 2 — Edit Pending */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <Label className="text-sm font-medium">Allow edits to pending transactions</Label>
-              <p className="text-xs text-muted-foreground">
-                When on, pending transactions are editable and included in reports. Note: if the amount changes when it posts, your edits may be lost.
-              </p>
-            </div>
-            <Switch
-              checked={prefEditPending}
-              onCheckedChange={(val) => {
-                setPrefEditPending(val);
-                updatePrefMutation.mutate({ prefEditPending: val });
-              }}
-            />
-          </div>
-
-          <Separator />
-
-          {/* Toggle 3 — Merchant Display */}
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Show merchant display names</Label>
-            <RadioGroup
-              value={prefMerchantDisplay}
-              onValueChange={(val) => {
-                setPrefMerchantDisplay(val);
-                updatePrefMutation.mutate({ prefMerchantDisplay: val });
-              }}
-              className="space-y-2"
-            >
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="enriched" id="pref-enriched" />
-                <Label htmlFor="pref-enriched" className="text-sm font-normal cursor-pointer">
-                  Clean names <span className="text-muted-foreground">(e.g. Netflix, Starbucks)</span>
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="raw" id="pref-raw" />
-                <Label htmlFor="pref-raw" className="text-sm font-normal cursor-pointer">
-                  Raw bank descriptions <span className="text-muted-foreground">(e.g. NFLX*SUBSCRIPTION CA)</span>
-                </Label>
-              </div>
-            </RadioGroup>
-          </div>
-        </CardContent>
-      </Card>
-
-      </>)}
-
-      {/* ── Accounts Tab ── */}
-      {activeTab === "accounts" && <AccountsTab />}
-
-      {/* ── Categories Tab ── */}
-      {activeTab === "categories" && <CategoriesTab />}
-
-      {/* ── Merchants Tab ── */}
-      {activeTab === "merchants" && <MerchantsPage />}
-
-      {/* ── Data Tab ── */}
-      {activeTab === "data" && <DataTab />}
-
-      {/* ── Billing Tab ── */}
-      {activeTab === "billing" && <BillingTab />}
-
-      {/* ── Notifications Tab ── */}
-      {activeTab === "notifications" && <EmailSettings />}
-
-    </SettingsLayout>
-
       {/* ── Delete Account Multi-Step Dialog ── */}
       <Dialog
         open={deleteStep > 0}
@@ -2509,6 +2401,114 @@ export default function Settings({ onLogout }: SettingsProps) {
           )}
         </DialogContent>
       </Dialog>
+
+      </>)}
+
+      {/* ── Household Tab ── */}
+      {activeTab === "household" && (
+        <HouseholdSettings />
+      )}
+
+      {/* ── Preferences Tab ── */}
+      {activeTab === "preferences" && (<>
+
+      {/* ── Preferences Card ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <SlidersHorizontal className="w-5 h-5" />
+            Preferences
+          </CardTitle>
+          <CardDescription>Customize how BudgetSmart handles your transactions</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Toggle 1 — Needs Review */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">Mark uncategorized transactions as Needs Review</Label>
+              <p className="text-xs text-muted-foreground">
+                Any new uncategorized synced transaction will be flagged. They'll appear in the Needs Review filter on your transactions page.
+              </p>
+            </div>
+            <Switch
+              checked={prefNeedsReview}
+              onCheckedChange={(val) => {
+                setPrefNeedsReview(val);
+                updatePrefMutation.mutate({ prefNeedsReview: val });
+              }}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Toggle 2 — Edit Pending */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">Allow edits to pending transactions</Label>
+              <p className="text-xs text-muted-foreground">
+                When on, pending transactions are editable and included in reports. Note: if the amount changes when it posts, your edits may be lost.
+              </p>
+            </div>
+            <Switch
+              checked={prefEditPending}
+              onCheckedChange={(val) => {
+                setPrefEditPending(val);
+                updatePrefMutation.mutate({ prefEditPending: val });
+              }}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Toggle 3 — Merchant Display */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Show merchant display names</Label>
+            <RadioGroup
+              value={prefMerchantDisplay}
+              onValueChange={(val) => {
+                setPrefMerchantDisplay(val);
+                updatePrefMutation.mutate({ prefMerchantDisplay: val });
+              }}
+              className="space-y-2"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="enriched" id="pref-enriched" />
+                <Label htmlFor="pref-enriched" className="text-sm font-normal cursor-pointer">
+                  Clean names <span className="text-muted-foreground">(e.g. Netflix, Starbucks)</span>
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="raw" id="pref-raw" />
+                <Label htmlFor="pref-raw" className="text-sm font-normal cursor-pointer">
+                  Raw bank descriptions <span className="text-muted-foreground">(e.g. NFLX*SUBSCRIPTION CA)</span>
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
+        </CardContent>
+      </Card>
+
+      </>)}
+
+      {/* ── Accounts Tab ── */}
+      {activeTab === "accounts" && <AccountsTab />}
+
+      {/* ── Categories Tab ── */}
+      {activeTab === "categories" && <CategoriesTab />}
+
+      {/* ── Merchants Tab ── */}
+      {activeTab === "merchants" && <MerchantsPage />}
+
+      {/* ── Data Tab ── */}
+      {activeTab === "data" && <DataTab />}
+
+      {/* ── Billing Tab ── */}
+      {activeTab === "billing" && <BillingTab />}
+
+      {/* ── Notifications Tab ── */}
+      {activeTab === "notifications" && <EmailSettings />}
+
+    </SettingsLayout>
     </>
   );
 }
