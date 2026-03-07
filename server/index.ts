@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -33,6 +33,9 @@ try {
 
 const app = express();
 const httpServer = createServer(app);
+
+// Record boot time for the /health startup grace period.
+const startTime = Date.now();
 
 declare module "http" {
   interface IncomingMessage {
@@ -54,6 +57,53 @@ if (process.env.NODE_ENV === "production") {
     next();
   });
 }
+
+// Health check — registered BEFORE helmet, session, and rate-limiter so
+// Railway's probe is never blocked by CSP headers or rate-limit 429s.
+// During the first 30 s after boot the DB pool may not be ready yet, so
+// we return { status: "starting" } with HTTP 200 to avoid false failures.
+app.get("/health", async (_req, res) => {
+  const uptime = process.uptime();
+  if (Date.now() - startTime < 30000) {
+    return res.json({ status: "starting", uptime });
+  }
+
+  let dbHealthy = false;
+  let encryptionHealthy = false;
+
+  // Database check with 2s timeout
+  try {
+    await Promise.race([
+      pool.query("SELECT 1"),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("DB timeout")), 2000)
+      ),
+    ]);
+    dbHealthy = true;
+  } catch (err) {
+    console.error("[Health] Database check failed:", err);
+  }
+
+  // Encryption check
+  try {
+    const testCipher = encrypt("health-check");
+    decrypt(testCipher);
+    encryptionHealthy = true;
+  } catch (err) {
+    console.error("[Health] Encryption check failed:", err);
+  }
+
+  const statusCode = dbHealthy ? 200 : 503;
+  return res.status(statusCode).json({
+    status: dbHealthy ? "healthy" : "unhealthy",
+    timestamp: new Date().toISOString(),
+    checks: {
+      database: dbHealthy ? "ok" : "error",
+      encryption: encryptionHealthy ? "ok" : "error",
+    },
+    uptime: process.uptime(),
+  });
+});
 
 // Security headers via helmet
 app.use(

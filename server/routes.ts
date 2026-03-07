@@ -29,7 +29,7 @@ import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailV
 import crypto from "crypto";
 import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, generateBackupCodes, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
 import passport from "passport";
-import { authRateLimiter, apiRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
+import { authRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending } from "./cash-flow";
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
@@ -106,47 +106,6 @@ export async function registerRoutes(
   if (!process.env.SALES_EMAIL && !process.env.ALERT_EMAIL_TO) {
     console.warn("[CONFIG] Neither SALES_EMAIL nor ALERT_EMAIL_TO is set. Sales-lead notification emails will not be delivered.");
   }
-
-  // Health check endpoint for deployment monitoring (no auth required)
-  app.get("/health", apiRateLimiter, async (_req, res) => {
-    let dbHealthy = false;
-    let encryptionHealthy = false;
-
-    // Database check with 2s timeout
-    try {
-      await Promise.race([
-        pool.query("SELECT 1"),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("DB timeout")), 2000)
-        ),
-      ]);
-      dbHealthy = true;
-    } catch (err) {
-      console.error("[Health] Database check failed:", err);
-    }
-
-    // Encryption check
-    try {
-      const { encrypt: healthEncrypt, decrypt: healthDecrypt } = await import("./encryption");
-      const testCipher = healthEncrypt("health-check");
-      healthDecrypt(testCipher);
-      encryptionHealthy = true;
-    } catch (err) {
-      console.error("[Health] Encryption check failed:", err);
-    }
-
-    const statusCode = dbHealthy ? 200 : 503;
-
-    res.status(statusCode).json({
-      status: dbHealthy ? "healthy" : "unhealthy",
-      timestamp: new Date().toISOString(),
-      checks: {
-        database: dbHealthy ? "ok" : "error",
-        encryption: encryptionHealthy ? "ok" : "error",
-      },
-      uptime: process.uptime(),
-    });
-  });
 
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
