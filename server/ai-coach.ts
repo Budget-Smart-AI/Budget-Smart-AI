@@ -10,6 +10,7 @@
 import { storage } from "./storage";
 import type { InsertAiInsight } from "@shared/schema";
 import { format, subDays, subMonths, startOfWeek, endOfWeek, parseISO, differenceInDays } from "date-fns";
+import { auditLog } from "./audit-logger";
 
 interface SpendingData {
   thisWeek: number;
@@ -429,20 +430,43 @@ export async function runAiCoachForAllUsers(): Promise<void> {
     // Get all users with Plaid items (active users)
     const users = await storage.getUsers();
 
+    let successCount = 0;
+    let errorCount = 0;
     for (const user of users) {
       try {
         await generateAiInsights(user.id);
+        successCount++;
       } catch (error) {
         console.error(`Error running AI coach for user ${user.id}:`, error);
+        errorCount++;
       }
     }
 
     // Clean up expired insights
     await storage.deleteExpiredAiInsights();
 
+    auditLog({
+      eventType: "data.ai_coach_run",
+      eventCategory: "data",
+      actorId: null,
+      actorType: "system",
+      action: "ai_coach_run",
+      outcome: errorCount > 0 && successCount === 0 ? "failure" : "success",
+      metadata: { usersProcessed: successCount, errors: errorCount },
+    });
+
     console.log("AI Coach completed for all users");
   } catch (error) {
     console.error("Error running AI Coach:", error);
+    auditLog({
+      eventType: "data.ai_coach_run",
+      eventCategory: "data",
+      actorId: null,
+      actorType: "system",
+      action: "ai_coach_run",
+      outcome: "failure",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

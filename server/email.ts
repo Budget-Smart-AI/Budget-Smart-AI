@@ -5,6 +5,7 @@ import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema"
 import { startAiCoachScheduler } from "./ai-coach";
 import { checkVaultExpiryNotifications } from "./routes/vault";
 import { db } from "./db";
+import { auditLog } from "./audit-logger";
 
 // Lazy Postmark HTTP client – avoids crashes when POSTMARK_USERNAME is absent.
 // Uses the HTTP API instead of SMTP so it works on Railway (which blocks SMTP).
@@ -18,6 +19,15 @@ function getPostmarkClient(): ServerClient | null {
   }
   return _postmarkClient;
 }
+
+// Guard to prevent startEmailScheduler from being invoked more than once
+// (e.g. during hot-reload or if registerRoutes is accidentally called twice).
+let schedulerStarted = false;
+
+// Guard to prevent checkAndSendReminders from running concurrently.
+// A single concurrent run would pass the lastNotifiedCycle check twice
+// (before either has had a chance to update it) and send duplicate emails.
+let reminderCheckInProgress = false;
 
 // Shared helper used by this module and other server modules (routes.ts, vault.ts).
 export async function sendEmailViaPostmark(options: {
@@ -184,6 +194,12 @@ This is an automated reminder from Budget Smart AI.`;
 }
 
 export async function checkAndSendReminders(): Promise<void> {
+  if (reminderCheckInProgress) {
+    console.log("[EmailScheduler] Reminder check already in progress, skipping concurrent run.");
+    return;
+  }
+  reminderCheckInProgress = true;
+  try {
   console.log("Checking for bills due tomorrow...");
 
   const bills = await storage.getAllBills();
@@ -211,6 +227,16 @@ export async function checkAndSendReminders(): Promise<void> {
 
         if (sent) {
           await storage.updateBillNotifiedCycle(bill.id, cycleKey);
+          auditLog({
+            eventType: "billing.bill_reminder_sent",
+            eventCategory: "billing",
+            actorId: null,
+            actorType: "system",
+            targetUserId: bill.userId,
+            action: "bill_reminder_sent",
+            outcome: "success",
+            metadata: { billId: bill.id, billName: bill.name, dueDate: format(nextDue, "yyyy-MM-dd"), cycleKey },
+          });
         }
       } else {
         console.log(`Already notified for bill: ${bill.name} this cycle`);
@@ -219,9 +245,18 @@ export async function checkAndSendReminders(): Promise<void> {
   }
 
   console.log("Finished checking bills");
+  } finally {
+    reminderCheckInProgress = false;
+  }
 }
 
 export function startEmailScheduler(): void {
+  if (schedulerStarted) {
+    console.warn("[EmailScheduler] Scheduler already started — ignoring duplicate call.");
+    return;
+  }
+  schedulerStarted = true;
+
   // Run checks immediately on startup
   checkAndSendReminders().catch(console.error);
   checkAndSendWeeklyDigests().catch(console.error);
