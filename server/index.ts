@@ -17,7 +17,7 @@ import { initializeUser } from "./auth";
 import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
-import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns } from "./db";
+import { ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -176,6 +176,10 @@ app.use((req, res, next) => {
 
   await ensureHouseholdColumns().catch(err =>
     console.error("Failed to ensure household columns — household address/financial professional access will not work:", err)
+  );
+
+  await ensurePreferenceColumns().catch(err =>
+    console.error("Failed to ensure preference columns — user preferences and needs-review flag will not work:", err)
   );
 
   await registerRoutes(httpServer, app);

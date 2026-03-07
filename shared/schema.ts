@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, numeric, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, numeric, real, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -366,6 +366,7 @@ export const mxTransactions = pgTable("mx_transactions", {
   merchantType: varchar("merchant_type", { length: 50 }),
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
+  needsReview: boolean("needs_review").default(false),
 });
 
 export const insertMxMemberSchema = createInsertSchema(mxMembers).omit({ id: true });
@@ -448,6 +449,7 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   isSubscription: text("is_subscription").default("false"),
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
+  needsReview: boolean("needs_review").default(false),
 });
 
 // ============ MANUAL ACCOUNTS (Transaction-Centric Architecture) ============
@@ -488,6 +490,7 @@ export const manualTransactions = pgTable("manual_transactions", {
   isSubscription: text("is_subscription").default("false"),
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
+  needsReview: boolean("needs_review").default(false),
 });
 
 export const insertManualAccountSchema = createInsertSchema(manualAccounts).omit({ id: true, userId: true }).extend({
@@ -586,6 +589,10 @@ export const users = pgTable("users", {
   city: text("city"),
   provinceState: text("province_state"),
   postalCode: text("postal_code"),
+  // Transaction preferences
+  prefNeedsReview: boolean("pref_needs_review").default(true),
+  prefEditPending: boolean("pref_edit_pending").default(false),
+  prefMerchantDisplay: varchar("pref_merchant_display", { length: 20 }).default("enriched"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

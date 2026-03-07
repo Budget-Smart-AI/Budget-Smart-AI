@@ -1637,6 +1637,158 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // ── User Preferences ──────────────────────────────────────────────────────
+  app.get("/api/user/preferences", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      res.json({
+        prefNeedsReview: user.prefNeedsReview !== false,
+        prefEditPending: user.prefEditPending === true,
+        prefMerchantDisplay: user.prefMerchantDisplay || "enriched",
+      });
+    } catch (error) {
+      console.error("Get preferences error:", error);
+      res.status(500).json({ error: "Failed to fetch preferences" });
+    }
+  });
+
+  app.patch("/api/user/preferences", requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({
+        prefNeedsReview: z.boolean().optional(),
+        prefEditPending: z.boolean().optional(),
+        prefMerchantDisplay: z.enum(["enriched", "raw"]).optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid data" });
+      }
+      const updated = await storage.updateUserPreferences(req.session.userId!, parsed.data);
+      if (!updated) return res.status(404).json({ error: "User not found" });
+      res.json({
+        prefNeedsReview: updated.prefNeedsReview !== false,
+        prefEditPending: updated.prefEditPending === true,
+        prefMerchantDisplay: updated.prefMerchantDisplay || "enriched",
+      });
+    } catch (error) {
+      console.error("Update preferences error:", error);
+      res.status(500).json({ error: "Failed to update preferences" });
+    }
+  });
+
+  // ── Merchants ─────────────────────────────────────────────────────────────
+  app.get("/api/merchants", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const pool = (db as any).$client as import('pg').Pool;
+
+      // Build union of merchant names from all transaction tables for this user
+      const result = await pool.query(`
+        SELECT
+          COALESCE(me.clean_name, combined.merchant_name) AS display_name,
+          combined.merchant_name                          AS raw_name,
+          me.logo_url,
+          me.category,
+          COUNT(combined.id)::int                        AS transaction_count,
+          SUM(combined.amount)::numeric(12,2)            AS total_spent,
+          MAX(combined.date)                             AS last_transaction
+        FROM (
+          SELECT pt.id, pt.merchant_name, pt.amount::numeric, pt.date
+          FROM plaid_transactions pt
+          JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
+          JOIN plaid_items pi2 ON pi2.id = pa.plaid_item_id
+          WHERE pi2.user_id = $1 AND pt.merchant_name IS NOT NULL AND pt.merchant_name <> ''
+
+          UNION ALL
+
+          SELECT mt.id, mt.description AS merchant_name, mt.amount::numeric, mt.date
+          FROM mx_transactions mt
+          JOIN mx_accounts ma ON ma.id = mt.mx_account_id
+          JOIN mx_members mm ON mm.id = ma.mx_member_id
+          WHERE mm.user_id = $1 AND mt.description IS NOT NULL AND mt.description <> ''
+
+          UNION ALL
+
+          SELECT mt2.id, mt2.merchant AS merchant_name, mt2.amount::numeric, mt2.date
+          FROM manual_transactions mt2
+          WHERE mt2.user_id = $1 AND mt2.merchant IS NOT NULL AND mt2.merchant <> ''
+        ) AS combined
+        LEFT JOIN merchant_enrichment me ON me.raw_pattern = combined.merchant_name
+        GROUP BY
+          COALESCE(me.clean_name, combined.merchant_name),
+          combined.merchant_name,
+          me.logo_url,
+          me.category,
+          me.raw_pattern
+        ORDER BY transaction_count DESC
+        LIMIT 500
+      `, [userId]);
+
+      res.json({ merchants: result.rows });
+    } catch (error) {
+      console.error("Get merchants error:", error);
+      res.status(500).json({ error: "Failed to fetch merchants" });
+    }
+  });
+
+  app.patch("/api/merchants/edit", requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({
+        rawPattern: z.string().min(1),
+        cleanName: z.string().min(1).max(200),
+        category: z.string().nullable().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid data" });
+      }
+      const { rawPattern, cleanName, category } = parsed.data;
+      const pool = (db as any).$client as import('pg').Pool;
+
+      // Upsert merchant_enrichment with user-confirmed data
+      await pool.query(`
+        INSERT INTO merchant_enrichment (raw_pattern, clean_name, category, confidence, source)
+        VALUES ($1, $2, $3, 1.0, 'user')
+        ON CONFLICT (raw_pattern) DO UPDATE
+          SET clean_name = EXCLUDED.clean_name,
+              category   = EXCLUDED.category,
+              confidence  = 1.0,
+              source      = 'user',
+              updated_at  = NOW()
+      `, [rawPattern, cleanName, category || null]);
+
+      // Update category on existing transactions that match this raw merchant
+      if (category) {
+        await pool.query(`UPDATE plaid_transactions SET personal_category = $1 WHERE merchant_name = $2`, [category, rawPattern]);
+        await pool.query(`UPDATE mx_transactions    SET personal_category = $1 WHERE description   = $2`, [category, rawPattern]);
+        await pool.query(`UPDATE manual_transactions SET category         = $1 WHERE merchant       = $2`, [category, rawPattern]);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Edit merchant error:", error);
+      res.status(500).json({ error: "Failed to update merchant" });
+    }
+  });
+
+  app.delete("/api/merchants/reset", requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({ rawPattern: z.string().min(1) });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid data" });
+      }
+      const pool = (db as any).$client as import('pg').Pool;
+      // Remove user override — AI enrichment will re-apply on next sync
+      await pool.query(`DELETE FROM merchant_enrichment WHERE raw_pattern = $1 AND source = 'user'`, [parsed.data.rawPattern]);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Reset merchant error:", error);
+      res.status(500).json({ error: "Failed to reset merchant" });
+    }
+  });
+
   // ── Financial Professional Access ─────────────────────────────────────────
   app.get("/api/financial-professional", requireAuth, async (req, res) => {
     try {
@@ -3773,6 +3925,10 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       const expensesList = await storage.getExpenses(userId);
       const incomes = await storage.getIncomes(userId);
 
+      // Check user preference for needs_review flag
+      const currentUser = await storage.getUser(userId);
+      const flagNeedsReview = currentUser?.prefNeedsReview !== false;
+
       let totalAdded = 0;
       let totalModified = 0;
       let totalRemoved = 0;
@@ -3874,6 +4030,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
                   matchedExpenseId: matchResult.matchType === "expense" ? matchResult.matchedId || null : null,
                   matchedIncomeId: matchResult.matchType === "income" ? matchResult.matchedId || null : null,
                   reconciled: matchResult.confidence === "high" ? "true" : "false",
+                  needsReview: flagNeedsReview && (!plaidCategory || plaidCategory === "Uncategorized") ? true : false,
                 });
                 totalAdded++;
               }
@@ -3942,6 +4099,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
                   matchedExpenseId: matchResult.matchType === "expense" ? matchResult.matchedId || null : null,
                   matchedIncomeId: matchResult.matchType === "income" ? matchResult.matchedId || null : null,
                   reconciled: matchResult.confidence === "high" ? "true" : "false",
+                  needsReview: flagNeedsReview && (!plaidCategory || plaidCategory === "Uncategorized") ? true : false,
                 });
                 totalAdded++;
               }
@@ -4023,6 +4181,10 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       const bills = await storage.getBills(userId);
       const expensesList = await storage.getExpenses(userId);
       const incomes = await storage.getIncomes(userId);
+
+      // Check user preference for needs_review flag
+      const currentUser = await storage.getUser(userId);
+      const flagNeedsReview = currentUser?.prefNeedsReview !== false;
 
       // Calculate date range - 2 years back
       const endDate = new Date();
@@ -4128,6 +4290,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
                 matchedExpenseId: matchResult.matchType === "expense" ? matchResult.matchedId || null : null,
                 matchedIncomeId: matchResult.matchType === "income" ? matchResult.matchedId || null : null,
                 reconciled: matchResult.confidence === "high" ? "true" : "false",
+                needsReview: flagNeedsReview && (!plaidCategory || plaidCategory === "Uncategorized") ? true : false,
               });
               totalAdded++;
               itemAdded++;
@@ -4708,6 +4871,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         return res.status(400).json({ error: "MX user not configured" });
       }
 
+      const flagNeedsReview = user.prefNeedsReview !== false;
+
       const { fetchAllTransactions, mapMXCategory } = await import("./mx");
       
       // Fetch all transactions (default 3 years of history)
@@ -4746,6 +4911,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           postedAt: tx.posted_at || null,
           pending: tx.status === "PENDING" ? "true" : "false",
           matchType: "unmatched",
+          needsReview: flagNeedsReview && (!tx.category || tx.category === "Uncategorized") ? true : false,
         });
       }
 

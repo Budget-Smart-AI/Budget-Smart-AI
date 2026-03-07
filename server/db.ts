@@ -375,6 +375,21 @@ export async function ensureHouseholdColumns(): Promise<void> {
   `);
 }
 
+/**
+ * Ensure user preference columns and needs_review column on transaction tables exist.
+ */
+export async function ensurePreferenceColumns(): Promise<void> {
+  // User preference columns
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_needs_review BOOLEAN DEFAULT true`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_edit_pending BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_merchant_display VARCHAR(20) DEFAULT 'enriched'`);
+
+  // needs_review flag on all transaction tables
+  for (const table of ["plaid_transactions", "mx_transactions", "manual_transactions"]) {
+    await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT false`);
+  }
+}
+
 export async function ensureBankProviderTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_provider_config (
