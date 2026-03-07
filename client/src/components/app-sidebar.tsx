@@ -132,23 +132,8 @@ const settingsItems = [
   },
   {
     title: "Settings",
-    url: "/settings",
+    url: "/settings/profile",
     icon: Settings,
-  },
-  {
-    title: "Merchants",
-    url: "/settings/merchants",
-    icon: Store,
-  },
-  {
-    title: "Email Settings",
-    url: "/email-settings",
-    icon: Mail,
-  },
-  {
-    title: "Categories",
-    url: "/categories",
-    icon: Tag,
   },
 ];
 
@@ -304,7 +289,7 @@ export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
-                    isActive={location === item.url}
+                    isActive={item.url.startsWith("/settings") ? location.startsWith("/settings") : location === item.url}
                     data-testid={`nav-${item.title.toLowerCase()}`}
                   >
                     <Link href={item.url}>
@@ -364,7 +349,7 @@ export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
       </SidebarContent>
       <SidebarFooter className="p-4 border-t">
         <div className="space-y-3">
-          <Link href="/settings">
+          <Link href="/settings/profile">
             <div className="flex items-center gap-3 p-2 rounded-md hover-elevate cursor-pointer" data-testid="sidebar-user-profile">
               <Avatar className="h-8 w-8">
                 {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}

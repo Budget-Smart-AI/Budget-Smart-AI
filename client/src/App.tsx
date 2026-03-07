@@ -87,10 +87,37 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/subscriptions" component={Subscriptions} />
       <Route path="/categories" component={Categories} />
       <Route path="/email-settings" component={EmailSettings} />
-      <Route path="/settings">
+      <Route path="/settings"><Redirect to="/settings/profile" /></Route>
+      <Route path="/settings/profile">
         <Settings onLogout={onLogout} />
       </Route>
-      <Route path="/settings/merchants" component={MerchantsPage} />
+      <Route path="/settings/security">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/household">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/preferences">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/accounts">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/categories">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/merchants">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/data">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/billing">
+        <Settings onLogout={onLogout} />
+      </Route>
+      <Route path="/settings/notifications">
+        <Settings onLogout={onLogout} />
+      </Route>
       <Route path="/ai-assistant" component={AIAssistant} />
       <Route path="/debts" component={Debts} />
       <Route path="/debt-payoff" component={DebtPayoff} />

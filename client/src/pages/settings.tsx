@@ -44,6 +44,9 @@ import { HouseholdSettings } from "@/components/household-settings";
 import { PWAInstallCard } from "@/components/pwa-install-prompt";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building2, RefreshCw, Plus, Tag, FileDown, Database } from "lucide-react";
+import { SettingsLayout } from "@/components/settings-layout";
+import MerchantsPage from "@/pages/merchants";
+import EmailSettings from "@/pages/email-settings";
 
 // ─── Types reused from bank-accounts ────────────────────────────────────────
 interface PlaidAccountGroup {
@@ -975,7 +978,7 @@ interface SettingsProps {
 }
 
 export default function Settings({ onLogout }: SettingsProps) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1360,45 +1363,15 @@ export default function Settings({ onLogout }: SettingsProps) {
   // Convenience: user email for delete confirmation
   const userEmail = sessionData?.email || "";
 
+  // Determine active settings tab from URL path (e.g. /settings/profile → "profile")
+  const activeTab = location.split("/")[2] || "profile";
+
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold" data-testid="text-settings-title">Settings</h1>
-          <HelpTooltip
-            title="About Settings"
-            content="Manage your profile information, change your password, and configure multi-factor authentication (MFA) for enhanced security."
-          />
-        </div>
-        <p className="text-muted-foreground">Manage your account and security settings</p>
-      </div>
+    <>
+    <SettingsLayout activeTab={activeTab}>
 
-      <Tabs defaultValue="account" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="account">
-            <User className="h-4 w-4 mr-2" />
-            Account
-          </TabsTrigger>
-          <TabsTrigger value="accounts">
-            <Building2 className="h-4 w-4 mr-2" />
-            Accounts
-          </TabsTrigger>
-          <TabsTrigger value="categories">
-            <Tag className="h-4 w-4 mr-2" />
-            Categories
-          </TabsTrigger>
-          <TabsTrigger value="data">
-            <Database className="h-4 w-4 mr-2" />
-            Data
-          </TabsTrigger>
-          <TabsTrigger value="billing">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Billing
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ── Account Tab (existing content) ── */}
-        <TabsContent value="account" className="space-y-6">
+      {/* ── Profile Tab ── */}
+      {activeTab === "profile" && (<>
 
       {/* ── Profile Information Card ── */}
       <Card>
@@ -1789,6 +1762,10 @@ export default function Settings({ onLogout }: SettingsProps) {
       </Card>
 
       <PWAInstallCard />
+      </>)}
+
+      {/* ── Security Tab ── */}
+      {activeTab === "security" && (<>
 
       {/* ── Security Card ── */}
       <Card>
@@ -2280,7 +2257,15 @@ export default function Settings({ onLogout }: SettingsProps) {
         </DialogContent>
       </Dialog>
 
-      <HouseholdSettings />
+      </>)}
+
+      {/* ── Household Tab ── */}
+      {activeTab === "household" && (
+        <HouseholdSettings />
+      )}
+
+      {/* ── Preferences Tab ── */}
+      {activeTab === "preferences" && (<>
 
       {/* ── Preferences Card ── */}
       <Card>
@@ -2358,29 +2343,27 @@ export default function Settings({ onLogout }: SettingsProps) {
         </CardContent>
       </Card>
 
-        </TabsContent>
+      </>)}
 
-        {/* ── Accounts Tab ── */}
-        <TabsContent value="accounts" className="space-y-4">
-          <AccountsTab />
-        </TabsContent>
+      {/* ── Accounts Tab ── */}
+      {activeTab === "accounts" && <AccountsTab />}
 
-        {/* ── Categories Tab ── */}
-        <TabsContent value="categories" className="space-y-4">
-          <CategoriesTab />
-        </TabsContent>
+      {/* ── Categories Tab ── */}
+      {activeTab === "categories" && <CategoriesTab />}
 
-        {/* ── Data Tab ── */}
-        <TabsContent value="data" className="space-y-4">
-          <DataTab />
-        </TabsContent>
+      {/* ── Merchants Tab ── */}
+      {activeTab === "merchants" && <MerchantsPage />}
 
-        {/* ── Billing Tab ── */}
-        <TabsContent value="billing" className="space-y-4">
-          <BillingTab />
-        </TabsContent>
+      {/* ── Data Tab ── */}
+      {activeTab === "data" && <DataTab />}
 
-      </Tabs>
+      {/* ── Billing Tab ── */}
+      {activeTab === "billing" && <BillingTab />}
+
+      {/* ── Notifications Tab ── */}
+      {activeTab === "notifications" && <EmailSettings />}
+
+    </SettingsLayout>
 
       {/* ── Delete Account Multi-Step Dialog ── */}
       <Dialog
@@ -2526,6 +2509,6 @@ export default function Settings({ onLogout }: SettingsProps) {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
