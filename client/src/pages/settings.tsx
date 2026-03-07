@@ -10,13 +10,14 @@ import { HelpTooltip } from "@/components/help-tooltip";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { COUNTRIES } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2,
-  AlertTriangle, Database, CreditCard, Calendar, Sparkles, ExternalLink, Copy,
-  Download, Check, Camera, Globe, Cake,
+  AlertTriangle, CreditCard, Calendar, Sparkles, ExternalLink, Copy,
+  Download, Check, Camera, Globe, Cake, Eye, EyeOff, Mail, Lock, KeyRound,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -98,10 +99,41 @@ const profileSchema = z.object({
   timezone: z.string().optional(),
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Must contain at least one number")
+    .regex(/[^A-Za-z0-9]/, "Must contain at least one special character"),
+  confirmPassword: z.string().min(1, "Please confirm your new password"),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
 type MfaCodeFormData = z.infer<typeof mfaCodeSchema>;
 type ProfileFormData = z.infer<typeof profileSchema>;
+type ChangePasswordFormData = z.infer<typeof changePasswordSchema>;
 
 type MfaModalStep = "qr" | "verify" | "backup";
+
+// Password strength helper
+function getPasswordStrength(password: string): { label: string; color: string; percent: number } {
+  if (!password) return { label: "", color: "", percent: 0 };
+  let score = 0;
+  if (password.length >= 8) score++;
+  if (password.length >= 12) score++;
+  if (/[A-Z]/.test(password)) score++;
+  if (/[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (score <= 2) return { label: "Weak", color: "bg-red-500", percent: 25 };
+  if (score <= 3) return { label: "Fair", color: "bg-amber-500", percent: 50 };
+  if (score <= 4) return { label: "Strong", color: "bg-blue-500", percent: 75 };
+  return { label: "Very Strong", color: "bg-green-500", percent: 100 };
+}
 
 // Month names and days helpers
 const MONTHS = [
@@ -133,7 +165,18 @@ export default function Settings({ onLogout }: SettingsProps) {
   const [mfaSetupData, setMfaSetupData] = useState<{ qrCode: string; secret: string } | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [disableMfaModalOpen, setDisableMfaModalOpen] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Delete account multi-step state
+  const [deleteStep, setDeleteStep] = useState<0 | 1 | 2 | 3>(0);
+  const [deleteEmailInput, setDeleteEmailInput] = useState("");
+  const [deletePasswordInput, setDeletePasswordInput] = useState("");
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+
+  // Password visibility toggles for change-password form
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState(false);
 
   // Avatar state
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -163,6 +206,11 @@ export default function Settings({ onLogout }: SettingsProps) {
       firstName: "", lastName: "", email: "", phone: "", country: "US",
       displayName: "", birthday: "", timezone: "America/Toronto",
     },
+  });
+
+  const changePasswordForm = useForm<ChangePasswordFormData>({
+    resolver: zodResolver(changePasswordSchema),
+    defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
   });
 
   const { data: session, isLoading: sessionLoading } = useQuery({
@@ -369,6 +417,26 @@ export default function Settings({ onLogout }: SettingsProps) {
     },
   });
 
+  const changePasswordMutation = useMutation({
+    mutationFn: async (data: ChangePasswordFormData) => {
+      const response = await apiRequest("POST", "/api/auth/change-password", {
+        currentPassword: data.currentPassword,
+        newPassword: data.newPassword,
+        confirmPassword: data.confirmPassword,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      changePasswordForm.reset();
+      setPasswordChangeSuccess(true);
+      setTimeout(() => setPasswordChangeSuccess(false), 5000);
+      toast({ title: "Password Updated", description: "Your password has been changed successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Password Change Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleDownloadBackupCodes = () => {
     const content = [
       "BudgetSmart 2FA Backup Codes", "============================",
@@ -396,6 +464,8 @@ export default function Settings({ onLogout }: SettingsProps) {
 
   const mfaEnabled = (mfaStatus as any)?.enabled ?? (session as any)?.mfaEnabled ?? false;
   const sessionData = session as any;
+  const isGoogleUser = !!(sessionData?.isGoogleUser);
+  const emailVerified = !!(sessionData?.emailVerified);
 
   // Initials and color for avatar fallback
   const firstName = sessionData?.firstName || "";
@@ -404,6 +474,10 @@ export default function Settings({ onLogout }: SettingsProps) {
     ? `${firstName[0]}${lastName[0]}`.toUpperCase()
     : (firstName || sessionData?.username || "?")[0]?.toUpperCase() || "?";
   const avatarColor = getInitialColor(firstName || sessionData?.username || "");
+
+  // Password strength for change-password form
+  const watchNewPw = changePasswordForm.watch("newPassword") || "";
+  const pwStrength = getPasswordStrength(watchNewPw);
 
   // Current local time for timezone display
   const watchTz = profileForm.watch("timezone") || "America/Toronto";
@@ -432,6 +506,9 @@ export default function Settings({ onLogout }: SettingsProps) {
   const filteredTimezones = TIMEZONES.filter((tz) =>
     tz.toLowerCase().replace(/_/g, " ").includes(tzSearch.toLowerCase())
   );
+
+  // Convenience: user email for delete confirmation
+  const userEmail = sessionData?.email || "";
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -836,21 +913,218 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       <PWAInstallCard />
 
-      {/* ── Two-Factor Authentication Card ── */}
+      {/* ── Security Card ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5" />
-            Two-Factor Authentication
+            <Shield className="w-5 h-5" />
+            Security
           </CardTitle>
-          <CardDescription>
-            Add an extra layer of security using an authenticator app like Google Authenticator or Authy.
-          </CardDescription>
+          <CardDescription>Manage your sign-in method, password, and account protection</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+        <CardContent className="space-y-6">
+
+          {/* Section A — Email & Sign-In Method */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Mail className="w-4 h-4" />
+              Email &amp; Sign-In Method
+            </h3>
+            <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/40">
+              <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{userEmail || "No email on file"}</p>
+              </div>
+              {emailVerified ? (
+                <Badge variant="default" className="bg-green-600 flex-shrink-0">
+                  <Check className="w-3 h-3 mr-1" />
+                  Verified
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="flex-shrink-0">Unverified</Badge>
+              )}
+            </div>
+
+            {isGoogleUser ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30">
+                  {/* Google colored logo */}
+                  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 48 48" aria-label="Google">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium">Connected with Google</p>
+                    <p className="text-xs text-muted-foreground">Your password is managed by Google.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                  <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700 dark:text-blue-400">
+                    To change your password, visit your{" "}
+                    <a
+                      href="https://myaccount.google.com/security"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-medium"
+                    >
+                      Google Account settings
+                    </a>.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <Lock className="w-4 h-4" />
+                  Change Password
+                </h4>
+                {passwordChangeSuccess && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
+                    <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <p className="text-sm text-green-700 dark:text-green-400 font-medium">Password updated successfully!</p>
+                  </div>
+                )}
+                <Form {...changePasswordForm}>
+                  <form
+                    onSubmit={changePasswordForm.handleSubmit((data) => changePasswordMutation.mutate(data))}
+                    className="space-y-4"
+                  >
+                    <FormField
+                      control={changePasswordForm.control}
+                      name="currentPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Current Password</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                type={showCurrentPw ? "text" : "password"}
+                                placeholder="Enter current password"
+                                data-testid="input-current-password"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                                onClick={() => setShowCurrentPw(!showCurrentPw)}
+                                tabIndex={-1}
+                              >
+                                {showCurrentPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={changePasswordForm.control}
+                      name="newPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>New Password</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                type={showNewPw ? "text" : "password"}
+                                placeholder="Enter new password"
+                                data-testid="input-new-password"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                                onClick={() => setShowNewPw(!showNewPw)}
+                                tabIndex={-1}
+                              >
+                                {showNewPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          {watchNewPw && (
+                            <div className="space-y-1 mt-1">
+                              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${pwStrength.color}`}
+                                  style={{ width: `${pwStrength.percent}%` }}
+                                />
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Strength: <span className="font-medium text-foreground">{pwStrength.label}</span>
+                              </p>
+                            </div>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={changePasswordForm.control}
+                      name="confirmPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Confirm New Password</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                type={showConfirmPw ? "text" : "password"}
+                                placeholder="Confirm new password"
+                                data-testid="input-confirm-password"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                                onClick={() => setShowConfirmPw(!showConfirmPw)}
+                                tabIndex={-1}
+                              >
+                                {showConfirmPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button
+                      type="submit"
+                      disabled={changePasswordMutation.isPending}
+                      data-testid="button-update-password"
+                    >
+                      {changePasswordMutation.isPending ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Updating...</>
+                      ) : (
+                        <><KeyRound className="w-4 h-4 mr-2" />Update Password</>
+                      )}
+                    </Button>
+                  </form>
+                </Form>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Section B — Two-Factor Authentication */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              Two-Factor Authentication
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Add an extra layer of security using an authenticator app like Google Authenticator or Authy.
+            </p>
             <div className="flex items-center gap-2">
-              <span className="font-medium">Status:</span>
+              <span className="text-sm font-medium">Status:</span>
               {mfaEnabled ? (
                 <Badge variant="default" className="bg-green-600">
                   <ShieldCheck className="w-3 h-3 mr-1" />
@@ -863,32 +1137,87 @@ export default function Settings({ onLogout }: SettingsProps) {
                 </Badge>
               )}
             </div>
+            {!mfaEnabled ? (
+              <Button
+                onClick={() => setupMfaMutation.mutate()}
+                disabled={setupMfaMutation.isPending}
+                data-testid="button-setup-mfa"
+              >
+                {setupMfaMutation.isPending ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading...</>
+                ) : (
+                  <><QrCode className="w-4 h-4 mr-2" />Enable 2FA</>
+                )}
+              </Button>
+            ) : (
+              <Button
+                variant="destructive"
+                onClick={() => setDisableMfaModalOpen(true)}
+                data-testid="button-disable-mfa"
+              >
+                <ShieldOff className="w-4 h-4 mr-2" />
+                Disable 2FA
+              </Button>
+            )}
           </div>
 
-          {!mfaEnabled && (
-            <Button
-              onClick={() => setupMfaMutation.mutate()}
-              disabled={setupMfaMutation.isPending}
-              data-testid="button-setup-mfa"
-            >
-              {setupMfaMutation.isPending ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading...</>
-              ) : (
-                <><QrCode className="w-4 h-4 mr-2" />Enable 2FA</>
-              )}
-            </Button>
-          )}
+          <Separator />
 
-          {mfaEnabled && (
-            <Button
-              variant="destructive"
-              onClick={() => setDisableMfaModalOpen(true)}
-              data-testid="button-disable-mfa"
-            >
-              <ShieldOff className="w-4 h-4 mr-2" />
-              Disable 2FA
-            </Button>
-          )}
+          {/* Section D — Danger Zone */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-destructive flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              Danger Zone
+            </h3>
+            <div className="rounded-lg border border-destructive/40 p-4 space-y-3">
+              <div>
+                <h4 className="font-semibold text-destructive">Delete Account</h4>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Permanently delete your account and all associated data. This action cannot be undone.
+                  You must cancel your subscription first.
+                </p>
+              </div>
+              <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  You must cancel your subscription or trial before you can delete your account.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                className="border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                onClick={() => setDeleteStep(1)}
+                data-testid="button-delete-account"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete My Account
+              </Button>
+            </div>
+          </div>
+
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <LogOut className="w-5 h-5" />
+            Session
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+            data-testid="button-logout"
+          >
+            {logoutMutation.isPending ? (
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Logging out...</>
+            ) : (
+              <><LogOut className="w-4 h-4 mr-2" />Log Out</>
+            )}
+          </Button>
         </CardContent>
       </Card>
 
@@ -1076,108 +1405,150 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       <HouseholdSettings />
 
-      <Card className="border-destructive/20">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="w-5 h-5" />
-            Account Data
-          </CardTitle>
-          <CardDescription>Manage your account data and deletion options</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/20">
-            <div className="flex items-start gap-3">
-              <div className="h-10 w-10 rounded-full bg-destructive/10 flex items-center justify-center flex-shrink-0">
-                <Trash2 className="h-5 w-5 text-destructive" />
-              </div>
-              <div className="flex-1">
-                <h4 className="font-semibold text-destructive">Delete Account</h4>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Delete your account and all associated data. This action is permanent and cannot be undone.
-                </p>
-                <div className="flex items-start gap-2 mt-3 p-3 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    You must cancel your subscription or trial before you can delete your account.
-                  </p>
-                </div>
+      {/* ── Delete Account Multi-Step Dialog ── */}
+      <Dialog
+        open={deleteStep > 0}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteStep(0);
+            setDeleteEmailInput("");
+            setDeletePasswordInput("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {deleteStep === 1 && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-5 w-5" />
+                  Delete Account — Step 1 of 3
+                </DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-3 text-sm">
+                    <p>The following will be permanently deleted:</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li>All bank account connections and transaction history</li>
+                      <li>Bills, expenses, and income records</li>
+                      <li>Budgets, savings goals, and financial reports</li>
+                      <li>Categories and reconciliation rules</li>
+                      <li>All personal and profile information</li>
+                      <li>documents uploaded to your vault</li>
+                    </ul>
+                    <p className="font-semibold text-destructive">This action cannot be undone.</p>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex gap-2 mt-2">
+                <Button variant="outline" className="flex-1" onClick={() => setDeleteStep(0)}>
+                  Cancel
+                </Button>
                 <Button
                   variant="destructive"
-                  className="mt-4"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  data-testid="button-delete-account"
+                  className="flex-1"
+                  onClick={() => setDeleteStep(2)}
+                  data-testid="button-delete-step1-next"
                 >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete My Account
+                  I Understand, Continue
                 </Button>
               </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </>
+          )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <LogOut className="w-5 h-5" />
-            Session
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Button
-            variant="outline"
-            onClick={() => logoutMutation.mutate()}
-            disabled={logoutMutation.isPending}
-            data-testid="button-logout"
-          >
-            {logoutMutation.isPending ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Logging out...</>
-            ) : (
-              <><LogOut className="w-4 h-4 mr-2" />Log Out</>
-            )}
-          </Button>
-        </CardContent>
-      </Card>
+          {deleteStep === 2 && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-5 w-5" />
+                  Delete Account — Step 2 of 3
+                </DialogTitle>
+                <DialogDescription>
+                  To confirm, type your email address <strong>{userEmail}</strong> below.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 mt-2">
+                <Input
+                  placeholder={userEmail || "your@email.com"}
+                  value={deleteEmailInput}
+                  onChange={(e) => setDeleteEmailInput(e.target.value)}
+                  data-testid="input-delete-confirm-email"
+                />
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1" onClick={() => setDeleteStep(1)}>
+                    Back
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    disabled={deleteEmailInput.trim().toLowerCase() !== userEmail.trim().toLowerCase()}
+                    onClick={() => setDeleteStep(3)}
+                    data-testid="button-delete-step2-next"
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
 
-      {/* Delete Account Confirmation Dialog */}
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5" />
-              Delete Account Permanently?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <p>
-                This action will permanently delete your account and all associated data, including:
-              </p>
-              <ul className="list-disc list-inside space-y-1 text-sm">
-                <li>All bank account connections and transaction history</li>
-                <li>Bills, expenses, and income records</li>
-                <li>Budgets, savings goals, and financial reports</li>
-                <li>Categories and reconciliation rules</li>
-                <li>All personal and profile information</li>
-              </ul>
-              <p className="font-medium text-destructive">This action cannot be undone.</p>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => deleteAccountMutation.mutate()}
-              disabled={deleteAccountMutation.isPending}
-              data-testid="button-confirm-delete"
-            >
-              {deleteAccountMutation.isPending ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Deleting...</>
-              ) : (
-                <><Trash2 className="w-4 h-4 mr-2" />Yes, Delete My Account</>
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          {deleteStep === 3 && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-5 w-5" />
+                  Delete Account — Step 3 of 3
+                </DialogTitle>
+                <DialogDescription>
+                  {isGoogleUser
+                    ? "Re-authenticate with Google to authorize account deletion."
+                    : "Enter your password to authorize account deletion."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 mt-2">
+                {!isGoogleUser && (
+                  <div className="relative">
+                    <Input
+                      type={showDeletePassword ? "text" : "password"}
+                      placeholder="Enter your password"
+                      value={deletePasswordInput}
+                      onChange={(e) => setDeletePasswordInput(e.target.value)}
+                      data-testid="input-delete-confirm-password"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+                      onClick={() => setShowDeletePassword(!showDeletePassword)}
+                      tabIndex={-1}
+                    >
+                      {showDeletePassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1" onClick={() => setDeleteStep(2)}>
+                    Back
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    disabled={(!isGoogleUser && !deletePasswordInput) || deleteAccountMutation.isPending}
+                    onClick={() => deleteAccountMutation.mutate()}
+                    data-testid="button-confirm-delete"
+                  >
+                    {deleteAccountMutation.isPending ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Deleting...</>
+                    ) : (
+                      <><Trash2 className="w-4 h-4 mr-2" />Permanently Delete Account</>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

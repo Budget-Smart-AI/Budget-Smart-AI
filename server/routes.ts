@@ -2087,6 +2087,85 @@ Return JSON: { "income": [...] }`;
     });
   });
 
+  // Change password endpoint
+  app.post("/api/auth/change-password", authRateLimiter, requireAuth, async (req, res) => {
+    try {
+      const { currentPassword, newPassword, confirmPassword } = req.body;
+
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        return res.status(400).json({ error: "All fields are required" });
+      }
+
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({ error: "New password and confirmation do not match" });
+      }
+
+      // Password complexity validation
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      }
+      if (!/[A-Z]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain at least one uppercase letter" });
+      }
+      if (!/[a-z]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain at least one lowercase letter" });
+      }
+      if (!/[0-9]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain at least one number" });
+      }
+      if (!/[^A-Za-z0-9]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain at least one special character" });
+      }
+
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Google OAuth users cannot change password here
+      if (user.googleId && !user.password) {
+        return res.status(400).json({ error: "Your password is managed by Google. Visit your Google Account settings to change it." });
+      }
+
+      // Verify current password
+      const validCurrent = await verifyPassword(currentPassword, user.password);
+      if (!validCurrent) {
+        return res.status(400).json({ error: "Current password is incorrect" });
+      }
+
+      // New password must differ from current
+      const sameAsCurrent = await verifyPassword(newPassword, user.password);
+      if (sameAsCurrent) {
+        return res.status(400).json({ error: "New password must be different from your current password" });
+      }
+
+      // Hash new password and update
+      const newHash = await hashPassword(newPassword);
+      await storage.updateUser(userId, { password: newHash });
+
+      // Invalidate all OTHER sessions for this user (keep current)
+      try {
+        const pool = (db as any).$client as import('pg').Pool;
+        const currentSid = req.sessionID;
+        await pool.query(
+          `DELETE FROM session WHERE sid != $1 AND sess::jsonb -> 'userId' = $2::jsonb`,
+          [currentSid, JSON.stringify(userId)]
+        );
+      } catch (sessionErr) {
+        // Non-fatal: log but don't fail the request
+        console.error("Failed to invalidate other sessions:", sessionErr);
+      }
+
+      console.log(`[audit] auth.password_change userId=${userId}`);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Change password error:", error);
+      res.status(500).json({ error: "Failed to change password" });
+    }
+  });
+
   // Google OAuth routes
   app.get("/api/auth/google", passport.authenticate("google", {
     scope: ["profile", "email"]
@@ -2265,6 +2344,8 @@ Return JSON: { "income": [...] }`;
         birthday: user?.birthday || null,
         timezone: user?.timezone || "America/Toronto",
         avatarUrl: user?.avatarUrl || null,
+        emailVerified: user?.emailVerified === "true",
+        isGoogleUser: !!(user?.googleId),
       });
     } else if (req.session.userId && req.session.pendingMfa && !req.session.mfaVerified) {
       res.json({ authenticated: false, mfaRequired: true });
