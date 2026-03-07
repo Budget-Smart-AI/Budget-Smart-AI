@@ -12058,6 +12058,153 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // ── Billing endpoints ─────────────────────────────────────────────────────
+
+  // GET /api/billing/subscription — fetch detailed subscription info from Stripe
+  app.get("/api/billing/subscription", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!user.stripeCustomerId) {
+        return res.json({ noSubscription: true });
+      }
+
+      const { stripe } = await import("./stripe");
+
+      // List subscriptions for this customer
+      const subscriptions = await stripe.subscriptions.list({
+        customer: user.stripeCustomerId,
+        status: "all",
+        limit: 1,
+        expand: ["data.default_payment_method", "data.latest_invoice"],
+      });
+
+      if (subscriptions.data.length === 0) {
+        return res.json({ noSubscription: true });
+      }
+
+      const sub = subscriptions.data[0] as any;
+      const item = sub.items?.data?.[0];
+      const price = item?.price;
+      const product = price?.product;
+
+      // Resolve plan name from product or local DB
+      let planName = "Premium";
+      if (typeof product === "object" && product?.name) {
+        planName = product.name;
+      } else if (user.subscriptionPlanId) {
+        const plan = await storage.getLandingPricingPlan(user.subscriptionPlanId);
+        if (plan?.name) planName = plan.name;
+      }
+
+      // Payment method — prefer default_payment_method on subscription, else on customer
+      let paymentMethod: { brand: string; last4: string; expiryMonth: number; expiryYear: number } | null = null;
+
+      let pm = sub.default_payment_method;
+      if (!pm && user.stripeCustomerId) {
+        try {
+          const customer = await stripe.customers.retrieve(user.stripeCustomerId, {
+            expand: ["invoice_settings.default_payment_method"],
+          }) as any;
+          pm = customer.invoice_settings?.default_payment_method;
+        } catch (pmErr: any) {
+          console.error("Failed to retrieve customer payment method:", pmErr?.message);
+        }
+      }
+
+      if (pm && typeof pm === "object" && pm.card) {
+        paymentMethod = {
+          brand: pm.card.brand || "card",
+          last4: pm.card.last4 || "****",
+          expiryMonth: pm.card.exp_month,
+          expiryYear: pm.card.exp_year,
+        };
+      }
+
+      res.json({
+        planName,
+        status: sub.status,
+        isTrial: sub.status === "trialing",
+        trialEndsAt: sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null,
+        currentPeriodEnd: sub.current_period_end
+          ? new Date(sub.current_period_end * 1000).toISOString()
+          : null,
+        amount: price?.unit_amount ?? null,
+        currency: price?.currency ?? null,
+        interval: price?.recurring?.interval ?? null,
+        paymentMethod,
+        cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
+      });
+    } catch (error: any) {
+      console.error("Error fetching billing subscription:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch subscription" });
+    }
+  });
+
+  // POST /api/billing/customer-portal — create Stripe Customer Portal session
+  app.post("/api/billing/customer-portal", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+
+      if (!user?.stripeCustomerId) {
+        return res.status(400).json({ error: "No Stripe customer found for user" });
+      }
+
+      const { stripe } = await import("./stripe");
+      const appUrl = process.env.APP_URL || process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
+      const session = await stripe.billingPortal.sessions.create({
+        customer: user.stripeCustomerId,
+        return_url: `${appUrl}/settings/billing`,
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Error creating billing portal session:", error);
+      res.status(500).json({ error: error.message || "Failed to create billing portal session" });
+    }
+  });
+
+  // GET /api/billing/invoices — list recent invoices from Stripe
+  app.get("/api/billing/invoices", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+
+      if (!user?.stripeCustomerId) {
+        return res.json({ invoices: [] });
+      }
+
+      const { stripe } = await import("./stripe");
+
+      const invoices = await stripe.invoices.list({
+        customer: user.stripeCustomerId,
+        limit: 10,
+      });
+
+      const mapped = invoices.data.map((inv: any) => ({
+        id: inv.id,
+        date: inv.created ? new Date(inv.created * 1000).toISOString() : null,
+        amount: inv.amount_paid,
+        currency: inv.currency,
+        status: inv.status,
+        pdfUrl: inv.invoice_pdf ?? null,
+        hostedUrl: inv.hosted_invoice_url ?? null,
+      }));
+
+      res.json({ invoices: mapped });
+    } catch (error: any) {
+      console.error("Error fetching invoices:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch invoices" });
+    }
+  });
+
   // Stripe webhook endpoint (must use raw body)
   app.post("/api/stripe/webhook", async (req, res) => {
     try {
