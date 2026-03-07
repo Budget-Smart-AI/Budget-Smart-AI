@@ -325,6 +325,18 @@ export async function ensureEncryptionColumns(): Promise<void> {
   );
 }
 
+/**
+ * Ensure the TOTP backup codes column added for the 2FA implementation exists
+ * on the live database. Uses ADD COLUMN IF NOT EXISTS so it is safe to call on
+ * every startup regardless of whether the column was already created.
+ */
+export async function ensureTotpColumns(): Promise<void> {
+  // users table – TOTP backup codes array (added for complete 2FA support)
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_backup_codes TEXT[]`
+  );
+}
+
 export async function ensureBankProviderTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_provider_config (

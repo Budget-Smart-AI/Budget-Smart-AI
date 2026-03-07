@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction, Express } from "express";
 import bcrypt from "bcrypt";
-import { verify, generateSecret } from "otplib";
+import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
+import crypto from "crypto";
 import passport from "passport";
 import { Strategy as GoogleStrategy, Profile } from "passport-google-oauth20";
 import { storage } from "./storage";
@@ -20,7 +21,7 @@ declare module "express-session" {
 }
 
 const SALT_ROUNDS = 12;
-const APP_NAME = "Budget Smart AI";
+const APP_NAME = "BudgetSmart";
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, SALT_ROUNDS);
@@ -31,22 +32,49 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export function generateMfaSecretKey(): string {
-  return generateSecret();
+  const totp = new OTPAuth.TOTP({
+    issuer: APP_NAME,
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+  });
+  return totp.secret.base32;
 }
 
-export async function verifyMfaToken(secret: string, token: string): Promise<boolean> {
+export function verifyMfaToken(secret: string, token: string): boolean {
   try {
-    // Allow 1 time step (30 seconds) tolerance for clock drift
-    const result = await verify({ secret, token, epochTolerance: 30 });
-    return result.valid;
+    const totp = new OTPAuth.TOTP({
+      issuer: APP_NAME,
+      algorithm: "SHA1",
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(secret),
+    });
+    const delta = totp.validate({ token, window: 1 });
+    return delta !== null;
   } catch {
     return false;
   }
 }
 
 export async function generateMfaQrCode(username: string, secret: string): Promise<string> {
-  const otpauth = `otpauth://totp/${APP_NAME}:${username}?secret=${secret}&issuer=${APP_NAME}`;
-  return QRCode.toDataURL(otpauth);
+  const totp = new OTPAuth.TOTP({
+    issuer: APP_NAME,
+    label: username,
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret: OTPAuth.Secret.fromBase32(secret),
+  });
+  return QRCode.toDataURL(totp.toString());
+}
+
+/** Generate 8 cryptographically random alphanumeric backup codes (8 chars each). */
+export function generateBackupCodes(): string[] {
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  return Array.from({ length: 8 }, () =>
+    Array.from({ length: 8 }, () => chars[crypto.randomInt(chars.length)]).join("")
+  );
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {

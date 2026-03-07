@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { COUNTRIES } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2, AlertTriangle, Database, CreditCard, Calendar, Sparkles, ExternalLink } from "lucide-react";
+import { Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2, AlertTriangle, Database, CreditCard, Calendar, Sparkles, ExternalLink, Copy, Download, Check } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,10 +24,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useLocation } from "wouter";
 import { HouseholdSettings } from "@/components/household-settings";
 import { PWAInstallCard } from "@/components/pwa-install-prompt";
-import { ReferralProgram } from "@/components/referral-program";
 
 const mfaCodeSchema = z.object({
   code: z.string().length(6, "Code must be 6 digits"),
@@ -44,6 +50,9 @@ const profileSchema = z.object({
 type MfaCodeFormData = z.infer<typeof mfaCodeSchema>;
 type ProfileFormData = z.infer<typeof profileSchema>;
 
+// 2FA modal step type
+type MfaModalStep = "qr" | "verify" | "backup";
+
 interface SettingsProps {
   onLogout: () => void;
 }
@@ -51,10 +60,20 @@ interface SettingsProps {
 export default function Settings({ onLogout }: SettingsProps) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const [showMfaSetup, setShowMfaSetup] = useState(false);
+  // 2FA modal state
+  const [mfaModalOpen, setMfaModalOpen] = useState(false);
+  const [mfaModalStep, setMfaModalStep] = useState<MfaModalStep>("qr");
+  const [mfaSetupData, setMfaSetupData] = useState<{ qrCode: string; secret: string } | null>(null);
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [disableMfaModalOpen, setDisableMfaModalOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const mfaForm = useForm<MfaCodeFormData>({
+    resolver: zodResolver(mfaCodeSchema),
+    defaultValues: { code: "" },
+  });
+
+  const disableMfaForm = useForm<MfaCodeFormData>({
     resolver: zodResolver(mfaCodeSchema),
     defaultValues: { code: "" },
   });
@@ -74,9 +93,9 @@ export default function Settings({ onLogout }: SettingsProps) {
     queryKey: ["/api/auth/session"],
   });
 
-  const { data: mfaSetup, refetch: refetchMfaSetup } = useQuery({
-    queryKey: ["/api/auth/mfa/setup"],
-    enabled: showMfaSetup,
+  // 2FA status query (more reliable than reading from session alone)
+  const { data: mfaStatus, refetch: refetchMfaStatus } = useQuery({
+    queryKey: ["/api/auth/2fa/status"],
   });
 
   // Subscription status query
@@ -132,19 +151,37 @@ export default function Settings({ onLogout }: SettingsProps) {
     },
   });
 
+  // Step 1: Fetch QR code and secret from server, open modal
+  const setupMfaMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("GET", "/api/auth/mfa/setup");
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      setMfaSetupData({ qrCode: data.qrCode, secret: data.manualEntryKey || data.secret });
+      setMfaModalStep("qr");
+      setMfaModalOpen(true);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Setup Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Step 2: Verify code and get backup codes
   const enableMfaMutation = useMutation({
     mutationFn: async (data: MfaCodeFormData) => {
       const response = await apiRequest("POST", "/api/auth/mfa/enable", { code: data.code });
       return response.json();
     },
-    onSuccess: () => {
-      toast({ title: "MFA Enabled", description: "Two-factor authentication is now active" });
-      setShowMfaSetup(false);
+    onSuccess: (data: any) => {
+      setBackupCodes(data.backupCodes || []);
+      setMfaModalStep("backup");
       mfaForm.reset();
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+      refetchMfaStatus();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to Enable MFA", description: error.message, variant: "destructive" });
+      toast({ title: "Invalid Code", description: error.message, variant: "destructive" });
     },
   });
 
@@ -154,12 +191,14 @@ export default function Settings({ onLogout }: SettingsProps) {
       return response.json();
     },
     onSuccess: () => {
-      toast({ title: "MFA Disabled", description: "Two-factor authentication has been removed" });
-      mfaForm.reset();
+      toast({ title: "2FA Disabled", description: "Two-factor authentication has been removed" });
+      disableMfaForm.reset();
+      setDisableMfaModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+      refetchMfaStatus();
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to Disable MFA", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to Disable 2FA", description: error.message, variant: "destructive" });
     },
   });
 
@@ -195,12 +234,27 @@ export default function Settings({ onLogout }: SettingsProps) {
     },
   });
 
-  const handleSetupMfa = () => {
-    setShowMfaSetup(true);
-    refetchMfaSetup();
+  const handleDownloadBackupCodes = () => {
+    const content = [
+      "BudgetSmart 2FA Backup Codes",
+      "============================",
+      "Keep these codes safe. Each code can only be used once.",
+      "",
+      ...backupCodes.map((c, i) => `${i + 1}. ${c}`),
+      "",
+      `Generated: ${new Date().toLocaleString()}`,
+    ].join("\n");
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "budgetsmart-backup-codes.txt";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const mfaEnabled = (session as any)?.mfaEnabled || (mfaSetup as any)?.mfaEnabled || false;
+  // Use the dedicated 2FA status endpoint for reliability
+  const mfaEnabled = (mfaStatus as any)?.enabled ?? (session as any)?.mfaEnabled ?? false;
   const sessionData = session as any;
 
   return (
@@ -453,14 +507,15 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       <PWAInstallCard />
 
+      {/* ── Two-Factor Authentication Card ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5" />
-            Two-Factor Authentication (MFA)
+            Two-Factor Authentication
           </CardTitle>
           <CardDescription>
-            Add an extra layer of security to your account using an authenticator app like Google Authenticator or Authy.
+            Add an extra layer of security using an authenticator app like Google Authenticator or Authy.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -470,7 +525,7 @@ export default function Settings({ onLogout }: SettingsProps) {
               {mfaEnabled ? (
                 <Badge variant="default" className="bg-green-600">
                   <ShieldCheck className="w-3 h-3 mr-1" />
-                  Enabled
+                  Enabled ✓
                 </Badge>
               ) : (
                 <Badge variant="secondary">
@@ -481,28 +536,102 @@ export default function Settings({ onLogout }: SettingsProps) {
             </div>
           </div>
 
-          {!showMfaSetup && !mfaEnabled && (
-            <Button onClick={handleSetupMfa} data-testid="button-setup-mfa">
-              <QrCode className="w-4 h-4 mr-2" />
-              Set Up MFA
+          {!mfaEnabled && (
+            <Button
+              onClick={() => setupMfaMutation.mutate()}
+              disabled={setupMfaMutation.isPending}
+              data-testid="button-setup-mfa"
+            >
+              {setupMfaMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <QrCode className="w-4 h-4 mr-2" />
+                  Enable 2FA
+                </>
+              )}
             </Button>
           )}
 
-          {showMfaSetup && !mfaEnabled && mfaSetup && (
-            <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-              <div className="text-center">
-                <p className="font-medium mb-2">Scan this QR code with your authenticator app:</p>
-                <img 
-                  src={(mfaSetup as any).qrCode} 
-                  alt="MFA QR Code" 
-                  className="mx-auto border rounded-lg bg-white p-2"
-                  data-testid="img-mfa-qrcode"
-                />
-                <p className="text-xs text-muted-foreground mt-2">
-                  Or enter this secret manually: <code className="bg-muted px-1 rounded">{(mfaSetup as any).secret}</code>
-                </p>
-              </div>
+          {mfaEnabled && (
+            <Button
+              variant="destructive"
+              onClick={() => setDisableMfaModalOpen(true)}
+              data-testid="button-disable-mfa"
+            >
+              <ShieldOff className="w-4 h-4 mr-2" />
+              Disable 2FA
+            </Button>
+          )}
+        </CardContent>
+      </Card>
 
+      {/* ── 2FA Setup Modal (3 steps) ── */}
+      <Dialog open={mfaModalOpen} onOpenChange={(open) => {
+        if (!open) {
+          setMfaModalOpen(false);
+          setMfaSetupData(null);
+          mfaForm.reset();
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          {mfaModalStep === "qr" && mfaSetupData && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <QrCode className="w-5 h-5" />
+                  Step 1: Scan QR Code
+                </DialogTitle>
+                <DialogDescription>
+                  Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex justify-center">
+                  <img
+                    src={mfaSetupData.qrCode}
+                    alt="2FA QR Code"
+                    className="border rounded-lg bg-white p-2 w-48 h-48"
+                    data-testid="img-mfa-qrcode"
+                  />
+                </div>
+                <div className="p-3 rounded-lg bg-muted text-sm">
+                  <p className="text-muted-foreground mb-1">Or enter this key manually:</p>
+                  <div className="flex items-center gap-2">
+                    <code className="font-mono text-xs break-all flex-1">{mfaSetupData.secret}</code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(mfaSetupData.secret);
+                        toast({ title: "Copied", description: "Secret key copied to clipboard" });
+                      }}
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+                <Button className="w-full" onClick={() => setMfaModalStep("verify")}>
+                  Continue
+                </Button>
+              </div>
+            </>
+          )}
+
+          {mfaModalStep === "verify" && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5" />
+                  Step 2: Verify Code
+                </DialogTitle>
+                <DialogDescription>
+                  Enter the 6-digit code from your authenticator app to confirm setup.
+                </DialogDescription>
+              </DialogHeader>
               <Form {...mfaForm}>
                 <form onSubmit={mfaForm.handleSubmit((data) => enableMfaMutation.mutate(data))} className="space-y-4">
                   <FormField
@@ -510,13 +639,15 @@ export default function Settings({ onLogout }: SettingsProps) {
                     name="code"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Enter the 6-digit code from your app to verify:</FormLabel>
+                        <FormLabel>6-digit code</FormLabel>
                         <FormControl>
-                          <Input 
-                            {...field} 
-                            placeholder="000000" 
+                          <Input
+                            {...field}
+                            placeholder="000000"
                             maxLength={6}
-                            className="text-center text-lg tracking-widest"
+                            inputMode="numeric"
+                            autoFocus
+                            className="text-center text-2xl tracking-[0.5em] font-mono"
                             data-testid="input-mfa-setup-code"
                           />
                         </FormControl>
@@ -525,83 +656,132 @@ export default function Settings({ onLogout }: SettingsProps) {
                     )}
                   />
                   <div className="flex gap-2">
-                    <Button 
-                      type="submit" 
-                      disabled={enableMfaMutation.isPending}
-                      data-testid="button-enable-mfa"
-                    >
+                    <Button type="button" variant="outline" onClick={() => setMfaModalStep("qr")} className="flex-1">
+                      Back
+                    </Button>
+                    <Button type="submit" disabled={enableMfaMutation.isPending} className="flex-1" data-testid="button-enable-mfa">
                       {enableMfaMutation.isPending ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           Verifying...
                         </>
                       ) : (
-                        "Enable MFA"
+                        "Verify"
                       )}
-                    </Button>
-                    <Button 
-                      type="button" 
-                      variant="ghost" 
-                      onClick={() => setShowMfaSetup(false)}
-                      data-testid="button-cancel-mfa-setup"
-                    >
-                      Cancel
                     </Button>
                   </div>
                 </form>
               </Form>
-            </div>
+            </>
           )}
 
-          {mfaEnabled && (
-            <Form {...mfaForm}>
-              <form onSubmit={mfaForm.handleSubmit((data) => disableMfaMutation.mutate(data))} className="space-y-4">
-                <FormField
-                  control={mfaForm.control}
-                  name="code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Enter your MFA code to disable:</FormLabel>
-                      <FormControl>
-                        <Input 
-                          {...field} 
-                          placeholder="000000" 
-                          maxLength={6}
-                          className="text-center text-lg tracking-widest max-w-48"
-                          data-testid="input-mfa-disable-code"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button 
-                  type="submit" 
-                  variant="destructive"
-                  disabled={disableMfaMutation.isPending}
-                  data-testid="button-disable-mfa"
-                >
+          {mfaModalStep === "backup" && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Check className="w-5 h-5 text-green-600" />
+                  2FA is now enabled!
+                </DialogTitle>
+                <DialogDescription>
+                  Save these backup codes in a safe place. You will not see them again.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Save these codes in a safe place — they can recover your account if you lose access to your authenticator app. Each code can only be used once.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {backupCodes.map((code) => (
+                    <code key={code} className="text-center font-mono text-sm bg-muted rounded px-2 py-1">
+                      {code}
+                    </code>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleDownloadBackupCodes} className="flex-1">
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                  <Button onClick={() => {
+                    setMfaModalOpen(false);
+                    setMfaSetupData(null);
+                    setBackupCodes([]);
+                  }} className="flex-1">
+                    Done
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Disable 2FA Modal ── */}
+      <Dialog open={disableMfaModalOpen} onOpenChange={(open) => {
+        if (!open) {
+          setDisableMfaModalOpen(false);
+          disableMfaForm.reset();
+        }
+      }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <ShieldOff className="w-5 h-5" />
+              Disable Two-Factor Authentication
+            </DialogTitle>
+            <DialogDescription>
+              Enter your current 6-digit authenticator code to disable 2FA.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...disableMfaForm}>
+            <form onSubmit={disableMfaForm.handleSubmit((data) => disableMfaMutation.mutate(data))} className="space-y-4">
+              <FormField
+                control={disableMfaForm.control}
+                name="code"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Authenticator code</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        placeholder="000000"
+                        maxLength={6}
+                        inputMode="numeric"
+                        autoFocus
+                        className="text-center text-2xl tracking-[0.5em] font-mono"
+                        data-testid="input-mfa-disable-code"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setDisableMfaModalOpen(false)} className="flex-1">
+                  Cancel
+                </Button>
+                <Button type="submit" variant="destructive" disabled={disableMfaMutation.isPending} className="flex-1">
                   {disableMfaMutation.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Disabling...
                     </>
                   ) : (
-                    <>
-                      <ShieldOff className="w-4 h-4 mr-2" />
-                      Disable MFA
-                    </>
+                    "Disable 2FA"
                   )}
                 </Button>
-              </form>
-            </Form>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       <HouseholdSettings />
-
-      <ReferralProgram />
 
       <Card className="border-destructive/20">
         <CardHeader>
