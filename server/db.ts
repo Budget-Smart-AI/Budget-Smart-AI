@@ -385,7 +385,8 @@ export async function ensurePreferenceColumns(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pref_merchant_display VARCHAR(20) DEFAULT 'enriched'`);
 
   // needs_review flag on all transaction tables
-  for (const table of ["plaid_transactions", "mx_transactions", "manual_transactions"]) {
+  const allowedTables = ["plaid_transactions", "mx_transactions", "manual_transactions"] as const;
+  for (const table of allowedTables) {
     await pool.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT false`);
   }
 }

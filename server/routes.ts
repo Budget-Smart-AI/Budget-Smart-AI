@@ -1744,6 +1744,7 @@ Return JSON: { "income": [...] }`;
         return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid data" });
       }
       const { rawPattern, cleanName, category } = parsed.data;
+      const userId = req.session.userId!;
       const pool = (db as any).$client as import('pg').Pool;
 
       // Upsert merchant_enrichment with user-confirmed data
@@ -1758,11 +1759,30 @@ Return JSON: { "income": [...] }`;
               updated_at  = NOW()
       `, [rawPattern, cleanName, category || null]);
 
-      // Update category on existing transactions that match this raw merchant
+      // Update category on the authenticated user's transactions only
       if (category) {
-        await pool.query(`UPDATE plaid_transactions SET personal_category = $1 WHERE merchant_name = $2`, [category, rawPattern]);
-        await pool.query(`UPDATE mx_transactions    SET personal_category = $1 WHERE description   = $2`, [category, rawPattern]);
-        await pool.query(`UPDATE manual_transactions SET category         = $1 WHERE merchant       = $2`, [category, rawPattern]);
+        await pool.query(`
+          UPDATE plaid_transactions pt
+          SET personal_category = $1
+          FROM plaid_accounts pa
+          JOIN plaid_items pi2 ON pi2.id = pa.plaid_item_id
+          WHERE pt.plaid_account_id = pa.id
+            AND pi2.user_id = $3
+            AND pt.merchant_name = $2
+        `, [category, rawPattern, userId]);
+        await pool.query(`
+          UPDATE mx_transactions mt
+          SET personal_category = $1
+          FROM mx_accounts ma
+          JOIN mx_members mm ON mm.id = ma.mx_member_id
+          WHERE mt.mx_account_id = ma.id
+            AND mm.user_id = $3
+            AND mt.description = $2
+        `, [category, rawPattern, userId]);
+        await pool.query(`
+          UPDATE manual_transactions SET category = $1
+          WHERE merchant = $2 AND user_id = $3
+        `, [category, rawPattern, userId]);
       }
 
       res.json({ success: true });
@@ -1779,7 +1799,31 @@ Return JSON: { "income": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid data" });
       }
+      const userId = req.session.userId!;
       const pool = (db as any).$client as import('pg').Pool;
+      // Verify the merchant exists in the user's transaction history before resetting
+      const ownerCheck = await pool.query(`
+        SELECT 1 FROM (
+          SELECT pt.id FROM plaid_transactions pt
+          JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
+          JOIN plaid_items pi2 ON pi2.id = pa.plaid_item_id
+          WHERE pi2.user_id = $1 AND pt.merchant_name = $2
+          LIMIT 1
+        ) AS sub
+        UNION ALL
+        SELECT 1 FROM (
+          SELECT mt.id FROM mx_transactions mt
+          JOIN mx_accounts ma ON ma.id = mt.mx_account_id
+          JOIN mx_members mm ON mm.id = ma.mx_member_id
+          WHERE mm.user_id = $1 AND mt.description = $2
+          LIMIT 1
+        ) AS sub2
+        UNION ALL
+        SELECT 1 FROM manual_transactions WHERE user_id = $1 AND merchant = $2 LIMIT 1
+      `, [userId, parsed.data.rawPattern]);
+      if (ownerCheck.rowCount === 0) {
+        return res.status(403).json({ error: "Merchant not found in your transactions" });
+      }
       // Remove user override — AI enrichment will re-apply on next sync
       await pool.query(`DELETE FROM merchant_enrichment WHERE raw_pattern = $1 AND source = 'user'`, [parsed.data.rawPattern]);
       res.json({ success: true });
