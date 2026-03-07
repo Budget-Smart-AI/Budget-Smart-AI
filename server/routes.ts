@@ -29,7 +29,7 @@ import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailV
 import crypto from "crypto";
 import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, generateBackupCodes, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
 import passport from "passport";
-import { authRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
+import { authRateLimiter, apiRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending } from "./cash-flow";
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
@@ -38,7 +38,7 @@ import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
-import { auditLogFromRequest } from "./audit-logger";
+import { auditLogFromRequest, getClientIp } from "./audit-logger";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -84,6 +84,10 @@ function isEmailConfigured(): boolean {
   return !!process.env.POSTMARK_USERNAME;
 }
 
+// Account lockout constants
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MINUTES = 30;
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -104,29 +108,31 @@ export async function registerRoutes(
   }
 
   // Health check endpoint for deployment monitoring (no auth required)
-  app.get("/health", async (_req, res) => {
+  app.get("/health", apiRateLimiter, async (_req, res) => {
     let dbHealthy = false;
     let encryptionHealthy = false;
 
     // Database check with 2s timeout
     try {
-      const { pool: healthPool } = await import("./db");
-      const { encrypt: enc, decrypt: dec } = await import("./encryption");
-
       await Promise.race([
-        healthPool.query("SELECT 1"),
+        pool.query("SELECT 1"),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("DB timeout")), 2000)
         ),
       ]);
       dbHealthy = true;
+    } catch (err) {
+      console.error("[Health] Database check failed:", err);
+    }
 
-      // Encryption check
-      const testCipher = enc("health-check");
-      dec(testCipher);
+    // Encryption check
+    try {
+      const { encrypt: healthEncrypt, decrypt: healthDecrypt } = await import("./encryption");
+      const testCipher = healthEncrypt("health-check");
+      healthDecrypt(testCipher);
       encryptionHealthy = true;
-    } catch {
-      // intentionally swallowed — flags remain false
+    } catch (err) {
+      console.error("[Health] Encryption check failed:", err);
     }
 
     const statusCode = dbHealthy ? 200 : 503;
@@ -2325,12 +2331,12 @@ Return JSON: { "income": [...] }`;
 
       const validPassword = await verifyPassword(password, user.password);
       if (!validPassword) {
-        // Increment failed attempts and lock if >= 5
+        // Increment failed attempts and lock if >= MAX_FAILED_LOGIN_ATTEMPTS
         const attempts = (lockRow?.failed_login_attempts ?? 0) + 1;
-        if (attempts >= 5) {
+        if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
           await pool.query(
-            `UPDATE users SET failed_login_attempts = $1, locked_until = NOW() + INTERVAL '30 minutes' WHERE id = $2`,
-            [attempts, user.id]
+            `UPDATE users SET failed_login_attempts = $1, locked_until = NOW() + (INTERVAL '1 minute' * $3) WHERE id = $2`,
+            [attempts, user.id, LOCKOUT_DURATION_MINUTES]
           );
           auditLogFromRequest(req, {
             eventType: "auth.account_locked",
@@ -2359,7 +2365,7 @@ Return JSON: { "income": [...] }`;
       }
 
       // Reset failed attempts on successful password check
-      const clientIp = req.ip || req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() || null;
+      const clientIp = getClientIp(req);
       await pool.query(
         `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = NOW(), last_login_ip = $1 WHERE id = $2`,
         [clientIp, user.id]

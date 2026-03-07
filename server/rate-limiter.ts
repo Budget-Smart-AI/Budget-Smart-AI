@@ -58,7 +58,9 @@ export function createRateLimiter(config: RateLimitConfig) {
           outcome: "blocked",
           metadata: { path: req.path, ip },
         });
-      }).catch(() => {/* ignore audit errors */});
+      }).catch((err) => {
+        console.error("[RateLimiter] Failed to write audit entry:", err);
+      });
 
       return res.status(429).json({
         error: config.message || "Too many requests, please try again later"
