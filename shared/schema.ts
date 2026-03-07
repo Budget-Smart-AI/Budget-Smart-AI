@@ -574,6 +574,7 @@ export const users = pgTable("users", {
   // User's country for geo-based bank provider selection (ISO 3166-1 alpha-2 code)
   country: text("country").default("US"),
   phoneEnc: text("phone_enc"), // AES-256-GCM encrypted phone number
+  mfaBackupCodes: text("mfa_backup_codes").array(), // TOTP backup codes
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

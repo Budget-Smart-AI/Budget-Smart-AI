@@ -94,7 +94,7 @@ export interface IStorage {
   createUser(user: InsertUser & { isAdmin?: boolean; isApproved?: boolean; email?: string; firstName?: string; lastName?: string; googleId?: string; emailVerified?: string; mfaRequired?: string }): Promise<User>;
   updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string }): Promise<User | undefined>;
   deleteUser(id: string): Promise<boolean>;
-  updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean): Promise<User | undefined>;
+  updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean, backupCodes?: string[]): Promise<User | undefined>;
   // Email verification
   getUserByVerificationToken(token: string): Promise<User | undefined>;
   setEmailVerificationToken(userId: string, token: string, expiry: string): Promise<void>;
@@ -625,14 +625,15 @@ export class MemStorage implements IStorage {
     return this.users.delete(id);
   }
 
-  async updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean): Promise<User | undefined> {
+  async updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean, backupCodes?: string[]): Promise<User | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
 
     const updatedUser: User = {
       ...user,
       mfaSecret,
-      mfaEnabled: mfaEnabled ? "true" : "false"
+      mfaEnabled: mfaEnabled ? "true" : "false",
+      mfaBackupCodes: backupCodes ?? (mfaEnabled ? user.mfaBackupCodes : null),
     };
     this.users.set(id, updatedUser);
     return updatedUser;
@@ -1209,10 +1210,11 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean): Promise<User | undefined> {
+  async updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean, backupCodes?: string[]): Promise<User | undefined> {
     const result = await db.update(users).set({
       mfaSecret,
-      mfaEnabled: mfaEnabled ? "true" : "false"
+      mfaEnabled: mfaEnabled ? "true" : "false",
+      mfaBackupCodes: backupCodes ?? (mfaEnabled ? undefined : null),
     }).where(eq(users.id, id)).returning();
     return result[0];
   }

@@ -24,7 +24,7 @@ import {
 } from "@shared/schema";
 import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailVerification, sendEmailViaPostmark } from "./email";
 import crypto from "crypto";
-import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
+import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, generateBackupCodes, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
 import passport from "passport";
 import { authRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending } from "./cash-flow";
@@ -2047,7 +2047,7 @@ Return JSON: { "income": [...] }`;
         return res.status(401).json({ error: "MFA not configured" });
       }
 
-      const isValid = await verifyMfaToken(user.mfaSecret, mfaCode);
+      const isValid = verifyMfaToken(user.mfaSecret, mfaCode);
       if (!isValid) {
         return res.status(401).json({ error: "Invalid MFA code" });
       }
@@ -2303,6 +2303,21 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // 2FA status endpoint
+  app.get("/api/auth/2fa/status", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      res.json({
+        enabled: user.mfaEnabled === "true",
+        hasBackupCodes: Array.isArray(user.mfaBackupCodes) && user.mfaBackupCodes.length > 0,
+      });
+    } catch (error) {
+      console.error("2FA status error:", error);
+      res.status(500).json({ error: "Failed to get 2FA status" });
+    }
+  });
+
   // MFA setup routes
   app.get("/api/auth/mfa/setup", requireAuth, async (req, res) => {
     try {
@@ -2312,15 +2327,23 @@ Return JSON: { "income": [...] }`;
       }
 
       const secret = generateMfaSecretKey();
-      const qrCode = await generateMfaQrCode(user.username, secret);
+      const qrCode = await generateMfaQrCode(user.email || user.username, secret);
 
       // Store secret temporarily in session until verified
       (req.session as any).pendingMfaSecret = secret;
 
-      res.json({ 
-        qrCode, 
-        secret, 
-        mfaEnabled: user.mfaEnabled === "true" 
+      // Explicitly save session so the secret persists across requests
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error in MFA setup:", err);
+          return res.status(500).json({ error: "Session save failed" });
+        }
+        res.json({
+          qrCode,
+          secret,
+          manualEntryKey: secret,
+          mfaEnabled: user.mfaEnabled === "true",
+        });
       });
     } catch (error) {
       console.error("MFA setup error:", error);
@@ -2334,15 +2357,17 @@ Return JSON: { "income": [...] }`;
       const pendingSecret = (req.session as any).pendingMfaSecret;
 
       if (!pendingSecret) {
-        return res.status(400).json({ error: "No pending MFA setup" });
+        return res.status(400).json({ error: "No pending MFA setup. Please start setup again." });
       }
 
-      const isValid = await verifyMfaToken(pendingSecret, code);
+      const isValid = verifyMfaToken(pendingSecret, code);
       if (!isValid) {
-        return res.status(401).json({ error: "Invalid verification code" });
+        return res.status(400).json({ error: "Invalid code. Please try again." });
       }
 
-      await storage.updateUserMfa(req.session.userId!, pendingSecret, true);
+      // Generate backup codes on successful verification
+      const backupCodes = generateBackupCodes();
+      await storage.updateUserMfa(req.session.userId!, pendingSecret, true, backupCodes);
       delete (req.session as any).pendingMfaSecret;
 
       // If this was a mandatory MFA setup, grant full access now
@@ -2352,7 +2377,13 @@ Return JSON: { "income": [...] }`;
         await loadHouseholdIntoSession(req);
       }
 
-      res.json({ success: true, message: "MFA enabled successfully" });
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error after MFA enable:", err);
+          return res.status(500).json({ error: "Session save failed" });
+        }
+        res.json({ success: true, backupCodes });
+      });
     } catch (error) {
       console.error("MFA enable error:", error);
       res.status(500).json({ error: "Failed to enable MFA" });
@@ -2361,15 +2392,22 @@ Return JSON: { "income": [...] }`;
 
   app.post("/api/auth/mfa/disable", requireAuth, async (req, res) => {
     try {
-      const { code } = req.body;
+      const { code, password } = req.body;
       const user = await storage.getUser(req.session.userId!);
-      
+
       if (!user || !user.mfaSecret) {
         return res.status(400).json({ error: "MFA not enabled" });
       }
 
-      const isValid = await verifyMfaToken(user.mfaSecret, code);
-      if (!isValid) {
+      // Accept either a current TOTP code or the account password
+      let verified = false;
+      if (code) {
+        verified = verifyMfaToken(user.mfaSecret, code);
+      } else if (password && user.password) {
+        verified = await verifyPassword(password, user.password);
+      }
+
+      if (!verified) {
         return res.status(401).json({ error: "Invalid verification code" });
       }
 
@@ -8062,6 +8100,7 @@ ${JSON.stringify(txSummary)}`;
   });
 
   // ============ REFERRAL PROGRAM ============
+  // TODO: Partnero affiliate program will replace this feature.
 
   // Get or create referral code for current user
   app.get("/api/referrals/code", requireAuth, async (req, res) => {
