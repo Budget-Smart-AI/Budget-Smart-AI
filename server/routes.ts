@@ -2810,12 +2810,15 @@ Return JSON: { "income": [...] }`;
       }
 
       // 5. Anonymise user record (soft-delete — keeps row for FK integrity)
+      // Capture email BEFORE anonymization so confirmation email is sent to correct address
+      const confirmEmail = user.email;
       await pool.query(
         `UPDATE users SET
            email      = 'deleted_' || id || '@deleted.local',
            username   = 'deleted_' || id,
            first_name = 'Deleted',
            last_name  = 'User',
+           password   = '',
            phone      = NULL,
            phone_enc  = NULL,
            google_id  = NULL,
@@ -2847,8 +2850,7 @@ Return JSON: { "income": [...] }`;
 
       // 8. Transactions are retained for 7-year legal requirement — not deleted.
 
-      // 9. Send confirmation email (best-effort)
-      const confirmEmail = user.email;
+      // 9. Send confirmation email (best-effort — use email captured before anonymization)
       if (confirmEmail && process.env.POSTMARK_USERNAME && process.env.ALERT_EMAIL_FROM) {
         sendEmailViaPostmark({
           from: process.env.ALERT_EMAIL_FROM,
