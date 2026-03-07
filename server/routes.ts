@@ -13,7 +13,7 @@ import {
   insertSavingsGoalSchema, updateSavingsGoalSchema,
   insertDebtDetailsSchema, updateDebtDetailsSchema,
   loginSchema, contactFormSchema, supportFormSchema, createUserSchema, updateUserSchema,
-  registerSchema, updateProfileSchema,
+  registerSchema, updateProfileSchema, updateHouseholdSchema, grantFinancialAccessSchema,
   createHouseholdSchema, createInvitationSchema,
   insertManualAccountSchema, updateManualAccountSchema,
   insertManualTransactionSchema, updateManualTransactionSchema,
@@ -1587,6 +1587,124 @@ Return JSON: { "income": [...] }`;
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to cancel invitation" });
+    }
+  });
+
+  // ── Household general info (address, country, household name) ─────────────
+  app.patch("/api/user/household", requireAuth, async (req, res) => {
+    try {
+      const parsed = updateHouseholdSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid household data" });
+      }
+      const userId = req.session.userId!;
+      const updated = await storage.updateUserHousehold(userId, parsed.data);
+      if (!updated) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({
+        success: true,
+        householdName: updated.householdName || null,
+        country: updated.country || null,
+        addressLine1: updated.addressLine1 || null,
+        city: updated.city || null,
+        provinceState: updated.provinceState || null,
+        postalCode: updated.postalCode || null,
+      });
+    } catch (error) {
+      console.error("Household update error:", error);
+      res.status(500).json({ error: "Failed to update household info" });
+    }
+  });
+
+  // Get household address info for current user
+  app.get("/api/user/household", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      res.json({
+        householdName: user.householdName || null,
+        country: user.country || "Canada",
+        addressLine1: user.addressLine1 || null,
+        city: user.city || null,
+        provinceState: user.provinceState || null,
+        postalCode: user.postalCode || null,
+      });
+    } catch (error) {
+      console.error("Get household error:", error);
+      res.status(500).json({ error: "Failed to fetch household info" });
+    }
+  });
+
+  // ── Financial Professional Access ─────────────────────────────────────────
+  app.get("/api/financial-professional", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const professional = await storage.getFinancialProfessional(userId);
+      res.json({ professional: professional || null });
+    } catch (error) {
+      console.error("Get financial professional error:", error);
+      res.status(500).json({ error: "Failed to fetch financial professional access" });
+    }
+  });
+
+  app.post("/api/financial-professional/grant", requireAuth, async (req, res) => {
+    try {
+      const parsed = grantFinancialAccessSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message || "Invalid data" });
+      }
+      const userId = req.session.userId!;
+      const accessToken = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // 60 days
+
+      const professional = await storage.grantFinancialAccess(
+        userId,
+        parsed.data.professionalEmail,
+        parsed.data.professionalName,
+        accessToken,
+        expiresAt
+      );
+
+      // Send invitation email to the professional
+      const user = await storage.getUser(userId);
+      const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
+      const fromEmail = process.env.POSTMARK_FROM_EMAIL || process.env.EMAIL_FROM || "noreply@budgetsmart.io";
+      try {
+        await sendEmailViaPostmark({
+          from: fromEmail,
+          to: parsed.data.professionalEmail,
+          subject: "Financial Advisor Access — Budget Smart AI",
+          html: `
+            <p>Hello${parsed.data.professionalName ? ` ${parsed.data.professionalName}` : ""},</p>
+            <p>${user?.firstName || user?.username || "A Budget Smart AI user"} has granted you read-only access to their financial account.</p>
+            <p><strong>Access Link:</strong> <a href="${appUrl}/advisor-access?token=${accessToken}">${appUrl}/advisor-access?token=${accessToken}</a></p>
+            <p>This access expires on <strong>${new Date(expiresAt).toLocaleDateString()}</strong>. It is read-only and can be revoked at any time.</p>
+            <p>— The Budget Smart AI Team</p>
+          `,
+          text: `Hello${parsed.data.professionalName ? ` ${parsed.data.professionalName}` : ""},\n\n${user?.firstName || user?.username || "A Budget Smart AI user"} has granted you read-only access.\n\nAccess link: ${appUrl}/advisor-access?token=${accessToken}\n\nExpires: ${new Date(expiresAt).toLocaleDateString()}\n\nThis access is read-only and can be revoked at any time.`,
+        });
+      } catch (emailErr) {
+        console.error("Failed to send financial professional invitation email:", emailErr);
+        // Don't fail the request if email fails
+      }
+
+      res.status(201).json({ success: true, professional });
+    } catch (error) {
+      console.error("Grant financial access error:", error);
+      res.status(500).json({ error: "Failed to grant financial professional access" });
+    }
+  });
+
+  app.delete("/api/financial-professional/revoke", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      await storage.revokeFinancialAccess(userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Revoke financial access error:", error);
+      res.status(500).json({ error: "Failed to revoke financial professional access" });
     }
   });
 
