@@ -646,6 +646,330 @@ function DataTab() {
   );
 }
 
+// ─── Billing Tab ──────────────────────────────────────────────────────────────
+interface BillingPaymentMethod {
+  brand: string;
+  last4: string;
+  expiryMonth: number;
+  expiryYear: number;
+}
+
+interface BillingSubscription {
+  noSubscription?: boolean;
+  planName: string;
+  status: string;
+  isTrial: boolean;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  amount: number | null;
+  currency: string | null;
+  interval: string | null;
+  paymentMethod: BillingPaymentMethod | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+interface BillingInvoice {
+  id: string;
+  date: string | null;
+  amount: number | null;
+  currency: string | null;
+  status: string;
+  pdfUrl: string | null;
+  hostedUrl: string | null;
+}
+
+function BillingTab() {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  const { data: billing, isLoading: billingLoading } = useQuery<BillingSubscription | { noSubscription: true }>({
+    queryKey: ["/api/billing/subscription"],
+  });
+
+  const { data: invoicesData, isLoading: invoicesLoading } = useQuery<{ invoices: BillingInvoice[] }>({
+    queryKey: ["/api/billing/invoices"],
+  });
+
+  const portalMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/billing/customer-portal");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.url) window.location.href = data.url;
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  if (billingLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    );
+  }
+
+  // No stripe customer or no subscription
+  if (!billing || (billing as { noSubscription?: boolean }).noSubscription) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center space-y-4">
+          <CreditCard className="w-10 h-10 mx-auto text-muted-foreground" />
+          <p className="text-lg font-medium">No active subscription found.</p>
+          <p className="text-sm text-muted-foreground">
+            Subscribe to a plan to unlock all features.
+          </p>
+          <Button onClick={() => navigate("/pricing")} className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600">
+            <Sparkles className="w-4 h-4 mr-2" />
+            Start a Plan
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const b = billing as BillingSubscription;
+
+  const statusBadge = () => {
+    if (b.status === "active" && !b.isTrial) {
+      return <Badge className="bg-emerald-500 text-white">Active</Badge>;
+    }
+    if (b.isTrial) {
+      return <Badge className="bg-amber-500 text-white">Trial</Badge>;
+    }
+    if (b.status === "past_due") {
+      return <Badge variant="destructive">Payment Past Due</Badge>;
+    }
+    if (b.status === "canceled") {
+      return <Badge variant="secondary">Canceled</Badge>;
+    }
+    return <Badge variant="secondary">{b.status}</Badge>;
+  };
+
+  const formatDate = (iso: string | null) => {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  };
+
+  const formatAmount = (cents: number | null, currency: string | null) => {
+    if (cents == null || !currency) return "";
+    const dollars = cents / 100;
+    return `$${dollars.toFixed(2)} ${currency.toUpperCase()}`;
+  };
+
+  const cardBrandLogo = (brand: string) => {
+    const b = brand.toLowerCase();
+    if (b === "visa") {
+      return (
+        <svg width="38" height="24" viewBox="0 0 38 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="inline-block mr-2">
+          <rect width="38" height="24" rx="4" fill="#1A1F71"/>
+          <text x="7" y="17" fontSize="12" fill="#F7B600" fontFamily="Arial" fontWeight="bold">VISA</text>
+        </svg>
+      );
+    }
+    if (b === "mastercard") {
+      return (
+        <svg width="38" height="24" viewBox="0 0 38 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="inline-block mr-2">
+          <rect width="38" height="24" rx="4" fill="#252525"/>
+          <circle cx="15" cy="12" r="7" fill="#EB001B"/>
+          <circle cx="23" cy="12" r="7" fill="#F79E1B"/>
+          <path d="M19 6.8a7 7 0 0 1 0 10.4A7 7 0 0 1 19 6.8z" fill="#FF5F00"/>
+        </svg>
+      );
+    }
+    if (b === "amex" || b === "american express") {
+      return (
+        <svg width="38" height="24" viewBox="0 0 38 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="inline-block mr-2">
+          <rect width="38" height="24" rx="4" fill="#2E77BC"/>
+          <text x="5" y="17" fontSize="9" fill="white" fontFamily="Arial" fontWeight="bold">AMEX</text>
+        </svg>
+      );
+    }
+    return <CreditCard className="inline-block w-6 h-6 mr-2 text-muted-foreground" />;
+  };
+
+  const invoices: BillingInvoice[] = invoicesData?.invoices ?? [];
+
+  return (
+    <div className="space-y-6">
+      {/* Current Plan */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5" />
+            Current Plan
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-2xl font-bold">{b.planName || "Premium"}</p>
+            {statusBadge()}
+          </div>
+
+          {b.isTrial && b.trialEndsAt && (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <Calendar className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+              <p className="text-sm">
+                Your trial ends on <strong>{formatDate(b.trialEndsAt)}</strong>.
+                {b.amount != null && (
+                  <> You will be charged <strong>{formatAmount(b.amount, b.currency)}</strong> on that date.</>
+                )}
+              </p>
+            </div>
+          )}
+
+          {b.status === "past_due" && (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+              <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-500">
+                Your last payment failed. Please update your payment method.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Next Payment */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Next Payment
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {b.cancelAtPeriodEnd ? (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted border">
+              <AlertTriangle className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+              <p className="text-sm text-muted-foreground">
+                Your plan is canceled and expires on <strong>{formatDate(b.currentPeriodEnd)}</strong>.
+              </p>
+            </div>
+          ) : b.status === "past_due" ? (
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+              <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-500">
+                Your last payment failed. Please update your payment method.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {b.amount != null && b.currency
+                ? <><span className="text-foreground font-medium">{formatAmount(b.amount, b.currency)}</span> on <span className="text-foreground font-medium">{formatDate(b.currentPeriodEnd)}</span></>
+                : formatDate(b.currentPeriodEnd)
+              }
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Payment Method */}
+      {b.paymentMethod && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5" />
+              Payment Method
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center">
+              {cardBrandLogo(b.paymentMethod.brand)}
+              <span className="text-sm">
+                <span className="capitalize">{b.paymentMethod.brand}</span> ending in{" "}
+                <strong>{b.paymentMethod.last4}</strong>, expires{" "}
+                {String(b.paymentMethod.expiryMonth).padStart(2, "0")}/{b.paymentMethod.expiryYear}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => portalMutation.mutate()}
+              disabled={portalMutation.isPending}
+            >
+              {portalMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Opening...</>
+              ) : (
+                <><ExternalLink className="w-4 h-4 mr-2" />Update Payment Method</>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Manage Subscription */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <SlidersHorizontal className="w-5 h-5" />
+            Manage Subscription
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            onClick={() => portalMutation.mutate()}
+            disabled={portalMutation.isPending}
+            className="w-full"
+          >
+            {portalMutation.isPending ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Opening...</>
+            ) : (
+              <><ExternalLink className="w-4 h-4 mr-2" />Manage Subscription</>
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            You'll be redirected to our secure billing portal where you can upgrade, downgrade, cancel, or view invoice history.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Invoice History */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="w-5 h-5" />
+            Invoice History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {invoicesLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+          ) : invoices.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No invoices found.</p>
+          ) : (
+            <div className="space-y-2">
+              {invoices.map((inv: BillingInvoice) => (
+                <div key={inv.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                  <div className="text-sm">
+                    <p className="font-medium">{formatDate(inv.date)}</p>
+                    <p className="text-muted-foreground">
+                      {inv.amount != null ? formatAmount(inv.amount, inv.currency) : "—"} ·{" "}
+                      <span className="capitalize">{inv.status}</span>
+                    </p>
+                  </div>
+                  {inv.pdfUrl && (
+                    <a
+                      href={inv.pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" /> PDF
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 interface SettingsProps {
   onLogout: () => void;
 }
@@ -1050,7 +1374,7 @@ export default function Settings({ onLogout }: SettingsProps) {
       </div>
 
       <Tabs defaultValue="account" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="account">
             <User className="h-4 w-4 mr-2" />
             Account
@@ -1066,6 +1390,10 @@ export default function Settings({ onLogout }: SettingsProps) {
           <TabsTrigger value="data">
             <Database className="h-4 w-4 mr-2" />
             Data
+          </TabsTrigger>
+          <TabsTrigger value="billing">
+            <CreditCard className="h-4 w-4 mr-2" />
+            Billing
           </TabsTrigger>
         </TabsList>
 
@@ -2045,6 +2373,11 @@ export default function Settings({ onLogout }: SettingsProps) {
         {/* ── Data Tab ── */}
         <TabsContent value="data" className="space-y-4">
           <DataTab />
+        </TabsContent>
+
+        {/* ── Billing Tab ── */}
+        <TabsContent value="billing" className="space-y-4">
+          <BillingTab />
         </TabsContent>
 
       </Tabs>
