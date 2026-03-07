@@ -457,3 +457,343 @@ iframe[src*="plaid"] {
 ::-webkit-scrollbar-corner {
   background: hsl(var(--muted));
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * NAMED THEMES
+ * Each theme class sets the full CSS-variable palette used by Tailwind.
+ * Dark themes also receive the `.dark` class via ThemeContextProvider so
+ * that all `dark:` Tailwind variants continue to work automatically.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── theme-aurora ─── (light · teal-green · default) ───────────────────── */
+/* Mirrors :root – kept in sync.  Override :root defaults here when needed. */
+.theme-aurora {
+  color-scheme: light;
+
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+
+  --background: 240 20% 98%;
+  --gradient-accent-1: rgba(16, 185, 129, 0.06);
+  --gradient-accent-2: rgba(34, 197, 94, 0.04);
+  --gradient-accent-3: rgba(20, 184, 166, 0.04);
+  --gradient-accent-4: rgba(16, 185, 129, 0.03);
+  --foreground: 240 10% 10%;
+  --border: 240 10% 90%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 10%;
+  --card-border: 240 10% 90%;
+  --sidebar: 152 25% 97%;
+  --sidebar-foreground: 152 30% 15%;
+  --sidebar-border: 152 20% 88%;
+  --sidebar-primary: 152 68% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 152 25% 92%;
+  --sidebar-accent-foreground: 152 68% 32%;
+  --sidebar-ring: 152 68% 42%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 10%;
+  --popover-border: 240 10% 90%;
+  --primary: 152 68% 42%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 10% 96%;
+  --secondary-foreground: 240 10% 10%;
+  --muted: 240 10% 96%;
+  --muted-foreground: 240 5% 46%;
+  --accent: 152 30% 94%;
+  --accent-foreground: 152 68% 32%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 240 10% 90%;
+  --ring: 152 68% 42%;
+  --chart-1: 152 68% 42%;
+  --chart-2: 173 80% 40%;
+  --chart-3: 142 71% 45%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 340 82% 52%;
+  --gradient-purple: 152 68% 42%;
+  --gradient-blue: 217 91% 60%;
+  --gradient-green: 142 71% 45%;
+  --gradient-orange: 25 95% 53%;
+  --gradient-pink: 340 82% 52%;
+  --color-bg: 249 249 251;
+  --color-fg: 23 23 28;
+  --color-surface: 255 255 255;
+  --color-surface-fg: 23 23 28;
+  --color-income: 22 163 74;
+  --color-expense: 220 38 38;
+  --color-warning: 245 158 11;
+  --color-warning-fg: 255 255 255;
+}
+
+/* ── theme-midnight ── (dark · deep-teal) ───────────────────────────────── */
+/* Mirrors .dark – kept in sync. */
+.theme-midnight {
+  color-scheme: dark;
+
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  --background: 160 25% 6%;
+  --gradient-accent-1: rgba(16, 185, 129, 0.08);
+  --gradient-accent-2: rgba(34, 197, 94, 0.06);
+  --gradient-accent-3: rgba(20, 184, 166, 0.06);
+  --gradient-accent-4: rgba(16, 185, 129, 0.05);
+  --foreground: 0 0% 98%;
+  --border: 160 18% 14%;
+  --card: 160 22% 9%;
+  --card-foreground: 0 0% 98%;
+  --card-border: 160 18% 14%;
+  --sidebar: 160 28% 7%;
+  --sidebar-foreground: 0 0% 98%;
+  --sidebar-border: 160 18% 14%;
+  --sidebar-primary: 152 68% 50%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 160 22% 13%;
+  --sidebar-accent-foreground: 152 60% 65%;
+  --sidebar-ring: 152 68% 50%;
+  --popover: 160 22% 9%;
+  --popover-foreground: 0 0% 98%;
+  --popover-border: 160 18% 14%;
+  --primary: 152 68% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 160 18% 14%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 160 18% 14%;
+  --muted-foreground: 150 5% 60%;
+  --accent: 160 22% 13%;
+  --accent-foreground: 152 60% 65%;
+  --destructive: 0 62% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 160 18% 20%;
+  --ring: 152 68% 50%;
+  --chart-1: 152 68% 50%;
+  --chart-2: 173 80% 50%;
+  --chart-3: 142 71% 50%;
+  --chart-4: 38 92% 55%;
+  --chart-5: 340 82% 60%;
+  --gradient-purple: 152 68% 50%;
+  --gradient-blue: 217 91% 65%;
+  --gradient-green: 142 71% 50%;
+  --gradient-orange: 25 95% 58%;
+  --gradient-pink: 340 82% 60%;
+  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
+  --shadow: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
+  --shadow-md: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 2px 4px -1px rgba(0,0,0,0.30);
+  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 4px 6px -1px rgba(0,0,0,0.30);
+  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 8px 10px -1px rgba(0,0,0,0.30);
+  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --color-bg: 11 19 17;
+  --color-fg: 250 250 250;
+  --color-surface: 18 28 25;
+  --color-surface-fg: 250 250 250;
+  --color-income: 74 222 128;
+  --color-expense: 248 113 113;
+  --color-warning: 251 191 36;
+  --color-warning-fg: 255 255 255;
+}
+
+/* ── theme-ocean ───── (light · blue) ───────────────────────────────────── */
+.theme-ocean {
+  color-scheme: light;
+
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+
+  --background: 210 40% 98%;
+  --gradient-accent-1: rgba(37, 99, 235, 0.06);
+  --gradient-accent-2: rgba(59, 130, 246, 0.04);
+  --gradient-accent-3: rgba(14, 165, 233, 0.04);
+  --gradient-accent-4: rgba(37, 99, 235, 0.03);
+  --foreground: 215 25% 12%;
+  --border: 214 30% 88%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 25% 12%;
+  --card-border: 214 30% 88%;
+  --sidebar: 210 30% 96%;
+  --sidebar-foreground: 215 30% 20%;
+  --sidebar-border: 214 25% 86%;
+  --sidebar-primary: 217 91% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 30% 91%;
+  --sidebar-accent-foreground: 217 91% 40%;
+  --sidebar-ring: 217 91% 55%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 25% 12%;
+  --popover-border: 214 30% 88%;
+  --primary: 217 91% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 25% 94%;
+  --secondary-foreground: 215 25% 12%;
+  --muted: 214 25% 94%;
+  --muted-foreground: 215 15% 48%;
+  --accent: 210 30% 91%;
+  --accent-foreground: 217 80% 40%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 214 30% 88%;
+  --ring: 217 91% 55%;
+  --chart-1: 217 91% 55%;
+  --chart-2: 199 89% 48%;
+  --chart-3: 173 80% 40%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 340 82% 52%;
+  --gradient-purple: 217 91% 55%;
+  --gradient-blue: 199 89% 48%;
+  --gradient-green: 173 80% 40%;
+  --gradient-orange: 25 95% 53%;
+  --gradient-pink: 340 82% 52%;
+  --color-bg: 240 248 255;
+  --color-fg: 15 23 42;
+  --color-surface: 255 255 255;
+  --color-surface-fg: 15 23 42;
+  --color-income: 22 163 74;
+  --color-expense: 220 38 38;
+  --color-warning: 245 158 11;
+  --color-warning-fg: 255 255 255;
+}
+
+/* ── theme-nebula ──── (dark · violet-purple) ───────────────────────────── */
+.theme-nebula {
+  color-scheme: dark;
+
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  --background: 265 30% 8%;
+  --gradient-accent-1: rgba(139, 92, 246, 0.10);
+  --gradient-accent-2: rgba(167, 139, 250, 0.07);
+  --gradient-accent-3: rgba(192, 132, 252, 0.07);
+  --gradient-accent-4: rgba(139, 92, 246, 0.06);
+  --foreground: 0 0% 97%;
+  --border: 265 20% 16%;
+  --card: 265 25% 11%;
+  --card-foreground: 0 0% 97%;
+  --card-border: 265 20% 16%;
+  --sidebar: 265 32% 7%;
+  --sidebar-foreground: 0 0% 97%;
+  --sidebar-border: 265 20% 16%;
+  --sidebar-primary: 265 60% 65%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 265 25% 15%;
+  --sidebar-accent-foreground: 265 55% 78%;
+  --sidebar-ring: 265 60% 65%;
+  --popover: 265 25% 11%;
+  --popover-foreground: 0 0% 97%;
+  --popover-border: 265 20% 16%;
+  --primary: 265 60% 65%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 265 20% 16%;
+  --secondary-foreground: 0 0% 97%;
+  --muted: 265 20% 16%;
+  --muted-foreground: 260 5% 60%;
+  --accent: 265 25% 15%;
+  --accent-foreground: 265 55% 78%;
+  --destructive: 0 62% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 265 20% 22%;
+  --ring: 265 60% 65%;
+  --chart-1: 265 60% 65%;
+  --chart-2: 280 55% 60%;
+  --chart-3: 250 65% 55%;
+  --chart-4: 38 92% 55%;
+  --chart-5: 340 82% 60%;
+  --gradient-purple: 265 60% 65%;
+  --gradient-blue: 250 65% 60%;
+  --gradient-green: 280 55% 55%;
+  --gradient-orange: 25 95% 58%;
+  --gradient-pink: 320 70% 60%;
+  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
+  --shadow: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
+  --shadow-md: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 2px 4px -1px rgba(0,0,0,0.30);
+  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 4px 6px -1px rgba(0,0,0,0.30);
+  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 8px 10px -1px rgba(0,0,0,0.30);
+  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --color-bg: 14 11 30;
+  --color-fg: 247 247 247;
+  --color-surface: 26 21 48;
+  --color-surface-fg: 247 247 247;
+  --color-income: 74 222 128;
+  --color-expense: 248 113 113;
+  --color-warning: 251 191 36;
+  --color-warning-fg: 255 255 255;
+}
+
+/* ── theme-slate ───── (light · neutral-gray) ───────────────────────────── */
+.theme-slate {
+  color-scheme: light;
+
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+
+  --background: 210 20% 98%;
+  --gradient-accent-1: rgba(100, 116, 139, 0.05);
+  --gradient-accent-2: rgba(148, 163, 184, 0.04);
+  --gradient-accent-3: rgba(100, 116, 139, 0.04);
+  --gradient-accent-4: rgba(71, 85, 105, 0.03);
+  --foreground: 215 25% 12%;
+  --border: 215 15% 88%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 25% 12%;
+  --card-border: 215 15% 88%;
+  --sidebar: 215 15% 96%;
+  --sidebar-foreground: 215 20% 20%;
+  --sidebar-border: 215 12% 86%;
+  --sidebar-primary: 215 40% 50%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 215 15% 91%;
+  --sidebar-accent-foreground: 215 40% 38%;
+  --sidebar-ring: 215 40% 50%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 25% 12%;
+  --popover-border: 215 15% 88%;
+  --primary: 215 40% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 215 15% 94%;
+  --secondary-foreground: 215 25% 12%;
+  --muted: 215 12% 94%;
+  --muted-foreground: 215 8% 48%;
+  --accent: 215 15% 91%;
+  --accent-foreground: 215 35% 38%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 215 15% 88%;
+  --ring: 215 40% 50%;
+  --chart-1: 215 40% 50%;
+  --chart-2: 200 50% 45%;
+  --chart-3: 180 45% 42%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 340 82% 52%;
+  --gradient-purple: 215 40% 50%;
+  --gradient-blue: 200 50% 45%;
+  --gradient-green: 180 45% 42%;
+  --gradient-orange: 25 95% 53%;
+  --gradient-pink: 340 82% 52%;
+  --color-bg: 248 250 252;
+  --color-fg: 15 23 42;
+  --color-surface: 255 255 255;
+  --color-surface-fg: 15 23 42;
+  --color-income: 22 163 74;
+  --color-expense: 220 38 38;
+  --color-warning: 245 158 11;
+  --color-warning-fg: 255 255 255;
+}
