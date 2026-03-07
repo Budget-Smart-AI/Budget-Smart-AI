@@ -1176,7 +1176,11 @@ export default function BankAccounts() {
   const filteredTransactions = transactions
     .filter((tx) => {
       const matchesSearch = ((tx as any).merchantCleanName || tx.merchantName || tx.name).toLowerCase().includes(search.toLowerCase());
-      const matchesFilter = matchFilter === "all" || tx.matchType === matchFilter;
+      const matchesFilter = matchFilter === "all"
+        ? true
+        : matchFilter === "needs_review"
+          ? (tx as any).needsReview === true
+          : tx.matchType === matchFilter;
       return matchesSearch && matchesFilter;
     })
     .sort((a, b) => {
@@ -1766,6 +1770,7 @@ export default function BankAccounts() {
                   <SelectItem value="expense">Matched Expenses</SelectItem>
                   <SelectItem value="income">Income</SelectItem>
                   <SelectItem value="unmatched">Unmatched</SelectItem>
+                  <SelectItem value="needs_review">Needs Review</SelectItem>
                 </SelectContent>
               </Select>
             </div>

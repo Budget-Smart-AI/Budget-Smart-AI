@@ -95,6 +95,7 @@ export interface IStorage {
   getUsers(): Promise<User[]>;
   createUser(user: InsertUser & { isAdmin?: boolean; isApproved?: boolean; email?: string; firstName?: string; lastName?: string; googleId?: string; emailVerified?: string; mfaRequired?: string }): Promise<User>;
   updateUser(id: string, updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean; email?: string | null; firstName?: string | null; lastName?: string | null; phone?: string | null; googleId?: string; emailVerified?: string; mxUserGuid?: string; displayName?: string | null; birthday?: string | null; timezone?: string | null; avatarUrl?: string | null; country?: string | null }): Promise<User | undefined>;
+  updateUserPreferences(id: string, updates: { prefNeedsReview?: boolean; prefEditPending?: boolean; prefMerchantDisplay?: string }): Promise<User | undefined>;
   deleteUser(id: string): Promise<boolean>;
   updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean, backupCodes?: string[]): Promise<User | undefined>;
   // Email verification
@@ -631,6 +632,19 @@ export class MemStorage implements IStorage {
       ...(updates.timezone !== undefined && { timezone: updates.timezone }),
       ...(updates.avatarUrl !== undefined && { avatarUrl: updates.avatarUrl }),
       ...(updates.country !== undefined && { country: updates.country }),
+    };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  async updateUserPreferences(id: string, updates: { prefNeedsReview?: boolean; prefEditPending?: boolean; prefMerchantDisplay?: string }): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    const updatedUser: User = {
+      ...user,
+      ...(updates.prefNeedsReview !== undefined && { prefNeedsReview: updates.prefNeedsReview }),
+      ...(updates.prefEditPending !== undefined && { prefEditPending: updates.prefEditPending }),
+      ...(updates.prefMerchantDisplay !== undefined && { prefMerchantDisplay: updates.prefMerchantDisplay }),
     };
     this.users.set(id, updatedUser);
     return updatedUser;
@@ -1235,6 +1249,19 @@ export class DatabaseStorage implements IStorage {
   async deleteUser(id: string): Promise<boolean> {
     const result = await db.delete(users).where(eq(users.id, id)).returning();
     return result.length > 0;
+  }
+
+  async updateUserPreferences(id: string, updates: { prefNeedsReview?: boolean; prefEditPending?: boolean; prefMerchantDisplay?: string }): Promise<User | undefined> {
+    const updateData: Partial<User> = {};
+    if (updates.prefNeedsReview !== undefined) updateData.prefNeedsReview = updates.prefNeedsReview;
+    if (updates.prefEditPending !== undefined) updateData.prefEditPending = updates.prefEditPending;
+    if (updates.prefMerchantDisplay !== undefined) updateData.prefMerchantDisplay = updates.prefMerchantDisplay;
+    if (Object.keys(updateData).length === 0) {
+      const result = await db.select().from(users).where(eq(users.id, id));
+      return result[0] ? this._decryptUser(result[0]) : undefined;
+    }
+    const result = await db.update(users).set(updateData).where(eq(users.id, id)).returning();
+    return result[0] ? this._decryptUser(result[0]) : undefined;
   }
 
   async updateUserMfa(id: string, mfaSecret: string, mfaEnabled: boolean, backupCodes?: string[]): Promise<User | undefined> {

@@ -22,6 +22,7 @@ import Budgets from "@/pages/budgets";
 import SavingsGoals from "@/pages/savings-goals";
 import Reports from "@/pages/reports";
 import Settings from "@/pages/settings";
+import MerchantsPage from "@/pages/merchants";
 import BankAccounts from "@/pages/bank-accounts";
 import AdminUsers from "@/pages/admin-users";
 import AIAssistant from "@/pages/ai-assistant";
@@ -89,6 +90,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/settings">
         <Settings onLogout={onLogout} />
       </Route>
+      <Route path="/settings/merchants" component={MerchantsPage} />
       <Route path="/ai-assistant" component={AIAssistant} />
       <Route path="/debts" component={Debts} />
       <Route path="/debt-payoff" component={DebtPayoff} />
