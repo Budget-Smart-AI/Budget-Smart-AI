@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeContextProvider } from "@/contexts/ThemeContext";
 import { CookieConsent } from "@/components/cookie-consent";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeQuickSwitcher } from "@/components/ui/ThemeQuickSwitcher";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificationsDropdown } from "@/components/notifications-dropdown";
@@ -256,7 +256,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
               <SidebarTrigger data-testid="button-sidebar-toggle" />
               <div className="flex items-center gap-2">
                 <NotificationsDropdown />
-                <ThemeToggle />
+                <ThemeQuickSwitcher />
               </div>
             </header>
             <main className="flex-1 overflow-auto p-6">

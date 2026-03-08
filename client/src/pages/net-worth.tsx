@@ -20,6 +20,7 @@ import {
   Cell,
 } from "recharts";
 import type { NetWorthSnapshot } from "@shared/schema";
+import { useChartColors } from "@/hooks/useChartColors";
 
 interface NetWorthData {
   netWorth: number;
@@ -51,11 +52,13 @@ function formatCurrency(amount: number) {
   }).format(amount);
 }
 
-const ASSET_COLORS = ["#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#6B7280"];
-const LIABILITY_COLORS = ["#EF4444", "#F97316", "#EC4899", "#6B7280"];
 
 export default function NetWorth() {
   const { toast } = useToast();
+  const colors = useChartColors();
+
+  const ASSET_COLORS = [colors.chart1, colors.chart2, colors.chart3, colors.chart4, colors.muted];
+  const LIABILITY_COLORS = [colors.danger, colors.chart4, colors.chart5, colors.muted];
 
   const { data: netWorth, isLoading: netWorthLoading } = useQuery<NetWorthData>({
     queryKey: ["/api/net-worth"],
@@ -293,15 +296,15 @@ export default function NetWorth() {
                   <Line
                     type="monotone"
                     dataKey="netWorth"
-                    stroke="#8B5CF6"
+                    stroke={colors.chart3}
                     strokeWidth={2}
-                    dot={{ fill: "#8B5CF6" }}
+                    dot={{ fill: colors.chart3 }}
                     name="Net Worth"
                   />
                   <Line
                     type="monotone"
                     dataKey="assets"
-                    stroke="#10B981"
+                    stroke={colors.success}
                     strokeWidth={2}
                     strokeDasharray="5 5"
                     dot={false}
@@ -310,7 +313,7 @@ export default function NetWorth() {
                   <Line
                     type="monotone"
                     dataKey="liabilities"
-                    stroke="#EF4444"
+                    stroke={colors.danger}
                     strokeWidth={2}
                     strokeDasharray="5 5"
                     dot={false}
