@@ -403,13 +403,28 @@ function AuthenticatedOrRedirect() {
   return <AuthenticatedApp onLogout={handleLogout} isAdmin={isAdmin} username={username} isDemo={isDemo} />;
 }
 
+// On the app subdomain (/app.budgetsmart.io), /pricing should redirect users to
+// the marketing site instead of rendering the embedded landing page.
+function PricingRoute() {
+  const isAppDomain = window.location.hostname === 'app.budgetsmart.io';
+  if (isAppDomain) {
+    window.location.replace('https://budgetsmart.io/#pricing');
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+  return <LandingPage />;
+}
+
 function AppContent() {
   return (
     <Switch>
       {/* Public pages */}
       <Route path="/login" component={AuthGatedContent} />
       <Route path="/signup" component={SignupPage} />
-      <Route path="/pricing" component={LandingPage} />
+      <Route path="/pricing" component={PricingRoute} />
       <Route path="/privacy" component={Privacy} />
       <Route path="/terms" component={Terms} />
       <Route path="/cookies" component={CookiePolicy} />

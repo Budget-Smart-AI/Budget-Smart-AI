@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
   Loader2, Brain, Zap, Sparkles, Check, Shield, Star, CreditCard,
-  Calendar, Lock, ArrowRight
+  Calendar, Lock, ArrowRight, LogOut
 } from "lucide-react";
 
 interface SubscriptionGateProps {
@@ -146,7 +146,7 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
                 )}
               </p>
             </div>
-            <Button variant="outline" className="border-slate-700 text-white hover:bg-slate-800" onClick={() => window.location.href = "/pricing"}>
+            <Button variant="outline" className="border-slate-700 text-white hover:bg-slate-800" onClick={() => window.location.href = "https://budgetsmart.io/#pricing"}>
               View Plans
             </Button>
           </CardContent>
@@ -318,10 +318,26 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
         )}
 
         {/* View all plans link */}
-        <div className="text-center mt-6">
-          <Button variant="ghost" className="text-slate-400 hover:text-white hover:bg-slate-800" onClick={() => navigate("/pricing#pricing")}>
+        <div className="text-center mt-6 flex flex-col items-center gap-2">
+          <Button variant="ghost" className="text-slate-400 hover:text-white hover:bg-slate-800" onClick={() => window.location.href = "https://budgetsmart.io/#pricing"}>
             View all plan details
             <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
+            onClick={async () => {
+              try {
+                await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+              } catch {
+                // Ignore network errors – redirect to login regardless
+              }
+              window.location.href = "/login";
+            }}
+          >
+            <LogOut className="w-3.5 h-3.5 mr-1.5" />
+            Sign out
           </Button>
         </div>
       </div>
