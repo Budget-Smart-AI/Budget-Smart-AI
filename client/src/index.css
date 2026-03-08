@@ -735,6 +735,77 @@ iframe[src*="plaid"] {
   --color-warning-fg: 255 255 255;
 }
 
+/* ── theme-abyss ───── (dark · deep-blue) ───────────────────────────────── */
+.theme-abyss {
+  color-scheme: dark;
+
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  --background: 222 47% 7%;
+  --gradient-accent-1: rgba(59, 130, 246, 0.10);
+  --gradient-accent-2: rgba(96, 165, 250, 0.07);
+  --gradient-accent-3: rgba(37, 99, 235, 0.07);
+  --gradient-accent-4: rgba(59, 130, 246, 0.06);
+  --foreground: 0 0% 97%;
+  --border: 222 30% 16%;
+  --card: 222 40% 10%;
+  --card-foreground: 0 0% 97%;
+  --card-border: 222 30% 16%;
+  --sidebar: 222 50% 6%;
+  --sidebar-foreground: 0 0% 97%;
+  --sidebar-border: 222 30% 16%;
+  --sidebar-primary: 213 94% 62%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 222 40% 14%;
+  --sidebar-accent-foreground: 213 80% 75%;
+  --sidebar-ring: 213 94% 62%;
+  --popover: 222 40% 10%;
+  --popover-foreground: 0 0% 97%;
+  --popover-border: 222 30% 16%;
+  --primary: 213 94% 62%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 222 30% 16%;
+  --secondary-foreground: 0 0% 97%;
+  --muted: 222 30% 16%;
+  --muted-foreground: 220 8% 60%;
+  --accent: 222 40% 14%;
+  --accent-foreground: 213 80% 75%;
+  --destructive: 0 62% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 222 30% 20%;
+  --ring: 213 94% 62%;
+  --chart-1: 213 94% 62%;
+  --chart-2: 199 89% 55%;
+  --chart-3: 230 80% 65%;
+  --chart-4: 38 92% 55%;
+  --chart-5: 340 82% 60%;
+  --gradient-purple: 230 80% 65%;
+  --gradient-blue: 213 94% 62%;
+  --gradient-green: 199 89% 55%;
+  --gradient-orange: 25 95% 58%;
+  --gradient-pink: 340 82% 60%;
+  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
+  --shadow: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
+  --shadow-md: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 2px 4px -1px rgba(0,0,0,0.30);
+  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 4px 6px -1px rgba(0,0,0,0.30);
+  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 8px 10px -1px rgba(0,0,0,0.30);
+  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0,0.30);
+  --color-bg: 8 14 26;
+  --color-fg: 247 247 247;
+  --color-surface: 15 26 46;
+  --color-surface-fg: 247 247 247;
+  --color-income: 74 222 128;
+  --color-expense: 248 113 113;
+  --color-warning: 251 191 36;
+  --color-warning-fg: 255 255 255;
+}
+
 /* ── theme-slate ───── (light · neutral-gray) ───────────────────────────── */
 .theme-slate {
   color-scheme: light;

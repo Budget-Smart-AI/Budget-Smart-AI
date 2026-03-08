@@ -5,7 +5,8 @@ export type ThemeId =
   | "theme-aurora"
   | "theme-ocean"
   | "theme-nebula"
-  | "theme-slate";
+  | "theme-slate"
+  | "theme-abyss";
 
 export interface ThemeMeta {
   label: string;
@@ -39,6 +40,11 @@ export const THEMES: Record<ThemeId, ThemeMeta> = {
     label: "Slate",
     isDark: false,
     previewColors: ["#f8fafc", "#ffffff", "#64748b"],
+  },
+  "theme-abyss": {
+    label: "Abyss",
+    isDark: true,
+    previewColors: ["#080e1a", "#0f1a2e", "#60a5fa"],
   },
 };
 
