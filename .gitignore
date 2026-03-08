@@ -11,3 +11,4 @@ vite.config.ts.*
 !.env.example
 SESSION_SECRET.txt
 *.local
+package-lock.json

@@ -53,7 +53,6 @@ import NetWorth from "@/pages/net-worth";
 import FinancialCalendar from "@/pages/calendar";
 import SplitExpenses from "@/pages/split-expenses";
 import LandingPage from "@/pages/landing";
-import AdminLanding from "@/pages/admin-landing";
 import AdminSalesChat from "@/pages/admin-sales-chat";
 import AdminSupport from "@/pages/admin-support";
 import AdminAIManagement from "@/pages/admin-ai-management";
@@ -140,7 +139,6 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       {isAdmin && (
         <>
           <Route path="/admin/users" component={AdminUsers} />
-          <Route path="/admin/landing" component={AdminLanding} />
           <Route path="/admin/sales-chat" component={AdminSalesChat} />
           <Route path="/admin/support" component={AdminSupport} />
           <Route path="/admin/ai-management" component={AdminAIManagement} />
@@ -174,6 +172,15 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
           localStorage.removeItem("pendingCheckout");
 
           if (pendingCheckout.priceId && pendingCheckout.planId) {
+            // Discard stale pending checkouts (older than 15 minutes) to prevent
+            // a leftover localStorage entry from auto-triggering checkout on a
+            // future session when the user logs in via cookie.
+            // Also discard entries without a timestamp (created before this fix).
+            const MAX_AGE_MS = 15 * 60 * 1000;
+            if (!pendingCheckout.timestamp || (Date.now() - pendingCheckout.timestamp) > MAX_AGE_MS) {
+              setCheckingPendingCheckout(false);
+              return;
+            }
             // Create checkout session and redirect
             const response = await fetch("/api/stripe/create-checkout-session", {
               method: "POST",

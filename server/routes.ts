@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request as ExpressRequest } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage } from "./storage";
@@ -11789,6 +11789,16 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     res.json({ configured: isConfigured });
   });
 
+  // Helper: build the base URL for Stripe redirect URLs.
+  // Respects X-Forwarded-Proto / X-Forwarded-Host headers set by reverse proxies
+  // so that cancel/success URLs point to the correct public hostname instead of
+  // the internal host (e.g. localhost:3000).
+  const getStripeBaseUrl = (req: ExpressRequest): string => {
+    const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || req.protocol;
+    const host = (req.headers['x-forwarded-host'] as string)?.split(',')[0]?.trim() || req.get('host');
+    return process.env.BASE_URL || `${proto}://${host}`;
+  };
+
   // Create checkout session for subscription
   app.post("/api/stripe/create-checkout-session", requireAuth, async (req, res) => {
     try {
@@ -11818,7 +11828,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
       const { createSubscriptionCheckout } = await import("./stripe");
 
-      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+      const baseUrl = getStripeBaseUrl(req);
       const successUrl = `${baseUrl}/dashboard?subscription=success`;
       const cancelUrl = `${baseUrl}/pricing?subscription=canceled`;
 
@@ -11843,7 +11853,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const userId = req.session.userId!;
       const { createOneTimeCheckout, EXTRA_BANK_ACCOUNT_PRICE } = await import("./stripe");
 
-      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+      const baseUrl = getStripeBaseUrl(req);
       const successUrl = `${baseUrl}/bank-accounts?purchase=success`;
       const cancelUrl = `${baseUrl}/bank-accounts?purchase=canceled`;
 
@@ -11869,7 +11879,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const userId = req.session.userId!;
       const { createBillingPortalSession } = await import("./stripe");
 
-      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+      const baseUrl = getStripeBaseUrl(req);
       const returnUrl = `${baseUrl}/settings`;
 
       const session = await createBillingPortalSession(userId, returnUrl);
@@ -12676,7 +12686,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       }
 
       const { stripe } = await import("./stripe");
-      const appUrl = process.env.APP_URL || process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+      const appUrl = process.env.APP_URL || getStripeBaseUrl(req);
 
       const session = await stripe.billingPortal.sessions.create({
         customer: user.stripeCustomerId,

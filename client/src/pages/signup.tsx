@@ -187,6 +187,7 @@ export default function SignupPage() {
         planId: selectedPlan.id,
         priceId: selectedPlan.stripePriceId,
         emailReminder: emailReminder,
+        timestamp: Date.now(),
       }));
     }
     window.location.href = "/api/auth/google";
