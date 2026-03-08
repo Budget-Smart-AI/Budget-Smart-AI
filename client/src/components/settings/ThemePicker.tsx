@@ -9,6 +9,7 @@ const THEME_DESCRIPTIONS: Record<ThemeId, string> = {
   "theme-ocean": "Cool blue, clean & focused",
   "theme-nebula": "Dark violet, moody & rich",
   "theme-slate": "Neutral gray, minimal & calm",
+  "theme-abyss": "Deep navy blue, bold & immersive",
 };
 
 /**
