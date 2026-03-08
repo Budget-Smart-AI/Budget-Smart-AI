@@ -12776,5 +12776,83 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // ── Help Center module-scoped AI chat ──────────────────────────────────
+  app.post("/api/help/chat", requireAuth, async (req, res) => {
+    try {
+      const { moduleId, messages } = req.body as {
+        moduleId: string;
+        messages: Array<{ role: "user" | "assistant"; content: string }>;
+      };
+
+      if (!moduleId || !messages || !Array.isArray(messages) || messages.length === 0) {
+        return res.status(400).json({ error: "moduleId and messages array are required" });
+      }
+
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
+        return res.status(500).json({ error: "AI API key not configured" });
+      }
+
+      const SCOPED_PROMPTS: Record<string, string> = {
+        "financial-vault":
+          "You are a help assistant for BudgetSmart AI. Answer questions specifically about the Financial Vault feature — what file types it supports, that documents are encrypted with AES-256-GCM at rest, that this is not a backup service, upload size limits, how to organize documents into categories, and how to delete files. Do not answer questions outside this scope. Keep answers to 2–4 sentences.",
+        "budget-management":
+          "You are a help assistant for BudgetSmart AI. Answer questions specifically about the Budget Management feature — creating budgets, setting category limits, rollover settings, budget vs actual analysis, and budget alerts. Do not answer questions outside this scope. Keep answers to 2–4 sentences.",
+        "bank-accounts":
+          "You are a help assistant for BudgetSmart AI. Answer questions about connecting bank accounts via Plaid or MX, supported Canadian and US financial institutions, reconnecting broken connections, removing accounts, and how often data syncs. BudgetSmart never stores banking credentials. Do not answer questions outside this scope. Keep answers to 2–4 sentences.",
+        "ai-advisor":
+          "You are a help assistant for BudgetSmart AI. Answer questions about the AI Advisor feature — how it works, that it uses GPT-4o or DeepSeek, that it is trained on Canadian financial context including TFSA, RRSP, and FHSA optimization, and that its responses are informational not professional financial advice. Do not answer questions outside this scope. Keep answers to 2–4 sentences.",
+        "security-privacy":
+          "You are a help assistant for BudgetSmart AI. Answer questions about security — AES-256-GCM field-level encryption, SOC 2 compliance (in progress, targeting August 2026), session security, account lockout after 5 failed attempts, and how user data is protected. Do not answer questions outside this scope. Keep answers to 2–4 sentences.",
+        "transactions":
+          "You are a help assistant for BudgetSmart AI. Answer questions about the Transactions feature — viewing, filtering, searching, manually adding transactions, editing categories, splitting transactions, and exporting transaction history. Keep answers to 2–4 sentences.",
+        "bills-reminders":
+          "You are a help assistant for BudgetSmart AI. Answer questions about the Bills & Reminders feature — adding bills, setting due date reminders, email notifications, marking bills as paid, and tracking upcoming vs overdue bills. Keep answers to 2–4 sentences.",
+        "receipt-scanning":
+          "You are a help assistant for BudgetSmart AI. Answer questions about Receipt Scanning — how to upload a receipt, what data is extracted automatically (merchant, amount, date, category), supported image formats, and how scanned receipts link to transactions. Keep answers to 2–4 sentences.",
+        "reports-analytics":
+          "You are a help assistant for BudgetSmart AI. Answer questions about Reports & Analytics — available report types, date range filtering, spending trends, income vs expense charts, category breakdowns, and how to export reports. Keep answers to 2–4 sentences.",
+        "investment-portfolio":
+          "You are a help assistant for BudgetSmart AI. Answer questions about the Investment Portfolio Tracking feature — adding holdings, supported asset types, how portfolio value is calculated, AI-powered insights, and how this differs from connected bank accounts. Keep answers to 2–4 sentences.",
+      };
+
+      const DEFAULT_PROMPT =
+        "You are a help assistant for BudgetSmart AI. Answer questions about the requested BudgetSmart AI feature. Be concise and helpful. Keep answers to 2–4 sentences.";
+
+      const systemPrompt = SCOPED_PROMPTS[moduleId] ?? DEFAULT_PROMPT;
+
+      const { withAITimeout } = await import("./timeout");
+      const OpenAI = (await import("openai")).default;
+
+      const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.OPENAI_API || "";
+      const useDeepSeek = !!process.env.DEEPSEEK_API_KEY;
+      const client = new OpenAI({
+        apiKey,
+        ...(useDeepSeek ? { baseURL: "https://api.deepseek.com" } : {}),
+        timeout: 30000,
+      });
+      const model = useDeepSeek ? "deepseek-chat" : "gpt-4o-mini";
+
+      const apiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: systemPrompt },
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ];
+
+      const completion = await withAITimeout(() =>
+        client.chat.completions.create({
+          model,
+          messages: apiMessages,
+          max_tokens: 1024,
+          temperature: 0.5,
+        })
+      );
+
+      const response = completion.choices[0]?.message?.content ?? "I couldn't generate a response.";
+      res.json({ response });
+    } catch (error: any) {
+      console.error("Help chat error:", error);
+      res.status(500).json({ error: error.message || "Failed to get AI response" });
+    }
+  });
+
   return httpServer;
 }
