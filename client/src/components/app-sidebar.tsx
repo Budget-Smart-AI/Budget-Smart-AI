@@ -157,11 +157,6 @@ const adminMenuItems = [
     icon: Users,
   },
   {
-    title: "Landing Page",
-    url: "/admin/landing",
-    icon: Sparkles,
-  },
-  {
     title: "Sales Chatbot",
     url: "/admin/sales-chat",
     icon: MessageSquare,
