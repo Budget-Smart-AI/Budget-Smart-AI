@@ -3590,6 +3590,111 @@ Return JSON: { "income": [...] }`;
       }
 
       res.json({ success: true, message: "Support request submitted successfully", ticketNumber });
+
+      // ── Fire-and-forget AI triage (non-blocking) ──────────────────────────
+      setImmediate(async () => {
+        try {
+          if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) return;
+
+          const { routeAI } = await import("./ai-router");
+
+          const triageSystemPrompt = `You are a support ticket classifier for BudgetSmart AI. Classify the ticket into one of: HOW_TO, LOGIN_ISSUE, BILLING, BANK_CONNECTION, BUG_REPORT, FEATURE_REQUEST, DATA_ISSUE, ACCOUNT_SECURITY, OTHER.
+Output a confidence score 0–100 and recommended tier:
+- LEVEL_1: can be resolved with information or guidance
+- LEVEL_2: requires developer investigation or manual intervention
+
+LEVEL_2 triggers: BUG_REPORT with confidence above 70, DATA_ISSUE, ACCOUNT_SECURITY, or any ticket where confidence in auto-resolution is below 75.
+Respond in JSON only: { "category": "...", "confidence": 0, "tier": "LEVEL_1|LEVEL_2", "summary": "...", "suggestedResponse": "..." }`;
+
+          const triageResult = await routeAI({
+            taskSlot: "support_triage",
+            userId: userId || undefined,
+            featureContext: "support_triage",
+            maxTokens: 800,
+            jsonMode: true,
+            messages: [
+              { role: "system", content: triageSystemPrompt },
+              { role: "user", content: `Ticket subject: ${subject}\nType: ${type}\nMessage: ${message}` },
+            ],
+          });
+
+          let triageData: { category?: string; confidence?: number; tier?: string; summary?: string; suggestedResponse?: string } = {};
+          try { triageData = JSON.parse(triageResult.content); } catch (parseErr) {
+            console.error(`[AI Triage] JSON parse failed for ticket ${ticket.id}:`, parseErr, "Raw content:", triageResult.content?.slice(0, 200));
+            return;
+          }
+
+          const { category, confidence, tier, summary, suggestedResponse } = triageData;
+
+          // Assign support team persona
+          const SUPPORT_TEAM = [
+            { name: "Sarah Mitchell", role: "Senior Support Specialist" },
+            { name: "James Okonkwo", role: "Technical Support Lead" },
+            { name: "Priya Sharma", role: "Billing & Account Specialist" },
+            { name: "Daniel Reyes", role: "Bank Integration Specialist" },
+            { name: "Emma Tremblay", role: "Customer Success Manager" },
+          ];
+          const persona = SUPPORT_TEAM[Math.floor(Math.random() * SUPPORT_TEAM.length)];
+
+          // Save assignment
+          await pool.query(
+            `INSERT INTO ticket_assignments (ticket_id, team_member_name, team_member_role) VALUES ($1, $2, $3)`,
+            [ticket.id, persona.name, persona.role]
+          );
+
+          // Update ticket with triage data
+          await pool.query(
+            `UPDATE support_tickets SET category=$1, confidence_score=$2, tier=$3, ai_summary=$4 WHERE id=$5`,
+            [category ?? null, confidence ?? null, tier ?? null, summary ?? null, ticket.id]
+          );
+
+          const fromEmail2 = process.env.ALERT_EMAIL_FROM;
+          if (!fromEmail2 || !isEmailConfigured()) return;
+
+          const firstName = name && name.trim() ? name.trim().split(" ")[0] : "there";
+
+          if (tier === "LEVEL_1" && suggestedResponse) {
+            // Send AI auto-response
+            const l1Subject = `Re: [Ticket #${ticketNumber}] ${subject}`;
+            await sendEmailViaPostmark({
+              from: fromEmail2,
+              to: email,
+              subject: l1Subject,
+              html: buildEmailHtml(`Support Response from ${persona.name}`, `
+                <p style="color:#94a3b8;font-size:14px;line-height:1.6;">Hi ${firstName},</p>
+                <p style="color:#94a3b8;font-size:14px;line-height:1.6;">${suggestedResponse.replace(/\n/g, "<br>")}</p>
+                <p style="color:#94a3b8;font-size:14px;line-height:1.6;">If this didn't resolve your issue, reply to this email and a team member will follow up.</p>
+                <hr style="border:none;border-top:1px solid #334155;margin:20px 0;">
+                <p style="margin:0;color:#64748b;font-size:12px;">${persona.name} · ${persona.role} · BudgetSmart Support</p>
+              `),
+            });
+            await pool.query(
+              `UPDATE support_tickets SET ai_response_sent_at=$1, status='waiting_for_user' WHERE id=$2`,
+              [new Date().toISOString(), ticket.id]
+            );
+          } else if (tier === "LEVEL_2") {
+            // Send escalation acknowledgement
+            await sendEmailViaPostmark({
+              from: fromEmail2,
+              to: email,
+              subject: `Re: [Ticket #${ticketNumber}] ${subject}`,
+              html: buildEmailHtml("We've received your ticket", `
+                <p style="color:#94a3b8;font-size:14px;line-height:1.6;">Hi ${firstName},</p>
+                <p style="color:#94a3b8;font-size:14px;line-height:1.6;">We've received your ticket and a member of our team will investigate. Our typical response time is <strong style="color:#f1f5f9;">24–48 hours</strong>.</p>
+                <p style="color:#94a3b8;font-size:14px;line-height:1.6;">Your ticket number is <strong style="color:#4ade80;">#${ticketNumber}</strong>. You can view its status in the Support section of your account.</p>
+                <hr style="border:none;border-top:1px solid #334155;margin:20px 0;">
+                <p style="margin:0;color:#64748b;font-size:12px;">${persona.name} · ${persona.role} · BudgetSmart Support</p>
+              `),
+            });
+            await pool.query(
+              `UPDATE support_tickets SET status='escalated' WHERE id=$1`,
+              [ticket.id]
+            );
+          }
+        } catch (triageErr) {
+          console.error("AI triage error (non-fatal):", triageErr);
+        }
+      });
     } catch (error) {
       console.error("Support form error:", error);
       res.status(500).json({ error: "Failed to submit support request" });
@@ -3648,6 +3753,57 @@ Return JSON: { "income": [...] }`;
     } catch (error) {
       console.error("Ticket reply error:", error);
       res.status(500).json({ error: "Failed to send reply" });
+    }
+  });
+
+  // ==================== KNOWLEDGE BASE ROUTES ====================
+
+  // Submit KB article feedback (helpful/not helpful)
+  app.post("/api/support/kb-feedback", sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const { articleId, helpful } = req.body;
+      if (!articleId || typeof helpful !== "boolean") {
+        return res.status(400).json({ error: "articleId and helpful (boolean) are required" });
+      }
+      const userId = req.session?.userId || null;
+      await pool.query(
+        `INSERT INTO kb_feedback (article_id, helpful, user_id) VALUES ($1, $2, $3)`,
+        [String(articleId), helpful, userId]
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error("KB feedback error:", error);
+      res.status(500).json({ error: "Failed to save feedback" });
+    }
+  });
+
+  // AI-powered knowledge base search answer
+  app.post("/api/support/kb-search", sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const { query } = req.body;
+      if (!query || typeof query !== "string" || query.trim().length < 2) {
+        return res.status(400).json({ error: "query is required" });
+      }
+      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) {
+        return res.status(503).json({ error: "AI not configured" });
+      }
+      const { routeAI } = await import("./ai-router");
+      const kbSystemPrompt = `You are a BudgetSmart AI support assistant with expert knowledge of the platform — a Canadian personal finance SaaS covering budgeting, transaction tracking, bank connections via Plaid and MX, bills, subscriptions, AI financial advisor, Financial Vault document storage, receipt scanning, and investment tracking. Answer the user's support question in 2–4 sentences in plain friendly language. If you don't know the answer, say so and suggest they submit a support ticket. Do not make up features that don't exist.`;
+      const aiResult = await routeAI({
+        taskSlot: "support_kb",
+        userId: req.session?.userId,
+        featureContext: "support_kb_search",
+        maxTokens: 300,
+        temperature: 0.4,
+        messages: [
+          { role: "system", content: kbSystemPrompt },
+          { role: "user", content: query.trim() },
+        ],
+      });
+      res.json({ answer: aiResult.content });
+    } catch (error) {
+      console.error("KB search error:", error);
+      res.status(500).json({ error: "Search failed" });
     }
   });
 

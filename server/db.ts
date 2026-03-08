@@ -235,7 +235,9 @@ export async function ensureAITables(): Promise<void> {
       ('receipt_analysis', 'Receipt Scanning', 'Analyzes OCR text for merchant, amount, category', 'receipts', 'deepseek', 'deepseek-chat'),
       ('anomaly_detection', 'Anomaly Detection', 'Detects duplicate charges, spikes, fraud patterns', 'detection', 'deepseek', 'deepseek-chat'),
       ('ai_coach', 'AI Financial Coach', 'Personalized daily financial insights per user', 'insights', 'deepseek', 'deepseek-chat'),
-      ('support_assistant', 'Support AI Assistant', 'Helps admin respond to support tickets', 'support', 'deepseek', 'deepseek-chat')
+      ('support_assistant', 'Support AI Assistant', 'Helps admin respond to support tickets', 'support', 'deepseek', 'deepseek-chat'),
+      ('support_triage', 'Support Ticket Triage', 'Classifies incoming support tickets into categories and tiers, and generates Level 1 auto-responses', 'support', 'deepseek', 'deepseek-chat'),
+      ('support_kb', 'Knowledge Base Assistant', 'Answers user questions in the support portal search bar using knowledge base context', 'support', 'deepseek', 'deepseek-chat')
     ON CONFLICT (task_slot) DO NOTHING
   `);
 }
@@ -527,4 +529,48 @@ export async function ensureLoginSecurityColumns(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(50)`);
+}
+
+/**
+ * Ensure the support portal tables and new support_tickets columns for the
+ * rebuilt portal exist. Safe to call on every startup.
+ */
+export async function ensureSupportPortalTables(): Promise<void> {
+  // kb_feedback — knowledge base article helpfulness votes
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kb_feedback (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      article_id VARCHAR(100) NOT NULL,
+      helpful BOOLEAN NOT NULL,
+      user_id VARCHAR(255),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_kb_feedback_article ON kb_feedback(article_id)`);
+
+  // ticket_assignments — maps ticket to a support team persona
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_assignments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticket_id VARCHAR(255) NOT NULL,
+      team_member_name VARCHAR(100) NOT NULL,
+      team_member_role VARCHAR(200) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_assign_ticket ON ticket_assignments(ticket_id)`);
+
+  // New columns on support_tickets for AI triage
+  const triageCols: [string, string][] = [
+    ["category", "VARCHAR(100)"],
+    ["confidence_score", "INTEGER"],
+    ["tier", "VARCHAR(20)"],
+    ["ai_summary", "TEXT"],
+    ["ai_response_sent_at", "TIMESTAMP"],
+  ];
+  for (const [col, colType] of triageCols) {
+    await pool.query(
+      `ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "${col}" ${colType}`
+    );
+  }
 }

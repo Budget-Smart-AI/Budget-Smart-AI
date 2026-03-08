@@ -27,6 +27,11 @@ interface Ticket {
   adminResponse: string | null;
   adminResponseAt: string | null;
   respondedBy: string | null;
+  category: string | null;
+  confidenceScore: number | null;
+  tier: string | null;
+  aiSummary: string | null;
+  aiResponseSentAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -45,6 +50,7 @@ function statusBadge(status: string) {
     case "open": return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 border">Open</Badge>;
     case "waiting_for_user": return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 border">Waiting for User</Badge>;
     case "waiting_for_admin": return <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 border">Waiting for Admin</Badge>;
+    case "escalated": return <Badge className="bg-red-500/20 text-red-400 border-red-500/30 border">Escalated</Badge>;
     case "closed": return <Badge className="bg-green-500/20 text-green-400 border-green-500/30 border">Closed</Badge>;
     default: return <Badge variant="outline">{status}</Badge>;
   }
@@ -175,6 +181,17 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
                 </div>
               </div>
 
+              {/* AI Triage info */}
+              {(ticket.category || ticket.tier || ticket.aiSummary) && (
+                <div className="mt-3 p-3 rounded-lg bg-muted/50 border border-border text-sm space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">AI Triage</p>
+                  {ticket.category && <p><span className="text-muted-foreground">Category: </span><span className="font-medium">{ticket.category}</span></p>}
+                  {ticket.tier && <p><span className="text-muted-foreground">Tier: </span><Badge variant="outline" className={ticket.tier === "LEVEL_2" ? "border-red-500/50 text-red-400" : "border-green-500/50 text-green-400"}>{ticket.tier}</Badge>{ticket.confidenceScore != null && <span className="text-muted-foreground ml-2 text-xs">{ticket.confidenceScore}% confidence</span>}</p>}
+                  {ticket.aiSummary && <p className="text-muted-foreground text-xs">{ticket.aiSummary}</p>}
+                  {ticket.aiResponseSentAt && <p className="text-xs text-muted-foreground">AI auto-response sent: {new Date(ticket.aiResponseSentAt).toLocaleString()}</p>}
+                </div>
+              )}
+
               {/* Status / Priority controls */}
               <div className="flex gap-3 pt-2">
                 <div className="flex-1">
@@ -190,6 +207,7 @@ function TicketDetail({ ticketId, onBack }: { ticketId: string; onBack: () => vo
                       <SelectItem value="open">Open</SelectItem>
                       <SelectItem value="waiting_for_user">Waiting for User</SelectItem>
                       <SelectItem value="waiting_for_admin">Waiting for Admin</SelectItem>
+                      <SelectItem value="escalated">Escalated</SelectItem>
                       <SelectItem value="closed">Closed</SelectItem>
                     </SelectContent>
                   </Select>
@@ -421,6 +439,7 @@ export default function AdminSupport() {
                   <SelectItem value="open">Open</SelectItem>
                   <SelectItem value="waiting_for_user">Waiting for User</SelectItem>
                   <SelectItem value="waiting_for_admin">Waiting for Admin</SelectItem>
+                  <SelectItem value="escalated">Escalated</SelectItem>
                   <SelectItem value="closed">Closed</SelectItem>
                 </SelectContent>
               </Select>
