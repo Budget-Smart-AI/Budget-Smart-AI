@@ -3,8 +3,9 @@
 **Company:** BudgetSmart  
 **Owner:** Ryan Mahabir, CEO  
 **Email:** ryan@mahabir.pro  
-**Version:** 1.0  
+**Version:** 1.1  
 **Effective Date:** March 7, 2026  
+**Last Updated:** March 9, 2026  
 **Review Schedule:** Annual or after any disaster recovery event  
 
 ---
@@ -153,7 +154,7 @@ Summary:
 | Data breach | Affected customers + OPC | Email + regulatory notification | Ryan Mahabir |
 
 **Customer communication email:** ryan@mahabir.pro (until a support@ alias is established)  
-**Public status:** Planned — status.budgetsmart.io (to be implemented)
+**Public uptime status:** https://stats.uptimerobot.com/kR5HAwu7qW (UptimeRobot — HTTPS monitoring on /health endpoint, 5-minute interval)
 
 ---
 

@@ -3,8 +3,9 @@
 **Company:** BudgetSmart  
 **Owner:** Ryan Mahabir, CEO  
 **Email:** ryan@mahabir.pro  
-**Version:** 1.0  
+**Version:** 1.1  
 **Effective Date:** March 7, 2026  
+**Last Updated:** March 9, 2026  
 **Review Schedule:** Annual or upon material change to deployment pipeline  
 
 ---
@@ -30,7 +31,7 @@ This policy applies to all changes to:
 
 ### 3.1 All Changes via GitHub Pull Requests
 
-All code changes to BudgetSmart must be submitted as a **GitHub Pull Request (PR)** against the `main` branch. Direct commits to `main` are prohibited except in documented emergency situations (see Section 7).
+All code changes to BudgetSmart must be submitted as a **GitHub Pull Request (PR)** against the `main` branch. Direct commits to `main` are prohibited and enforced via **GitHub branch protection rules** configured on the `main` branch (see Section 3.2).
 
 A PR must include:
 - A descriptive title explaining what is changing.
@@ -38,10 +39,14 @@ A PR must include:
 - Reference to the related issue, task, or ticket if applicable.
 
 ### 3.2 Review and Approval
-- All PRs must be reviewed and approved before merging.
-- Ryan Mahabir is the designated approver for all production changes.
-- Self-approval of PRs is only permitted when no other reviewer is available and the change is low-risk (e.g., documentation updates, dependency bumps).
-- Any change affecting security controls, authentication, data access, or encryption requires explicit review and approval before deployment.
+
+GitHub branch protection rules enforce the following requirements on the `main` branch (bypassing these settings is not permitted):
+- **Pull request required before merging** — no direct pushes to `main`.
+- **At least 1 approval required** — all PRs must be reviewed and approved before merging.
+- **Status checks must pass** — required CI checks must pass before a PR may be merged.
+- **Bypass not allowed** — branch protection settings cannot be bypassed, including by admins.
+
+Ryan Mahabir is the designated approver for all production changes. Any change affecting security controls, authentication, data access, or encryption requires explicit review and approval before deployment.
 
 ### 3.3 Pre-Merge Requirements
 Before a PR may be merged:

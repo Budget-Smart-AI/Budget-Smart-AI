@@ -3,8 +3,9 @@
 **Company:** BudgetSmart  
 **Owner:** Ryan Mahabir, CEO  
 **Email:** ryan@mahabir.pro  
-**Version:** 1.0  
+**Version:** 1.1  
 **Effective Date:** March 7, 2026  
+**Last Updated:** March 9, 2026  
 **Review Schedule:** Annual or upon material change  
 
 > **SOC 2 Status:** SOC 2 Type I certification is in progress via Comp AI. Audit scheduled June/July 2026. Expected certified: August 2026.
@@ -115,7 +116,11 @@ BudgetSmart maintains a formal [Incident Response Plan](./incident-response-plan
 
 ## 9. Vulnerability Management
 
-- Application dependencies are monitored for known vulnerabilities using automated scanning tools (e.g., GitHub Dependabot).
+- Application dependencies are monitored for known vulnerabilities using automated scanning tools:
+  - **GitHub Dependabot** — alerts and automatic security update PRs for vulnerable dependencies.
+  - **Snyk** — continuous vulnerability scanning integrated with the GitHub repository via GitHub OAuth; scans for vulnerabilities in dependencies, code, and container configurations.
+  - **GitHub CodeQL** — code scanning workflow that analyses source code for security vulnerabilities and coding errors on every pull request and push to `main`.
+- **GitHub secret scanning and push protection** are enabled — GitHub blocks commits containing secrets before they are pushed to the repository and alerts on any detected credentials.
 - Critical and high-severity vulnerabilities in production systems must be remediated within **7 days** of identification.
 - Medium-severity vulnerabilities must be remediated within **30 days**.
 - Security patches for operating systems and infrastructure are applied through provider-managed channels (Railway, NeonDB, Cloudflare).
