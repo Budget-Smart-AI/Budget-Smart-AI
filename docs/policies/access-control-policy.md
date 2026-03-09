@@ -3,8 +3,9 @@
 **Company:** BudgetSmart  
 **Owner:** Ryan Mahabir, CEO  
 **Email:** ryan@mahabir.pro  
-**Version:** 1.0  
+**Version:** 1.1  
 **Effective Date:** March 7, 2026  
+**Last Updated:** March 9, 2026  
 **Review Schedule:** Annual or upon material change  
 
 ---
@@ -39,10 +40,10 @@ All access requests must:
 - New access credentials must be communicated via a secure channel (e.g., 1Password secure share).
 
 ### 3.3 Privileged Access
-- Production database access (NeonDB) is restricted to Ryan Mahabir.
+- Production database access (NeonDB) is restricted to the application service account (`DATABASE_URL`). Any administrative or support access uses the `readonly_user` read-only role, which has no write privileges. No contractor or support engineer is given the main application service account credentials.
 - Infrastructure access (Railway) is restricted to Ryan Mahabir.
 - GitHub repository admin access is restricted to Ryan Mahabir.
-- Privileged access requires MFA (see Section 5).
+- Privileged access requires MFA (see Section 7).
 
 ---
 
@@ -87,19 +88,20 @@ Passphrases of 16+ characters (e.g., four random words) are encouraged as an alt
 
 ## 7. Multi-Factor Authentication (MFA) Requirements
 
-MFA is **required** for all administrative and production access. This includes:
+MFA is **required** for all administrative and production access. MFA has been enabled and verified on all systems below as of March 9, 2026:
 
-| Access Type | MFA Required |
-|------------|-------------|
-| Production database (NeonDB) | ✅ Yes |
-| Hosting platform (Railway) | ✅ Yes |
-| Source code (GitHub) | ✅ Yes |
-| DNS / CDN (Cloudflare) | ✅ Yes |
-| Financial data provider (Plaid) | ✅ Yes |
-| Financial data provider (MX) | ✅ Yes |
-| BudgetSmart admin panel | ✅ Yes |
-| Email service provider (Postmark) | ✅ Yes |
-| Payment processor (Stripe) | ✅ Yes |
+| Access Type | MFA Required | Status |
+|------------|-------------|--------|
+| Production database (NeonDB) | ✅ Yes | ✅ Enabled |
+| Hosting platform (Railway) | ✅ Yes | ✅ Enabled |
+| Source code (GitHub) | ✅ Yes | ✅ Enabled |
+| DNS / CDN (Cloudflare) | ✅ Yes | ✅ Enabled |
+| Financial data provider (Plaid) | ✅ Yes | ✅ Enabled |
+| Financial data provider (MX) | ✅ Yes | ⚠️ MFA not available on MX platform — compensating control: strong unique password stored in 1Password |
+| BudgetSmart admin panel | ✅ Yes | ✅ Enabled |
+| Email service provider (Postmark) | ✅ Yes | ✅ Enabled |
+| Payment processor (Stripe) | ✅ Yes | ✅ Enabled |
+| Google (email / workspace) | ✅ Yes | ✅ Enabled |
 
 Acceptable MFA methods (in order of preference):
 1. Hardware security key (FIDO2/WebAuthn)
@@ -115,19 +117,22 @@ The following is the current inventory of systems with their access classificati
 | System | Purpose | Current Admin | Access Tier |
 |--------|---------|--------------|------------|
 | **Railway** | Application hosting / deployment | Ryan Mahabir | Production — MFA required |
-| **NeonDB** | Primary PostgreSQL database | Ryan Mahabir | Production — MFA required |
-| **GitHub** | Source code, CI/CD pipeline | Ryan Mahabir | Production — MFA required |
+| **NeonDB** | Primary PostgreSQL database | Ryan Mahabir | Production — MFA required; IP restricted to Railway Web App; branch set as protected (cannot be deleted, archived, or reset) |
+| **GitHub** | Source code, CI/CD pipeline | Ryan Mahabir | Production — MFA required; branch protection enforced on `main` |
 | **Cloudflare** | CDN, DNS, WAF, HTTPS termination | Ryan Mahabir | Production — MFA required |
 | **Plaid** | Bank account data aggregation | Ryan Mahabir | Production — MFA required |
-| **MX** | Bank account data aggregation | Ryan Mahabir | Production — MFA required |
+| **MX** | Bank account data aggregation | Ryan Mahabir | Production — MFA required (MFA not available on platform; compensating control in place) |
 | **Stripe** | Subscription billing and payments | Ryan Mahabir | Production — MFA required |
 | **Postmark** | Transactional email delivery | Ryan Mahabir | Production — MFA required |
+| **Google** | Email and workspace services | Ryan Mahabir | Admin — MFA required |
 | **OpenAI** | Primary AI inference | Ryan Mahabir | API Key — stored in Railway env |
 | **Anthropic** | Claude AI inference | Ryan Mahabir | API Key — stored in Railway env |
 | **Deepseek** | AI fallback (chat only) | Ryan Mahabir | API Key — stored in Railway env |
 | **Comp AI** | SOC 2 compliance platform | Ryan Mahabir | Admin |
 | **1Password** | Secrets and credential management | Ryan Mahabir | Admin — MFA required |
 | **Brandfetch** | Logo enrichment API | Ryan Mahabir | API Key — stored in Railway env |
+| **Snyk** | Dependency vulnerability scanning | Ryan Mahabir | Admin — GitHub OAuth |
+| **UptimeRobot** | Application uptime monitoring | Ryan Mahabir | Admin — MFA required |
 
 ---
 
@@ -146,7 +151,7 @@ The following is the current inventory of systems with their access classificati
 ## 10. Remote Access
 
 - All production system access occurs over HTTPS or SSH with key-based authentication.
-- Direct database access (NeonDB) requires both an authorised IP or VPN connection and MFA.
+- Direct database access (NeonDB) is restricted at the network level: NeonDB allows connections only from the Railway Web App IP address. No other IP addresses are permitted to connect to the production database. Any administrative access uses the `readonly_user` role (read-only; no write privileges).
 - Console access to Railway environment is restricted to authorised accounts only.
 
 ---

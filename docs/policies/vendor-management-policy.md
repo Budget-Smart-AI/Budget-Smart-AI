@@ -3,8 +3,9 @@
 **Company:** BudgetSmart  
 **Owner:** Ryan Mahabir, CEO  
 **Email:** ryan@mahabir.pro  
-**Version:** 1.0  
+**Version:** 1.1  
 **Effective Date:** March 7, 2026  
+**Last Updated:** March 9, 2026  
 **Review Schedule:** Annual or upon onboarding/offboarding of a significant vendor  
 
 ---
@@ -66,7 +67,7 @@ The following table lists all current vendors, their function, compliance certif
 | Vendor | Function | SOC 2 Status | Risk Level | Notes |
 |--------|---------|-------------|-----------|-------|
 | **Railway** | Application hosting and deployment | SOC 2 Type II ✅ | Medium | Primary hosting platform; env vars backed up in 1Password |
-| **NeonDB** | PostgreSQL database (production) | SOC 2 Type II ✅ | High | Stores all customer financial and personal data; PITR enabled |
+| **NeonDB** | PostgreSQL database (production) | SOC 2 Type II ✅ | High | Stores all customer financial and personal data; PITR enabled; IP restricted to Railway Web App; branch set as protected |
 | **Cloudflare** | CDN, DNS, WAF, HTTPS termination | SOC 2 Type II ✅ | Low | Terminates TLS; enforces HSTS; WAF active |
 | **Plaid** | Bank account data aggregation | SOC 2 Type II ✅ | High | Handles bank OAuth tokens; access tokens encrypted at rest |
 | **MX** | Bank account data aggregation | SOC 2 Type II ✅ | High | Alternative bank data provider; production key dependency risk — see Risk Register |
@@ -78,6 +79,8 @@ The following table lists all current vendors, their function, compliance certif
 | **Brandfetch** | Merchant logo enrichment | Not assessed | Low | Non-sensitive lookup API; no customer PII shared |
 | **Comp AI** | SOC 2 compliance platform | Engaged for BudgetSmart SOC 2 certification | Medium | Compliance partner; audit scheduled June/July 2026 |
 | **1Password** | Secrets and credential management | SOC 2 Type II ✅ | Medium | Stores backup of all production credentials and env vars |
+| **Snyk** | Dependency and code vulnerability scanning | SOC 2 Type II ✅ | Low | Integrated with GitHub repository via OAuth; scans for vulnerabilities in dependencies and code; no customer data shared |
+| **UptimeRobot** | Application uptime monitoring | Not assessed | Low | External health check monitoring on /health endpoint; no customer data shared; public status page at https://stats.uptimerobot.com/kR5HAwu7qW |
 
 ---
 

@@ -3,8 +3,9 @@
 **Company:** BudgetSmart  
 **Owner:** Ryan Mahabir, CEO  
 **Email:** ryan@mahabir.pro  
-**Version:** 1.0  
+**Version:** 1.1  
 **Effective Date:** March 7, 2026  
+**Last Updated:** March 9, 2026  
 **Review Schedule:** Prior to each SOC 2 audit and annually thereafter  
 
 > **SOC 2 Type I certification is scheduled for June/July 2026 with Comp AI as the compliance platform and audit facilitator. Expected certified date: August 2026.**
@@ -56,7 +57,7 @@ This matrix maps SOC 2 Trust Services Criteria (TSC) Common Criteria (CC1–CC9)
 
 | CC | Criteria | Control | Implementation | Evidence |
 |----|---------|---------|---------------|---------|
-| CC4.1 | Selects, develops, and performs ongoing monitoring | Automated monitoring of application health and security | Railway health checks; NeonDB monitoring; Cloudflare WAF alerts; GitHub secret scanning | Railway dashboard; NeonDB metrics; Cloudflare WAF logs |
+| CC4.1 | Selects, develops, and performs ongoing monitoring | Automated monitoring of application health and security | Railway health checks; NeonDB monitoring; Cloudflare WAF alerts; GitHub secret scanning; UptimeRobot external uptime monitoring at https://stats.uptimerobot.com/kR5HAwu7qW (5-minute check interval on /health endpoint; alerts to ryan@mahabir.pro) | Railway dashboard; NeonDB metrics; Cloudflare WAF logs; UptimeRobot dashboard |
 | CC4.2 | Evaluates and communicates deficiencies | Security issues escalated and resolved; post-incident reviews documented | Incident Response Plan defines review process; post-incident reports documented | Incident reports; post-incident review records |
 
 ---
@@ -80,7 +81,7 @@ This matrix maps SOC 2 Trust Services Criteria (TSC) Common Criteria (CC1–CC9)
 | CC6.3 | Authorises access based on authorised individuals | Role-based access; access reviews | Access to each system restricted to authorised accounts; access inventory maintained | Access Control Policy; system access inventory |
 | CC6.4 | Considers network segmentation | Network-level controls via Cloudflare | Cloudflare WAF; HTTPS-only; direct IP access to Railway restricted | Cloudflare configuration |
 | CC6.5 | Identifies and authenticates users | Unique user accounts; session management | No shared accounts; unique user IDs; session tokens with 30-day expiry for expired sessions | Code; Access Control Policy |
-| CC6.6 | Restricts access to authorised users | Access to sensitive data restricted | Tier 1 data (bank tokens, keys) accessible only via authenticated API; database not publicly accessible | Code; NeonDB configuration |
+| CC6.6 | Restricts access to authorised users | Access to sensitive data restricted | Tier 1 data (bank tokens, keys) accessible only via authenticated API; NeonDB production database not publicly accessible — IP access restricted to Railway Web App IP address only; any administrative access uses a read-only role (`readonly_user`) with no write privileges | Code; NeonDB IP allowlist configuration |
 | CC6.7 | Restricts unauthorised access | Security monitoring for unauthorised access attempts | Rate limiting on auth endpoints; audit logging of failed auth attempts; Cloudflare WAF blocking malicious traffic | Rate limiter logs; audit logs; Cloudflare WAF |
 | CC6.8 | Prevents unauthorised physical access | Physical access managed by cloud providers | Data hosted on Railway (cloud); NeonDB (cloud); physical security is provider responsibility (both SOC 2 certified) | Railway SOC 2 report; NeonDB SOC 2 report |
 
@@ -90,7 +91,7 @@ This matrix maps SOC 2 Trust Services Criteria (TSC) Common Criteria (CC1–CC9)
 
 | CC | Criteria | Control | Implementation | Evidence |
 |----|---------|---------|---------------|---------|
-| CC7.1 | Detects and monitors for vulnerabilities | Dependency vulnerability scanning | GitHub Dependabot and secret scanning enabled; CodeQL code scanning active | GitHub security tab; Dependabot alerts |
+| CC7.1 | Detects and monitors for vulnerabilities | Dependency vulnerability scanning | GitHub Dependabot (alerts and automatic security PRs) enabled; GitHub secret scanning and push protection active (blocks commits containing secrets); GitHub CodeQL code scanning active on all PRs and pushes to main; Snyk continuous vulnerability scanning enabled via GitHub integration | GitHub Security tab; Dependabot alerts; Snyk dashboard |
 | CC7.2 | Monitors system components | Application and infrastructure monitoring | Railway monitoring and health checks; NeonDB metrics; error logging | Railway metrics; application logs |
 | CC7.3 | Evaluates security events | Security events reviewed and escalated | Audit log reviewed for anomalies; rate limit violations generate alerts; Incident Response Plan defines escalation | Audit log; Incident Response Plan |
 | CC7.4 | Responds to security incidents | Incident Response Plan defined and documented | Incident Response Plan v1.0 in /docs/policies/; severity levels P1–P4 defined; PIPEDA 72-hour notification requirement included | Incident Response Plan |
@@ -102,7 +103,7 @@ This matrix maps SOC 2 Trust Services Criteria (TSC) Common Criteria (CC1–CC9)
 
 | CC | Criteria | Control | Implementation | Evidence |
 |----|---------|---------|---------------|---------|
-| CC8.1 | Authorises changes | All changes require approval via PR | Change Management Policy; all changes to main via GitHub PR; Ryan Mahabir approves all production changes | GitHub PR history; Change Management Policy |
+| CC8.1 | Authorises changes | All changes require approval via PR | Change Management Policy; GitHub branch protection enforced on `main` (requires PR, requires 1 approval, requires status checks, bypassing not permitted); Ryan Mahabir approves all production changes | GitHub PR history; Change Management Policy; GitHub branch protection configuration |
 | CC8.1 | Tests changes before deployment | Pre-merge requirements include testing | TypeScript compilation required; manual smoke testing of affected features documented in PR | GitHub PR records; CI/CD logs |
 | CC8.1 | Maintains rollback capability | Railway instant rollback available | Railway instant rollback documented in Change Management Policy; NeonDB PITR for database rollback | Change Management Policy; Railway dashboard |
 
@@ -122,7 +123,7 @@ This matrix maps SOC 2 Trust Services Criteria (TSC) Common Criteria (CC1–CC9)
 | CC | Criteria | Control | Implementation | Evidence |
 |----|---------|---------|---------------|---------|
 | A1.1 | Maintains performance to meet availability commitments | Infrastructure designed for availability | Railway auto-deploy; Cloudflare CDN for static assets; NeonDB managed database with PITR | Infrastructure configuration; Railway uptime |
-| A1.2 | Monitors to meet availability commitments | Uptime monitoring in place | Railway health checks; NeonDB monitoring; Cloudflare availability monitoring | Railway dashboard; NeonDB metrics |
+| A1.2 | Monitors to meet availability commitments | Uptime monitoring in place | UptimeRobot external uptime monitoring active — HTTPS monitor on https://app.budgetsmart.io/health, 5-minute check interval, alerts to ryan@mahabir.pro; public status page at https://stats.uptimerobot.com/kR5HAwu7qW; Railway health checks; NeonDB monitoring; Cloudflare availability monitoring | UptimeRobot dashboard; Railway dashboard; NeonDB metrics |
 | A1.3 | Recovers to meet availability commitments | Recovery procedures defined and tested | Business Continuity Plan; NeonDB PITR; Railway rollback; documented disaster scenarios | Business Continuity Plan |
 
 ---
@@ -141,6 +142,10 @@ For the SOC 2 Type I audit, the following evidence types will be required:
 | Vendor SOC 2 reports | Obtained from each vendor | Ryan Mahabir |
 | Incident records | Documented per Incident Response Plan | Ryan Mahabir |
 | MFA configuration screenshots | System screenshots | Ryan Mahabir |
+| UptimeRobot uptime records | https://stats.uptimerobot.com/kR5HAwu7qW | Ryan Mahabir |
+| GitHub security settings | GitHub Settings → Security & Analysis | Ryan Mahabir |
+| NeonDB IP allowlist configuration | NeonDB dashboard → IP Allow | Ryan Mahabir |
+| Snyk vulnerability scan reports | Snyk dashboard (snyk.io) | Ryan Mahabir |
 
 ---
 

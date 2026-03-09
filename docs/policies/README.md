@@ -4,7 +4,7 @@
 **Owner:** Ryan Mahabir, CEO  
 **Email:** ryan@mahabir.pro  
 **Version:** 1.0  
-**Last Updated:** March 7, 2026  
+**Last Updated:** March 9, 2026  
 
 > **SOC 2 Status:** Formal SOC 2 Type I audit begins June/July 2026 via Comp AI. Expected certified: August 2026.
 
@@ -22,17 +22,17 @@ All policies are owned by Ryan Mahabir (CEO) unless otherwise noted and are revi
 
 | # | Document | Version | Effective Date | Owner | Review Schedule |
 |---|----------|---------|---------------|-------|----------------|
-| 1 | [Information Security Policy](./information-security-policy.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
-| 2 | [Access Control Policy](./access-control-policy.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
+| 1 | [Information Security Policy](./information-security-policy.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual |
+| 2 | [Access Control Policy](./access-control-policy.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual |
 | 3 | [Incident Response Plan](./incident-response-plan.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual / After P1 or P2 incident |
 | 4 | [Data Retention Policy](./data-retention-policy.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
-| 5 | [Vendor Management Policy](./vendor-management-policy.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
-| 6 | [Change Management Policy](./change-management-policy.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
-| 7 | [Business Continuity Plan](./business-continuity-plan.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual / After DR event |
+| 5 | [Vendor Management Policy](./vendor-management-policy.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual |
+| 6 | [Change Management Policy](./change-management-policy.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual |
+| 7 | [Business Continuity Plan](./business-continuity-plan.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual / After DR event |
 | 8 | [Privacy Policy](./privacy-policy.md) *(public-facing)* | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
 | 9 | [Terms of Service](./terms-of-service.md) *(public-facing)* | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
 | 10 | [Risk Register](./risk-register.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Quarterly |
-| 11 | [SOC 2 Controls Matrix](./soc2-controls-matrix.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Annual / Pre-audit |
+| 11 | [SOC 2 Controls Matrix](./soc2-controls-matrix.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual / Pre-audit |
 
 ---
 
@@ -41,6 +41,7 @@ All policies are owned by Ryan Mahabir (CEO) unless otherwise noted and are revi
 | Milestone | Target Date |
 |-----------|------------|
 | Policy documentation complete | March 2026 ✅ |
+| Security controls hardening complete (MFA, branch protection, Dependabot, Snyk, secret scanning, push protection, CodeQL, NeonDB IP restriction, read-only DB role, field encryption, uptime monitoring) | March 2026 ✅ |
 | Comp AI onboarding and gap assessment | March–April 2026 |
 | Controls implementation and evidence collection | April–June 2026 |
 | SOC 2 Type I audit begins | June/July 2026 |
