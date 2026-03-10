@@ -188,6 +188,14 @@ const SUBSCRIPTION_STATUSES = [
 const updateUserSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").optional(),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
+  email: z.string().email("Valid email required").optional().or(z.literal("")).nullable(),
+  firstName: z.string().optional().nullable(),
+  lastName: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  displayName: z.string().max(100).optional().nullable(),
+  birthday: z.string().optional().nullable(),
+  timezone: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
   isAdmin: z.boolean().optional(),
   isApproved: z.boolean().optional(),
   subscriptionPlanId: z.string().optional().nullable(),
@@ -753,7 +761,22 @@ function UserForm({
   const form = useForm<CreateUserFormValues | UpdateUserFormValues>({
     resolver: zodResolver(isEditing ? updateUserSchema : createUserSchema),
     defaultValues: isEditing
-      ? { username: user.username, password: "", isAdmin: user.isAdmin, isApproved: user.isApproved, subscriptionPlanId: user.subscriptionPlanId, subscriptionStatus: user.subscriptionStatus }
+      ? {
+          username: user.username,
+          password: "",
+          email: user.email ?? "",
+          firstName: user.firstName ?? "",
+          lastName: user.lastName ?? "",
+          phone: user.phone ?? "",
+          displayName: user.displayName ?? "",
+          birthday: user.birthday ?? "",
+          timezone: user.timezone ?? "",
+          country: user.country ?? "",
+          isAdmin: user.isAdmin,
+          isApproved: user.isApproved,
+          subscriptionPlanId: user.subscriptionPlanId,
+          subscriptionStatus: user.subscriptionStatus,
+        }
       : { username: "", password: "", isAdmin: false, isApproved: true },
   });
 
@@ -779,6 +802,15 @@ function UserForm({
       if (data.password && data.password.length > 0) payload.password = data.password;
       if (data.isAdmin !== undefined) payload.isAdmin = data.isAdmin;
       if (data.isApproved !== undefined) payload.isApproved = data.isApproved;
+      // Profile fields – send even when empty string to allow clearing
+      payload.email = data.email || null;
+      payload.firstName = data.firstName || null;
+      payload.lastName = data.lastName || null;
+      payload.phone = data.phone || null;
+      payload.displayName = data.displayName || null;
+      payload.birthday = data.birthday || null;
+      payload.timezone = data.timezone || null;
+      payload.country = data.country || null;
       // Include subscriptionPlanId - can be null to remove plan
       if (data.subscriptionPlanId !== undefined) {
         payload.subscriptionPlanId = data.subscriptionPlanId === "none" ? null : data.subscriptionPlanId;
@@ -839,6 +871,126 @@ function UserForm({
             </FormItem>
           )}
         />
+
+        {isEditing && (
+          <div className="space-y-4 rounded-md border p-4">
+            <p className="text-sm font-medium leading-none">Profile Information</p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="firstName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>First Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="First name" {...field} value={field.value ?? ""} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="lastName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Last Name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Last name" {...field} value={field.value ?? ""} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="displayName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Display Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Display name" {...field} value={field.value ?? ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input type="email" placeholder="Email address" {...field} value={field.value ?? ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Phone number" {...field} value={field.value ?? ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="birthday"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Birthday</FormLabel>
+                    <FormControl>
+                      <Input placeholder="YYYY-MM-DD" {...field} value={field.value ?? ""} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="country"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Country</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. US" {...field} value={field.value ?? ""} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="timezone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Timezone</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g. America/Toronto" {...field} value={field.value ?? ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
 
         <FormField
           control={form.control}
@@ -1044,7 +1196,7 @@ export default function AdminUsers() {
               Add User
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingUser ? "Edit User" : "Create New User"}</DialogTitle>
             </DialogHeader>
