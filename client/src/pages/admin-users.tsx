@@ -270,8 +270,11 @@ function CollapsibleSection({
   );
 }
 
+// Format a USD cost: use 6 decimal places for micro-costs (< $0.01) for precision,
+// or 4 decimal places otherwise for readability.
 function fmtUsd(n: number) {
-  return `$${n.toFixed(n < 0.01 ? 6 : 4)}`;
+  const decimals = n > 0 && n < 0.01 ? 6 : 4;
+  return `$${n.toFixed(decimals)}`;
 }
 
 function fmtDate(d: string | null | undefined) {

@@ -3374,7 +3374,7 @@ Return JSON: { "income": [...] }`;
    * Sections: storage, AI costs, activity & engagement, financial overview.
    * Never returns raw transaction data — only aggregates and metadata.
    */
-  app.get("/api/admin/users/:id/analytics", requireAdmin, async (req, res) => {
+  app.get("/api/admin/users/:id/analytics", requireAdmin, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.params.id as string;
 
@@ -3446,15 +3446,22 @@ Return JSON: { "income": [...] }`;
 
       const totalAiCostUsd = aiByFeature.reduce((s, r) => s + r.totalCostUsd, 0);
 
-      // Average monthly spend: total cost / months since first AI call (min 1)
+      // Average monthly spend: total cost / elapsed calendar months since first AI call (min 1)
       const firstCallResult = await pool.query(
         `SELECT MIN(created_at) AS first_call FROM ai_usage_log WHERE user_id = $1 AND success = true`,
         [userId],
       );
       const firstCall = firstCallResult.rows[0]?.first_call;
-      const monthsSinceFirst = firstCall
-        ? Math.max(1, (Date.now() - new Date(firstCall).getTime()) / (1000 * 60 * 60 * 24 * 30))
-        : 1;
+      let monthsSinceFirst = 1;
+      if (firstCall) {
+        const first = new Date(firstCall);
+        const now   = new Date();
+        // Calculate elapsed months as (year diff * 12) + month diff, minimum 1
+        monthsSinceFirst = Math.max(
+          1,
+          (now.getFullYear() - first.getFullYear()) * 12 + (now.getMonth() - first.getMonth()) + 1,
+        );
+      }
       const avgMonthlyAiCost  = parseFloat((totalAiCostUsd / monthsSinceFirst).toFixed(6));
       const estimatedAnnualCost = parseFloat((avgMonthlyAiCost * 12).toFixed(6));
 
@@ -3627,7 +3634,7 @@ Return JSON: { "income": [...] }`;
    * GET /api/admin/analytics/aggregate
    * Returns platform-wide aggregate insights for the top of the User Management page.
    */
-  app.get("/api/admin/analytics/aggregate", requireAdmin, async (_req, res) => {
+  app.get("/api/admin/analytics/aggregate", requireAdmin, sensitiveApiRateLimiter, async (_req, res) => {
     try {
       // Total active users
       const activeUsersResult = await pool.query(
