@@ -28,30 +28,39 @@ export default function PrivacyPolicy() {
               <Shield className="w-6 h-6 text-primary" />
               Privacy Policy
             </CardTitle>
-            <p className="text-lg font-medium text-muted-foreground">BudgetSmart</p>
+            <p className="text-lg font-medium text-muted-foreground">BudgetSmart AI</p>
             <div className="text-sm text-muted-foreground space-y-1">
-              <p>Effective Date: March 7, 2026</p>
-              <p>Last Updated: March 7, 2026</p>
+              <p>Version: 1.1 | Effective Date: March 7, 2026</p>
+              <p>Last Updated: March 9, 2026</p>
+              <p>Operated by Ryan Mahabir | Hamilton, Ontario, Canada</p>
             </div>
           </CardHeader>
           <CardContent className="prose prose-sm dark:prose-invert max-w-none">
             <div className="p-3 bg-muted rounded-lg mb-6">
               <p className="text-muted-foreground font-medium">We Respect Your Privacy</p>
               <p className="text-muted-foreground mt-1">
-                BudgetSmart is operated by Ryan Mahabir in Hamilton, Ontario, Canada.
-                We collect only what we need to run the service. <strong>We never sell your data.</strong> We keep it secure.
+                BudgetSmart AI is a personal finance tool operated by Ryan Mahabir in Hamilton, Ontario, Canada.
+                We take your privacy seriously. This policy explains what information we collect, how we use it, and the choices you have.
               </p>
+              <ul className="list-none text-muted-foreground mt-2 space-y-1">
+                <li>✔ We collect only what we need to run the service.</li>
+                <li>✔ We never sell your data — to anyone, ever.</li>
+                <li>✔ We keep your data secure with AES-256-GCM encryption.</li>
+                <li>✔ You can request deletion of your data at any time.</li>
+              </ul>
             </div>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">1. What Data We Collect</h2>
 
             <h3 className="text-lg font-medium mt-6 mb-3">Account Information</h3>
+            <p className="text-muted-foreground mb-2">When you sign up, we collect:</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
               <li>Your name and email address</li>
-              <li>Your password (stored as a secure hash — we never see it in plain text)</li>
+              <li>Your password (stored as a secure one-way hash — we never see it in plain text)</li>
             </ul>
 
             <h3 className="text-lg font-medium mt-6 mb-3">Financial Data (with your permission)</h3>
+            <p className="text-muted-foreground mb-2">When you connect your bank accounts, we collect:</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
               <li>Account balances and transaction history</li>
               <li>Account names and types</li>
@@ -61,20 +70,34 @@ export default function PrivacyPolicy() {
               We never see or store your bank login credentials. Your bank login happens directly with your bank through their secure portal.
             </p>
 
+            <h3 className="text-lg font-medium mt-6 mb-3">Receipt Scan Images</h3>
+            <p className="text-muted-foreground mb-2">
+              If you use the receipt scanning feature, we store your uploaded receipt images in secure cloud object storage (Cloudflare R2). Receipt images:
+            </p>
+            <ul className="list-disc list-inside text-muted-foreground space-y-1">
+              <li>Are encrypted at rest using server-side encryption.</li>
+              <li>Are retained for up to 7 years as financial source documents (consistent with Canadian tax record-keeping requirements).</li>
+              <li>Are deleted upon account deletion, subject to the retention period above.</li>
+            </ul>
+
             <h3 className="text-lg font-medium mt-6 mb-3">Usage Data</h3>
+            <p className="text-muted-foreground mb-2">We automatically collect:</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
               <li>Pages visited and features used within the app</li>
               <li>Device type and browser (to ensure compatibility)</li>
-              <li>IP address (for security purposes)</li>
+              <li>IP address (for security and fraud prevention purposes)</li>
               <li>Cookies and session tokens (to keep you logged in)</li>
             </ul>
 
             <h3 className="text-lg font-medium mt-6 mb-3">AI Interactions</h3>
-            <p className="text-muted-foreground">
-              If you use BudgetSmart's AI features, we may log your prompts and the AI's responses for a limited period
-              to improve quality and debug issues. These logs are retained for <strong>90 days</strong> and never shared externally.
-              We do not use your data to train AI models.
+            <p className="text-muted-foreground mb-2">
+              If you use BudgetSmart AI's AI features (budgeting insights, portfolio analysis, receipt scanning), we may log your prompts and the AI responses for a limited period to improve quality and debug issues. These logs are:
             </p>
+            <ul className="list-disc list-inside text-muted-foreground space-y-1">
+              <li>Retained for <strong>90 days</strong>, then automatically deleted.</li>
+              <li>Never shared externally or used to train AI models.</li>
+              <li>Processed by our AI providers (see Section 3) under their data processing terms.</li>
+            </ul>
 
             <h3 className="text-lg font-medium mt-6 mb-3">Support Communications</h3>
             <p className="text-muted-foreground">
@@ -84,25 +107,22 @@ export default function PrivacyPolicy() {
             <h2 className="text-xl font-semibold mt-8 mb-4">2. How We Use Your Data</h2>
             <p className="text-muted-foreground mb-3">We use your data to:</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
-              <li>Provide budgeting, transaction tracking, and AI insights features</li>
-              <li>Send important service notifications (security alerts, billing receipts)</li>
+              <li>Provide the budgeting, transaction tracking, and AI insights features you signed up for</li>
+              <li>Send you important service notifications (e.g., security alerts, billing receipts)</li>
               <li>Improve the product based on aggregated, anonymised usage patterns</li>
               <li>Detect and prevent fraud and unauthorised access</li>
-              <li>Comply with our legal obligations</li>
+              <li>Comply with our legal obligations under PIPEDA and applicable law</li>
             </ul>
             <div className="mt-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
-              <p className="text-primary font-medium">We do not sell your data. We do not use your financial data for advertising.</p>
+              <p className="text-primary font-medium">We do not sell your data. We do not use your financial data for advertising. We do not share your data with third parties beyond what is necessary to run the service.</p>
             </div>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">3. Who Can Access Your Data</h2>
-            <p className="text-muted-foreground mb-3">
-              Only the following can access your personal or financial data:
-            </p>
 
-            <h3 className="text-lg font-medium mt-4 mb-3">BudgetSmart Team</h3>
+            <h3 className="text-lg font-medium mt-4 mb-3">BudgetSmart AI Team</h3>
             <p className="text-muted-foreground">
-              BudgetSmart is operated by Ryan Mahabir (<a href="mailto:ryan@mahabir.pro" className="text-primary hover:underline">ryan@mahabir.pro</a>).
-              Access to production data is restricted to authorised personnel with multi-factor authentication.
+              BudgetSmart AI is currently operated by Ryan Mahabir. Access to production data is restricted to authorised personnel
+              with multi-factor authentication (MFA). All access is logged for security and audit purposes.
             </p>
 
             <h3 className="text-lg font-medium mt-4 mb-3">Third-Party Processors</h3>
@@ -115,29 +135,43 @@ export default function PrivacyPolicy() {
                   <tr className="border-b">
                     <th className="text-left py-2 pr-4 font-medium">Provider</th>
                     <th className="text-left py-2 pr-4 font-medium">Purpose</th>
-                    <th className="text-left py-2 font-medium">SOC 2 Certified</th>
+                    <th className="text-left py-2 pr-4 font-medium">SOC 2 Certified</th>
+                    <th className="text-left py-2 font-medium">Data Location</th>
                   </tr>
                 </thead>
                 <tbody>
                   {[
-                    { name: "NeonDB", purpose: "Database storage", soc2: true },
-                    { name: "Railway", purpose: "Application hosting", soc2: true },
-                    { name: "Cloudflare", purpose: "CDN, security, DNS", soc2: true },
-                    { name: "Plaid", purpose: "Bank account connection", soc2: true },
-                    { name: "MX", purpose: "Bank account connection", soc2: true },
-                    { name: "Stripe", purpose: "Subscription billing", soc2: true },
-                    { name: "Postmark", purpose: "Transactional email", soc2: true },
-                    { name: "OpenAI", purpose: "AI features", soc2: true },
-                    { name: "Anthropic", purpose: "AI features", soc2: true },
+                    { name: "NeonDB", purpose: "Database storage", soc2: "✅ Yes", location: "Canada / U.S." },
+                    { name: "Railway", purpose: "Application hosting", soc2: "✅ Yes", location: "Canada" },
+                    { name: "Cloudflare", purpose: "CDN, security, DNS, file storage (R2)", soc2: "✅ Yes", location: "Distributed / Global" },
+                    { name: "Plaid", purpose: "Bank account connection", soc2: "✅ Yes", location: "U.S." },
+                    { name: "MX", purpose: "Bank account connection (primary)", soc2: "✅ Yes", location: "U.S." },
+                    { name: "Stripe", purpose: "Subscription billing", soc2: "✅ Yes", location: "U.S." },
+                    { name: "Postmark", purpose: "Transactional email", soc2: "✅ Yes", location: "U.S." },
+                    { name: "OpenAI", purpose: "AI features (fallback)", soc2: "✅ Yes", location: "U.S." },
+                    { name: "Anthropic", purpose: "AI features (receipt scanning, vision)", soc2: "✅ Yes", location: "U.S." },
+                    { name: "DeepSeek", purpose: "AI features (fallback inference via AWS Bedrock)", soc2: "✅ Yes (via AWS Bedrock)", location: "China / Global" },
+                    { name: "Comp AI", purpose: "SOC 2 compliance platform", soc2: "✅ Yes", location: "U.S." },
                   ].map((vendor) => (
                     <tr key={vendor.name} className="border-b last:border-0">
                       <td className="py-2 pr-4 font-medium">{vendor.name}</td>
                       <td className="py-2 pr-4">{vendor.purpose}</td>
-                      <td className="py-2">{vendor.soc2 ? "✅ Yes" : "No"}</td>
+                      <td className="py-2 pr-4">{vendor.soc2}</td>
+                      <td className="py-2">{vendor.location}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+              <p className="text-sm text-muted-foreground">
+                <strong>⚠️ DeepSeek:</strong> DeepSeek is an AI model developed by a Chinese company. However, BudgetSmart AI does not connect
+                to DeepSeek directly or send any data to servers in China. Instead, DeepSeek is accessed exclusively through AWS Bedrock —
+                Amazon's managed AI platform — which hosts and serves the model entirely within AWS's infrastructure in the United States.
+                This means all data remains within AWS's environment at all times and never leaves AWS to reach DeepSeek or any servers in China.
+                AWS is SOC 2 Type II certified and subject to U.S. data protection standards. BudgetSmart AI is also actively planning to migrate
+                to AWS Bedrock's own native models, which will replace DeepSeek entirely.
+              </p>
             </div>
             <p className="text-muted-foreground mt-3">
               We do <strong>not</strong> share your personal information with any marketing companies, data brokers, or advertising networks.
@@ -146,11 +180,19 @@ export default function PrivacyPolicy() {
             <h2 className="text-xl font-semibold mt-8 mb-4">4. Data Storage and Security</h2>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
               <li>Your data is stored on servers in <strong>Canada and the United States</strong></li>
-              <li>Sensitive data (like bank connection tokens) is encrypted using <strong>AES-256</strong> encryption</li>
-              <li>All data in transit is protected using <strong>TLS (HTTPS)</strong></li>
-              <li>We enforce multi-factor authentication for all administrative access</li>
-              <li>We are pursuing <strong>SOC 2 Type I certification</strong> (scheduled June/July 2026, expected August 2026) through Comp AI</li>
+              <li>Sensitive data (such as bank connection tokens) is encrypted using <strong>AES-256-GCM</strong> field-level encryption before being stored in our database</li>
+              <li>Receipt scan images are encrypted at rest in Cloudflare R2 using server-side encryption</li>
+              <li>All data in transit is protected using <strong>TLS 1.2 or higher (HTTPS)</strong>. HTTP connections are automatically redirected to HTTPS.</li>
+              <li>We enforce multi-factor authentication (MFA) for all administrative access</li>
+              <li>Two-factor authentication (2FA) is available to all customers via Settings → Security → 2FA. We strongly encourage you to enable it.</li>
+              <li>We are pursuing <strong>SOC 2 Type I certification</strong> (target: August 2026) through our compliance partner Comp AI</li>
             </ul>
+            <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <p className="text-sm text-muted-foreground">
+                🇪🇺 <strong>GDPR:</strong> BudgetSmart AI does not currently serve users in the European Union or European Economic Area.
+                If this changes, this policy will be updated to reflect GDPR obligations, including additional rights and data transfer safeguards.
+              </p>
+            </div>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">5. How Long We Keep Your Data</h2>
             <div className="overflow-x-auto">
@@ -158,17 +200,19 @@ export default function PrivacyPolicy() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-2 pr-4 font-medium">Data Type</th>
-                    <th className="text-left py-2 font-medium">Retention Period</th>
+                    <th className="text-left py-2 font-medium">How Long We Keep It</th>
                   </tr>
                 </thead>
                 <tbody>
                   {[
-                    { type: "Account information", period: "Until you delete your account" },
-                    { type: "Financial transactions", period: "Up to 7 years" },
-                    { type: "AI conversation logs", period: "90 days" },
+                    { type: "Account information", period: "Until you delete your account (+ 30-day grace period before permanent deletion)" },
+                    { type: "Financial transactions", period: "Up to 7 years (for your own records and Canadian tax purposes)" },
+                    { type: "Receipt scan images", period: "Up to 7 years (financial source documents)" },
+                    { type: "AI conversation logs", period: "90 days, then automatically deleted" },
                     { type: "Support tickets", period: "3 years" },
-                    { type: "Login sessions", period: "30 days after expiry" },
+                    { type: "Login sessions", period: "30 days after expiry, then automatically deleted" },
                     { type: "Billing records", period: "7 years" },
+                    { type: "Bank connection tokens", period: "Deleted immediately when you disconnect your bank account" },
                   ].map((row) => (
                     <tr key={row.type} className="border-b last:border-0">
                       <td className="py-2 pr-4">{row.type}</td>
@@ -178,14 +222,21 @@ export default function PrivacyPolicy() {
                 </tbody>
               </table>
             </div>
+            <p className="text-muted-foreground mt-3 text-sm">
+              You can request deletion of your data at any time (see Section 7). Some data may be retained longer if required by law or if a legal hold is in effect.
+            </p>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">6. Cookies</h2>
             <p className="text-muted-foreground mb-3">We use cookies to:</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
               <li>Keep you signed in (essential — required for the service to work)</li>
-              <li>Remember your preferences (functional)</li>
-              <li>Understand how people use BudgetSmart (analytics — you can opt out)</li>
+              <li>Remember your preferences (e.g., display theme)</li>
+              <li>Understand how people use BudgetSmart AI (analytics — you can opt out)</li>
             </ul>
+            <p className="text-muted-foreground mt-3 text-sm">
+              You can manage cookie preferences from the cookie banner when you first visit the site, or by contacting us at{" "}
+              <a href="mailto:admin@budgetsmart.io" className="text-primary hover:underline">admin@budgetsmart.io</a>.
+            </p>
             <Button
               variant="outline"
               size="sm"
@@ -198,32 +249,52 @@ export default function PrivacyPolicy() {
 
             <h2 className="text-xl font-semibold mt-8 mb-4">7. Your Rights</h2>
             <p className="text-muted-foreground mb-3">You have the right to:</p>
-            <ul className="list-disc list-inside text-muted-foreground space-y-1">
-              <li><strong>Access</strong> your personal information — request a copy of the data we hold about you</li>
-              <li><strong>Correct</strong> inaccurate information</li>
-              <li><strong>Delete</strong> your account and personal data</li>
-              <li><strong>Export</strong> your data in a portable format</li>
-              <li><strong>Withdraw consent</strong> for optional data processing (e.g., analytics cookies)</li>
-              <li><strong>Object</strong> to how we use your data</li>
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-muted-foreground border-collapse">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 pr-4 font-medium">Right</th>
+                    <th className="text-left py-2 font-medium">What It Means</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { right: "Access", meaning: "Request a copy of the personal data we hold about you" },
+                    { right: "Correct", meaning: "Ask us to fix inaccurate or incomplete information" },
+                    { right: "Delete", meaning: "Request deletion of your account and personal data" },
+                    { right: "Export", meaning: "Receive your data in a portable, machine-readable format" },
+                    { right: "Withdraw consent", meaning: "Opt out of optional data processing (e.g., analytics cookies)" },
+                    { right: "Object", meaning: "Object to how we process your data in certain circumstances" },
+                  ].map((row) => (
+                    <tr key={row.right} className="border-b last:border-0">
+                      <td className="py-2 pr-4 font-medium">{row.right}</td>
+                      <td className="py-2">{row.meaning}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <p className="text-muted-foreground mt-3">
               To exercise any of these rights, email{" "}
-              <a href="mailto:ryan@mahabir.pro" className="text-primary hover:underline">ryan@mahabir.pro</a>{" "}
-              with the subject line "Privacy Request." We will respond within <strong>5 business days</strong> and complete your request within <strong>30 days</strong>.
+              <a href="mailto:admin@budgetsmart.io" className="text-primary hover:underline">admin@budgetsmart.io</a>{" "}
+              with the subject line "Privacy Request." We will acknowledge your request within <strong>5 business days</strong> and complete it within <strong>30 days</strong>.
             </p>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">8. PIPEDA Compliance (Canada)</h2>
             <p className="text-muted-foreground mb-3">
-              BudgetSmart is subject to Canada's <strong>Personal Information Protection and Electronic Documents Act (PIPEDA)</strong>. We:
+              BudgetSmart AI is subject to Canada's <strong>Personal Information Protection and Electronic Documents Act (PIPEDA)</strong>. We:
             </p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
               <li>Collect only the information we need for the specified purpose</li>
               <li>Obtain your consent before collecting personal information</li>
               <li>Keep your information accurate and up to date</li>
-              <li>Protect your information with appropriate security safeguards</li>
+              <li>Protect your information with appropriate security safeguards, including AES-256-GCM encryption and MFA</li>
               <li>Give you access to your information upon request</li>
-              <li>Report data breaches to the Office of the Privacy Commissioner of Canada when required</li>
+              <li>Report data breaches to the Office of the Privacy Commissioner of Canada (OPC) as soon as feasible when required</li>
             </ul>
+            <p className="text-muted-foreground mt-3 text-sm">
+              To reach the OPC: <a href="https://www.priv.gc.ca" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">www.priv.gc.ca</a> | 1-800-282-1376
+            </p>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">9. CCPA Compliance (California Residents)</h2>
             <p className="text-muted-foreground mb-3">
@@ -237,14 +308,16 @@ export default function PrivacyPolicy() {
             </ul>
             <p className="text-muted-foreground mt-3">
               To submit a CCPA request, email{" "}
-              <a href="mailto:ryan@mahabir.pro" className="text-primary hover:underline">ryan@mahabir.pro</a>{" "}
+              <a href="mailto:admin@budgetsmart.io" className="text-primary hover:underline">admin@budgetsmart.io</a>{" "}
               with "CCPA Request" in the subject line.
             </p>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">10. Children's Privacy</h2>
             <p className="text-muted-foreground">
-              BudgetSmart is not directed at children under 18. We do not knowingly collect personal information from anyone under 18.
-              If you believe we have inadvertently collected information from a minor, please contact us immediately.
+              BudgetSmart AI is a personal finance tool intended for adults. We do not knowingly collect personal information from anyone under the age of 18.
+              If you believe we have inadvertently collected information from a minor, please contact us immediately at{" "}
+              <a href="mailto:admin@budgetsmart.io" className="text-primary hover:underline">admin@budgetsmart.io</a>{" "}
+              and we will delete it promptly.
             </p>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">11. Changes to This Policy</h2>
@@ -253,16 +326,16 @@ export default function PrivacyPolicy() {
               or in-app notice if the changes are material.
             </p>
 
-            <h2 className="text-xl font-semibold mt-8 mb-4">12. Contact</h2>
+            <h2 className="text-xl font-semibold mt-8 mb-4">12. Contact Us</h2>
             <div className="bg-muted rounded-lg p-4 space-y-2">
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-primary" />
-                <span className="text-muted-foreground"><strong>Ryan Mahabir</strong> — BudgetSmart</span>
+                <span className="text-muted-foreground"><strong>BudgetSmart AI</strong> — operated by Ryan Mahabir</span>
               </div>
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-primary" />
                 <span className="text-muted-foreground">
-                  <a href="mailto:ryan@mahabir.pro" className="text-primary hover:underline">ryan@mahabir.pro</a>
+                  <a href="mailto:admin@budgetsmart.io" className="text-primary hover:underline">admin@budgetsmart.io</a>
                 </span>
               </div>
               <p className="text-sm text-muted-foreground">Hamilton, Ontario, Canada · budgetsmart.io</p>
