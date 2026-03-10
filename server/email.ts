@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema";
 import { startAiCoachScheduler } from "./ai-coach";
 import { checkVaultExpiryNotifications } from "./routes/vault";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { auditLog } from "./audit-logger";
 
 // Lazy Postmark HTTP client – avoids crashes when POSTMARK_USERNAME is absent.
@@ -258,6 +258,23 @@ export async function checkAndSendReminders(): Promise<void> {
  */
 const TRIAL_REMINDER_DAYS_BEFORE = 3;
 
+/** Build the subject/body for a trial-end reminder email. */
+export function buildTrialReminderEmail(firstName: string, trialEndStr: string): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  return {
+    subject: "Your Budget Smart AI trial ends soon",
+    text: `Hi ${firstName},\n\nJust a heads-up — your free trial ends on ${trialEndStr}.\n\nIf Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.\n\nIf it's not the right fit, you can cancel anytime before your trial ends at https://app.budgetsmart.io/settings.\n\nThanks for trying Budget Smart AI!\n\nThe Budget Smart AI Team`,
+    html: `<p>Hi ${firstName},</p>
+<p>Just a heads-up — your free trial ends on <strong>${trialEndStr}</strong>.</p>
+<p>If Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.</p>
+<p>If it's not the right fit, you can cancel anytime before your trial ends at <a href="https://app.budgetsmart.io/settings">your account settings</a>.</p>
+<p>Thanks for trying Budget Smart AI!<br>The Budget Smart AI Team</p>`,
+  };
+}
+
 export async function checkAndSendTrialReminders(): Promise<void> {
   const fromEmail = process.env.ALERT_EMAIL_FROM || process.env.POSTMARK_FROM_EMAIL;
   if (!fromEmail) {
@@ -278,7 +295,7 @@ export async function checkAndSendTrialReminders(): Promise<void> {
 
   let usersToRemind: any[] = [];
   try {
-    const result = await (db as any).$client.query(
+    const result = await pool.query(
       `SELECT id, email, first_name, username, trial_ends_at
        FROM users
        WHERE trial_email_reminder = 'true'
@@ -305,16 +322,13 @@ export async function checkAndSendTrialReminders(): Promise<void> {
     const firstName = row.first_name || row.username || "there";
 
     try {
+      const { subject, text, html } = buildTrialReminderEmail(firstName, trialEndStr);
       await client.sendEmail({
         From: fromEmail,
         To: row.email,
-        Subject: "Your Budget Smart AI trial ends soon",
-        TextBody: `Hi ${firstName},\n\nJust a heads-up — your free trial ends on ${trialEndStr}.\n\nIf Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.\n\nIf it's not the right fit, you can cancel anytime before your trial ends at https://app.budgetsmart.io/settings.\n\nThanks for trying Budget Smart AI!\n\nThe Budget Smart AI Team`,
-        HtmlBody: `<p>Hi ${firstName},</p>
-<p>Just a heads-up — your free trial ends on <strong>${trialEndStr}</strong>.</p>
-<p>If Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.</p>
-<p>If it's not the right fit, you can cancel anytime before your trial ends at <a href="https://app.budgetsmart.io/settings">your account settings</a>.</p>
-<p>Thanks for trying Budget Smart AI!<br>The Budget Smart AI Team</p>`,
+        Subject: subject,
+        TextBody: text,
+        HtmlBody: html,
       });
 
       console.log(`[TrialReminder] Reminder sent to user ${row.id} (${row.email})`);

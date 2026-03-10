@@ -525,15 +525,15 @@ async function handleTrialWillEnd(subscription: Stripe.Subscription): Promise<vo
     return;
   }
 
-  const trialEnd = (subscription as any).trial_end
-    ? new Date((subscription as any).trial_end * 1000)
+  const trialEnd = subscription.trial_end
+    ? new Date(subscription.trial_end * 1000)
     : null;
   const trialEndStr = trialEnd
     ? trialEnd.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : "soon";
 
   try {
-    const { sendEmailViaPostmark } = await import("./email");
+    const { sendEmailViaPostmark, buildTrialReminderEmail } = await import("./email");
     const fromEmail = process.env.ALERT_EMAIL_FROM || process.env.POSTMARK_FROM_EMAIL;
     if (!fromEmail) {
       console.warn("ALERT_EMAIL_FROM not configured, cannot send trial reminder");
@@ -541,17 +541,14 @@ async function handleTrialWillEnd(subscription: Stripe.Subscription): Promise<vo
     }
 
     const firstName = user.firstName || user.username || "there";
+    const { subject, text, html } = buildTrialReminderEmail(firstName, trialEndStr);
 
     await sendEmailViaPostmark({
       from: fromEmail,
       to: userEmail,
-      subject: "Your Budget Smart AI trial ends soon",
-      text: `Hi ${firstName},\n\nJust a heads-up — your free trial ends on ${trialEndStr}.\n\nIf Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.\n\nIf it's not the right fit, you can cancel anytime before your trial ends at https://app.budgetsmart.io/settings.\n\nThanks for trying Budget Smart AI!\n\nThe Budget Smart AI Team`,
-      html: `<p>Hi ${firstName},</p>
-<p>Just a heads-up — your free trial ends on <strong>${trialEndStr}</strong>.</p>
-<p>If Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.</p>
-<p>If it's not the right fit, you can cancel anytime before your trial ends at <a href="https://app.budgetsmart.io/settings">your account settings</a>.</p>
-<p>Thanks for trying Budget Smart AI!<br>The Budget Smart AI Team</p>`,
+      subject,
+      text,
+      html,
     });
 
     console.log(`Trial reminder email sent to user ${user.id} (${userEmail})`);

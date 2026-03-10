@@ -630,7 +630,9 @@ export default function SignupPage() {
                         )}
                       </div>
                       <div className="text-right">
-                        <span className="text-white font-bold">${planPrice.toFixed(2)}/mo</span>
+                        <span className="text-white font-bold">
+                          ${planPrice.toFixed(2)}/{billingPeriod === "yearly" ? "yr" : "mo"}
+                        </span>
                       </div>
                     </div>
                     {billingPeriod === "yearly" && (
