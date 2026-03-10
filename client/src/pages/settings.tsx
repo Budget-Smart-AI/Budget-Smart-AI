@@ -48,6 +48,7 @@ import { SettingsLayout } from "@/components/settings-layout";
 import MerchantsPage from "@/pages/merchants";
 import EmailSettings from "@/pages/email-settings";
 import { ThemePicker } from "@/components/settings/ThemePicker";
+import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
 
 // ─── Types reused from bank-accounts ────────────────────────────────────────
 interface PlaidAccountGroup {
@@ -260,6 +261,7 @@ function AccountsTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setConfirmDisconnect(null);
       toast({ title: "Account disconnected" });
     },
     onError: () => toast({ title: "Failed to disconnect account", variant: "destructive" }),
@@ -270,6 +272,7 @@ function AccountsTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setConfirmDisconnect(null);
       toast({ title: "Account disconnected" });
     },
     onError: () => toast({ title: "Failed to disconnect account", variant: "destructive" }),
@@ -450,33 +453,19 @@ function AccountsTab() {
       ))}
 
       {/* Confirm disconnect dialog */}
-      <AlertDialog open={!!confirmDisconnect} onOpenChange={(open) => { if (!open) setConfirmDisconnect(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Unlink {confirmDisconnect?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will revoke data-access consent and disconnect all accounts from{" "}
-              <strong>{confirmDisconnect?.name}</strong>. You can reconnect at any time.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (!confirmDisconnect) return;
-                if (confirmDisconnect.type === "plaid") {
-                  disconnectPlaid.mutate(confirmDisconnect.id);
-                } else {
-                  disconnectMx.mutate(confirmDisconnect.id);
-                }
-                setConfirmDisconnect(null);
-              }}
-            >
-              Unlink Account
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <UnlinkConfirmDialog
+        open={!!confirmDisconnect}
+        institutionName={confirmDisconnect?.name ?? ""}
+        onConfirm={() => {
+          if (!confirmDisconnect) return;
+          if (confirmDisconnect.type === "plaid") {
+            disconnectPlaid.mutate(confirmDisconnect.id);
+          } else {
+            disconnectMx.mutate(confirmDisconnect.id);
+          }
+        }}
+        onClose={() => setConfirmDisconnect(null)}
+      />
 
     </div>
   );

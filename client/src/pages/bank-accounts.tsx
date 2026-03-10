@@ -75,6 +75,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditCardIcon, TrendingUp } from "lucide-react";
 import { TransactionDrilldown } from "@/components/transaction-drilldown";
 import { BankProviderSelectionDialog } from "@/components/bank-provider-selection";
+import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
 
 // Category color map mirrors server/merchant-categories.ts CATEGORY_COLORS
 const CATEGORY_COLORS: Record<string, string> = {
@@ -1031,8 +1032,8 @@ export default function BankAccounts() {
   });
   const [reconcileTransaction, setReconcileTransaction] = useState<PlaidTransaction | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [disconnectItemId, setDisconnectItemId] = useState<string | null>(null);
-  const [disconnectMxMemberId, setDisconnectMxMemberId] = useState<string | null>(null);
+  const [disconnectItemId, setDisconnectItemId] = useState<{ id: string; name: string } | null>(null);
+  const [disconnectMxMemberId, setDisconnectMxMemberId] = useState<{ id: string; name: string } | null>(null);
   const [drilldownTransaction, setDrilldownTransaction] = useState<PlaidTransaction | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
@@ -1732,7 +1733,7 @@ export default function BankAccounts() {
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 sm:h-7 sm:w-7"
-                      onClick={() => setDisconnectItemId(group.id)}
+                      onClick={() => setDisconnectItemId({ id: group.id, name: group.institutionName || "Bank" })}
                     >
                       <Unlink className="h-3 w-3" />
                     </Button>
@@ -1803,7 +1804,7 @@ export default function BankAccounts() {
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 sm:h-7 sm:w-7"
-                      onClick={() => setDisconnectMxMemberId(member.id)}
+                      onClick={() => setDisconnectMxMemberId({ id: member.id, name: member.institutionName || "Bank" })}
                       data-testid={`button-disconnect-mx-${member.id}`}
                     >
                       <Unlink className="h-3 w-3" />
@@ -2156,47 +2157,20 @@ export default function BankAccounts() {
       />
 
       {/* Disconnect Confirmation */}
-      <AlertDialog open={!!disconnectItemId} onOpenChange={(open) => { if (!open) setDisconnectItemId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect Bank Account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove the bank connection and all associated transaction data. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground"
-              onClick={() => disconnectItemId && disconnectMutation.mutate(disconnectItemId)}
-            >
-              Disconnect
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <UnlinkConfirmDialog
+        open={!!disconnectItemId}
+        institutionName={disconnectItemId?.name ?? ""}
+        onConfirm={() => disconnectItemId && disconnectMutation.mutate(disconnectItemId.id)}
+        onClose={() => setDisconnectItemId(null)}
+      />
 
       {/* MX Disconnect Confirmation */}
-      <AlertDialog open={!!disconnectMxMemberId} onOpenChange={(open) => { if (!open) setDisconnectMxMemberId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect Bank Account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove the bank connection and all associated transaction data. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground"
-              onClick={() => disconnectMxMemberId && disconnectMxMutation.mutate(disconnectMxMemberId)}
-              data-testid="button-confirm-disconnect-mx"
-            >
-              Disconnect
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <UnlinkConfirmDialog
+        open={!!disconnectMxMemberId}
+        institutionName={disconnectMxMemberId?.name ?? ""}
+        onConfirm={() => disconnectMxMemberId && disconnectMxMutation.mutate(disconnectMxMemberId.id)}
+        onClose={() => setDisconnectMxMemberId(null)}
+      />
 
       {/* Delete Manual Account Confirmation */}
       <AlertDialog open={!!deleteManualAccountId} onOpenChange={(open) => { if (!open) setDeleteManualAccountId(null); }}>
