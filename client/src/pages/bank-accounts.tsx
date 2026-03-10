@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePlaidLink } from "react-plaid-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -421,21 +422,48 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={showWidget} onOpenChange={setShowWidget}>
-        <DialogContent className="max-w-2xl h-[80vh]">
-          <DialogHeader>
-            <DialogTitle>Connect Your Bank</DialogTitle>
-          </DialogHeader>
-          {widgetUrl && (
+      {showWidget && widgetUrl && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2147483647,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.7)",
+          }}
+        >
+          <div
+            className="mx-widget-overlay-content bg-background shadow-2xl"
+            style={{
+              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+              <span className="font-semibold text-sm">Connect Your Bank</span>
+              <button
+                onClick={() => setShowWidget(false)}
+                className="rounded-full p-1 hover:bg-muted transition-colors"
+                aria-label="Close"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </button>
+            </div>
             <iframe
               src={widgetUrl}
-              className="w-full h-full border-0 rounded-lg"
+              style={{ width: "100%", flex: 1, border: "none" }}
               title="MX Connect"
               allow="camera; microphone"
             />
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 }

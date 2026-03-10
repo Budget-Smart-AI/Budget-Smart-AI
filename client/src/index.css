@@ -422,6 +422,24 @@ iframe[src*="plaid"] {
   pointer-events: auto !important;
 }
 
+/* MX Connect widget full-screen overlay — mirrors Plaid Link overlay pattern */
+.mx-widget-overlay-content {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .mx-widget-overlay-content {
+    width: min(90vw, 600px);
+    height: min(90vh, 800px);
+    min-width: 480px;
+    min-height: 700px;
+    border-radius: 12px;
+  }
+}
+
 /* Custom scrollbar styling - matches theme colors */
 ::-webkit-scrollbar {
   width: 8px;
