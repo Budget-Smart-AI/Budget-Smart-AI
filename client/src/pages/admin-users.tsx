@@ -10,6 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -57,7 +62,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Plus, Pencil, Trash2, Users, Shield, ShieldCheck, Check, X, Clock, CreditCard, AlertTriangle, Pause, Eye } from "lucide-react";
+import {
+  Plus, Pencil, Trash2, Users, Shield, ShieldCheck, Check, X, Clock,
+  CreditCard, AlertTriangle, Pause, Eye, ChevronDown, ChevronUp,
+  HardDrive, Bot, Activity, Landmark, TrendingUp, TrendingDown,
+  BarChart2, DollarSign, Database,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -86,6 +96,70 @@ interface Plan {
   price: string;
   billingPeriod: string;
   isActive: string;
+}
+
+interface AiFeatureCost {
+  featureTag: string;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  totalCostUsd: number;
+  callCount: number;
+  lastUsed: string | null;
+}
+
+interface UserAnalytics {
+  storage: {
+    totalFiles: number;
+    vaultFiles: number;
+    receiptFiles: number;
+    storageMB: number;
+    storageGB: number;
+    storageTrend: "growing" | "stable";
+  };
+  aiCosts: {
+    byFeature: AiFeatureCost[];
+    totalCostUsd: number;
+    avgMonthlyCostUsd: number;
+    estimatedAnnualCostUsd: number;
+  };
+  activity: {
+    lastLoginAt: string | null;
+    totalLogins: number;
+    bankAccountCount: number;
+    transactionCount: number;
+    receiptCount: number;
+    budgetCount: number;
+    billCount: number;
+    savingsGoalCount: number;
+    lastSyncAt: string | null;
+  };
+  financialOverview: {
+    netWorthUsd: number;
+    manualAccountCount: number;
+    subscriptionStatus: string | null;
+    subscriptionPlanId: string | null;
+    subscriptionStartAt: string | null;
+    accountCreatedAt: string | null;
+    stripeCustomerId: string | null;
+  };
+}
+
+interface AggregateInsightsData {
+  activeUsers: number;
+  aiSpendThisMonth: number;
+  aiSpendTotal: number;
+  avgAiPerUserMonth: number;
+  avgStorageMB: number;
+  costPerActiveUser: number;
+  usersApproachingStorageLimit: Array<{ userId: string; totalBytes: number; totalMB: number }>;
+  topAiCostUsers: Array<{
+    userId: string;
+    username: string | null;
+    email: string | null;
+    displayName: string | null;
+    totalCostUsd: number;
+    callCount: number;
+  }>;
 }
 
 const createUserSchema = z.object({
@@ -135,6 +209,362 @@ function DetailField({ label, value }: { label: string; value: string | null | u
         {value && value.trim() !== "" ? value : <span className="text-muted-foreground italic">Not provided</span>}
       </span>
     </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  icon: React.ElementType;
+  accent?: string;
+}) {
+  return (
+    <div className={`rounded-lg border bg-muted/30 p-3 flex flex-col gap-1 ${accent ?? ""}`}>
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className="w-3.5 h-3.5" />
+        {label}
+      </div>
+      <div className="text-lg font-bold leading-tight">{value}</div>
+      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  icon: Icon,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          className="w-full flex items-center justify-between py-2 px-3 rounded-md border bg-muted/20 hover:bg-muted/40 transition-colors text-sm font-semibold"
+          type="button"
+        >
+          <span className="flex items-center gap-2">
+            <Icon className="w-4 h-4 text-muted-foreground" />
+            {title}
+          </span>
+          {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-3 pb-1 space-y-3">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function fmtUsd(n: number) {
+  return `$${n.toFixed(n < 0.01 ? 6 : 4)}`;
+}
+
+function fmtDate(d: string | null | undefined) {
+  if (!d) return "N/A";
+  try {
+    return new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return d;
+  }
+}
+
+function UserAnalyticsSection({ userId }: { userId: string }) {
+  const { data: analytics, isLoading, error } = useQuery<UserAnalytics>({
+    queryKey: [`/api/admin/users/${userId}/analytics`],
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
+  }
+
+  if (error || !analytics) {
+    return (
+      <div className="text-xs text-muted-foreground italic p-3 border rounded-md">
+        Analytics data unavailable
+      </div>
+    );
+  }
+
+  const { storage, aiCosts, activity, financialOverview } = analytics;
+
+  return (
+    <div className="space-y-3">
+      {/* Section 1 — Storage */}
+      <CollapsibleSection title="Storage" icon={HardDrive}>
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard
+            label="Total Files"
+            value={storage.totalFiles}
+            sub={`${storage.vaultFiles} vault · ${storage.receiptFiles} receipts`}
+            icon={Database}
+          />
+          <StatCard
+            label="Storage Used"
+            value={storage.storageMB < 1024
+              ? `${storage.storageMB} MB`
+              : `${storage.storageGB} GB`}
+            sub={`${storage.storageMB} MB total`}
+            icon={HardDrive}
+          />
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+          {storage.storageTrend === "growing"
+            ? <><TrendingUp className="w-3.5 h-3.5 text-amber-500" /> Trend: <span className="text-amber-600 font-medium">Growing</span></>
+            : <><TrendingDown className="w-3.5 h-3.5 text-green-500" /> Trend: <span className="text-green-600 font-medium">Stable</span></>
+          }
+        </div>
+      </CollapsibleSection>
+
+      {/* Section 2 — AI Cost Tracking */}
+      <CollapsibleSection title="AI Cost Tracking" icon={Bot}>
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard label="Total AI Spend" value={fmtUsd(aiCosts.totalCostUsd)} icon={DollarSign} />
+          <StatCard label="Avg / Month" value={fmtUsd(aiCosts.avgMonthlyCostUsd)} icon={BarChart2} />
+          <StatCard
+            label="Est. Annual"
+            value={fmtUsd(aiCosts.estimatedAnnualCostUsd)}
+            sub="projected 12-month"
+            icon={TrendingUp}
+          />
+          <StatCard label="AI Calls" value={aiCosts.byFeature.reduce((s, f) => s + f.callCount, 0)} icon={Activity} />
+        </div>
+        {aiCosts.byFeature.length > 0 && (
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/50">
+                  <th className="text-left p-2 font-medium text-muted-foreground">Feature</th>
+                  <th className="text-right p-2 font-medium text-muted-foreground">Calls</th>
+                  <th className="text-right p-2 font-medium text-muted-foreground">Cost (USD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aiCosts.byFeature.map((f) => (
+                  <tr key={f.featureTag} className="border-t">
+                    <td className="p-2 font-mono">{f.featureTag}</td>
+                    <td className="p-2 text-right">{f.callCount}</td>
+                    <td className="p-2 text-right font-mono">{fmtUsd(f.totalCostUsd)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {aiCosts.byFeature.length === 0 && (
+          <p className="text-xs text-muted-foreground italic">No AI usage recorded yet</p>
+        )}
+      </CollapsibleSection>
+
+      {/* Section 3 — Activity & Engagement */}
+      <CollapsibleSection title="Activity & Engagement" icon={Activity}>
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard
+            label="Last Login"
+            value={fmtDate(activity.lastLoginAt)}
+            icon={Clock}
+          />
+          <StatCard
+            label="Total Logins"
+            value={activity.totalLogins}
+            icon={Activity}
+          />
+          <StatCard
+            label="Bank Accounts"
+            value={activity.bankAccountCount}
+            icon={Landmark}
+          />
+          <StatCard
+            label="Transactions"
+            value={activity.transactionCount}
+            icon={BarChart2}
+          />
+          <StatCard label="Receipts Scanned" value={activity.receiptCount} icon={Database} />
+          <StatCard label="Budgets Created" value={activity.budgetCount} icon={DollarSign} />
+          <StatCard label="Bills Tracked" value={activity.billCount} icon={CreditCard} />
+          <StatCard label="Savings Goals" value={activity.savingsGoalCount} icon={TrendingUp} />
+        </div>
+        <div className="flex flex-col gap-0.5 px-1">
+          <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Last Bank Sync</span>
+          <span className="text-sm">{fmtDate(activity.lastSyncAt)}</span>
+        </div>
+      </CollapsibleSection>
+
+      {/* Section 4 — Financial Overview */}
+      <CollapsibleSection title="Financial Overview" icon={Landmark}>
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard
+            label="Net Worth"
+            value={`$${financialOverview.netWorthUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            sub="connected accounts aggregate"
+            icon={DollarSign}
+          />
+          <StatCard
+            label="Manual Accounts"
+            value={financialOverview.manualAccountCount}
+            icon={Database}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 text-xs px-1">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-muted-foreground font-medium uppercase tracking-wide">Subscription Status</span>
+            <span>
+              {financialOverview.subscriptionStatus
+                ? <Badge variant="outline" className="text-xs">{financialOverview.subscriptionStatus}</Badge>
+                : <span className="text-muted-foreground italic">No subscription</span>}
+            </span>
+          </div>
+          {financialOverview.accountCreatedAt && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-muted-foreground font-medium uppercase tracking-wide">Account Created</span>
+              <span className="text-sm">{fmtDate(financialOverview.accountCreatedAt)}</span>
+            </div>
+          )}
+          {financialOverview.stripeCustomerId && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-muted-foreground font-medium uppercase tracking-wide">Stripe Customer ID</span>
+              <span className="font-mono text-xs">{financialOverview.stripeCustomerId}</span>
+            </div>
+          )}
+        </div>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+// ── Aggregate Insights (shown at top of User Management page) ──────────────────
+function AggregateInsights() {
+  const { data, isLoading } = useQuery<AggregateInsightsData>({
+    queryKey: ["/api/admin/analytics/aggregate"],
+    staleTime: 120_000,
+  });
+
+  const [showTop10, setShowTop10] = useState(false);
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-20 w-full rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  return (
+    <Card>
+      <CardHeader className="p-3 sm:p-4 pb-0">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <BarChart2 className="w-4 h-4 text-muted-foreground" />
+          Platform Aggregate Insights
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 sm:p-4 space-y-4">
+        {/* Metric cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <StatCard label="Active Users" value={data.activeUsers} icon={Users} />
+          <StatCard
+            label="AI Spend This Month"
+            value={`$${data.aiSpendThisMonth.toFixed(4)}`}
+            icon={DollarSign}
+          />
+          <StatCard
+            label="AI Spend All-Time"
+            value={`$${data.aiSpendTotal.toFixed(4)}`}
+            icon={TrendingUp}
+          />
+          <StatCard
+            label="Avg AI / User / Month"
+            value={`$${data.avgAiPerUserMonth.toFixed(4)}`}
+            icon={BarChart2}
+          />
+          <StatCard
+            label="Avg Storage / User"
+            value={`${data.avgStorageMB} MB`}
+            icon={HardDrive}
+          />
+          <StatCard
+            label="Cost / Active User"
+            value={`$${data.costPerActiveUser.toFixed(4)}`}
+            sub="all-time AI / active users"
+            icon={Activity}
+          />
+          {data.usersApproachingStorageLimit.length > 0 && (
+            <StatCard
+              label="Near Storage Limit"
+              value={data.usersApproachingStorageLimit.length}
+              sub="> 80% of 400 MB"
+              icon={AlertTriangle}
+              accent="border-amber-400"
+            />
+          )}
+        </div>
+
+        {/* Top 10 AI cost users */}
+        {data.topAiCostUsers.length > 0 && (
+          <Collapsible open={showTop10} onOpenChange={setShowTop10}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Bot className="w-3.5 h-3.5" />
+                Top 10 Highest AI Cost Users
+                {showTop10 ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <div className="border rounded-md overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-muted/50">
+                      <th className="text-left p-2 font-medium text-muted-foreground">#</th>
+                      <th className="text-left p-2 font-medium text-muted-foreground">User</th>
+                      <th className="text-right p-2 font-medium text-muted-foreground">Calls</th>
+                      <th className="text-right p-2 font-medium text-muted-foreground">Total Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.topAiCostUsers.map((u, i) => (
+                      <tr key={u.userId} className="border-t">
+                        <td className="p-2 text-muted-foreground">{i + 1}</td>
+                        <td className="p-2">{u.displayName || u.username || u.userId}</td>
+                        <td className="p-2 text-right">{u.callCount}</td>
+                        <td className="p-2 text-right font-mono">{fmtUsd(u.totalCostUsd)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -266,6 +696,15 @@ function UserDetailPanel({ user, plans }: { user: User; plans?: Plan[] }) {
 
         {/* Created */}
         <DetailField label="Created" value={formatDate(user.createdAt)} />
+      </div>
+
+      {/* Analytics & Cost Insights */}
+      <div className="border-t pt-4">
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <BarChart2 className="w-4 h-4 text-muted-foreground" />
+          User Analytics &amp; Cost Insights
+        </h3>
+        <UserAnalyticsSection userId={user.id} />
       </div>
     </div>
   );
@@ -585,6 +1024,9 @@ export default function AdminUsers() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Platform Aggregate Insights */}
+      <AggregateInsights />
 
       <Card>
         <CardHeader className="p-3 sm:p-6">
