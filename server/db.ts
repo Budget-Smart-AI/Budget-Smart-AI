@@ -574,3 +574,26 @@ export async function ensureSupportPortalTables(): Promise<void> {
     );
   }
 }
+
+/**
+ * Ensure the user_ai_costs table exists for cumulative per-user AI cost tracking.
+ * This stores running totals per (user, feature_tag) pair and is updated by a
+ * background job or on-demand rollup from ai_usage_log.
+ * Safe to call on every startup (uses IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
+ */
+export async function ensureUserAICostsTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_ai_costs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR(255) NOT NULL,
+      feature_tag VARCHAR(100) NOT NULL,
+      total_tokens_in BIGINT DEFAULT 0,
+      total_tokens_out BIGINT DEFAULT 0,
+      total_cost_usd DECIMAL(12,6) DEFAULT 0,
+      last_updated TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, feature_tag)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_ai_costs_user ON user_ai_costs(user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_ai_costs_feature ON user_ai_costs(feature_tag)`);
+}

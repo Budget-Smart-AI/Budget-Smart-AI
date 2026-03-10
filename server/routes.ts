@@ -3366,6 +3366,377 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // ─── Admin User Analytics ─────────────────────────────────────────────────
+
+  /**
+   * GET /api/admin/users/:id/analytics
+   * Returns per-user analytics data for the admin User Management detail panel.
+   * Sections: storage, AI costs, activity & engagement, financial overview.
+   * Never returns raw transaction data — only aggregates and metadata.
+   */
+  app.get("/api/admin/users/:id/analytics", requireAdmin, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.params.id as string;
+
+      // ── Section 1: Storage ────────────────────────────────────────────────
+      const vaultResult = await pool.query(
+        `SELECT
+           COUNT(*)::int                     AS file_count,
+           COALESCE(SUM(file_size), 0)::bigint AS total_bytes
+         FROM vault_documents
+         WHERE user_id = $1`,
+        [userId],
+      );
+      const receiptResult = await pool.query(
+        `SELECT COUNT(*)::int AS receipt_count FROM receipts WHERE user_id = $1`,
+        [userId],
+      );
+      const vaultRow    = vaultResult.rows[0]  ?? { file_count: 0, total_bytes: 0 };
+      const receiptRow  = receiptResult.rows[0] ?? { receipt_count: 0 };
+      const totalBytes  = Number(vaultRow.total_bytes ?? 0);
+      const totalFiles  = Number(vaultRow.file_count ?? 0) + Number(receiptRow.receipt_count ?? 0);
+      const storageMB   = totalBytes / (1024 * 1024);
+
+      // Storage trend: compare last-30d bytes vs prior-30d bytes
+      const storageTrendResult = await pool.query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN uploaded_at >= NOW() - INTERVAL '30 days' THEN file_size ELSE 0 END), 0)::bigint AS recent_bytes,
+           COALESCE(SUM(CASE WHEN uploaded_at >= NOW() - INTERVAL '60 days' AND uploaded_at < NOW() - INTERVAL '30 days' THEN file_size ELSE 0 END), 0)::bigint AS prior_bytes
+         FROM vault_documents WHERE user_id = $1`,
+        [userId],
+      );
+      const trendRow     = storageTrendResult.rows[0] ?? { recent_bytes: 0, prior_bytes: 0 };
+      const recentBytes  = Number(trendRow.recent_bytes ?? 0);
+      const priorBytes   = Number(trendRow.prior_bytes ?? 0);
+      const storageTrend = recentBytes > priorBytes + 1024 ? "growing" : "stable";
+
+      const storage = {
+        totalFiles,
+        vaultFiles: Number(vaultRow.file_count ?? 0),
+        receiptFiles: Number(receiptRow.receipt_count ?? 0),
+        storageMB:    parseFloat(storageMB.toFixed(2)),
+        storageGB:    parseFloat((storageMB / 1024).toFixed(4)),
+        storageTrend,
+      };
+
+      // ── Section 2: AI Costs ───────────────────────────────────────────────
+      // Pull cumulative costs directly from ai_usage_log grouped by feature_context
+      const aiCostsResult = await pool.query(
+        `SELECT
+           COALESCE(feature_context, task_slot) AS feature_tag,
+           SUM(input_tokens)::bigint              AS total_tokens_in,
+           SUM(output_tokens)::bigint             AS total_tokens_out,
+           SUM(estimated_cost_usd)::numeric       AS total_cost_usd,
+           COUNT(*)::int                          AS call_count,
+           MAX(created_at)                        AS last_used
+         FROM ai_usage_log
+         WHERE user_id = $1 AND success = true
+         GROUP BY COALESCE(feature_context, task_slot)
+         ORDER BY total_cost_usd DESC`,
+        [userId],
+      );
+      const aiByFeature = aiCostsResult.rows.map(r => ({
+        featureTag:   String(r.feature_tag),
+        totalTokensIn:  Number(r.total_tokens_in ?? 0),
+        totalTokensOut: Number(r.total_tokens_out ?? 0),
+        totalCostUsd:   parseFloat(Number(r.total_cost_usd ?? 0).toFixed(6)),
+        callCount:      Number(r.call_count ?? 0),
+        lastUsed:       r.last_used ?? null,
+      }));
+
+      const totalAiCostUsd = aiByFeature.reduce((s, r) => s + r.totalCostUsd, 0);
+
+      // Average monthly spend: total cost / elapsed calendar months since first AI call (min 1)
+      const firstCallResult = await pool.query(
+        `SELECT MIN(created_at) AS first_call FROM ai_usage_log WHERE user_id = $1 AND success = true`,
+        [userId],
+      );
+      const firstCall = firstCallResult.rows[0]?.first_call;
+      let monthsSinceFirst = 1;
+      if (firstCall) {
+        const first = new Date(firstCall);
+        const now   = new Date();
+        // Calculate elapsed months as (year diff * 12) + month diff, minimum 1
+        monthsSinceFirst = Math.max(
+          1,
+          (now.getFullYear() - first.getFullYear()) * 12 + (now.getMonth() - first.getMonth()) + 1,
+        );
+      }
+      const avgMonthlyAiCost  = parseFloat((totalAiCostUsd / monthsSinceFirst).toFixed(6));
+      const estimatedAnnualCost = parseFloat((avgMonthlyAiCost * 12).toFixed(6));
+
+      const aiCosts = {
+        byFeature: aiByFeature,
+        totalCostUsd:        parseFloat(totalAiCostUsd.toFixed(6)),
+        avgMonthlyCostUsd:   avgMonthlyAiCost,
+        estimatedAnnualCostUsd: estimatedAnnualCost,
+      };
+
+      // ── Section 3: Activity & Engagement ─────────────────────────────────
+      const userResult = await pool.query(
+        `SELECT last_login_at FROM users WHERE id = $1`,
+        [userId],
+      );
+      const lastLoginAt = userResult.rows[0]?.last_login_at ?? null;
+
+      // Total logins: count audit log login events
+      const loginCountResult = await pool.query(
+        `SELECT COUNT(*)::int AS total_logins
+         FROM audit_log
+         WHERE actor_id = $1 AND event_type IN ('auth.login', 'auth.login_success')`,
+        [userId],
+      );
+      const totalLogins = Number(loginCountResult.rows[0]?.total_logins ?? 0);
+
+      // Connected bank accounts (MX + Plaid)
+      const mxAcctResult = await pool.query(
+        `SELECT COUNT(DISTINCT ma.id)::int AS count
+         FROM mx_accounts ma
+         JOIN mx_members mm ON mm.id = ma.mx_member_id
+         WHERE mm.user_id = $1`,
+        [userId],
+      );
+      const plaidAcctResult = await pool.query(
+        `SELECT COUNT(DISTINCT pa.id)::int AS count
+         FROM plaid_accounts pa
+         JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+         WHERE pi.user_id = $1`,
+        [userId],
+      );
+      const bankAccountCount = Number(mxAcctResult.rows[0]?.count ?? 0)
+                             + Number(plaidAcctResult.rows[0]?.count ?? 0);
+
+      // Transactions synced
+      const mxTxResult = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM mx_transactions mt
+         JOIN mx_accounts ma ON ma.id = mt.mx_account_id
+         JOIN mx_members mm ON mm.id = ma.mx_member_id
+         WHERE mm.user_id = $1`,
+        [userId],
+      );
+      const plaidTxResult = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM plaid_transactions pt
+         JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
+         JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+         WHERE pi.user_id = $1`,
+        [userId],
+      );
+      const manualTxResult = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM manual_transactions mt
+         JOIN manual_accounts ma ON ma.id = mt.manual_account_id
+         WHERE ma.user_id = $1`,
+        [userId],
+      );
+      const transactionCount = Number(mxTxResult.rows[0]?.count ?? 0)
+                             + Number(plaidTxResult.rows[0]?.count ?? 0)
+                             + Number(manualTxResult.rows[0]?.count ?? 0);
+
+      // Other counts
+      const [receiptsRes, budgetsRes, billsRes, savingsRes] = await Promise.all([
+        pool.query(`SELECT COUNT(*)::int AS count FROM receipts WHERE user_id = $1`, [userId]),
+        pool.query(`SELECT COUNT(*)::int AS count FROM budgets WHERE user_id = $1`, [userId]),
+        pool.query(`SELECT COUNT(*)::int AS count FROM bills WHERE user_id = $1`, [userId]),
+        pool.query(`SELECT COUNT(*)::int AS count FROM savings_goals WHERE user_id = $1`, [userId]),
+      ]);
+
+      // Last sync date (most recent mx/plaid sync)
+      const lastSyncResult = await pool.query(
+        `SELECT MAX(ts)::text AS last_sync FROM (
+           SELECT MAX(last_synced::timestamptz) AS ts FROM mx_accounts ma
+           JOIN mx_members mm ON mm.id = ma.mx_member_id WHERE mm.user_id = $1
+           UNION ALL
+           SELECT MAX(last_synced::timestamptz) AS ts FROM plaid_accounts pa
+           JOIN plaid_items pi ON pi.id = pa.plaid_item_id WHERE pi.user_id = $1
+         ) sub`,
+        [userId],
+      );
+
+      const activity = {
+        lastLoginAt,
+        totalLogins,
+        bankAccountCount,
+        transactionCount,
+        receiptCount:    Number(receiptsRes.rows[0]?.count ?? 0),
+        budgetCount:     Number(budgetsRes.rows[0]?.count ?? 0),
+        billCount:       Number(billsRes.rows[0]?.count ?? 0),
+        savingsGoalCount: Number(savingsRes.rows[0]?.count ?? 0),
+        lastSyncAt: lastSyncResult.rows[0]?.last_sync ?? null,
+      };
+
+      // ── Section 4: Financial Overview (aggregates only) ───────────────────
+      // Net worth from MX accounts
+      const mxNetWorthResult = await pool.query(
+        `SELECT COALESCE(SUM(
+           CASE WHEN ma.type IN ('CREDIT_CARD','LOAN','MORTGAGE','LINE_OF_CREDIT','DEBT')
+                THEN -ABS(ma.balance::numeric)
+                ELSE COALESCE(ma.balance::numeric, 0)
+           END
+         ), 0)::numeric AS net_worth
+         FROM mx_accounts ma
+         JOIN mx_members mm ON mm.id = ma.mx_member_id
+         WHERE mm.user_id = $1 AND ma.is_hidden = 'false' AND ma.is_closed = 'false'`,
+        [userId],
+      );
+      // Net worth from Plaid accounts
+      const plaidNetWorthResult = await pool.query(
+        `SELECT COALESCE(SUM(
+           CASE WHEN pa.type IN ('credit','loan')
+                THEN -ABS(pa.balance_current::numeric)
+                ELSE COALESCE(pa.balance_current::numeric, 0)
+           END
+         ), 0)::numeric AS net_worth
+         FROM plaid_accounts pa
+         JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+         WHERE pi.user_id = $1 AND pa.is_active = 'true'`,
+        [userId],
+      );
+      // Manual accounts
+      const manualAcctResult = await pool.query(
+        `SELECT COUNT(*)::int AS count,
+                COALESCE(SUM(balance::numeric), 0)::numeric AS balance
+         FROM manual_accounts WHERE user_id = $1 AND is_active = 'true'`,
+        [userId],
+      );
+
+      const netWorth = parseFloat(Number(mxNetWorthResult.rows[0]?.net_worth ?? 0).toFixed(2))
+                     + parseFloat(Number(plaidNetWorthResult.rows[0]?.net_worth ?? 0).toFixed(2))
+                     + parseFloat(Number(manualAcctResult.rows[0]?.balance ?? 0).toFixed(2));
+
+      // Subscription info
+      const subResult = await pool.query(
+        `SELECT subscription_status, subscription_plan_id, trial_ends_at, created_at, stripe_customer_id
+         FROM users WHERE id = $1`,
+        [userId],
+      );
+      const subRow = subResult.rows[0] ?? {};
+
+      const financialOverview = {
+        netWorthUsd:         parseFloat(netWorth.toFixed(2)),
+        manualAccountCount:  Number(manualAcctResult.rows[0]?.count ?? 0),
+        subscriptionStatus:  subRow.subscription_status ?? null,
+        subscriptionPlanId:  subRow.subscription_plan_id ?? null,
+        subscriptionStartAt: subRow.trial_ends_at ?? null,
+        accountCreatedAt:    subRow.created_at ?? null,
+        stripeCustomerId:    subRow.stripe_customer_id ?? null,
+      };
+
+      res.json({ storage, aiCosts, activity, financialOverview });
+    } catch (error) {
+      console.error("Error fetching user analytics:", error);
+      res.status(500).json({ error: "Failed to fetch user analytics" });
+    }
+  });
+
+  /**
+   * GET /api/admin/analytics/aggregate
+   * Returns platform-wide aggregate insights for the top of the User Management page.
+   */
+  app.get("/api/admin/analytics/aggregate", requireAdmin, sensitiveApiRateLimiter, async (_req, res) => {
+    try {
+      // Total active users
+      const activeUsersResult = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM users WHERE is_approved = 'true' AND (is_deleted IS NULL OR is_deleted = false)`,
+      );
+      const activeUsers = Number(activeUsersResult.rows[0]?.count ?? 1);
+
+      // AI spend this month
+      const aiThisMonthResult = await pool.query(
+        `SELECT COALESCE(SUM(estimated_cost_usd), 0)::numeric AS total
+         FROM ai_usage_log
+         WHERE success = true AND created_at >= date_trunc('month', NOW())`,
+      );
+      // AI spend all-time
+      const aiTotalResult = await pool.query(
+        `SELECT COALESCE(SUM(estimated_cost_usd), 0)::numeric AS total FROM ai_usage_log WHERE success = true`,
+      );
+      // AI spend per user per month (last 30 days)
+      const aiPerUserMonthResult = await pool.query(
+        `SELECT
+           COALESCE(AVG(user_cost), 0)::numeric AS avg_cost
+         FROM (
+           SELECT user_id, SUM(estimated_cost_usd) AS user_cost
+           FROM ai_usage_log
+           WHERE success = true AND user_id IS NOT NULL AND created_at >= NOW() - INTERVAL '30 days'
+           GROUP BY user_id
+         ) sub`,
+      );
+
+      // Average storage per user
+      const avgStorageResult = await pool.query(
+        `SELECT COALESCE(AVG(user_bytes), 0)::numeric AS avg_bytes
+         FROM (
+           SELECT user_id, SUM(COALESCE(file_size, 0)) AS user_bytes
+           FROM vault_documents GROUP BY user_id
+         ) sub`,
+      );
+
+      // Users approaching storage limit (> 400 MB = 400*1024*1024 bytes)
+      const storageLimit = 400 * 1024 * 1024;
+      const approachingLimitResult = await pool.query(
+        `SELECT user_id, SUM(COALESCE(file_size, 0))::bigint AS total_bytes
+         FROM vault_documents
+         GROUP BY user_id
+         HAVING SUM(COALESCE(file_size, 0)) > $1
+         ORDER BY total_bytes DESC`,
+        [storageLimit * 0.8],
+      );
+
+      // Top 10 highest AI cost users (all time)
+      const topAiUsersResult = await pool.query(
+        `SELECT
+           l.user_id,
+           u.username,
+           u.email,
+           u.first_name,
+           u.last_name,
+           SUM(l.estimated_cost_usd)::numeric AS total_cost,
+           COUNT(*)::int AS call_count
+         FROM ai_usage_log l
+         LEFT JOIN users u ON u.id = l.user_id
+         WHERE l.success = true AND l.user_id IS NOT NULL
+         GROUP BY l.user_id, u.username, u.email, u.first_name, u.last_name
+         ORDER BY total_cost DESC
+         LIMIT 10`,
+      );
+
+      const aiSpendThisMonth  = parseFloat(Number(aiThisMonthResult.rows[0]?.total ?? 0).toFixed(6));
+      const aiSpendTotal      = parseFloat(Number(aiTotalResult.rows[0]?.total ?? 0).toFixed(6));
+      const avgAiPerUserMonth = parseFloat(Number(aiPerUserMonthResult.rows[0]?.avg_cost ?? 0).toFixed(6));
+      const avgStorageBytes   = Number(avgStorageResult.rows[0]?.avg_bytes ?? 0);
+      const costPerActiveUser = activeUsers > 0
+        ? parseFloat((aiSpendTotal / activeUsers).toFixed(6))
+        : 0;
+
+      res.json({
+        activeUsers,
+        aiSpendThisMonth,
+        aiSpendTotal,
+        avgAiPerUserMonth,
+        avgStorageMB: parseFloat((avgStorageBytes / (1024 * 1024)).toFixed(2)),
+        costPerActiveUser,
+        usersApproachingStorageLimit: approachingLimitResult.rows.map(r => ({
+          userId:     r.user_id,
+          totalBytes: Number(r.total_bytes),
+          totalMB:    parseFloat((Number(r.total_bytes) / (1024 * 1024)).toFixed(2)),
+        })),
+        topAiCostUsers: topAiUsersResult.rows.map(r => ({
+          userId:      r.user_id,
+          username:    r.username ?? null,
+          email:       r.email ?? null,
+          displayName: [r.first_name, r.last_name].filter(Boolean).join(" ") || r.username || null,
+          totalCostUsd: parseFloat(Number(r.total_cost ?? 0).toFixed(6)),
+          callCount:   Number(r.call_count ?? 0),
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching aggregate analytics:", error);
+      res.status(500).json({ error: "Failed to fetch aggregate analytics" });
+    }
+  });
+
   // Contact form endpoint
   app.post("/api/contact", sensitiveApiRateLimiter, async (req, res) => {
     try {
