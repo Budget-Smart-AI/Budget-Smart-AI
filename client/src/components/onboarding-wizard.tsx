@@ -533,6 +533,7 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
       {/* MX Connect Widget — full-screen overlay, mirrors Plaid Link pattern */}
       {mxEnabled && showMxWidget && mxWidgetUrl && createPortal(
         <div
+          className="mx-connect-overlay"
           style={{
             position: "fixed",
             inset: 0,
