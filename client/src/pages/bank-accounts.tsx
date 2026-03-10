@@ -170,8 +170,10 @@ type SortKey = "date" | "name" | "amount" | "matchType" | "personalCategory";
 
 function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => void; autoOpen?: boolean }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
-  const [showWarning, setShowWarning] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
+  const [privacyChecked, setPrivacyChecked] = useState(false);
   const [limitError, setLimitError] = useState<string | null>(null);
+  const autoOpenConsentShown = useRef(false);
   const { toast } = useToast();
 
   // Fetch link token
@@ -218,18 +220,23 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
     onSuccess: onPlaidSuccess,
   });
 
-  const handleOpenPlaid = () => {
-    setShowWarning(false);
+  const handleConsentAccept = () => {
+    setShowConsent(false);
     open();
   };
 
-  // Auto-open when autoOpen prop is true and ready
+  const handleConsentDialogChange = (isOpen: boolean) => {
+    setShowConsent(isOpen);
+    if (!isOpen) setPrivacyChecked(false);
+  };
+
+  // Auto-open when autoOpen prop is true — show consent first (only once)
   useEffect(() => {
-    if (autoOpen && ready && linkToken && !showWarning) {
-      // Auto-open the Plaid connection
-      open();
+    if (autoOpen && !autoOpenConsentShown.current) {
+      autoOpenConsentShown.current = true;
+      setShowConsent(true);
     }
-  }, [autoOpen, ready, linkToken, showWarning, open]);
+  }, [autoOpen]);
 
   // If limit reached, show disabled button with tooltip
   if (limitError) {
@@ -243,11 +250,11 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 
   return (
     <>
-      <Button onClick={() => setShowWarning(true)} disabled={!ready || !linkToken} className="gap-2">
+      <Button onClick={() => setShowConsent(true)} disabled={!ready || !linkToken} className="gap-2">
         <Link2 className="h-4 w-4" />
         Connect Bank Account
       </Button>
-      <AlertDialog open={showWarning} onOpenChange={setShowWarning}>
+      <AlertDialog open={showConsent} onOpenChange={handleConsentDialogChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Connect Bank Account via Plaid</AlertDialogTitle>
@@ -263,9 +270,23 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="flex items-start gap-3 px-6 pb-2">
+            <Checkbox
+              id="plaid-privacy-consent"
+              checked={privacyChecked}
+              onCheckedChange={(checked) => setPrivacyChecked(checked === true)}
+            />
+            <label htmlFor="plaid-privacy-consent" className="text-sm leading-snug cursor-pointer select-none">
+              I have read and agree to BudgetSmart AI's{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">
+                Privacy Policy
+              </a>{" "}
+              and consent to my financial data being accessed through Plaid as described above.
+            </label>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleOpenPlaid}>I Consent — Connect Bank</AlertDialogAction>
+            <AlertDialogAction onClick={handleConsentAccept} disabled={!privacyChecked}>I Consent — Connect Bank</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -278,6 +299,7 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const [widgetUrl, setWidgetUrl] = useState<string | null>(null);
   const [showWidget, setShowWidget] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
+  const [privacyChecked, setPrivacyChecked] = useState(false);
   const [loading, setLoading] = useState(false);
   const autoOpenConsentShown = useRef(false);
   const { toast } = useToast();
@@ -303,6 +325,11 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const handleConsentAccept = () => {
     setShowConsent(false);
     openMXConnect();
+  };
+
+  const handleConsentDialogChange = (isOpen: boolean) => {
+    setShowConsent(isOpen);
+    if (!isOpen) setPrivacyChecked(false);
   };
 
   // Auto-open when autoOpen prop is true — show consent first (only once)
@@ -352,7 +379,7 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       </Button>
 
       {/* MX Informed Consent Dialog */}
-      <AlertDialog open={showConsent} onOpenChange={setShowConsent}>
+      <AlertDialog open={showConsent} onOpenChange={handleConsentDialogChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Connect Your Bank via MX</AlertDialogTitle>
@@ -373,9 +400,23 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="flex items-start gap-3 px-6 pb-2">
+            <Checkbox
+              id="mx-privacy-consent"
+              checked={privacyChecked}
+              onCheckedChange={(checked) => setPrivacyChecked(checked === true)}
+            />
+            <label htmlFor="mx-privacy-consent" className="text-sm leading-snug cursor-pointer select-none">
+              I have read and agree to BudgetSmart AI's{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">
+                Privacy Policy
+              </a>{" "}
+              and consent to my financial data being accessed through MX Technologies as described above.
+            </label>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConsentAccept}>I Consent — Connect Bank</AlertDialogAction>
+            <AlertDialogAction onClick={handleConsentAccept} disabled={!privacyChecked}>I Consent — Connect Bank</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
