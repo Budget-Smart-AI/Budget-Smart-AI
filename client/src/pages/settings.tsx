@@ -304,7 +304,7 @@ function AccountsTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Linked Bank Accounts</h2>
-          <p className="text-sm text-muted-foreground">Manage your connected financial institutions</p>
+          <p className="text-sm text-muted-foreground">Manage your connected financial institutions. Clicking <strong>Unlink</strong> revokes your data-access consent and disconnects the account.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handleRefreshAll} disabled={refreshing}>
