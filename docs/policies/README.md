@@ -30,7 +30,7 @@ All policies are owned by Ryan Mahabir (CEO) unless otherwise noted and are revi
 | 6 | [Change Management Policy](./change-management-policy.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual |
 | 7 | [Business Continuity Plan](./business-continuity-plan.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual / After DR event |
 | 8 | [Privacy Policy](./privacy-policy.md) *(public-facing)* | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
-| 9 | [Terms of Service](./terms-of-service.md) *(public-facing)* | 1.0 | March 7, 2026 | Ryan Mahabir | Annual |
+| 9 | [Terms of Service](./terms-of-service.md) *(public-facing)* | 1.1 | March 9, 2026 | Ryan Mahabir | Annual |
 | 10 | [Risk Register](./risk-register.md) | 1.0 | March 7, 2026 | Ryan Mahabir | Quarterly |
 | 11 | [SOC 2 Controls Matrix](./soc2-controls-matrix.md) | 1.1 | March 7, 2026 | Ryan Mahabir | Annual / Pre-audit |
 
