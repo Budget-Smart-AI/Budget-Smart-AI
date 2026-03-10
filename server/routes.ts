@@ -3282,7 +3282,8 @@ Return JSON: { "income": [...] }`;
         return res.status(400).json({ error: "Invalid user data", details: parsed.error });
       }
 
-      const { username, password, isAdmin, isApproved, subscriptionPlanId, subscriptionStatus } = parsed.data;
+      const { username, password, isAdmin, isApproved, subscriptionPlanId, subscriptionStatus,
+              email, firstName, lastName, phone, displayName, birthday, timezone, country } = parsed.data;
 
       // If changing username, check it doesn't already exist
       if (username) {
@@ -3292,11 +3293,19 @@ Return JSON: { "income": [...] }`;
         }
       }
 
-      const updates: { username?: string; password?: string; isAdmin?: boolean; isApproved?: boolean } = {};
+      const updates: Parameters<typeof storage.updateUser>[1] = {};
       if (username) updates.username = username;
       if (password) updates.password = await hashPassword(password);
       if (isAdmin !== undefined) updates.isAdmin = isAdmin;
       if (isApproved !== undefined) updates.isApproved = isApproved;
+      if (email !== undefined) updates.email = email;
+      if (firstName !== undefined) updates.firstName = firstName;
+      if (lastName !== undefined) updates.lastName = lastName;
+      if (phone !== undefined) updates.phone = phone;
+      if (displayName !== undefined) updates.displayName = displayName;
+      if (birthday !== undefined) updates.birthday = birthday;
+      if (timezone !== undefined) updates.timezone = timezone;
+      if (country !== undefined) updates.country = country;
 
       let user = await storage.updateUser(userId, updates);
       if (!user) {
