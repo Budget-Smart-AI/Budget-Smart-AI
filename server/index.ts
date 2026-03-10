@@ -107,14 +107,31 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+// Block version-control probe paths (/_darcs, /.bzr, /.hg, /BitKeeper, /.git, /.svn)
+// to prevent information disclosure (OWASP ZAP – Hidden File Found).
+const VCS_PROBE_RE = /^\/(\.git|\.svn|\.hg|\.bzr|_darcs|BitKeeper)(\/|$)/;
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (VCS_PROBE_RE.test(req.path)) {
+    return res.status(404).end();
+  }
+  next();
+});
+
 // Security headers via helmet
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.plaid.com", "https://assets.mx.com"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://cdn.plaid.com",
+          "https://assets.mx.com",
+          "https://atrium.mx.com",
+          "https://js.stripe.com",
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.plaid.com", "https://atrium.mx.com"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: [
           "'self'",
