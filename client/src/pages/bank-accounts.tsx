@@ -424,6 +424,7 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 
       {showWidget && widgetUrl && createPortal(
         <div
+          className="mx-connect-overlay"
           style={{
             position: "fixed",
             inset: 0,
@@ -1116,6 +1117,7 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts/manual"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/net-worth"] });
       toast({ title: "Account deleted" });
       setDeleteManualAccountId(null);
       if (selectedManualAccount?.id === deleteManualAccountId) {
@@ -1267,6 +1269,7 @@ export default function BankAccounts() {
     queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
     queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
     queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/net-worth"] });
     // Reset selected provider after successful connection
     setSelectedProvider(null);
   };
@@ -1314,7 +1317,7 @@ export default function BankAccounts() {
 
   // Calculate net worth: assets - liabilities (only active accounts)
   // Liability account types: credit, loan, mortgage
-  const liabilityTypes = ["credit", "loan", "mortgage"];
+  const liabilityTypes = ["credit", "loan", "mortgage", "credit_card"];
   
   const totalBalance = accountGroups.reduce((sum, group) => {
     return sum + group.accounts
@@ -1325,7 +1328,19 @@ export default function BankAccounts() {
         const isLiability = liabilityTypes.includes(acc.type.toLowerCase());
         return accSum + (isLiability ? -balance : balance);
       }, 0);
-  }, 0);
+  }, 0)
+  + mxMembers.reduce((sum, member) => {
+    return sum + member.accounts
+      .filter(acc => acc.isActive !== "false")
+      .reduce((accSum, acc) => {
+        const balance = acc.balance ? parseFloat(acc.balance) : 0;
+        const isLiability = liabilityTypes.includes(acc.type.toLowerCase());
+        return accSum + (isLiability ? -balance : balance);
+      }, 0);
+  }, 0)
+  + manualAccounts
+    .filter(acc => acc.isActive !== "false")
+    .reduce((sum, acc) => sum + parseFloat(acc.balance || "0"), 0);
 
   const monthlySpending = transactions
     .filter(tx => parseFloat(tx.amount) > 0)
@@ -1627,7 +1642,7 @@ export default function BankAccounts() {
         <TabsContent value="bank" className="space-y-6 mt-6">
 
       {/* Summary Cards */}
-      {accountGroups.length > 0 && (
+      {(accountGroups.length > 0 || mxMembers.length > 0 || manualAccounts.length > 0) && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 sm:pb-2 sm:p-6">
@@ -2211,6 +2226,7 @@ export default function BankAccounts() {
         account={editingManualAccount}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/accounts/manual"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/net-worth"] });
         }}
       />
 

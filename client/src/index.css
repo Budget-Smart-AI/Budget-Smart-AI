@@ -422,6 +422,15 @@ iframe[src*="plaid"] {
   pointer-events: auto !important;
 }
 
+/* MX Connect widget overlay backdrop — pointer-events override is critical because
+   Radix UI AlertDialog sets pointer-events:none on <body> during close animation.
+   Without this, the portal overlay rendered immediately after dialog close is
+   completely non-interactive (can't click close, can't interact with iframe). */
+.mx-connect-overlay,
+.mx-connect-overlay * {
+  pointer-events: auto !important;
+}
+
 /* MX Connect widget full-screen overlay — mirrors Plaid Link overlay pattern */
 .mx-widget-overlay-content {
   width: 100vw;
