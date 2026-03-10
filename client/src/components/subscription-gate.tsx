@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,8 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
   const { data: stripeStatus } = useQuery<{ configured: boolean }>({
     queryKey: ["/api/stripe/status"],
   });
+
+  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("yearly");
 
   // Admin users and demo users bypass subscription check
   if (isAdmin || isDemo) {
@@ -104,10 +107,12 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
 
   // Get available plans (with Stripe price IDs)
   const plans = landingData?.pricing?.filter(p => p.stripePriceId) || [];
-  // Family Yearly plan is the recommended choice
-  const popularPlan = plans.find(p =>
-    p.name.toLowerCase().includes('family') && p.billingPeriod === "yearly"
-  ) || plans.find(p => p.isPopular === "true") || plans[0];
+  // Filter plans by selected billing period
+  const filteredPlans = plans.filter(p => p.billingPeriod === billingPeriod);
+  // Family plan for yearly (or isPopular) is the recommended choice from filtered list
+  const popularPlan = filteredPlans.find(p =>
+    p.name.toLowerCase().includes('family')
+  ) || filteredPlans.find(p => p.isPopular === "true") || filteredPlans[0];
 
   // Check if Stripe is configured and plans are available
   const stripeNotConfigured = stripeStatus?.configured === false;
@@ -247,15 +252,44 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {plans.map((plan) => {
+                {/* Billing Period Toggle */}
+                <div>
+                  <p className="text-sm font-medium text-slate-400 mb-2">Billing cycle:</p>
+                  <div className="inline-flex rounded-lg border border-slate-700 overflow-hidden">
+                    <button
+                      onClick={() => setBillingPeriod("monthly")}
+                      className={`px-4 py-2 text-sm font-medium transition-colors ${
+                        billingPeriod === "monthly"
+                          ? "bg-emerald-500 text-white"
+                          : "bg-transparent text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      Monthly
+                    </button>
+                    <button
+                      onClick={() => setBillingPeriod("yearly")}
+                      className={`px-4 py-2 text-sm font-medium transition-colors ${
+                        billingPeriod === "yearly"
+                          ? "bg-emerald-500 text-white"
+                          : "bg-transparent text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      Annual
+                      <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                        Save up to 30%
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {filteredPlans.length > 0 ? filteredPlans.map((plan) => {
                   const price = parseFloat(plan.price);
                   const monthlyPrice = plan.billingPeriod === "yearly"
                     ? (price / 12).toFixed(2)
                     : price.toFixed(2);
                   const isFamilyPlan = plan.name.toLowerCase().includes('family');
-                  const isYearlyFamilyPlan = isFamilyPlan && plan.billingPeriod === "yearly";
-                  // Family Yearly plan is the recommended/popular choice
-                  const isPopular = isYearlyFamilyPlan;
+                  // Family plans and any plan marked popular are highlighted
+                  const isPopular = isFamilyPlan || plan.isPopular === "true";
 
                   return (
                     <button
@@ -293,7 +327,9 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
                       )}
                     </button>
                   );
-                })}
+                }) : (
+                  <p className="text-sm text-slate-500 italic">No {billingPeriod} plans available.</p>
+                )}
 
                 {checkoutMutation.isPending && (
                   <div className="flex items-center justify-center py-2 text-slate-300">
