@@ -918,12 +918,12 @@ export default function LandingPage() {
                   Try Demo
                 </Button>
               </a>
-              <a href="https://app.budgetsmart.io/login"> 
+              <a href="https://app.budgetsmart.io/login" target="_self"> 
                 <Button variant="ghost" className="text-slate-300 hover:text-white"> 
                   Sign In 
                 </Button> 
               </a> 
-              <a href="https://app.budgetsmart.io/signup"> 
+              <a href="https://app.budgetsmart.io/signup" target="_self"> 
                 <Button className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25"> 
                   Get Started Free 
                 </Button> 
@@ -955,7 +955,7 @@ export default function LandingPage() {
                 <a href="#testimonials" className="block py-2 text-slate-300 hover:text-white">Reviews</a>
                 <a href="#faq" className="block py-2 text-slate-300 hover:text-white">FAQ</a>
                 <div className="pt-3 border-t border-slate-800 flex flex-col gap-2">
-                  <a href="https://app.budgetsmart.io/demo" className="block">
+                  <a href="https://app.budgetsmart.io/demo" target="_self" className="block">
                     <Button
                       variant="outline"
                       className="w-full border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
@@ -964,10 +964,10 @@ export default function LandingPage() {
                       Try Demo
                     </Button>
                   </a>
-                  <a href="https://app.budgetsmart.io/login" className="block">
+                  <a href="https://app.budgetsmart.io/login" target="_self" className="block">
                     <Button variant="outline" className="w-full">Sign In</Button>
                   </a>
-                  <a href="https://app.budgetsmart.io/signup" className="block">
+                  <a href="https://app.budgetsmart.io/signup" target="_self" className="block">
                     <Button className="w-full bg-gradient-to-r from-emerald-500 to-teal-500">
                       Get Started Free
                     </Button>
@@ -1137,13 +1137,13 @@ export default function LandingPage() {
             transition={{ duration: 0.5, delay: 0.3 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 mb-12"
           >
-            <a href="https://app.budgetsmart.io/signup">
+            <a href="https://app.budgetsmart.io/signup" target="_self">
               <Button size="lg" className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 px-8 py-6 text-lg">
                 {settings.hero_cta_primary || "Start Free Trial"}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </a>
-            <a href="https://app.budgetsmart.io/signup">
+            <a href="https://app.budgetsmart.io/signup" target="_self">
               <Button
                 size="lg"
                 variant="outline"
@@ -1558,7 +1558,7 @@ export default function LandingPage() {
               <p className="text-lg text-white/80 mb-8 max-w-xl mx-auto">
                 Join thousands of users who have already transformed their financial lives with Budget Smart AI.
               </p>
-              <a href="https://app.budgetsmart.io/signup">
+              <a href="https://app.budgetsmart.io/signup" target="_self">
                 <Button size="lg" className="bg-white text-emerald-600 hover:bg-slate-100 px-8 py-6 text-lg shadow-xl">
                   Start Your Free Trial
                   <ArrowRight className="ml-2 h-5 w-5" />

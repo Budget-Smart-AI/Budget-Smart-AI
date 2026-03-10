@@ -53,6 +53,7 @@ export default function SignupPage() {
   const [step, setStep] = useState(1);
   const [emailReminder, setEmailReminder] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<PlanData | null>(null);
+  const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
   const [registeredUser, setRegisteredUser] = useState<{ firstName: string; userId: string } | null>(null);
 
   // Get plan ID from URL
@@ -85,18 +86,21 @@ export default function SignupPage() {
     enabled: !planId,
   });
 
-  // Get available plans sorted with the most popular first
-  const availablePlans = landingData?.pricing?.filter(p => p.stripePriceId) || [];
+  // All plans with a Stripe price ID
+  const allAvailablePlans = landingData?.pricing?.filter(p => p.stripePriceId) || [];
+
+  // Plans filtered by the chosen billing period
+  const availablePlans = allAvailablePlans.filter(p => p.billingPeriod === billingPeriod);
 
   useEffect(() => {
     if (planData) {
       setSelectedPlan(planData);
-    } else if (!planId && availablePlans.length > 0 && !selectedPlan) {
-      // Auto-select the most popular plan or first available plan
+    } else if (!planId && availablePlans.length > 0) {
+      // Auto-select the most popular plan or first available plan for current billing period
       const popularPlan = availablePlans.find(p => (p as any).isPopular === "true") || availablePlans[0];
       setSelectedPlan(popularPlan);
     }
-  }, [planData, planId, availablePlans, selectedPlan]);
+  }, [planData, planId, billingPeriod, availablePlans.length]);
 
   const registerForm = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -559,54 +563,88 @@ export default function SignupPage() {
       </div>
 
       {/* Plan selection if multiple plans available */}
-      {availablePlans.length > 1 && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-slate-400">Select your plan:</p>
-          <div className="grid gap-2">
-            {availablePlans.map((plan) => {
-              const planPrice = parseFloat(plan.price);
-              const planMonthly = plan.billingPeriod === "yearly" ? (planPrice / 12).toFixed(2) : planPrice.toFixed(2);
-              const isSelected = selectedPlan?.id === plan.id;
-              const isFamilyPlan = plan.name.toLowerCase().includes('family');
-              const isYearlyFamilyPlan = isFamilyPlan && plan.billingPeriod === "yearly";
-              return (
-                <button
-                  key={plan.id}
-                  onClick={() => setSelectedPlan(plan)}
-                  className={`relative p-4 rounded-lg border text-left transition-all ${
-                    isSelected
-                      ? "border-emerald-500 bg-emerald-500/10"
-                      : "border-slate-700 hover:border-emerald-500/50"
-                  } ${isYearlyFamilyPlan ? "ring-2 ring-emerald-500/50" : ""}`}
-                >
-                  {/* Popular Badge for Yearly Family Plan */}
-                  {isYearlyFamilyPlan && (
-                    <div className="absolute -top-2.5 left-4">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium">
-                        Most Popular
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-white">{plan.name}</span>
-                      {/* 2 Months Free Badge for Family Plans */}
-                      {isFamilyPlan && (
-                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                          <Gift className="h-3 w-3" />
-                          +2 Months Free
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-white font-bold">${planMonthly}/mo</span>
-                  </div>
-                  {plan.billingPeriod === "yearly" && (
-                    <p className="text-xs text-slate-400 mt-1">Billed annually (${planPrice.toFixed(2)}/year)</p>
-                  )}
-                </button>
-              );
-            })}
+      {allAvailablePlans.length > 0 && !planId && (
+        <div className="space-y-3">
+          {/* Billing Period Toggle */}
+          <div>
+            <p className="text-sm font-medium text-slate-400 mb-2">Billing cycle:</p>
+            <div className="inline-flex rounded-lg border border-slate-700 overflow-hidden">
+              <button
+                onClick={() => setBillingPeriod("monthly")}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  billingPeriod === "monthly"
+                    ? "bg-emerald-500 text-white"
+                    : "bg-transparent text-slate-400 hover:text-white"
+                }`}
+              >
+                Monthly
+              </button>
+              <button
+                onClick={() => setBillingPeriod("yearly")}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  billingPeriod === "yearly"
+                    ? "bg-emerald-500 text-white"
+                    : "bg-transparent text-slate-400 hover:text-white"
+                }`}
+              >
+                Annual
+                <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  Save up to 30%
+                </span>
+              </button>
+            </div>
           </div>
+
+          {/* Plan Cards for chosen billing period */}
+          {availablePlans.length > 0 ? (
+            <div className="grid gap-2">
+              {availablePlans.map((plan) => {
+                const planPrice = parseFloat(plan.price);
+                const isSelected = selectedPlan?.id === plan.id;
+                const isFamilyPlan = plan.name.toLowerCase().includes('family');
+                return (
+                  <button
+                    key={plan.id}
+                    onClick={() => setSelectedPlan(plan)}
+                    className={`relative p-4 rounded-lg border text-left transition-all ${
+                      isSelected
+                        ? "border-emerald-500 bg-emerald-500/10"
+                        : "border-slate-700 hover:border-emerald-500/50"
+                    } ${isFamilyPlan ? "ring-2 ring-emerald-500/50" : ""}`}
+                  >
+                    {isFamilyPlan && (
+                      <div className="absolute -top-2.5 left-4">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium">
+                          Most Popular
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-white">{plan.name}</span>
+                        {isFamilyPlan && billingPeriod === "yearly" && (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            <Gift className="h-3 w-3" />
+                            +2 Months Free
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <span className="text-white font-bold">
+                          ${planPrice.toFixed(2)}/{billingPeriod === "yearly" ? "yr" : "mo"}
+                        </span>
+                      </div>
+                    </div>
+                    {billingPeriod === "yearly" && (
+                      <p className="text-xs text-emerald-400 mt-1">Billed as one annual payment</p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 italic">No {billingPeriod} plans available.</p>
+          )}
         </div>
       )}
 
@@ -616,12 +654,18 @@ export default function SignupPage() {
           <div className="text-center space-y-2">
             <p className="text-sm text-slate-400">{selectedPlan.name}</p>
             <div className="text-3xl font-bold text-white">
-              ${monthlyEquivalent} <span className="text-lg font-normal text-slate-400">/ month</span>
+              ${price.toFixed(2)}{" "}
+              <span className="text-lg font-normal text-slate-400">
+                / {selectedPlan.billingPeriod === "yearly" ? "year" : "month"}
+              </span>
             </div>
             {selectedPlan.billingPeriod === "yearly" && (
-              <p className="text-sm text-slate-400">
-                ${price.toFixed(2)} per year, billed yearly
+              <p className="text-sm text-emerald-400">
+                ${monthlyEquivalent}/month — billed as a single annual payment
               </p>
+            )}
+            {selectedPlan.billingPeriod === "monthly" && (
+              <p className="text-sm text-slate-400">Billed monthly, cancel anytime</p>
             )}
             <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-sm font-medium">
               <Sparkles className="h-3.5 w-3.5" />
