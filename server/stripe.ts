@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { storage } from "./storage";
+import { auditLog } from "./audit-logger";
 
 // Initialize Stripe with the secret key
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
@@ -227,46 +228,65 @@ export async function updateSubscriptionPlan(
  * Handle Stripe webhook events
  */
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
-  switch (event.type) {
-    case "checkout.session.completed": {
-      const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutComplete(session);
-      break;
-    }
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        await handleCheckoutComplete(session);
+        break;
+      }
 
-    case "customer.subscription.created":
-    case "customer.subscription.updated": {
-      const subscription = event.data.object as Stripe.Subscription;
-      await handleSubscriptionUpdate(subscription);
-      break;
-    }
+      case "customer.subscription.created":
+      case "customer.subscription.updated": {
+        const subscription = event.data.object as Stripe.Subscription;
+        await handleSubscriptionUpdate(subscription);
+        break;
+      }
 
-    case "customer.subscription.deleted": {
-      const subscription = event.data.object as Stripe.Subscription;
-      await handleSubscriptionDeleted(subscription);
-      break;
-    }
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object as Stripe.Subscription;
+        await handleSubscriptionDeleted(subscription);
+        break;
+      }
 
-    case "invoice.payment_succeeded": {
-      const invoice = event.data.object as Stripe.Invoice;
-      await handleInvoicePaid(invoice);
-      break;
-    }
+      case "invoice.payment_succeeded": {
+        const invoice = event.data.object as Stripe.Invoice;
+        await handleInvoicePaid(invoice);
+        break;
+      }
 
-    case "invoice.payment_failed": {
-      const invoice = event.data.object as Stripe.Invoice;
-      await handleInvoicePaymentFailed(invoice);
-      break;
-    }
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as Stripe.Invoice;
+        await handleInvoicePaymentFailed(invoice);
+        break;
+      }
 
-    case "customer.subscription.trial_will_end": {
-      const subscription = event.data.object as Stripe.Subscription;
-      await handleTrialWillEnd(subscription);
-      break;
-    }
+      case "customer.subscription.trial_will_end": {
+        const subscription = event.data.object as Stripe.Subscription;
+        await handleTrialWillEnd(subscription);
+        break;
+      }
 
-    default:
-      console.log(`Unhandled webhook event type: ${event.type}`);
+      default:
+        console.log(`Unhandled webhook event type: ${event.type}`);
+    }
+  } catch (err: any) {
+    console.error(`Stripe webhook handler error for event ${event.type} (${event.id}):`, err);
+    auditLog({
+      eventType: "stripe.webhook_handler_error",
+      eventCategory: "billing",
+      actorId: null,
+      actorType: "system",
+      targetUserId: null,
+      action: "webhook_handler_error",
+      outcome: "failure",
+      metadata: {
+        eventType: event.type,
+        eventId: event.id,
+        error: err?.message || String(err),
+      },
+    });
+    throw err;
   }
 }
 
@@ -293,7 +313,18 @@ async function handleCheckoutComplete(session: Stripe.Checkout.Session): Promise
         console.log(`Found user ${user.id} by Stripe customer ID ${session.customer}`);
         await processCheckoutForUser(user.id, session, planId);
       } else {
-        console.error(`Could not find user for Stripe customer ${session.customer}`);
+        const errMsg = `Could not find user for Stripe customer ${session.customer}`;
+        console.error(errMsg);
+        auditLog({
+          eventType: "stripe.checkout_user_not_found",
+          eventCategory: "billing",
+          actorId: null,
+          actorType: "system",
+          targetUserId: null,
+          action: "checkout_user_lookup_failed",
+          outcome: "failure",
+          metadata: { sessionId: session.id, customerId: session.customer },
+        });
       }
     }
     return;
@@ -311,18 +342,48 @@ async function processCheckoutForUser(
     // Get subscription details
     const subscription = await stripe.subscriptions.retrieve(session.subscription as string) as any;
 
+    // If planId is missing from metadata, fall back to looking it up by the Stripe price ID
+    let resolvedPlanId = planId || null;
+    if (!resolvedPlanId && subscription.items?.data?.[0]?.price?.id) {
+      const priceId = subscription.items.data[0].price.id as string;
+      console.log(`No planId in metadata for user ${userId}, looking up plan by price ID ${priceId}`);
+      const planByPrice = await storage.getLandingPricingByStripePriceId(priceId);
+      if (planByPrice) {
+        resolvedPlanId = planByPrice.id;
+        console.log(`Resolved planId ${resolvedPlanId} from price ID ${priceId}`);
+      } else {
+        console.warn(`No landing_pricing record found for Stripe price ID ${priceId}`);
+      }
+    }
+
     console.log(`Updating user ${userId} with subscription ${subscription.id} (status: ${subscription.status})`);
 
     await storage.updateUserStripeInfo(userId, {
       stripeSubscriptionId: subscription.id,
       subscriptionStatus: subscription.status,
-      subscriptionPlanId: planId || null,
+      subscriptionPlanId: resolvedPlanId,
       trialEndsAt: subscription.trial_end
         ? new Date(subscription.trial_end * 1000).toISOString()
         : null,
       subscriptionEndsAt: subscription.current_period_end
         ? new Date(subscription.current_period_end * 1000).toISOString()
         : null,
+    });
+
+    auditLog({
+      eventType: "stripe.checkout_completed",
+      eventCategory: "billing",
+      actorId: null,
+      actorType: "system",
+      targetUserId: userId,
+      action: "subscription_activated",
+      outcome: "success",
+      metadata: {
+        sessionId: session.id,
+        subscriptionId: subscription.id,
+        subscriptionStatus: subscription.status,
+        planId: resolvedPlanId,
+      },
     });
 
     console.log(`Successfully updated subscription for user ${userId}`);
@@ -434,22 +495,90 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void
 }
 
 /**
- * Handle trial ending soon notification
+ * Handle trial ending soon notification (fired by Stripe ~3 days before trial ends)
  */
 async function handleTrialWillEnd(subscription: Stripe.Subscription): Promise<void> {
   const userId = subscription.metadata?.userId;
 
-  if (!userId) {
-    const user = await storage.getUserByStripeCustomerId(subscription.customer as string);
-    if (user) {
-      // TODO: Send email notification about trial ending
-      console.log(`Trial ending soon for user ${user.id}`);
-    }
+  let user = userId ? await storage.getUser(userId) : null;
+
+  if (!user) {
+    user = await storage.getUserByStripeCustomerId(subscription.customer as string) || null;
+  }
+
+  if (!user) {
+    console.warn(`handleTrialWillEnd: could not find user for subscription ${subscription.id}`);
     return;
   }
 
-  // TODO: Send email notification about trial ending
-  console.log(`Trial ending soon for user ${userId}`);
+  console.log(`Trial ending soon for user ${user.id}`);
+
+  // Only send reminder if the user opted in
+  if (user.trialEmailReminder !== "true") {
+    console.log(`User ${user.id} opted out of trial reminder emails, skipping`);
+    return;
+  }
+
+  const userEmail = user.email;
+  if (!userEmail) {
+    console.warn(`User ${user.id} has no email address, cannot send trial reminder`);
+    return;
+  }
+
+  const trialEnd = (subscription as any).trial_end
+    ? new Date((subscription as any).trial_end * 1000)
+    : null;
+  const trialEndStr = trialEnd
+    ? trialEnd.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    : "soon";
+
+  try {
+    const { sendEmailViaPostmark } = await import("./email");
+    const fromEmail = process.env.ALERT_EMAIL_FROM || process.env.POSTMARK_FROM_EMAIL;
+    if (!fromEmail) {
+      console.warn("ALERT_EMAIL_FROM not configured, cannot send trial reminder");
+      return;
+    }
+
+    const firstName = user.firstName || user.username || "there";
+
+    await sendEmailViaPostmark({
+      from: fromEmail,
+      to: userEmail,
+      subject: "Your Budget Smart AI trial ends soon",
+      text: `Hi ${firstName},\n\nJust a heads-up — your free trial ends on ${trialEndStr}.\n\nIf Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.\n\nIf it's not the right fit, you can cancel anytime before your trial ends at https://app.budgetsmart.io/settings.\n\nThanks for trying Budget Smart AI!\n\nThe Budget Smart AI Team`,
+      html: `<p>Hi ${firstName},</p>
+<p>Just a heads-up — your free trial ends on <strong>${trialEndStr}</strong>.</p>
+<p>If Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.</p>
+<p>If it's not the right fit, you can cancel anytime before your trial ends at <a href="https://app.budgetsmart.io/settings">your account settings</a>.</p>
+<p>Thanks for trying Budget Smart AI!<br>The Budget Smart AI Team</p>`,
+    });
+
+    console.log(`Trial reminder email sent to user ${user.id} (${userEmail})`);
+
+    auditLog({
+      eventType: "stripe.trial_reminder_sent",
+      eventCategory: "billing",
+      actorId: null,
+      actorType: "system",
+      targetUserId: user.id,
+      action: "trial_reminder_email_sent",
+      outcome: "success",
+      metadata: { subscriptionId: subscription.id, trialEnd: trialEndStr },
+    });
+  } catch (err: any) {
+    console.error(`Failed to send trial reminder email to user ${user.id}:`, err);
+    auditLog({
+      eventType: "stripe.trial_reminder_failed",
+      eventCategory: "billing",
+      actorId: null,
+      actorType: "system",
+      targetUserId: user.id,
+      action: "trial_reminder_email_failed",
+      outcome: "failure",
+      metadata: { subscriptionId: subscription.id, error: err?.message || String(err) },
+    });
+  }
 }
 
 /**

@@ -12322,13 +12322,13 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   });
 
   // Helper: build the base URL for Stripe redirect URLs.
-  // Respects X-Forwarded-Proto / X-Forwarded-Host headers set by reverse proxies
-  // so that cancel/success URLs point to the correct public hostname instead of
-  // the internal host (e.g. localhost:3000).
+  // CLIENT_URL takes precedence (set to https://app.budgetsmart.io in Railway production).
+  // Falls back to BASE_URL, then X-Forwarded-Proto/Host headers from reverse proxies,
+  // then the raw request protocol/host (dev only).
   const getStripeBaseUrl = (req: ExpressRequest): string => {
     const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() || req.protocol;
     const host = (req.headers['x-forwarded-host'] as string)?.split(',')[0]?.trim() || req.get('host');
-    return process.env.BASE_URL || `${proto}://${host}`;
+    return process.env.CLIENT_URL || process.env.BASE_URL || `${proto}://${host}`;
   };
 
   // Create checkout session for subscription

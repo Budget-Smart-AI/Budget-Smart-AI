@@ -32,6 +32,13 @@ export type AuditEventType =
   | "billing.subscription_created"
   | "billing.subscription_cancelled"
   | "billing.bill_reminder_sent"
+  | "stripe.checkout_completed"
+  | "stripe.checkout_user_not_found"
+  | "stripe.webhook_handler_error"
+  | "stripe.trial_reminder_sent"
+  | "stripe.trial_reminder_failed"
+  | "email.trial_reminder_sent"
+  | "email.trial_reminder_failed"
   | "data.ai_coach_run";
 
 export type AuditOutcome = "success" | "failure" | "blocked";

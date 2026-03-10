@@ -250,6 +250,101 @@ export async function checkAndSendReminders(): Promise<void> {
   }
 }
 
+/**
+ * Daily check: send trial-end reminder emails to users who opted in and whose
+ * trial expires within the next TRIAL_REMINDER_DAYS_BEFORE days.
+ * This complements the Stripe `customer.subscription.trial_will_end` webhook
+ * and acts as a fallback for users who signed up without going through Stripe.
+ */
+const TRIAL_REMINDER_DAYS_BEFORE = 3;
+
+export async function checkAndSendTrialReminders(): Promise<void> {
+  const fromEmail = process.env.ALERT_EMAIL_FROM || process.env.POSTMARK_FROM_EMAIL;
+  if (!fromEmail) {
+    console.log("[TrialReminder] ALERT_EMAIL_FROM not configured, skipping trial reminders");
+    return;
+  }
+
+  const client = getPostmarkClient();
+  if (!client) {
+    console.log("[TrialReminder] Postmark not configured, skipping trial reminders");
+    return;
+  }
+
+  // Find users whose trial ends within the next N days and who have opted in
+  const now = new Date();
+  const windowStart = now.toISOString();
+  const windowEnd = addDays(now, TRIAL_REMINDER_DAYS_BEFORE).toISOString();
+
+  let usersToRemind: any[] = [];
+  try {
+    const result = await (db as any).$client.query(
+      `SELECT id, email, first_name, username, trial_ends_at
+       FROM users
+       WHERE trial_email_reminder = 'true'
+         AND subscription_status = 'trialing'
+         AND trial_ends_at IS NOT NULL
+         AND trial_ends_at >= $1
+         AND trial_ends_at <= $2
+         AND is_deleted = false`,
+      [windowStart, windowEnd],
+    );
+    usersToRemind = result.rows;
+  } catch (err) {
+    console.error("[TrialReminder] Failed to query users for trial reminders:", err);
+    return;
+  }
+
+  console.log(`[TrialReminder] Found ${usersToRemind.length} users to remind`);
+
+  for (const row of usersToRemind) {
+    if (!row.email) continue;
+
+    const trialEnd = parseISO(row.trial_ends_at);
+    const trialEndStr = format(trialEnd, "MMMM d, yyyy");
+    const firstName = row.first_name || row.username || "there";
+
+    try {
+      await client.sendEmail({
+        From: fromEmail,
+        To: row.email,
+        Subject: "Your Budget Smart AI trial ends soon",
+        TextBody: `Hi ${firstName},\n\nJust a heads-up — your free trial ends on ${trialEndStr}.\n\nIf Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.\n\nIf it's not the right fit, you can cancel anytime before your trial ends at https://app.budgetsmart.io/settings.\n\nThanks for trying Budget Smart AI!\n\nThe Budget Smart AI Team`,
+        HtmlBody: `<p>Hi ${firstName},</p>
+<p>Just a heads-up — your free trial ends on <strong>${trialEndStr}</strong>.</p>
+<p>If Budget Smart AI has been helpful, you don't need to do anything — your subscription will continue automatically.</p>
+<p>If it's not the right fit, you can cancel anytime before your trial ends at <a href="https://app.budgetsmart.io/settings">your account settings</a>.</p>
+<p>Thanks for trying Budget Smart AI!<br>The Budget Smart AI Team</p>`,
+      });
+
+      console.log(`[TrialReminder] Reminder sent to user ${row.id} (${row.email})`);
+
+      auditLog({
+        eventType: "email.trial_reminder_sent",
+        eventCategory: "billing",
+        actorId: null,
+        actorType: "system",
+        targetUserId: row.id,
+        action: "trial_reminder_email_sent",
+        outcome: "success",
+        metadata: { trialEnd: trialEndStr },
+      });
+    } catch (err: any) {
+      console.error(`[TrialReminder] Failed to send reminder to user ${row.id}:`, err);
+      auditLog({
+        eventType: "email.trial_reminder_failed",
+        eventCategory: "billing",
+        actorId: null,
+        actorType: "system",
+        targetUserId: row.id,
+        action: "trial_reminder_email_failed",
+        outcome: "failure",
+        metadata: { trialEnd: trialEndStr, error: err?.message || String(err) },
+      });
+    }
+  }
+}
+
 export function startEmailScheduler(): void {
   if (schedulerStarted) {
     console.warn("[EmailScheduler] Scheduler already started — ignoring duplicate call.");
@@ -262,6 +357,7 @@ export function startEmailScheduler(): void {
   checkAndSendWeeklyDigests().catch(console.error);
   checkAndSendMonthlyReports().catch(console.error);
   checkVaultExpiryNotifications().catch(console.error);
+  checkAndSendTrialReminders().catch(console.error);
 
   // Then run every 24 hours (once per day)
   const oneDayMs = 24 * 60 * 60 * 1000;
@@ -270,6 +366,7 @@ export function startEmailScheduler(): void {
     checkAndSendWeeklyDigests().catch(console.error);
     checkAndSendMonthlyReports().catch(console.error);
     checkVaultExpiryNotifications().catch(console.error);
+    checkAndSendTrialReminders().catch(console.error);
     // Run data retention cleanup weekly (every Sunday)
     if (new Date().getDay() === 0) {
       runDataRetentionCleanup().catch(console.error);
