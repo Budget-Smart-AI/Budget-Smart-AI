@@ -269,6 +269,7 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
   // Consent dialog state
   const [showPlaidConsent, setShowPlaidConsent] = useState(false);
   const [showMxConsent, setShowMxConsent] = useState(false);
+  const [mxPrivacyChecked, setMxPrivacyChecked] = useState(false);
   const { toast } = useToast();
 
   // Fetch which providers are enabled in the wizard
@@ -559,7 +560,7 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
       </AlertDialog>
 
       {/* MX Informed Consent Dialog */}
-      <AlertDialog open={showMxConsent} onOpenChange={setShowMxConsent}>
+      <AlertDialog open={showMxConsent} onOpenChange={(open) => { setShowMxConsent(open); if (!open) setMxPrivacyChecked(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Connect Your Bank via MX</AlertDialogTitle>
@@ -580,9 +581,23 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="flex items-start gap-3 px-6 pb-2">
+            <Checkbox
+              id="mx-privacy-consent-wizard"
+              checked={mxPrivacyChecked}
+              onCheckedChange={(checked) => setMxPrivacyChecked(checked === true)}
+            />
+            <label htmlFor="mx-privacy-consent-wizard" className="text-sm leading-snug cursor-pointer select-none">
+              I have read and agree to BudgetSmart AI's{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">
+                Privacy Policy
+              </a>{" "}
+              and consent to my financial data being accessed through MX Technologies as described above.
+            </label>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleMxConsentAccept}>I Consent — Connect Bank</AlertDialogAction>
+            <AlertDialogAction onClick={handleMxConsentAccept} disabled={!mxPrivacyChecked}>I Consent — Connect Bank</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

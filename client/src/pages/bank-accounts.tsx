@@ -278,6 +278,7 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const [widgetUrl, setWidgetUrl] = useState<string | null>(null);
   const [showWidget, setShowWidget] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
+  const [privacyChecked, setPrivacyChecked] = useState(false);
   const [loading, setLoading] = useState(false);
   const autoOpenConsentShown = useRef(false);
   const { toast } = useToast();
@@ -352,7 +353,7 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       </Button>
 
       {/* MX Informed Consent Dialog */}
-      <AlertDialog open={showConsent} onOpenChange={setShowConsent}>
+      <AlertDialog open={showConsent} onOpenChange={(open) => { setShowConsent(open); if (!open) setPrivacyChecked(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Connect Your Bank via MX</AlertDialogTitle>
@@ -373,9 +374,23 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="flex items-start gap-3 px-6 pb-2">
+            <Checkbox
+              id="mx-privacy-consent"
+              checked={privacyChecked}
+              onCheckedChange={(checked) => setPrivacyChecked(checked === true)}
+            />
+            <label htmlFor="mx-privacy-consent" className="text-sm leading-snug cursor-pointer select-none">
+              I have read and agree to BudgetSmart AI's{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">
+                Privacy Policy
+              </a>{" "}
+              and consent to my financial data being accessed through MX Technologies as described above.
+            </label>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConsentAccept}>I Consent — Connect Bank</AlertDialogAction>
+            <AlertDialogAction onClick={handleConsentAccept} disabled={!privacyChecked}>I Consent — Connect Bank</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
