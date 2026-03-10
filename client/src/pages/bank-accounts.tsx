@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePlaidLink } from "react-plaid-link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -250,17 +250,22 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       <AlertDialog open={showWarning} onOpenChange={setShowWarning}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Connect Bank Account</AlertDialogTitle>
+            <AlertDialogTitle>Connect Bank Account via Plaid</AlertDialogTitle>
             <AlertDialogDescription className="space-y-3">
-              <span className="block">You'll be redirected to securely connect your bank through Plaid.</span>
+              <span className="block">
+                By connecting your bank account, you consent to BudgetSmart accessing your financial data through Plaid. This includes account balances, transaction history, and account details. Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them.
+              </span>
               <span className="block bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-amber-800 dark:text-amber-200 text-sm">
                 <strong>Shared computer?</strong> If others use this browser with their own accounts, please use a private/incognito window to prevent bank login conflicts.
+              </span>
+              <span className="block bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-blue-800 dark:text-blue-200 text-sm">
+                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong> next to any connected account to remove access immediately.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleOpenPlaid}>Continue</AlertDialogAction>
+            <AlertDialogAction onClick={handleOpenPlaid}>I Consent — Connect Bank</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -272,7 +277,9 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => void; autoOpen?: boolean }) {
   const [widgetUrl, setWidgetUrl] = useState<string | null>(null);
   const [showWidget, setShowWidget] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const autoOpenConsentShown = useRef(false);
   const { toast } = useToast();
 
   const openMXConnect = async () => {
@@ -293,12 +300,18 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
     }
   };
 
-  // Auto-open when autoOpen prop is true
+  const handleConsentAccept = () => {
+    setShowConsent(false);
+    openMXConnect();
+  };
+
+  // Auto-open when autoOpen prop is true — show consent first (only once)
   useEffect(() => {
-    if (autoOpen && !showWidget && !loading) {
-      openMXConnect();
+    if (autoOpen && !autoOpenConsentShown.current) {
+      autoOpenConsentShown.current = true;
+      setShowConsent(true);
     }
-  }, [autoOpen, showWidget, loading]);
+  }, [autoOpen]);
 
   // Handle postMessage from MX widget
   useEffect(() => {
@@ -333,11 +346,40 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 
   return (
     <>
-      <Button onClick={openMXConnect} disabled={loading} className="gap-2" variant="outline">
+      <Button onClick={() => setShowConsent(true)} disabled={loading} className="gap-2" variant="outline">
         <Building2 className="h-4 w-4" />
         {loading ? "Loading..." : "Connect via MX"}
       </Button>
-      
+
+      {/* MX Informed Consent Dialog */}
+      <AlertDialog open={showConsent} onOpenChange={setShowConsent}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Connect Your Bank via MX</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span className="block">
+                By connecting your bank account, you consent to BudgetSmart accessing your financial data through MX Technologies. This includes:
+              </span>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>Account balances and account details</li>
+                <li>Transaction history</li>
+                <li>Account holder information</li>
+              </ul>
+              <span className="block text-sm">
+                Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them. Your data is used solely to provide budgeting and financial insights within this app.
+              </span>
+              <span className="block bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-blue-800 dark:text-blue-200 text-sm">
+                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong> next to any connected account to remove access immediately.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConsentAccept}>I Consent — Connect Bank</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={showWidget} onOpenChange={setShowWidget}>
         <DialogContent className="max-w-2xl h-[80vh]">
           <DialogHeader>

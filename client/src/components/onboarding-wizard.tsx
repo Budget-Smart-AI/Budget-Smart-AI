@@ -8,6 +8,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -256,6 +266,9 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
   const [mxWidgetUrl, setMxWidgetUrl] = useState<string | null>(null);
   const [showMxWidget, setShowMxWidget] = useState(false);
   const [mxLoading, setMxLoading] = useState(false);
+  // Consent dialog state
+  const [showPlaidConsent, setShowPlaidConsent] = useState(false);
+  const [showMxConsent, setShowMxConsent] = useState(false);
   const { toast } = useToast();
 
   // Fetch which providers are enabled in the wizard
@@ -351,6 +364,11 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
     open();
   }, [open, onPlaidOpen]);
 
+  const handlePlaidConsentAccept = useCallback(() => {
+    setShowPlaidConsent(false);
+    handleOpenPlaid();
+  }, [handleOpenPlaid]);
+
   // MX connect handler
   const handleOpenMX = useCallback(async () => {
     setMxLoading(true);
@@ -370,6 +388,11 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
       setMxLoading(false);
     }
   }, [toast, onPlaidOpen]);
+
+  const handleMxConsentAccept = useCallback(() => {
+    setShowMxConsent(false);
+    handleOpenMX();
+  }, [handleOpenMX]);
 
   const handleMxDialogChange = useCallback((isOpen: boolean) => {
     setShowMxWidget(isOpen);
@@ -444,7 +467,7 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
                 {/* Show the preferred provider's connect button */}
                 {preferredProvider === "plaid" && (
                   <Button
-                    onClick={handleOpenPlaid}
+                    onClick={() => setShowPlaidConsent(true)}
                     disabled={!ready || !linkToken || isConnecting}
                     className="gap-2"
                     size="lg"
@@ -459,7 +482,7 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
                 )}
                 {preferredProvider === "mx" && (
                   <Button
-                    onClick={handleOpenMX}
+                    onClick={() => setShowMxConsent(true)}
                     disabled={mxLoading || isConnecting}
                     className="gap-2"
                     size="lg"
@@ -510,6 +533,59 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Plaid Informed Consent Dialog */}
+      <AlertDialog open={showPlaidConsent} onOpenChange={setShowPlaidConsent}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Connect Your Bank via Plaid</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span className="block">
+                By connecting your bank account, you consent to BudgetSmart accessing your financial data through Plaid. This includes account balances, transaction history, and account details. Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them.
+              </span>
+              <span className="block bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-amber-800 dark:text-amber-200 text-sm">
+                <strong>Shared computer?</strong> If others use this browser with their own accounts, please use a private/incognito window to prevent bank login conflicts.
+              </span>
+              <span className="block bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-blue-800 dark:text-blue-200 text-sm">
+                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong> next to any connected account to remove access immediately.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handlePlaidConsentAccept}>I Consent — Connect Bank</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* MX Informed Consent Dialog */}
+      <AlertDialog open={showMxConsent} onOpenChange={setShowMxConsent}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Connect Your Bank via MX</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span className="block">
+                By connecting your bank account, you consent to BudgetSmart accessing your financial data through MX Technologies. This includes:
+              </span>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>Account balances and account details</li>
+                <li>Transaction history</li>
+                <li>Account holder information</li>
+              </ul>
+              <span className="block text-sm">
+                Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them. Your data is used solely to provide budgeting and financial insights within this app.
+              </span>
+              <span className="block bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-blue-800 dark:text-blue-200 text-sm">
+                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong> next to any connected account to remove access immediately.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleMxConsentAccept}>I Consent — Connect Bank</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="flex justify-between">
         <Button variant="ghost" onClick={onSkip}>

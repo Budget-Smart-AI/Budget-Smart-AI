@@ -124,7 +124,7 @@ app.use(
           "https://api.openai.com",
           "https://api.brandfetch.io",
         ],
-        frameSrc: ["'none'"],
+        frameSrc: ["https://cdn.plaid.com", "https://*.plaid.com", "https://*.moneydesktop.com"],
         objectSrc: ["'none'"],
       },
     },
