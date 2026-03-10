@@ -48,6 +48,7 @@ import { SettingsLayout } from "@/components/settings-layout";
 import MerchantsPage from "@/pages/merchants";
 import EmailSettings from "@/pages/email-settings";
 import { ThemePicker } from "@/components/settings/ThemePicker";
+import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
 
 // ─── Types reused from bank-accounts ────────────────────────────────────────
 interface PlaidAccountGroup {
@@ -223,6 +224,7 @@ function AccountsTab() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [refreshing, setRefreshing] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState<{ type: "plaid" | "mx"; id: string; name: string } | null>(null);
 
   const { data: plaidGroups = [], isLoading: plaidLoading, refetch: refetchPlaid } =
     useQuery<PlaidAccountGroup[]>({ queryKey: ["/api/plaid/accounts"] });
@@ -259,6 +261,7 @@ function AccountsTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setConfirmDisconnect(null);
       toast({ title: "Account disconnected" });
     },
     onError: () => toast({ title: "Failed to disconnect account", variant: "destructive" }),
@@ -269,6 +272,7 @@ function AccountsTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setConfirmDisconnect(null);
       toast({ title: "Account disconnected" });
     },
     onError: () => toast({ title: "Failed to disconnect account", variant: "destructive" }),
@@ -341,13 +345,22 @@ function AccountsTab() {
       {plaidGroups.map((group) => (
         <Card key={group.id}>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Building2 className="h-4 w-4" />
-              {group.institutionName || "Unknown Institution"}
-              <Badge variant={group.status === "active" ? "default" : "destructive"} className="ml-auto text-xs">
-                {group.status || "active"}
-              </Badge>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Building2 className="h-4 w-4" />
+                {group.institutionName || "Unknown Institution"}
+                <Badge variant={group.status === "active" ? "default" : "destructive"} className="text-xs">
+                  {group.status || "active"}
+                </Badge>
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmDisconnect({ type: "plaid", id: group.id, name: group.institutionName || "Unknown Institution" })}
+              >
+                Unlink Account
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2">
             {group.accounts.map((acc) => (
@@ -368,22 +381,13 @@ function AccountsTab() {
                   <span className="text-sm font-semibold tabular-nums">
                     {formatBalance(acc.balanceCurrent, acc.isoCurrencyCode)}
                   </span>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => togglePlaidActive.mutate({ id: acc.id, isActive: acc.isActive !== "true" })}
-                    >
-                      {acc.isActive === "true" ? "Hide" : "Show"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => disconnectPlaid.mutate(group.id)}
-                    >
-                      Unlink
-                    </Button>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => togglePlaidActive.mutate({ id: acc.id, isActive: acc.isActive !== "true" })}
+                  >
+                    {acc.isActive === "true" ? "Hide" : "Show"}
+                  </Button>
                 </div>
               </div>
             ))}
@@ -395,16 +399,25 @@ function AccountsTab() {
       {mxMembers.map((member) => (
         <Card key={member.id}>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Building2 className="h-4 w-4" />
-              {member.institutionName || "Unknown Institution"}
-              <Badge
-                variant={member.connectionStatus === "CONNECTED" ? "default" : "secondary"}
-                className="ml-auto text-xs"
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Building2 className="h-4 w-4" />
+                {member.institutionName || "Unknown Institution"}
+                <Badge
+                  variant={member.connectionStatus === "CONNECTED" ? "default" : "secondary"}
+                  className="text-xs"
+                >
+                  {member.connectionStatus || "connected"}
+                </Badge>
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmDisconnect({ type: "mx", id: member.id, name: member.institutionName || "Unknown Institution" })}
               >
-                {member.connectionStatus || "connected"}
-              </Badge>
-            </CardTitle>
+                Unlink Account
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-2">
             {member.accounts.map((acc) => (
@@ -425,28 +438,34 @@ function AccountsTab() {
                   <span className="text-sm font-semibold tabular-nums">
                     {formatBalance(acc.balance, acc.currencyCode)}
                   </span>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => toggleMxActive.mutate(acc.id)}
-                    >
-                      {acc.isActive === "true" ? "Hide" : "Show"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => disconnectMx.mutate(member.id)}
-                    >
-                      Unlink
-                    </Button>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleMxActive.mutate(acc.id)}
+                  >
+                    {acc.isActive === "true" ? "Hide" : "Show"}
+                  </Button>
                 </div>
               </div>
             ))}
           </CardContent>
         </Card>
       ))}
+
+      {/* Confirm disconnect dialog */}
+      <UnlinkConfirmDialog
+        open={!!confirmDisconnect}
+        institutionName={confirmDisconnect?.name ?? ""}
+        onConfirm={() => {
+          if (!confirmDisconnect) return;
+          if (confirmDisconnect.type === "plaid") {
+            disconnectPlaid.mutate(confirmDisconnect.id);
+          } else {
+            disconnectMx.mutate(confirmDisconnect.id);
+          }
+        }}
+        onClose={() => setConfirmDisconnect(null)}
+      />
 
     </div>
   );
