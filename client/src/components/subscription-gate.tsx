@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,34 @@ interface PlanData {
 export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGateProps & { isDemo?: boolean }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // When the user returns from Stripe checkout with ?subscription=success,
+  // the webhook may not have fired yet. Proactively sync the subscription
+  // directly from Stripe before deciding whether to show the paywall.
+  const [syncingSubscription, setSyncingSubscription] = useState(false);
+  const [syncAttempted, setSyncAttempted] = useState(false);
+
+  useEffect(() => {
+    // Skip sync for admin and demo users
+    if (isAdmin || isDemo) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('subscription') === 'success' && !syncAttempted) {
+      setSyncAttempted(true);
+      setSyncingSubscription(true);
+      fetch('/api/stripe/sync-subscription', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      })
+        .then(() => {
+          // Refresh subscription data after sync so the gate re-evaluates
+          return queryClient.invalidateQueries({ queryKey: ['/api/stripe/subscription'] });
+        })
+        .catch(err => console.error('Subscription sync error:', err))
+        .finally(() => setSyncingSubscription(false));
+    }
+  }, [queryClient, syncAttempted, isAdmin, isDemo]);
 
   const { data: stripeStatus } = useQuery<{ configured: boolean }>({
     queryKey: ["/api/stripe/status"],
@@ -52,18 +80,15 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
 
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("yearly");
 
-  // Admin users and demo users bypass subscription check
-  if (isAdmin || isDemo) {
-    return <>{children}</>;
-  }
-
+  // Unconditionally call all hooks — only enable subscription queries for non-admin users
   const { data: subscription, isLoading: subLoading } = useQuery<SubscriptionData>({
     queryKey: ["/api/stripe/subscription"],
+    enabled: !isAdmin && !isDemo,
   });
 
   const { data: landingData, isLoading: plansLoading } = useQuery<{ pricing: PlanData[] }>({
     queryKey: ["/api/landing"],
-    enabled: !subscription?.hasSubscription || !["active", "trialing"].includes(subscription?.status || ""),
+    enabled: !isAdmin && !isDemo && (!subscription?.hasSubscription || !["active", "trialing"].includes(subscription?.status || "")),
   });
 
   const checkoutMutation = useMutation({
@@ -88,6 +113,20 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
       toast({ title: "Checkout Failed", description: error.message, variant: "destructive" });
     },
   });
+
+  // Admin users and demo users bypass subscription check
+  if (isAdmin || isDemo) {
+    return <>{children}</>;
+  }
+
+  // Show spinner while syncing subscription state after Stripe redirect
+  if (syncingSubscription) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
 
   if (subLoading) {
     return (

@@ -228,6 +228,7 @@ export async function updateSubscriptionPlan(
  * Handle Stripe webhook events
  */
 export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
+  console.log(`[Stripe Webhook] Received event: ${event.type} (id=${event.id})`);
   try {
     switch (event.type) {
       case "checkout.session.completed": {
@@ -294,42 +295,70 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
  * Handle checkout session completion
  */
 async function handleCheckoutComplete(session: Stripe.Checkout.Session): Promise<void> {
-  console.log("Processing checkout.session.completed:", {
+  console.log("[Stripe Webhook] checkout.session.completed received:", JSON.stringify({
     sessionId: session.id,
     customerId: session.customer,
+    customerEmail: session.customer_email,
     mode: session.mode,
+    subscriptionId: session.subscription,
+    paymentStatus: session.payment_status,
     metadata: session.metadata,
-  });
+  }, null, 2));
 
   const userId = session.metadata?.userId;
   const planId = session.metadata?.planId;
 
   if (!userId) {
-    console.error("No userId in checkout session metadata - cannot update user subscription");
-    // Try to find user by customer ID as fallback
+    console.error("[Stripe Webhook] No userId in checkout session metadata — attempting fallback lookups");
+
+    // Fallback 1: look up user by Stripe customer ID
     if (session.customer) {
-      const user = await storage.getUserByStripeCustomerId(session.customer as string);
-      if (user) {
-        console.log(`Found user ${user.id} by Stripe customer ID ${session.customer}`);
-        await processCheckoutForUser(user.id, session, planId);
-      } else {
-        const errMsg = `Could not find user for Stripe customer ${session.customer}`;
-        console.error(errMsg);
-        auditLog({
-          eventType: "stripe.checkout_user_not_found",
-          eventCategory: "billing",
-          actorId: null,
-          actorType: "system",
-          targetUserId: null,
-          action: "checkout_user_lookup_failed",
-          outcome: "failure",
-          metadata: { sessionId: session.id, customerId: session.customer },
-        });
+      const userByCustomer = await storage.getUserByStripeCustomerId(session.customer as string);
+      if (userByCustomer) {
+        console.log(`[Stripe Webhook] Found user ${userByCustomer.id} via Stripe customer ID ${session.customer}`);
+        await processCheckoutForUser(userByCustomer.id, session, planId);
+        return;
+      }
+      console.warn(`[Stripe Webhook] No user found for Stripe customer ID ${session.customer}`);
+    }
+
+    // Fallback 2: look up user by customer email
+    let customerEmail = session.customer_email || null;
+    if (!customerEmail && session.customer) {
+      try {
+        const stripeCustomer = await stripe.customers.retrieve(session.customer as string);
+        customerEmail = 'email' in stripeCustomer ? stripeCustomer.email : null;
+      } catch {
+        customerEmail = null;
       }
     }
+
+    if (customerEmail) {
+      const userByEmail = await storage.getUserByEmail(customerEmail);
+      if (userByEmail) {
+        console.log(`[Stripe Webhook] Found user ${userByEmail.id} via customer email ${customerEmail}`);
+        await processCheckoutForUser(userByEmail.id, session, planId);
+        return;
+      }
+      console.error(`[Stripe Webhook] No user found for customer email ${customerEmail}`);
+    }
+
+    const errMsg = `[Stripe Webhook] Could not find user for session ${session.id} (customer: ${session.customer}, email: ${session.customer_email})`;
+    console.error(errMsg);
+    auditLog({
+      eventType: "stripe.checkout_user_not_found",
+      eventCategory: "billing",
+      actorId: null,
+      actorType: "system",
+      targetUserId: null,
+      action: "checkout_user_lookup_failed",
+      outcome: "failure",
+      metadata: { sessionId: session.id, customerId: session.customer, customerEmail: session.customer_email },
+    });
     return;
   }
 
+  console.log(`[Stripe Webhook] Processing checkout for userId=${userId} planId=${planId}`);
   await processCheckoutForUser(userId, session, planId);
 }
 
@@ -342,23 +371,25 @@ async function processCheckoutForUser(
     // Get subscription details
     const subscription = await stripe.subscriptions.retrieve(session.subscription as string) as any;
 
+    console.log(`[Stripe Webhook] Retrieved subscription ${subscription.id} for user ${userId}: status=${subscription.status}`);
+
     // If planId is missing from metadata, fall back to looking it up by the Stripe price ID
     let resolvedPlanId = planId || null;
     if (!resolvedPlanId && subscription.items?.data?.[0]?.price?.id) {
       const priceId = subscription.items.data[0].price.id as string;
-      console.log(`No planId in metadata for user ${userId}, looking up plan by price ID ${priceId}`);
+      console.log(`[Stripe Webhook] No planId in metadata for user ${userId}, looking up plan by price ID ${priceId}`);
       const planByPrice = await storage.getLandingPricingByStripePriceId(priceId);
       if (planByPrice) {
         resolvedPlanId = planByPrice.id;
-        console.log(`Resolved planId ${resolvedPlanId} from price ID ${priceId}`);
+        console.log(`[Stripe Webhook] Resolved planId ${resolvedPlanId} from price ID ${priceId}`);
       } else {
-        console.warn(`No landing_pricing record found for Stripe price ID ${priceId}`);
+        console.warn(`[Stripe Webhook] No landing_pricing record found for Stripe price ID ${priceId}`);
       }
     }
 
-    console.log(`Updating user ${userId} with subscription ${subscription.id} (status: ${subscription.status})`);
+    console.log(`[Stripe Webhook] Updating user ${userId} — subscriptionId=${subscription.id} status=${subscription.status} planId=${resolvedPlanId}`);
 
-    await storage.updateUserStripeInfo(userId, {
+    const updateResult = await storage.updateUserStripeInfo(userId, {
       stripeSubscriptionId: subscription.id,
       subscriptionStatus: subscription.status,
       subscriptionPlanId: resolvedPlanId,
@@ -369,6 +400,12 @@ async function processCheckoutForUser(
         ? new Date(subscription.current_period_end * 1000).toISOString()
         : null,
     });
+
+    if (updateResult) {
+      console.log(`[Stripe Webhook] ✓ Successfully updated NeonDB for user ${userId}: subscriptionStatus=${updateResult.subscriptionStatus} subscriptionPlanId=${updateResult.subscriptionPlanId}`);
+    } else {
+      console.error(`[Stripe Webhook] ✗ updateUserStripeInfo returned no result for user ${userId} — user may not exist in DB`);
+    }
 
     auditLog({
       eventType: "stripe.checkout_completed",
@@ -386,13 +423,13 @@ async function processCheckoutForUser(
       },
     });
 
-    console.log(`Successfully updated subscription for user ${userId}`);
+    console.log(`[Stripe Webhook] ✓ checkout.session.completed fully processed for user ${userId}`);
   } else if (session.mode === "payment") {
     // Handle one-time payment (e.g., additional bank account)
     const type = session.metadata?.type;
     if (type === "bank_account_addon") {
       // This would be handled by a separate function to add bank account slots
-      console.log(`One-time payment completed for user ${userId}: bank account addon`);
+      console.log(`[Stripe Webhook] One-time payment completed for user ${userId}: bank account addon`);
     }
   }
 }
