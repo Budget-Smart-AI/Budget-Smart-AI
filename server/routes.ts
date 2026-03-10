@@ -12488,29 +12488,48 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
       // If user doesn't have a Stripe customer ID, nothing to sync
       if (!user.stripeCustomerId) {
+        console.log(`[sync-subscription] User ${userId} has no Stripe customer ID — skipping sync`);
         return res.json({ synced: false, reason: "No Stripe customer ID" });
       }
 
       const { stripe } = await import("./stripe");
 
-      // List subscriptions for this customer
+      // List subscriptions for this customer — fetch up to 10 so we can pick
+      // an active/trialing one even if a cancelled subscription is most recent
       const subscriptions = await stripe.subscriptions.list({
         customer: user.stripeCustomerId,
         status: "all",
-        limit: 1,
+        limit: 10,
       });
 
       if (subscriptions.data.length === 0) {
+        console.log(`[sync-subscription] No subscriptions found for user ${userId} (customer ${user.stripeCustomerId})`);
         return res.json({ synced: false, reason: "No subscriptions found" });
       }
 
-      const subscription = subscriptions.data[0] as any;
+      // Prefer active or trialing subscriptions; fall back to the most recent one
+      const activeStatuses = ["active", "trialing"];
+      const subscription = subscriptions.data.find(s => activeStatuses.includes(s.status))
+        || subscriptions.data[0];
 
-      // Get planId from subscription metadata or use null
-      const planId = subscription.metadata?.planId || null;
+      console.log(`[sync-subscription] Found subscription ${subscription.id} (${subscription.status}) for user ${userId}`);
 
-      // Update user's subscription info
-      await storage.updateUserStripeInfo(userId, {
+      // Get planId from subscription metadata — if missing, resolve from price ID
+      let planId: string | null = subscription.metadata?.planId || null;
+      if (!planId && subscription.items?.data?.[0]?.price?.id) {
+        const priceId = subscription.items.data[0].price.id as string;
+        console.log(`[sync-subscription] No planId in subscription metadata for user ${userId}, looking up by price ID ${priceId}`);
+        const planByPrice = await storage.getLandingPricingByStripePriceId(priceId);
+        if (planByPrice) {
+          planId = planByPrice.id;
+          console.log(`[sync-subscription] Resolved planId ${planId} from price ID ${priceId}`);
+        } else {
+          console.warn(`[sync-subscription] No landing_pricing record found for price ID ${priceId}`);
+        }
+      }
+
+      // Update user's subscription info in NeonDB
+      const updatedUser = await storage.updateUserStripeInfo(userId, {
         stripeSubscriptionId: subscription.id,
         subscriptionStatus: subscription.status,
         subscriptionPlanId: planId,
@@ -12522,12 +12541,13 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
           : null,
       });
 
-      console.log(`Synced subscription for user ${userId}: ${subscription.id} (${subscription.status})`);
+      console.log(`[sync-subscription] ✓ Updated user ${userId}: subscriptionId=${subscription.id} status=${subscription.status} planId=${planId} dbResult=${!!updatedUser}`);
 
       res.json({
         synced: true,
         subscriptionId: subscription.id,
         status: subscription.status,
+        planId,
       });
     } catch (error: any) {
       console.error("Error syncing subscription:", error);
@@ -13287,15 +13307,17 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     try {
       const sig = req.headers["stripe-signature"];
       if (!sig) {
-        console.error("Stripe webhook: Missing stripe-signature header");
+        console.error("[Stripe Webhook] Missing stripe-signature header");
         return res.status(400).json({ error: "Missing stripe-signature header" });
       }
 
       // Check if webhook secret is configured
       if (!process.env.STRIPE_WEBHOOK_SECRET) {
-        console.error("Stripe webhook: STRIPE_WEBHOOK_SECRET not configured");
+        console.error("[Stripe Webhook] STRIPE_WEBHOOK_SECRET not configured — set the PRODUCTION webhook signing secret from Stripe Dashboard (not the CLI whsec_... secret)");
         return res.status(500).json({ error: "Webhook secret not configured" });
       }
+
+      console.log(`[Stripe Webhook] Request received — secret prefix: ${process.env.STRIPE_WEBHOOK_SECRET.substring(0, 12)}...`);
 
       const { constructWebhookEvent, handleWebhookEvent } = await import("./stripe");
 
@@ -13303,23 +13325,24 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const rawBody = (req as any).rawBody || req.body;
 
       if (!rawBody) {
-        console.error("Stripe webhook: No raw body available for verification");
+        console.error("[Stripe Webhook] No raw body available for verification — ensure bodyParser is configured to expose rawBody");
         return res.status(400).json({ error: "No request body" });
       }
 
       try {
         const event = constructWebhookEvent(rawBody, sig as string);
-        console.log(`Stripe webhook received: ${event.type} (${event.id})`);
+        console.log(`[Stripe Webhook] Signature verified — event: ${event.type} (${event.id})`);
         await handleWebhookEvent(event);
-        console.log(`Stripe webhook processed successfully: ${event.type}`);
+        console.log(`[Stripe Webhook] ✓ Successfully processed: ${event.type} (${event.id})`);
         res.json({ received: true });
       } catch (err: any) {
-        console.error("Webhook signature verification failed:", err.message);
-        console.error("Webhook secret starts with:", process.env.STRIPE_WEBHOOK_SECRET?.substring(0, 10) + "...");
+        console.error("[Stripe Webhook] Signature verification failed:", err.message);
+        console.error("[Stripe Webhook] Tip: STRIPE_WEBHOOK_SECRET must match the signing secret of the PRODUCTION webhook endpoint in Stripe Dashboard, not the Stripe CLI whsec_ value");
+        console.error("[Stripe Webhook] Secret prefix in use:", process.env.STRIPE_WEBHOOK_SECRET?.substring(0, 10) + "...");
         return res.status(400).json({ error: `Webhook Error: ${err.message}` });
       }
     } catch (error: any) {
-      console.error("Webhook error:", error);
+      console.error("[Stripe Webhook] Unexpected error:", error);
       res.status(500).json({ error: error.message || "Webhook processing failed" });
     }
   });
