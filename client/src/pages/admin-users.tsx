@@ -80,7 +80,14 @@ interface User {
   phone: string | null;
   country: string | null;
   displayName: string | null;
+  birthday: string | null;
+  timezone: string | null;
   avatarUrl: string | null;
+  householdName: string | null;
+  addressLine1: string | null;
+  city: string | null;
+  provinceState: string | null;
+  postalCode: string | null;
   isAdmin: boolean;
   isApproved: boolean;
   mfaEnabled: boolean;
@@ -620,6 +627,8 @@ function UserDetailPanel({ user, plans }: { user: User; plans?: Plan[] }) {
         <DetailField label="Display Name" value={user.displayName} />
         <DetailField label="Email" value={user.email} />
         <DetailField label="Phone" value={user.phone} />
+        <DetailField label="Birthday" value={user.birthday ? formatDate(user.birthday) : null} />
+        <DetailField label="Timezone" value={user.timezone} />
         <DetailField label="Country" value={user.country} />
 
         {/* Status */}
@@ -700,6 +709,22 @@ function UserDetailPanel({ user, plans }: { user: User; plans?: Plan[] }) {
         {/* Created */}
         <DetailField label="Created" value={formatDate(user.createdAt)} />
       </div>
+
+      {/* Household & Address */}
+      {(user.householdName || user.addressLine1 || user.city || user.provinceState || user.postalCode) && (
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            Household &amp; Address
+          </h3>
+          <div className="grid grid-cols-1 gap-4">
+            <DetailField label="Household Name" value={user.householdName} />
+            <DetailField label="Address" value={user.addressLine1} />
+            <DetailField label="City" value={user.city} />
+            <DetailField label="Province / State" value={user.provinceState} />
+            <DetailField label="Postal Code" value={user.postalCode} />
+          </div>
+        </div>
+      )}
 
       {/* Analytics & Cost Insights */}
       <div className="border-t pt-4">
