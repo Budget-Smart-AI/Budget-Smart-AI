@@ -1,3 +1,5 @@
+// FEATURE: BILL_TRACKING | tier: free | limit: 5 bills
+// FEATURE: BILL_REMINDERS | tier: free | limit: unlimited
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";

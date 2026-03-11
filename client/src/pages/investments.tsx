@@ -1,3 +1,5 @@
+// FEATURE: INVESTMENT_TRACKING | tier: free | limit: unlimited
+// FEATURE: PORTFOLIO_ADVISOR | tier: free | limit: 1 insight/month (free), unlimited (pro/family)
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";

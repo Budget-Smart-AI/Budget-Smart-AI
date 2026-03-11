@@ -138,6 +138,7 @@ export async function registerRoutes(
   // Test route for debugging landing page API
   app.get("/api/landing-test", (_req, res) => res.json({ test: "ok" }));
 
+  // FEATURE: BILL_TRACKING | tier: free | limit: 5 bills
   // Bills API
   app.get("/api/bills", requireAuth, async (req, res) => {
     try {
@@ -623,6 +624,7 @@ Return JSON: { "bills": [...] }`;
     }
   });
 
+  // FEATURE: EXPENSE_TRACKING | tier: free | limit: 100 expenses/month
   // Expenses API
   app.get("/api/expenses", requireAuth, async (req, res) => {
     try {
@@ -777,6 +779,7 @@ Return JSON: { "bills": [...] }`;
     }
   });
 
+  // FEATURE: INCOME_TRACKING | tier: free | limit: unlimited
   // Income API
   app.get("/api/income", requireAuth, async (req, res) => {
     try {
@@ -1086,6 +1089,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // FEATURE: BUDGET_CREATION | tier: free | limit: 2 budgets
   // Budgets API
   app.get("/api/budgets", requireAuth, async (req, res) => {
     try {
@@ -1167,6 +1171,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // FEATURE: SAVINGS_GOALS | tier: free | limit: 1 goal
   // Savings Goals API
   app.get("/api/savings-goals", requireAuth, async (req, res) => {
     try {
@@ -1241,6 +1246,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // FEATURE: DEBT_TRACKING | tier: free | limit: 3 debts
   // ============ DEBT DETAILS API ============
 
   // Get all debt details for user
@@ -1317,6 +1323,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // FEATURE: HOUSEHOLD_MANAGEMENT | tier: family | limit: unlimited
   // ============ HOUSEHOLD COLLABORATION API ============
 
   // Create a new household
@@ -1687,6 +1694,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // FEATURE: MERCHANT_MANAGEMENT | tier: free | limit: unlimited
   // ── Merchants ─────────────────────────────────────────────────────────────
   app.get("/api/merchants", requireAuth, async (req, res) => {
     try {
@@ -4606,6 +4614,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // FEATURE: PLAID_BANK_CONNECTIONS | tier: free | limit: 1 connection
   // ==================== PLAID ROUTES ====================
 
   // Create Plaid Link token for frontend
@@ -5362,6 +5371,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   });
 
   // Get transactions with optional filters
+  // FEATURE: TRANSACTION_HISTORY | tier: free | limit: 90 days (free), unlimited (pro/family)
+  // FEATURE: TRANSACTION_SEARCH | tier: free | limit: unlimited
   app.get("/api/plaid/transactions", requireAuth, async (req, res) => {
     try {
       const accounts = await storage.getAllPlaidAccounts(req.session.userId!);
@@ -5496,6 +5507,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // FEATURE: UNMATCHED_TRANSACTIONS | tier: free | limit: unlimited
   // Get unmatched transactions
   app.get("/api/plaid/transactions/unmatched", requireAuth, async (req, res) => {
     try {
@@ -5697,6 +5709,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // FEATURE: MX_BANK_CONNECTIONS | tier: free | limit: 1 connection
   // ==================== MX BANK INTEGRATION ROUTES ====================
 
   // Get MX Connect Widget URL
@@ -6043,6 +6056,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // FEATURE: AI_ASSISTANT | tier: free | limit: 10 messages/month (free), unlimited (pro/family)
   // ==================== AI ASSISTANT ROUTES ====================
 
   // Chat with AI assistant
@@ -6248,6 +6262,7 @@ Rules:
     }
   });
 
+  // FEATURE: AI_BUDGET_SUGGESTIONS | tier: free | limit: 5 requests/month (free), unlimited (pro/family)
   app.post("/api/ai/suggest-budgets", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -6424,6 +6439,7 @@ Rules:
     }
   });
 
+  // FEATURE: AI_SAVINGS_ADVISOR | tier: free | limit: 3 requests/month (free), unlimited (pro/family)
   // AI Savings Goal Advisor
   app.post("/api/ai/savings-advisor", requireAuth, async (req, res) => {
     try {
@@ -6896,6 +6912,7 @@ ${JSON.stringify(txSummary)}`;
 
   // ============ SUBSCRIPTION DETECTION ============
 
+  // FEATURE: SUBSCRIPTION_TRACKING | tier: free | limit: unlimited
   app.post("/api/subscriptions/detect", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -7028,6 +7045,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: CATEGORIES_MANAGEMENT | tier: free | limit: 20 categories
   // ============ CUSTOM CATEGORIES ============
 
   app.get("/api/custom-categories", requireAuth, async (req, res) => {
@@ -7229,6 +7247,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: NOTIFICATIONS | tier: free | limit: unlimited
   // ============ NOTIFICATIONS ============
 
   app.get("/api/notifications", requireAuth, async (req, res) => {
@@ -7476,6 +7495,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: DATA_EXPORT_JSON | tier: pro | limit: 2 exports/month
   // ── Full account data export (JSON) ─────────────────────────────────────────
   app.get("/api/user/export-data", requireAuth, async (req, res) => {
     try {
@@ -7558,6 +7578,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: DATA_EXPORT_CSV | tier: free | limit: 5 exports/month
   app.get("/api/export/csv/:type", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -7619,6 +7640,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: FINANCIAL_REPORTS | tier: free | limit: unlimited
   // ============ SPENDING REPORTS ============
 
   app.get("/api/reports/spending-by-category", requireAuth, async (req, res) => {
@@ -7694,6 +7716,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: BUDGET_VS_ACTUAL | tier: free | limit: unlimited
   app.get("/api/reports/budget-vs-actual", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -7729,6 +7752,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: FINANCIAL_HEALTH | tier: pro | limit: unlimited
   // Financial Health Score
   app.get("/api/reports/financial-health", requireAuth, async (req, res) => {
     try {
@@ -8026,6 +8050,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: CASH_FLOW_FORECAST | tier: pro | limit: unlimited
   // ============ CASH FLOW FORECAST ============
 
   app.get("/api/reports/cash-flow-forecast", requireAuth, async (req, res) => {
@@ -8130,6 +8155,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: MONEY_TIMELINE | tier: free | limit: unlimited
   // ============ MONEY TIMELINE (90-DAY FORECAST) ============
   
   app.get("/api/reports/money-timeline", requireAuth, async (req, res) => {
@@ -8297,6 +8323,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: WHAT_IF_SIMULATOR | tier: pro | limit: 20 simulations/month
   // ============ WHAT-IF SIMULATOR ============
 
   app.post("/api/simulator/what-if", requireAuth, async (req, res) => {
@@ -8612,6 +8639,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: SILENT_LEAKS_DETECTOR | tier: pro | limit: unlimited
   // ============ SILENT MONEY LEAKS DETECTOR ============
 
   app.get("/api/leaks/detect", requireAuth, async (req, res) => {
@@ -8810,6 +8838,8 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: AUTOPILOT_RULES | tier: pro | limit: 10 rules
+  // FEATURE: FINANCIAL_AUTOPILOT | tier: pro | limit: unlimited
   // ============ FINANCIAL AUTOPILOT ============
 
   // Get autopilot rules
@@ -8992,6 +9022,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: PAYDAY_OPTIMIZER | tier: pro | limit: unlimited
   // ============ PAYDAY OPTIMIZER ============
 
   app.get("/api/payday/optimize", requireAuth, async (req, res) => {
@@ -9087,6 +9118,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: AI_DAILY_COACH | tier: pro | limit: unlimited
   // ============ AI MONEY COACH NOTIFICATIONS ============
 
   app.get("/api/coach/daily-briefing", requireAuth, async (req, res) => {
@@ -9486,6 +9518,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: AI_INSIGHTS | tier: pro | limit: unlimited
   // ============ AI INSIGHTS ============
 
   app.get("/api/ai/insights", requireAuth, async (req, res) => {
@@ -9534,6 +9567,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: SECURITY_ALERTS | tier: pro | limit: unlimited
   // ============ TRANSACTION ANOMALIES ============
 
   app.get("/api/anomalies", requireAuth, async (req, res) => {
@@ -9636,6 +9670,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // FEATURE: AI_TRANSACTION_CATEGORIZATION | tier: pro | limit: unlimited
   // ============ AI AUTO-RECONCILIATION ============
 
   app.post("/api/plaid/transactions/auto-reconcile", requireAuth, async (req, res) => {
@@ -10016,6 +10051,7 @@ The Budget Smart AI Team`,
 
   // ============ MANUAL ACCOUNTS (Transaction-Centric Architecture) ============
 
+  // FEATURE: MANUAL_ACCOUNTS | tier: free | limit: 3 accounts
   // Get all manual accounts for user
   app.get("/api/accounts/manual", requireAuth, async (req, res) => {
     try {
@@ -10120,6 +10156,7 @@ The Budget Smart AI Team`,
   });
 
   // Get all manual transactions for user (across all accounts)
+  // FEATURE: MANUAL_TRANSACTIONS | tier: free | limit: 50 transactions/month
   app.get("/api/transactions/manual", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -10413,6 +10450,7 @@ The Budget Smart AI Team`,
     }
   });
 
+  // FEATURE: INVESTMENT_TRACKING | tier: free | limit: unlimited
   // ============ INVESTMENT ACCOUNTS API ============
 
   app.get("/api/investment-accounts", requireAuth, async (req, res) => {
@@ -10664,6 +10702,7 @@ The Budget Smart AI Team`,
     }
   });
 
+  // FEATURE: PORTFOLIO_ADVISOR | tier: free | limit: 1 insight/month (free), unlimited (pro/family)
   // Persistent chat with portfolio context
   app.post("/api/investments/advisor-chat", requireAuth, async (req, res) => {
     try {
@@ -10948,6 +10987,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // FEATURE: ASSET_TRACKING | tier: free | limit: 10 assets
   // ============ ASSETS API ============
 
   app.get("/api/assets", requireAuth, async (req, res) => {
@@ -11051,6 +11091,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // FEATURE: NET_WORTH_TRACKING | tier: free | limit: unlimited
   // ============ NET WORTH API ============
 
   app.get("/api/net-worth", requireAuth, async (req, res) => {
@@ -11251,6 +11292,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // FEATURE: CALENDAR_VIEW | tier: free | limit: unlimited
   // ============ FINANCIAL CALENDAR API ============
 
   app.get("/api/calendar/events", requireAuth, async (req, res) => {
@@ -11521,6 +11563,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // FEATURE: SPLIT_EXPENSES | tier: family | limit: unlimited
   // ============ SPLIT EXPENSES API ============
 
   app.get("/api/split-expenses", requireAuth, async (req, res) => {
@@ -11740,6 +11783,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // FEATURE: TAX_REPORTING | tier: pro | limit: 1 summary/month
   // ============ TAX TAGGING API ============
 
   app.get("/api/tax/categories", requireAuth, (req, res) => {

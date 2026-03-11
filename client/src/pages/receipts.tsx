@@ -1,3 +1,5 @@
+// FEATURE: RECEIPT_SCANNER | tier: free | limit: 10 uploads/month
+// FEATURE: RECEIPT_SCANNING | tier: free | limit: 3 scans/month (free), unlimited (pro/family)
 import React, { useState, useRef } from 'react';
 import ReceiptScanner from '../components/receipt-scanner';
 import { Card, CardContent } from '../components/ui/card';

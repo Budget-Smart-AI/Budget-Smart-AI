@@ -1,3 +1,4 @@
+// FEATURE: INCOME_TRACKING | tier: free | limit: unlimited
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";

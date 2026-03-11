@@ -1,3 +1,4 @@
+// FEATURE: DEBT_PAYOFF_PLANNER | tier: pro | limit: unlimited
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

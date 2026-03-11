@@ -1,3 +1,5 @@
+// FEATURE: RECEIPT_SCANNING | tier: free | limit: 3 scans/month (free), unlimited (pro/family)
+// FEATURE: RECEIPT_SCANNER | tier: free | limit: 10 uploads/month
 import express from "express";
 import multer from "multer";
 import { processReceiptUpload, generateSignedUrl, testR2Connection } from "../receipt-scanner";

@@ -1,3 +1,4 @@
+// FEATURE: NET_WORTH_TRACKING | tier: free | limit: unlimited
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

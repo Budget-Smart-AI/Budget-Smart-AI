@@ -1,3 +1,4 @@
+// FEATURE: EXPENSE_TRACKING | tier: free | limit: 100 expenses/month
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
