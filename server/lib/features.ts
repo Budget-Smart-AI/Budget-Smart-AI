@@ -722,19 +722,30 @@ export const FEATURE_LIMITS = {
     mx_bank_connections: 1,             // MX connections (counts toward bank_connections)
     plaid_bank_connections: 1,          // Plaid connections (counts toward bank_connections)
     manual_accounts: 3,                 // total manual accounts
+    account_sync: 5,                    // manual syncs per day
+    account_refresh: 10,                // manual refreshes per day
     transaction_history: 90,            // days of history viewable
+    transaction_search: null,           // unlimited searches
     manual_transactions: 50,            // manual transactions per month
 
     // Financial Tracking
     asset_tracking: 10,                 // total assets tracked
+    net_worth_tracking: null,           // unlimited (basic feature)
+    investment_tracking: null,          // unlimited (basic feature)
+    income_tracking: null,              // unlimited (basic feature)
     expense_tracking: 100,              // manual expenses per month
+    spending_analysis: null,            // unlimited (basic feature)
+    unmatched_transactions: null,       // unlimited (basic feature)
+    subscription_tracking: null,        // unlimited (basic feature)
 
     // Planning
-    budgets: 2,                         // total budgets
+    budget_creation: 2,                 // total budgets
     savings_goals: 1,                   // total goals
     debt_tracking: 3,                   // total debts
     debt_payoff_planner: 0,             // disabled on free
     bill_tracking: 5,                   // total bills
+    bill_reminders: null,               // unlimited (basic feature)
+    calendar_view: null,                // unlimited (basic feature)
     what_if_simulator: 0,               // disabled on free
     autopilot_rules: 0,                 // disabled on free
     financial_autopilot: 0,             // disabled on free
@@ -742,6 +753,9 @@ export const FEATURE_LIMITS = {
     // Reporting
     cash_flow_forecast: 0,              // disabled on free
     financial_health: 0,                // disabled on free
+    financial_reports: null,            // unlimited (basic feature)
+    budget_vs_actual: null,             // unlimited (basic feature)
+    money_timeline: null,               // unlimited (basic feature)
     data_export_csv: 5,                 // exports per month
     data_export_json: 0,                // disabled on free
     tax_reporting: 0,                   // disabled on free
@@ -757,6 +771,8 @@ export const FEATURE_LIMITS = {
     financial_vault: 0,                 // disabled on free
     vault_ai_search: 0,                 // disabled on free
     categories_management: 20,          // total custom categories
+    merchant_management: null,          // unlimited (basic feature)
+    notifications: null,                // unlimited (basic feature)
     security_alerts: 0,                 // disabled on free
     silent_leaks_detector: 0,           // disabled on free
     payday_optimizer: 0,                // disabled on free
@@ -778,19 +794,30 @@ export const FEATURE_LIMITS = {
     mx_bank_connections: null,          // unlimited
     plaid_bank_connections: null,       // unlimited
     manual_accounts: null,              // unlimited
+    account_sync: null,                 // unlimited
+    account_refresh: null,              // unlimited
     transaction_history: null,          // unlimited (all history)
+    transaction_search: null,           // unlimited
     manual_transactions: null,          // unlimited
 
     // Financial Tracking
     asset_tracking: null,               // unlimited
+    net_worth_tracking: null,           // unlimited
+    investment_tracking: null,          // unlimited
+    income_tracking: null,              // unlimited
     expense_tracking: null,             // unlimited
+    spending_analysis: null,            // unlimited
+    unmatched_transactions: null,       // unlimited
+    subscription_tracking: null,        // unlimited
 
     // Planning
-    budgets: null,                      // unlimited
+    budget_creation: null,              // unlimited
     savings_goals: null,                // unlimited
     debt_tracking: null,                // unlimited
     debt_payoff_planner: null,          // unlimited
     bill_tracking: null,                // unlimited
+    bill_reminders: null,               // unlimited
+    calendar_view: null,                // unlimited
     what_if_simulator: null,            // unlimited
     autopilot_rules: 10,                // 10 rules max
     financial_autopilot: null,          // unlimited
@@ -798,6 +825,9 @@ export const FEATURE_LIMITS = {
     // Reporting
     cash_flow_forecast: null,           // unlimited
     financial_health: null,             // unlimited
+    financial_reports: null,            // unlimited
+    budget_vs_actual: null,             // unlimited
+    money_timeline: null,               // unlimited
     data_export_csv: null,              // unlimited
     data_export_json: 12,               // 12 per year (once per month)
     tax_reporting: 12,                  // 12 per year (once per month)
@@ -813,6 +843,8 @@ export const FEATURE_LIMITS = {
     financial_vault: 50,                // 50 documents total (storage limit)
     vault_ai_search: null,              // unlimited
     categories_management: null,        // unlimited
+    merchant_management: null,          // unlimited
+    notifications: null,                // unlimited
     security_alerts: null,              // unlimited
     silent_leaks_detector: null,        // unlimited
     payday_optimizer: null,             // unlimited
@@ -836,19 +868,30 @@ export const FEATURE_LIMITS = {
     mx_bank_connections: null,
     plaid_bank_connections: null,
     manual_accounts: null,
+    account_sync: null,
+    account_refresh: null,
     transaction_history: null,
+    transaction_search: null,
     manual_transactions: null,
 
     // Financial Tracking (same as pro)
     asset_tracking: null,
+    net_worth_tracking: null,
+    investment_tracking: null,
+    income_tracking: null,
     expense_tracking: null,
+    spending_analysis: null,
+    unmatched_transactions: null,
+    subscription_tracking: null,
 
     // Planning (same as pro)
-    budgets: null,
+    budget_creation: null,
     savings_goals: null,
     debt_tracking: null,
     debt_payoff_planner: null,
     bill_tracking: null,
+    bill_reminders: null,
+    calendar_view: null,
     what_if_simulator: null,
     autopilot_rules: 10,
     financial_autopilot: null,
@@ -856,6 +899,9 @@ export const FEATURE_LIMITS = {
     // Reporting (same as pro)
     cash_flow_forecast: null,
     financial_health: null,
+    financial_reports: null,
+    budget_vs_actual: null,
+    money_timeline: null,
     data_export_csv: null,
     data_export_json: 12,
     tax_reporting: 12,
@@ -871,6 +917,8 @@ export const FEATURE_LIMITS = {
     financial_vault: 100,               // 100 documents total (storage limit)
     vault_ai_search: null,
     categories_management: null,
+    merchant_management: null,
+    notifications: null,
     security_alerts: null,
     silent_leaks_detector: null,
     payday_optimizer: null,

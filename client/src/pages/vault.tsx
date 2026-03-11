@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInDays, parseISO } from "date-fns";
+import { FeatureGate } from "@/components/FeatureGate";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface VaultDocument {
@@ -1023,31 +1024,32 @@ export default function VaultPage() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-400/10 to-transparent border p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
-              <Shield className="h-7 w-7 text-amber-400" />
+      <FeatureGate feature="financial_vault" displayName="vault documents">
+        {/* Header */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-400/10 to-transparent border p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="h-14 w-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                <Shield className="h-7 w-7 text-amber-400" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold">Financial Vault</h1>
+                <p className="text-muted-foreground text-sm">Your secure, AI-powered document storage. Unlimited storage included.</p>
+                {stats && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {stats.totalFiles} document{stats.totalFiles !== 1 ? "s" : ""} · {stats.totalMB} MB used
+                  </p>
+                )}
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold">Financial Vault</h1>
-              <p className="text-muted-foreground text-sm">Your secure, AI-powered document storage. Unlimited storage included.</p>
-              {stats && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {stats.totalFiles} document{stats.totalFiles !== 1 ? "s" : ""} · {stats.totalMB} MB used
-                </p>
-              )}
-            </div>
+            <Button
+              className="bg-amber-500 hover:bg-amber-600 text-white shrink-0"
+              onClick={() => setShowUpload(true)}
+            >
+              <Upload className="h-4 w-4 mr-2" />Upload Documents
+            </Button>
           </div>
-          <Button
-            className="bg-amber-500 hover:bg-amber-600 text-white shrink-0"
-            onClick={() => setShowUpload(true)}
-          >
-            <Upload className="h-4 w-4 mr-2" />Upload Documents
-          </Button>
         </div>
-      </div>
 
       {/* Category Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
@@ -1176,6 +1178,7 @@ export default function VaultPage() {
           </table>
         </div>
       )}
+      </FeatureGate>
 
       {/* Upload Modal */}
       <UploadModal

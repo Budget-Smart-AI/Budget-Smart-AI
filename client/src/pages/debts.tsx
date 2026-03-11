@@ -577,46 +577,48 @@ export default function DebtsPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-            <CardTitle className="text-sm font-medium">Total Debt</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-destructive" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-destructive" data-testid="text-total-debt">
-              {formatCurrency(totalDebt)}
-            </div>
-            <p className="text-xs text-muted-foreground">{debts.length} active debts</p>
-          </CardContent>
-        </Card>
+      <FeatureGate feature="debt_tracking" displayName="debts">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+              <CardTitle className="text-sm font-medium">Total Debt</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-destructive" data-testid="text-total-debt">
+                {formatCurrency(totalDebt)}
+              </div>
+              <p className="text-xs text-muted-foreground">{debts.length} active debts</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-            <CardTitle className="text-sm font-medium">Monthly Payments</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-total-payments">
-              {formatCurrency(totalMinPayments)}
-            </div>
-            <p className="text-xs text-muted-foreground">Minimum payments due</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+              <CardTitle className="text-sm font-medium">Monthly Payments</CardTitle>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold" data-testid="text-total-payments">
+                {formatCurrency(totalMinPayments)}
+              </div>
+              <p className="text-xs text-muted-foreground">Minimum payments due</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-            <CardTitle className="text-sm font-medium">Average APR</CardTitle>
-            <Percent className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-avg-apr">
-              {formatPercent(avgApr)}
-            </div>
-            <p className="text-xs text-muted-foreground">Across all debts</p>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+              <CardTitle className="text-sm font-medium">Average APR</CardTitle>
+              <Percent className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold" data-testid="text-avg-apr">
+                {formatPercent(avgApr)}
+              </div>
+              <p className="text-xs text-muted-foreground">Across all debts</p>
+            </CardContent>
+          </Card>
+        </div>
+      </FeatureGate>
 
       <Card>
         <CardHeader>
@@ -629,97 +631,99 @@ export default function DebtsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {debts.length === 0 ? (
-            <div className="text-center py-12">
-              <CreditCard className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium mb-2">No debts added yet</h3>
-              <p className="text-muted-foreground mb-4">
-                Add your credit cards, loans, and other debts to track them and plan your payoff strategy.
-              </p>
-              <Button onClick={handleOpenCreate} data-testid="button-add-first-debt">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Your First Debt
-              </Button>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Balance</TableHead>
-                    <TableHead className="text-right">APR</TableHead>
-                    <TableHead className="text-right">Min. Payment</TableHead>
-                    <TableHead className="text-right">Term</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {debts.map((debt) => (
-                    <TableRow key={debt.id} data-testid={`row-debt-${debt.id}`}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {debt.linkedPlaidAccountId && (
-                            <Link2 className="h-3 w-3 text-primary" />
-                          )}
-                          <div>
-                            <div className="font-medium">{debt.name}</div>
-                            {debt.lender && (
-                              <div className="text-xs text-muted-foreground">{debt.lender}</div>
-                            )}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={getDebtTypeColor(debt.debtType)}>
-                          {getDebtTypeIcon(debt.debtType)}
-                          <span className="ml-1">{debt.debtType}</span>
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {formatCurrency(debt.currentBalance)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span className={parseFloat(debt.apr) > 20 ? "text-destructive font-medium" : ""}>
-                          {formatPercent(debt.apr)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div>{formatCurrency(debt.minimumPayment)}</div>
-                        {debt.paymentFrequency && debt.paymentFrequency !== "Monthly" && (
-                          <div className="text-xs text-muted-foreground">{debt.paymentFrequency}</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {debt.termMonths ? `${debt.termMonths} mo` : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 justify-end">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenEdit(debt)}
-                            data-testid={`button-edit-debt-${debt.id}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeletingDebtId(debt.id)}
-                            data-testid={`button-delete-debt-${debt.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
+          <FeatureGate feature="debt_tracking" displayName="debts">
+            {debts.length === 0 ? (
+              <div className="text-center py-12">
+                <CreditCard className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium mb-2">No debts added yet</h3>
+                <p className="text-muted-foreground mb-4">
+                  Add your credit cards, loans, and other debts to track them and plan your payoff strategy.
+                </p>
+                <Button onClick={handleOpenCreate} data-testid="button-add-first-debt">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Your First Debt
+                </Button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">Balance</TableHead>
+                      <TableHead className="text-right">APR</TableHead>
+                      <TableHead className="text-right">Min. Payment</TableHead>
+                      <TableHead className="text-right">Term</TableHead>
+                      <TableHead></TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                  </TableHeader>
+                  <TableBody>
+                    {debts.map((debt) => (
+                      <TableRow key={debt.id} data-testid={`row-debt-${debt.id}`}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {debt.linkedPlaidAccountId && (
+                              <Link2 className="h-3 w-3 text-primary" />
+                            )}
+                            <div>
+                              <div className="font-medium">{debt.name}</div>
+                              {debt.lender && (
+                                <div className="text-xs text-muted-foreground">{debt.lender}</div>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={getDebtTypeColor(debt.debtType)}>
+                            {getDebtTypeIcon(debt.debtType)}
+                            <span className="ml-1">{debt.debtType}</span>
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(debt.currentBalance)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className={parseFloat(debt.apr) > 20 ? "text-destructive font-medium" : ""}>
+                            {formatPercent(debt.apr)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div>{formatCurrency(debt.minimumPayment)}</div>
+                          {debt.paymentFrequency && debt.paymentFrequency !== "Monthly" && (
+                            <div className="text-xs text-muted-foreground">{debt.paymentFrequency}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {debt.termMonths ? `${debt.termMonths} mo` : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 justify-end">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenEdit(debt)}
+                              data-testid={`button-edit-debt-${debt.id}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeletingDebtId(debt.id)}
+                              data-testid={`button-delete-debt-${debt.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </FeatureGate>
         </CardContent>
       </Card>
 

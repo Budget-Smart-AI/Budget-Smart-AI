@@ -1327,6 +1327,7 @@ export class DatabaseStorage implements IStorage {
       selectedPlanId: insertUser.selectedPlanId || null,
       emailVerified: insertUser.emailVerified || "false",
       mfaRequired: insertUser.mfaRequired || "false",
+      plan: "free", // Explicitly set default plan
       createdAt: new Date().toISOString(),
     }).returning();
     return result[0];

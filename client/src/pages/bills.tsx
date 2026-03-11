@@ -1168,98 +1168,100 @@ export default function Bills() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
-            </div>
-          ) : filteredBills.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground" data-testid="text-no-bills">
-              <Receipt className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-4">No bills found</p>
-              <Button onClick={() => setIsDialogOpen(true)} data-testid="button-add-first-bill">
-                <Plus className="h-4 w-4 mr-2" />
-                Add your first bill
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortHeader label="Name" sortKey="name" />
-                  <SortHeader label="Category" sortKey="category" />
-                  <SortHeader label="Start Date" sortKey="startDate" />
-                  <SortHeader label="Next Due" sortKey="nextDue" />
-                  <TableHead>Recurrence</TableHead>
-                  <SortHeader label="Amount" sortKey="amount" />
-                  <SortHeader label="Balance" sortKey="startingBalance" />
-                  <SortHeader label="Payments Left" sortKey="paymentsRemaining" />
-                  <TableHead className="w-[100px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredBills.map((bill) => {
-                  const nextDue = getNextDueDate(bill.dueDay, bill.recurrence, bill.customDates, bill.startDate);
-                  return (
-                    <TableRow key={bill.id} data-testid={`row-bill-${bill.id}`}>
-                      <TableCell className="font-medium">
-                        <div>
-                          {bill.name}
-                          {bill.notes && (
-                            <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                              {bill.notes}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{bill.category}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {bill.startDate ? format(parseISO(bill.startDate), "MMM d, yyyy") : "-"}
-                      </TableCell>
-                      <TableCell>
-                        <span className={isBefore(nextDue, new Date()) ? "text-destructive font-semibold" : ""}>
-                          {format(nextDue, "MMM d, yyyy")}
-                        </span>
-                      </TableCell>
-                      <TableCell className="capitalize">{bill.recurrence === "one_time" ? "One Time" : bill.recurrence}</TableCell>
-                      <TableCell className="font-semibold">
-                        {formatCurrency(bill.amount)}
-                      </TableCell>
-                      <TableCell>
-                        {bill.startingBalance ? formatCurrency(bill.startingBalance) : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {bill.paymentsRemaining !== null ? bill.paymentsRemaining : "-"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleEdit(bill)}
-                            data-testid={`button-edit-bill-${bill.id}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeletingBill(bill)}
-                            data-testid={`button-delete-bill-${bill.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
+          <FeatureGate feature="bill_tracking" displayName="bills">
+            {isLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+            ) : filteredBills.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground" data-testid="text-no-bills">
+                <Receipt className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="mb-4">No bills found</p>
+                <Button onClick={() => setIsDialogOpen(true)} data-testid="button-add-first-bill">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add your first bill
+                </Button>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortHeader label="Name" sortKey="name" />
+                    <SortHeader label="Category" sortKey="category" />
+                    <SortHeader label="Start Date" sortKey="startDate" />
+                    <SortHeader label="Next Due" sortKey="nextDue" />
+                    <TableHead>Recurrence</TableHead>
+                    <SortHeader label="Amount" sortKey="amount" />
+                    <SortHeader label="Balance" sortKey="startingBalance" />
+                    <SortHeader label="Payments Left" sortKey="paymentsRemaining" />
+                    <TableHead className="w-[100px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredBills.map((bill) => {
+                    const nextDue = getNextDueDate(bill.dueDay, bill.recurrence, bill.customDates, bill.startDate);
+                    return (
+                      <TableRow key={bill.id} data-testid={`row-bill-${bill.id}`}>
+                        <TableCell className="font-medium">
+                          <div>
+                            {bill.name}
+                            {bill.notes && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                {bill.notes}
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{bill.category}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {bill.startDate ? format(parseISO(bill.startDate), "MMM d, yyyy") : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <span className={isBefore(nextDue, new Date()) ? "text-destructive font-semibold" : ""}>
+                            {format(nextDue, "MMM d, yyyy")}
+                          </span>
+                        </TableCell>
+                        <TableCell className="capitalize">{bill.recurrence === "one_time" ? "One Time" : bill.recurrence}</TableCell>
+                        <TableCell className="font-semibold">
+                          {formatCurrency(bill.amount)}
+                        </TableCell>
+                        <TableCell>
+                          {bill.startingBalance ? formatCurrency(bill.startingBalance) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {bill.paymentsRemaining !== null ? bill.paymentsRemaining : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(bill)}
+                              data-testid={`button-edit-bill-${bill.id}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeletingBill(bill)}
+                              data-testid={`button-delete-bill-${bill.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </FeatureGate>
         </CardContent>
       </Card>
 

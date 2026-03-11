@@ -78,14 +78,59 @@ function currentPeriodEnd(): Date {
  * - Returns `0`     → feature not available on this plan
  * - Returns `N > 0` → limited to N uses per month
  */
-export function getFeatureLimit(plan: string, featureKey: string): number | null {
+/**
+ * Get the feature limit for a given plan and feature key.
+ * READS FROM DATABASE AT RUNTIME for immediate effect of admin changes.
+ * Falls back to hardcoded FEATURE_LIMITS if not found in database.
+ * Returns:
+ *  - null: unlimited
+ *  - 0: feature disabled (upgrade required)
+ *  - N: specific limit
+ */
+export async function getFeatureLimit(plan: string, featureKey: string): Promise<number | null> {
+  const tier = normaliseTier(plan);
+  const key = featureKey.toLowerCase();
+
+  try {
+    // Check database FIRST for dynamic configuration (reads at runtime - no caching)
+    const { rows } = await pool.query<{ limit_value: number | null; is_enabled: boolean }>(
+      `SELECT limit_value, is_enabled
+       FROM plan_feature_limits
+       WHERE plan_name = $1 AND feature_key = $2 AND is_enabled = true
+       LIMIT 1`,
+      [tier, key]
+    );
+
+    if (rows.length > 0) {
+      // Database override found - use it immediately
+      return rows[0].limit_value;
+    }
+  } catch (error) {
+    // Database not available or table doesn't exist yet - fall back to hardcoded
+    // This ensures the app works even if DB migration hasn't run
+    console.warn(`Failed to query plan_feature_limits, using hardcoded limits:`, error);
+  }
+
+  // Fall back to hardcoded FEATURE_LIMITS from features.ts
+  const limits = FEATURE_LIMITS[tier] as Record<string, number | null>;
+  if (key in limits) {
+    return limits[key] ?? null;
+  }
+  // Feature key not registered in this tier's limits — treat as unavailable
+  return 0;
+}
+
+/**
+ * Synchronous version for backwards compatibility.
+ * NOTE: This only uses hardcoded limits and will be deprecated.
+ */
+export function getFeatureLimitSync(plan: string, featureKey: string): number | null {
   const tier = normaliseTier(plan);
   const key = featureKey.toLowerCase();
   const limits = FEATURE_LIMITS[tier] as Record<string, number | null>;
   if (key in limits) {
     return limits[key] ?? null;
   }
-  // Feature key not registered in this tier's limits — treat as unavailable
   return 0;
 }
 
@@ -130,7 +175,7 @@ export async function checkFeatureAccess(
   plan: string,
   featureKey: string
 ): Promise<FeatureAccessResult> {
-  const limit = getFeatureLimit(plan, featureKey);
+  const limit = await getFeatureLimit(plan, featureKey);
   const resetDate = currentPeriodEnd();
 
   // Feature entirely unavailable on this plan
@@ -229,7 +274,7 @@ export async function checkAndConsume(
   plan: string,
   featureKey: string
 ): Promise<FeatureAccessResult> {
-  const limit = getFeatureLimit(plan, featureKey);
+  const limit = await getFeatureLimit(plan, featureKey);
   const resetDate = currentPeriodEnd();
   const key = featureKey.toLowerCase();
 
@@ -338,6 +383,69 @@ export async function checkAndConsume(
 // ============================================================================
 
 /**
+ * Get actual item counts for cumulative-limit features (bills, budgets, debts, etc.)
+ * These features limit the TOTAL number of items, not monthly usage.
+ */
+async function getCumulativeItemCounts(userId: string): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+
+  try {
+    // Single query with multiple COUNT subqueries for better performance
+    const result = await pool.query<{
+      bills: string;
+      budgets: string;
+      debts: string;
+      savings_goals: string;
+      assets: string;
+      manual_accounts: string;
+      vault_documents: string;
+      custom_categories: string;
+    }>(
+      `SELECT 
+        (SELECT COUNT(*) FROM bills WHERE user_id = $1::uuid) as bills,
+        (SELECT COUNT(DISTINCT category) FROM budgets WHERE user_id = $1::uuid) as budgets,
+        (SELECT COUNT(*) FROM debt_details WHERE user_id = $1::uuid) as debts,
+        (SELECT COUNT(*) FROM savings_goals WHERE user_id = $1::uuid) as savings_goals,
+        (SELECT COUNT(*) FROM assets WHERE user_id = $1::uuid) as assets,
+        (SELECT COUNT(*) FROM manual_accounts WHERE user_id = $1::uuid) as manual_accounts,
+        (SELECT COUNT(*) FROM vault_documents WHERE user_id = $1::uuid) as vault_documents,
+        (SELECT COUNT(*) FROM custom_categories WHERE user_id = $1::uuid) as custom_categories`,
+      [userId]
+    );
+
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      counts.set('bill_tracking', parseInt(row.bills, 10));
+      counts.set('budget_creation', parseInt(row.budgets, 10));
+      counts.set('debt_tracking', parseInt(row.debts, 10));
+      counts.set('savings_goals', parseInt(row.savings_goals, 10));
+      counts.set('asset_tracking', parseInt(row.assets, 10));
+      counts.set('manual_accounts', parseInt(row.manual_accounts, 10));
+      counts.set('financial_vault', parseInt(row.vault_documents, 10));
+      counts.set('categories_management', parseInt(row.custom_categories, 10));
+    }
+  } catch (error) {
+    console.error('Error getting cumulative item counts:', error);
+  }
+
+  return counts;
+}
+
+/**
+ * Features that use total item counts instead of monthly usage tracking
+ */
+const CUMULATIVE_LIMIT_FEATURES = new Set([
+  'bill_tracking',
+  'budget_creation',
+  'debt_tracking',
+  'savings_goals',
+  'asset_tracking',
+  'manual_accounts',
+  'financial_vault',
+  'categories_management',
+]);
+
+/**
  * Returns a summary of all registered features for `userId` on `plan`,
  * including current usage, limits, and remaining capacity for each feature.
  */
@@ -363,11 +471,18 @@ export async function getUserFeatureSummary(
     usageMap.set(row.feature_key, row.usage_count);
   }
 
+  // Get actual item counts for cumulative-limit features
+  const itemCounts = await getCumulativeItemCounts(userId);
+
   const summary: UserFeatureSummaryItem[] = [];
 
   for (const feature of Object.values(FEATURES)) {
-    const limit = getFeatureLimit(tier, feature.key);
-    const currentUsage = usageMap.get(feature.key.toLowerCase()) ?? 0;
+    const limit = await getFeatureLimit(tier, feature.key);
+    
+    // Use actual item count for cumulative-limit features, otherwise use usage count
+    const currentUsage = CUMULATIVE_LIMIT_FEATURES.has(feature.key)
+      ? (itemCounts.get(feature.key) ?? 0)
+      : (usageMap.get(feature.key.toLowerCase()) ?? 0);
 
     // Feature unavailable on this plan
     if (limit === 0) {
@@ -401,6 +516,10 @@ export async function getUserFeatureSummary(
 
     // Limited feature
     const remaining = Math.max(0, limit - currentUsage);
+    
+    // For cumulative-limit features, resetDate is null (doesn't reset monthly)
+    const featureResetDate = CUMULATIVE_LIMIT_FEATURES.has(feature.key) ? null : resetDate;
+    
     summary.push({
       featureKey: feature.key,
       displayName: feature.displayName,
@@ -408,7 +527,7 @@ export async function getUserFeatureSummary(
       currentUsage,
       limit,
       remaining,
-      resetDate,
+      resetDate: featureResetDate,
       upgradeRequired: false,
     });
   }
