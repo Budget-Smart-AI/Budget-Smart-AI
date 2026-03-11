@@ -730,7 +730,7 @@ export const FEATURE_LIMITS = {
     expense_tracking: 100,              // manual expenses per month
 
     // Planning
-    budgets: 2,                         // total budgets
+    budget_creation: 2,                 // total budgets
     savings_goals: 1,                   // total goals
     debt_tracking: 3,                   // total debts
     debt_payoff_planner: 0,             // disabled on free
@@ -786,7 +786,7 @@ export const FEATURE_LIMITS = {
     expense_tracking: null,             // unlimited
 
     // Planning
-    budgets: null,                      // unlimited
+    budget_creation: null,              // unlimited
     savings_goals: null,                // unlimited
     debt_tracking: null,                // unlimited
     debt_payoff_planner: null,          // unlimited
@@ -844,7 +844,7 @@ export const FEATURE_LIMITS = {
     expense_tracking: null,
 
     // Planning (same as pro)
-    budgets: null,
+    budget_creation: null,
     savings_goals: null,
     debt_tracking: null,
     debt_payoff_planner: null,

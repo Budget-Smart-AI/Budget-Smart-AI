@@ -364,6 +364,9 @@ export function FeatureGate({
 }: FeatureGateProps) {
   const { getFeatureState, isLoading } = useFeatureUsage();
 
+  // Debug logging (temporary)
+  console.log(`[FeatureGate] ${feature}:`, { isLoading, state: getFeatureState(feature) });
+
   // While the initial load is in progress, render children normally
   // (avoids a flicker of the gated UI before we know the user's state).
   if (isLoading) return <>{children}</>;
@@ -371,7 +374,10 @@ export function FeatureGate({
   const state = getFeatureState(feature);
 
   // Unknown feature or no data yet → render children normally
-  if (!state) return <>{children}</>;
+  if (!state) {
+    console.warn(`[FeatureGate] No state found for feature: ${feature}`);
+    return <>{children}</>;
+  }
 
   // ── Fully allowed ──────────────────────────────────────────────────────────
   if (state.allowed) {
@@ -390,6 +396,7 @@ export function FeatureGate({
   }
 
   // ── Gated (limit_reached or upgrade_required) ──────────────────────────────
+  console.log(`[FeatureGate] GATING ${feature}:`, state);
   const blurClass = BLUR_CLASS[blurIntensity];
 
   return (
