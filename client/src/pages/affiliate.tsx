@@ -137,7 +137,7 @@ Ready to see YOUR numbers? [YOUR AFFILIATE LINK]
 Best,
 [Your Name]
 
-P.S. The 14-day free trial gives you full access. No credit card needed to start.`
+P.S. Start with the Free Plan - no credit card needed to get started.`
   },
   {
     day: 4,
@@ -261,7 +261,7 @@ This is my final email about BudgetSmart AI, so I wanted to make it count.
 
 Here's what you get when you start today:
 
-✅ 14-day FREE trial (full access, no restrictions)
+✅ Free Plan to get started (no credit card required)
 ✅ AI-powered spending analysis
 ✅ Bill prediction and reminders
 ✅ Subscription tracking

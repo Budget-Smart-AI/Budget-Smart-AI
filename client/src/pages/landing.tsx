@@ -1159,7 +1159,7 @@ export default function LandingPage() {
           >
             <a href="https://app.budgetsmart.io/signup" target="_self">
               <Button size="lg" className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 px-8 py-6 text-lg">
-                {settings.hero_cta_primary || "Start Free Trial"}
+                {settings.hero_cta_primary || "Get Started Free"}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </a>

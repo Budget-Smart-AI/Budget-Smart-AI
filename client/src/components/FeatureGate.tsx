@@ -48,43 +48,43 @@ const FEATURE_COPY: Record<
     icon: "✨",
     heading: "AI Insights",
     body: "Proactive AI-generated financial insights tailored to your spending.",
-    cta: "Start Free Trial",
+    cta: "Unlock with Pro",
   },
   ai_daily_coach: {
     icon: "🎯",
     heading: "AI Daily Coach",
     body: "Daily financial briefings and personalized coaching to hit your goals.",
-    cta: "Start Free Trial",
+    cta: "Unlock with Pro",
   },
   financial_reports: {
     icon: "📊",
     heading: "Advanced Reports",
     body: "Deep-dive analytics with custom date ranges and export capabilities.",
-    cta: "Start Free Trial",
+    cta: "Unlock with Pro",
   },
   data_export_csv: {
     icon: "📤",
     heading: "Data Export",
     body: "Export all your financial data to CSV or JSON for complete control.",
-    cta: "Start Free Trial",
+    cta: "Unlock with Pro",
   },
   data_export_json: {
     icon: "📤",
     heading: "Data Export",
     body: "Export all your financial data to CSV or JSON for complete control.",
-    cta: "Start Free Trial",
+    cta: "Unlock with Pro",
   },
   what_if_simulator: {
     icon: "🔮",
     heading: "What-If Simulator",
     body: "Model financial scenarios — what if you saved more, earned less, or changed jobs?",
-    cta: "Start Free Trial",
+    cta: "Unlock with Pro",
   },
   debt_payoff_planner: {
     icon: "💳",
     heading: "Debt Payoff Planner",
     body: "Avalanche & snowball payoff strategies with a personalized payoff timeline.",
-    cta: "Start Free Trial",
+    cta: "Unlock with Pro",
   },
   mx_bank_connections: {
     icon: "🏦",
@@ -116,7 +116,7 @@ const FALLBACK_COPY = {
   icon: "🔒",
   heading: "Pro Feature",
   body: "This feature unlocks more of your financial potential.",
-  cta: "Start Free Trial",
+  cta: "Unlock with Pro",
 };
 
 // ─── Blur intensity map ───────────────────────────────────────────────────────
