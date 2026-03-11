@@ -15,6 +15,7 @@ import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { FloatingChatbot } from "@/components/floating-chatbot";
 import { FeatureUsageProvider } from "@/contexts/FeatureUsageContext";
+import { SubscriptionGate } from "@/components/subscription-gate";
 import Dashboard from "@/pages/dashboard";
 import Bills from "@/pages/bills";
 import Income from "@/pages/income";
@@ -193,6 +194,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
   };
 
   return (
+    <SubscriptionGate isAdmin={isAdmin} isDemo={isDemo}>
     <FeatureUsageProvider>
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
@@ -225,6 +227,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
       <FloatingChatbot />
     </SidebarProvider>
     </FeatureUsageProvider>
+    </SubscriptionGate>
   );
 }
 
