@@ -1,3 +1,4 @@
+// FEATURE: CATEGORIES_MANAGEMENT | tier: free | limit: 20 categories
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

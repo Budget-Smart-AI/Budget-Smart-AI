@@ -1,3 +1,6 @@
+// FEATURE: HOUSEHOLD_MANAGEMENT | tier: family | limit: unlimited
+// FEATURE: HOUSEHOLD_MEMBERS | tier: family | limit: 5 members
+// FEATURE: HOUSEHOLD_INVITATIONS | tier: family | limit: 10 invitations/month
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";

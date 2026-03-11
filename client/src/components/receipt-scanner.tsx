@@ -1,3 +1,5 @@
+// FEATURE: RECEIPT_SCANNER | tier: free | limit: 10 uploads/month
+// FEATURE: RECEIPT_SCANNING | tier: pro | limit: 3 scans/month (AI OCR)
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Camera, Upload, FileText, CheckCircle, XCircle, Loader2, Image as ImageIcon, File, Video, VideoOff, Printer, Trash2, Link2, PencilLine, Receipt, LayoutList, Eye, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';

@@ -1,3 +1,5 @@
+// FEATURE: SPLIT_EXPENSES | tier: family | limit: unlimited
+// FEATURE: HOUSEHOLD_MANAGEMENT | tier: family | limit: unlimited
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";

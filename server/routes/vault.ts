@@ -1,3 +1,5 @@
+// FEATURE: FINANCIAL_VAULT | tier: pro | limit: 5 documents (free tier), 50 documents (pro tier), 100 documents (family tier)
+// FEATURE: VAULT_AI_SEARCH | tier: pro | limit: 10 queries/month
 import express from "express";
 import multer from "multer";
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";

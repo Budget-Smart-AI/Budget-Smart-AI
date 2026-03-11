@@ -1,3 +1,7 @@
+// FEATURE: FINANCIAL_REPORTS | tier: free | limit: unlimited
+// FEATURE: BUDGET_VS_ACTUAL | tier: free | limit: unlimited
+// FEATURE: SPENDING_ANALYSIS | tier: free | limit: unlimited
+// FEATURE: DATA_EXPORT_CSV | tier: free | limit: 5 exports/month
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";

@@ -1,3 +1,9 @@
+// FEATURE: PLAID_BANK_CONNECTIONS | tier: free | limit: 1 connection
+// FEATURE: MX_BANK_CONNECTIONS | tier: free | limit: 1 connection
+// FEATURE: MANUAL_ACCOUNTS | tier: free | limit: 3 accounts
+// FEATURE: TRANSACTION_HISTORY | tier: free | limit: 90 days
+// FEATURE: TRANSACTION_SEARCH | tier: free | limit: unlimited
+// FEATURE: UNMATCHED_TRANSACTIONS | tier: free | limit: unlimited
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
