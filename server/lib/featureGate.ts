@@ -493,6 +493,10 @@ export async function getUserFeatureSummary(
 
     // Limited feature
     const remaining = Math.max(0, limit - currentUsage);
+    
+    // For cumulative-limit features, resetDate is null (doesn't reset monthly)
+    const featureResetDate = CUMULATIVE_LIMIT_FEATURES.has(feature.key) ? null : resetDate;
+    
     summary.push({
       featureKey: feature.key,
       displayName: feature.displayName,
@@ -500,7 +504,7 @@ export async function getUserFeatureSummary(
       currentUsage,
       limit,
       remaining,
-      resetDate,
+      resetDate: featureResetDate,
       upgradeRequired: false,
     });
   }
