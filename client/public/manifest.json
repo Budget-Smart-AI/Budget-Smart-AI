@@ -3,7 +3,7 @@
   "short_name": "BudgetSmart",
   "description": "AI-powered budgeting and financial management. Track bills, manage expenses, and get intelligent insights.",
   "start_url": "/",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#ffffff",
   "theme_color": "#2563eb",
   "orientation": "portrait-primary",

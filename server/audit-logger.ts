@@ -37,6 +37,7 @@ export type AuditEventType =
   | "stripe.webhook_handler_error"
   | "stripe.trial_reminder_sent"
   | "stripe.trial_reminder_failed"
+  | "stripe.code_redeemed"
   | "email.trial_reminder_sent"
   | "email.trial_reminder_failed"
   | "data.ai_coach_run";

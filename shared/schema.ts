@@ -564,6 +564,10 @@ export const users = pgTable("users", {
   trialEmailReminder: text("trial_email_reminder").default("true"), // User preference for trial end reminder
   selectedPlanId: text("selected_plan_id"), // Plan selected during signup (before checkout)
   createdAt: text("created_at"),
+  // Plan tier fields (free / pro / family)
+  plan: text("plan").default("free"), // free, pro, family
+  planStatus: text("plan_status").default("active"), // active, canceled
+  planStartedAt: text("plan_started_at"), // ISO date when plan was activated
   // Email verification fields
   emailVerified: text("email_verified").default("false"),
   emailVerificationToken: text("email_verification_token"),

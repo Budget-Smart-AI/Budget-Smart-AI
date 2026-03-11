@@ -6,6 +6,7 @@ import crypto from "crypto";
 import passport from "passport";
 import { Strategy as GoogleStrategy, Profile } from "passport-google-oauth20";
 import { storage } from "./storage";
+import { sendWelcomeEmail } from "./email";
 
 declare module "express-session" {
   interface SessionData {
@@ -546,6 +547,12 @@ export function setupGoogleOAuth(app: Express): void {
             emailVerified: "true", // Google OAuth verifies email
             mfaRequired: "false", // Google has built-in 2FA
           });
+
+          // Send welcome email for new Google OAuth users (fire-and-forget)
+          if (email) {
+            sendWelcomeEmail(email, firstName || username)
+              .catch(err => console.error('Failed to send welcome email for Google OAuth user:', err));
+          }
 
           return done(null, user);
         } catch (error) {

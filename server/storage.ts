@@ -462,6 +462,9 @@ export interface IStorage {
     subscriptionPlanId?: string | null;
     trialEndsAt?: string | null;
     subscriptionEndsAt?: string | null;
+    plan?: string | null;
+    planStatus?: string | null;
+    planStartedAt?: string | null;
   }): Promise<User | undefined>;
 
   // Landing Page Comparison
@@ -3360,6 +3363,9 @@ export class DatabaseStorage implements IStorage {
     subscriptionPlanId?: string | null;
     trialEndsAt?: string | null;
     subscriptionEndsAt?: string | null;
+    plan?: string | null;
+    planStatus?: string | null;
+    planStartedAt?: string | null;
   }): Promise<User | undefined> {
     const updates: Record<string, any> = {};
     if (stripeInfo.stripeCustomerId !== undefined) updates.stripeCustomerId = stripeInfo.stripeCustomerId;
@@ -3368,6 +3374,9 @@ export class DatabaseStorage implements IStorage {
     if (stripeInfo.subscriptionPlanId !== undefined) updates.subscriptionPlanId = stripeInfo.subscriptionPlanId;
     if (stripeInfo.trialEndsAt !== undefined) updates.trialEndsAt = stripeInfo.trialEndsAt;
     if (stripeInfo.subscriptionEndsAt !== undefined) updates.subscriptionEndsAt = stripeInfo.subscriptionEndsAt;
+    if (stripeInfo.plan !== undefined) updates.plan = stripeInfo.plan;
+    if (stripeInfo.planStatus !== undefined) updates.planStatus = stripeInfo.planStatus;
+    if (stripeInfo.planStartedAt !== undefined) updates.planStartedAt = stripeInfo.planStartedAt;
 
     if (Object.keys(updates).length === 0) return this.getUser(userId);
 

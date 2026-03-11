@@ -25,7 +25,7 @@ import {
   BILL_CATEGORIES, EXPENSE_CATEGORIES, RECURRENCE_OPTIONS, MANUAL_ACCOUNT_TYPES, DEBT_TYPES,
   INVESTMENT_ACCOUNT_TYPES, HOLDING_TYPES, ASSET_CATEGORIES, TAX_CATEGORIES
 } from "@shared/schema";
-import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailVerification, sendEmailViaPostmark } from "./email";
+import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailVerification, sendEmailViaPostmark, sendWelcomeEmail } from "./email";
 import crypto from "crypto";
 import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, generateBackupCodes, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
 import passport from "passport";
@@ -2168,6 +2168,12 @@ Return JSON: { "income": [...] }`;
 
       // Mark email as verified
       await storage.verifyUserEmail(user.id);
+
+      // Send welcome email asynchronously (fire-and-forget)
+      if (user.email) {
+        sendWelcomeEmail(user.email, user.firstName || user.username)
+          .catch(err => console.error('Failed to send welcome email after verification:', err));
+      }
 
       res.json({
         success: true,
@@ -12422,7 +12428,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
       const baseUrl = getStripeBaseUrl(req);
       const successUrl = `${baseUrl}/dashboard?subscription=success`;
-      const cancelUrl = `${baseUrl}/pricing?subscription=canceled`;
+      const cancelUrl = `${baseUrl}/upgrade?cancelled=true`;
 
       const session = await createSubscriptionCheckout(
         userId,
@@ -12573,15 +12579,16 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       }
 
       // Update user's subscription info in NeonDB
+      const sub = subscription as any;
       const updatedUser = await storage.updateUserStripeInfo(userId, {
         stripeSubscriptionId: subscription.id,
         subscriptionStatus: subscription.status,
         subscriptionPlanId: planId,
-        trialEndsAt: subscription.trial_end
-          ? new Date(subscription.trial_end * 1000).toISOString()
+        trialEndsAt: sub.trial_end
+          ? new Date(sub.trial_end * 1000).toISOString()
           : null,
-        subscriptionEndsAt: subscription.current_period_end
-          ? new Date(subscription.current_period_end * 1000).toISOString()
+        subscriptionEndsAt: sub.current_period_end
+          ? new Date(sub.current_period_end * 1000).toISOString()
           : null,
       });
 
@@ -12637,6 +12644,120 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     } catch (error: any) {
       console.error("Error reactivating subscription:", error);
       res.status(500).json({ error: error.message || "Failed to reactivate subscription" });
+    }
+  });
+
+  // Redeem a license/promotion code (AppSumo or lifetime deals)
+  app.post("/api/stripe/redeem-code", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { code } = req.body;
+
+      if (!code || typeof code !== "string") {
+        return res.status(400).json({ error: "A license code is required" });
+      }
+
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.status(500).json({ error: "Payment system not configured" });
+      }
+
+      const { stripe } = await import("./stripe");
+
+      // Validate the promotion code exists in Stripe
+      let promoCode: any;
+      try {
+        const promoCodes = await stripe.promotionCodes.list({ code: code.trim(), limit: 1, active: true });
+        promoCode = promoCodes.data[0];
+      } catch (e: any) {
+        return res.status(400).json({ error: "Invalid or expired code" });
+      }
+
+      if (!promoCode) {
+        return res.status(400).json({ error: "Invalid or expired code" });
+      }
+
+      const coupon = promoCode.coupon;
+      const isFullDiscount = coupon.percent_off === 100;
+
+      if (!isFullDiscount) {
+        return res.status(400).json({ error: "This code is not a lifetime access code" });
+      }
+
+      // Determine which plan the coupon applies to
+      // If the coupon has specific price restrictions, use the first one;
+      // otherwise fall back to the first available paid plan
+      let priceId: string | null = null;
+      let planId: string | null = null;
+      let planName = 'pro';
+
+      if (coupon.applies_to?.products?.length) {
+        // Look up plans matching this product
+        const product = coupon.applies_to.products[0];
+        const prices = await stripe.prices.list({ product, limit: 1, active: true });
+        if (prices.data[0]) {
+          priceId = prices.data[0].id;
+          const plan = await storage.getLandingPricingByStripePriceId(priceId);
+          if (plan) {
+            planId = plan.id;
+            const nameLower = plan.name.toLowerCase();
+            if (nameLower.includes('family')) planName = 'family';
+            else if (nameLower.includes('pro')) planName = 'pro';
+          }
+        }
+      }
+
+      if (!priceId) {
+        // Fallback: find a pro monthly plan
+        const allPlans = await storage.getLandingPricing(true);
+        const proPlan = allPlans.find(p =>
+          p.stripePriceId && p.billingPeriod === 'monthly' && p.name.toLowerCase().includes('pro')
+        ) || allPlans.find(p => p.stripePriceId);
+        if (proPlan?.stripePriceId) {
+          priceId = proPlan.stripePriceId;
+          planId = proPlan.id;
+          const nameLower = proPlan.name.toLowerCase();
+          if (nameLower.includes('family')) planName = 'family';
+        }
+      }
+
+      if (!priceId) {
+        return res.status(400).json({ error: "No eligible plan found for this code" });
+      }
+
+      // Get or create Stripe customer, then create a subscription with 100% discount
+      const { getOrCreateStripeCustomer } = await import("./stripe");
+      const customerId = await getOrCreateStripeCustomer(userId);
+
+      const subscription = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: priceId }],
+        discounts: [{ promotion_code: promoCode.id }],
+        metadata: { userId, planId: planId || '', plan: planName, source: 'redeem' },
+      } as any);
+
+      // Update user's plan in DB
+      await storage.updateUserStripeInfo(userId, {
+        stripeSubscriptionId: subscription.id,
+        subscriptionStatus: subscription.status,
+        subscriptionPlanId: planId,
+        plan: planName,
+        planStatus: 'active',
+        planStartedAt: new Date().toISOString(),
+      });
+
+      auditLogFromRequest(req, {
+        eventType: "stripe.code_redeemed",
+        eventCategory: "billing",
+        actorId: userId,
+        action: "redeem_license_code",
+        outcome: "success",
+        metadata: { code, planName, subscriptionId: subscription.id },
+      });
+
+      res.json({ success: true, plan: planName });
+    } catch (error: any) {
+      console.error("Error redeeming code:", error);
+      res.status(500).json({ error: error.message || "Failed to redeem code" });
     }
   });
 

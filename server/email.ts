@@ -1100,3 +1100,146 @@ The Budget Smart AI Team`;
     return false;
   }
 }
+
+export async function sendWelcomeEmail(
+  toEmail: string,
+  firstName: string
+): Promise<boolean> {
+  if (!process.env.POSTMARK_USERNAME) {
+    console.warn('[Email] Postmark not configured, skipping welcome email');
+    return false;
+  }
+  const fromEmail = process.env.ALERT_EMAIL_FROM;
+  const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
+
+  if (!fromEmail) {
+    console.log("Email configuration missing, skipping welcome email");
+    return false;
+  }
+
+  const subject = "Welcome to Budget Smart AI 🎉";
+  const htmlBody = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9fafb;">
+  <div style="background: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="color: #059669; font-size: 28px; margin: 0;">Welcome to Budget Smart AI!</h1>
+      <p style="color: #6b7280; font-size: 16px; margin-top: 8px;">Hi ${firstName}, your free account is ready.</p>
+    </div>
+    <h2 style="color: #111827; font-size: 18px;">What's included in your free tier:</h2>
+    <ul style="color: #374151; font-size: 15px; line-height: 1.8;">
+      <li>Track bills, income &amp; budgets</li>
+      <li>Manual transaction entry</li>
+      <li>Basic AI insights (limited queries/month)</li>
+      <li>Savings goals</li>
+      <li>Reports &amp; analytics</li>
+    </ul>
+    <h2 style="color: #111827; font-size: 18px;">Getting started:</h2>
+    <p style="color: #374151; font-size: 15px;">1. Connect your first bank account to automatically import transactions<br>
+    2. Set up your monthly budget categories<br>
+    3. Ask the AI assistant for personalized insights</p>
+    <div style="text-align: center; margin-top: 28px;">
+      <a href="${appUrl}/dashboard" style="background: #059669; color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+        Go to Dashboard
+      </a>
+    </div>
+    <hr style="margin: 32px 0; border: none; border-top: 1px solid #e5e7eb;">
+    <p style="color: #9ca3af; font-size: 13px; text-align: center;">
+      Want full access? <a href="${appUrl}/upgrade" style="color: #059669;">Upgrade to Pro or Family</a> for unlimited bank accounts, unlimited AI queries, and more.
+    </p>
+    <p style="color: #9ca3af; font-size: 13px; text-align: center;">© ${new Date().getFullYear()} Budget Smart AI</p>
+  </div>
+</body>
+</html>`;
+
+  const textBody = `Welcome to Budget Smart AI, ${firstName}!
+
+Your free account is ready.
+
+What's included in your free tier:
+- Track bills, income & budgets
+- Manual transaction entry
+- Basic AI insights (limited queries/month)
+- Savings goals
+- Reports & analytics
+
+Getting started:
+1. Connect your first bank account: ${appUrl}/dashboard
+2. Set up your monthly budget categories
+3. Ask the AI assistant for personalized insights
+
+Want full access? Upgrade to Pro or Family at ${appUrl}/upgrade
+
+Best regards,
+The Budget Smart AI Team`;
+
+  try {
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping welcome email.");
+      return false;
+    }
+    await client.sendEmail({
+      From: fromEmail,
+      To: toEmail,
+      Subject: subject,
+      TextBody: textBody,
+      HtmlBody: htmlBody,
+    });
+    console.log(`Welcome email sent to: ${toEmail}`);
+    return true;
+  } catch (error) {
+    console.error("Failed to send welcome email:", error);
+    return false;
+  }
+}
+
+export async function sendUpgradeConfirmationEmail(
+  toEmail: string,
+  firstName: string,
+  planName: string
+): Promise<boolean> {
+  if (!process.env.POSTMARK_USERNAME) {
+    console.warn('[Email] Postmark not configured, skipping upgrade confirmation email');
+    return false;
+  }
+  const fromEmail = process.env.ALERT_EMAIL_FROM;
+  const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
+
+  if (!fromEmail) {
+    console.log("Email configuration missing, skipping upgrade confirmation email");
+    return false;
+  }
+
+  const subject = `Your Budget Smart AI ${planName} plan is now active!`;
+  const textBody = `Hi ${firstName},
+
+Your upgrade to the ${planName} plan is confirmed and your account has been updated.
+
+You now have access to all ${planName} features. Head to your dashboard to get started.
+
+${appUrl}/dashboard
+
+Best regards,
+The Budget Smart AI Team`;
+
+  try {
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping upgrade confirmation email.");
+      return false;
+    }
+    await client.sendEmail({
+      From: fromEmail,
+      To: toEmail,
+      Subject: subject,
+      TextBody: textBody,
+    });
+    console.log(`Upgrade confirmation email sent to: ${toEmail}`);
+    return true;
+  } catch (error) {
+    console.error("Failed to send upgrade confirmation email:", error);
+    return false;
+  }
+}
