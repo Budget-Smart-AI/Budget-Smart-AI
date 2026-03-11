@@ -3712,7 +3712,7 @@ Return JSON: { "income": [...] }`;
    * GET /api/admin/users/:id/feature-usage
    * Returns the current month's feature usage for a specific user (admin only).
    */
-  app.get("/api/admin/users/:id/feature-usage", requireAdmin, async (req, res) => {
+  app.get("/api/admin/users/:id/feature-usage", requireAdmin, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.params.id as string;
       const userResult = await pool.query(`SELECT plan FROM users WHERE id = $1`, [userId]);
@@ -3824,27 +3824,7 @@ Return JSON: { "income": [...] }`;
       );
       const freeUserCount = Number(freeUserCountResult.rows[0]?.count ?? 0);
 
-      const featureUsageAggResult = await pool.query(
-        `SELECT
-           ufu.feature_key,
-           COUNT(DISTINCT ufu.user_id)::int                          AS users_using,
-           COALESCE(AVG(ufu.usage_count), 0)::numeric                AS avg_usage,
-           COUNT(CASE WHEN ufu.usage_count >= ufu_limit.lim THEN 1 END)::int AS users_at_limit
-         FROM user_feature_usage ufu
-         JOIN users u ON u.id = ufu.user_id
-         -- Only count free users in the current month
-         WHERE ufu.period_start = date_trunc('month', NOW())
-           AND (u.plan IS NULL OR u.plan = 'free')
-           AND (u.is_deleted IS NULL OR u.is_deleted = false)
-         -- Compute limit inline via a lateral subquery
-         LEFT JOIN LATERAL (
-           SELECT 1 AS lim
-         ) ufu_limit ON false
-         GROUP BY ufu.feature_key
-         ORDER BY avg_usage DESC`,
-      );
-
-      // Simpler query: per feature, usage count and at-limit count for free users this month
+      // Per feature: users using it, avg usage count, users who received a limit email (at limit)
       const featureStatsResult = await pool.query(
         `SELECT
            ufu.feature_key,

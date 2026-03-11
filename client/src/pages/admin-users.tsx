@@ -505,9 +505,12 @@ interface AdminFeatureUsageData {
   features: AdminFeatureUsageItem[];
 }
 
+const USAGE_CRITICAL_THRESHOLD = 86;
+const USAGE_WARNING_THRESHOLD = 61;
+
 function progressColor(pct: number) {
-  if (pct >= 86) return "bg-red-500";
-  if (pct >= 61) return "bg-amber-500";
+  if (pct >= USAGE_CRITICAL_THRESHOLD) return "bg-red-500";
+  if (pct >= USAGE_WARNING_THRESHOLD) return "bg-amber-500";
   return "bg-emerald-500";
 }
 
@@ -550,9 +553,9 @@ function UserFeatureUsageSection({ userId }: { userId: string }) {
               <span className="text-muted-foreground truncate max-w-[65%]">{f.displayName}</span>
               <span
                 className={`font-medium tabular-nums ${
-                  f.percentUsed >= 86
+                  f.percentUsed >= USAGE_CRITICAL_THRESHOLD
                     ? "text-red-600 dark:text-red-400"
-                    : f.percentUsed >= 61
+                    : f.percentUsed >= USAGE_WARNING_THRESHOLD
                     ? "text-amber-600 dark:text-amber-400"
                     : "text-emerald-600 dark:text-emerald-400"
                 }`}

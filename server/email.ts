@@ -1318,8 +1318,7 @@ export async function checkAndSendUsageMilestoneEmails(): Promise<void> {
         const subject = `You're running low on ${featureName} this month`;
         const text = `Hi ${firstName},
 
-You've used ${row.usage_count} of your ${limit} free ${featureName.toLowerCase()} this month. \
-Upgrade to Pro for unlimited access, or your usage resets on ${resetDateStr}.
+You've used ${row.usage_count} of your ${limit} free ${featureName.toLowerCase()} this month. Upgrade to Pro for unlimited access, or your usage resets on ${resetDateStr}.
 
 Upgrade now: ${appUrl}/upgrade
 
@@ -1339,8 +1338,7 @@ The Budget Smart AI Team`;
         const subject = `You've used all your free ${featureName}`;
         const text = `Hi ${firstName},
 
-You've reached your ${limit} ${featureName.toLowerCase()} limit for this month. \
-Your usage resets on ${resetDateStr}.
+You've reached your ${limit} ${featureName.toLowerCase()} limit for this month. Your usage resets on ${resetDateStr}.
 
 Upgrade to Pro for unlimited access and never hit a limit again.
 

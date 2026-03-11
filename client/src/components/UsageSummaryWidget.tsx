@@ -25,6 +25,11 @@ interface FeatureUsageData {
 }
 
 /** Route each feature key to its most relevant page */
+/** Progress bar colour thresholds */
+const USAGE_CRITICAL_THRESHOLD = 86;
+const USAGE_WARNING_THRESHOLD = 61;
+
+/** Route each feature key to its most relevant page */
 function getFeatureRoute(key: string): string {
   const routeMap: Record<string, string> = {
     ai_assistant: "/ai-assistant",
@@ -49,8 +54,8 @@ function getFeatureRoute(key: string): string {
 
 /** Colour the progress bar based on % used */
 function progressColor(pct: number): string {
-  if (pct >= 86) return "#EF4444";
-  if (pct >= 61) return "#F59E0B";
+  if (pct >= USAGE_CRITICAL_THRESHOLD) return "#EF4444";
+  if (pct >= USAGE_WARNING_THRESHOLD) return "#F59E0B";
   return "#22C55E";
 }
 
