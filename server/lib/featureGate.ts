@@ -345,62 +345,40 @@ async function getCumulativeItemCounts(userId: string): Promise<Map<string, numb
   const counts = new Map<string, number>();
 
   try {
-    // Count bills
-    const billsResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM bills WHERE user_id = $1::uuid`,
+    // Single query with multiple COUNT subqueries for better performance
+    const result = await pool.query<{
+      bills: string;
+      budgets: string;
+      debts: string;
+      savings_goals: string;
+      assets: string;
+      manual_accounts: string;
+      vault_documents: string;
+      custom_categories: string;
+    }>(
+      `SELECT 
+        (SELECT COUNT(*) FROM bills WHERE user_id = $1::uuid) as bills,
+        (SELECT COUNT(DISTINCT category) FROM budgets WHERE user_id = $1::uuid) as budgets,
+        (SELECT COUNT(*) FROM debt_details WHERE user_id = $1::uuid) as debts,
+        (SELECT COUNT(*) FROM savings_goals WHERE user_id = $1::uuid) as savings_goals,
+        (SELECT COUNT(*) FROM assets WHERE user_id = $1::uuid) as assets,
+        (SELECT COUNT(*) FROM manual_accounts WHERE user_id = $1::uuid) as manual_accounts,
+        (SELECT COUNT(*) FROM vault_documents WHERE user_id = $1::uuid) as vault_documents,
+        (SELECT COUNT(*) FROM custom_categories WHERE user_id = $1::uuid) as custom_categories`,
       [userId]
     );
-    counts.set('bill_tracking', parseInt(billsResult.rows[0]?.count || '0', 10));
 
-    // Count budgets (unique categories - since budgets are per-category)
-    const budgetsResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(DISTINCT category) as count FROM budgets WHERE user_id = $1::uuid`,
-      [userId]
-    );
-    counts.set('budget_creation', parseInt(budgetsResult.rows[0]?.count || '0', 10));
-
-    // Count debts
-    const debtsResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM debt_details WHERE user_id = $1::uuid`,
-      [userId]
-    );
-    counts.set('debt_tracking', parseInt(debtsResult.rows[0]?.count || '0', 10));
-
-    // Count savings goals
-    const savingsResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM savings_goals WHERE user_id = $1::uuid`,
-      [userId]
-    );
-    counts.set('savings_goals', parseInt(savingsResult.rows[0]?.count || '0', 10));
-
-    // Count assets
-    const assetsResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM assets WHERE user_id = $1::uuid`,
-      [userId]
-    );
-    counts.set('asset_tracking', parseInt(assetsResult.rows[0]?.count || '0', 10));
-
-    // Count manual accounts
-    const accountsResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM manual_accounts WHERE user_id = $1::uuid`,
-      [userId]
-    );
-    counts.set('manual_accounts', parseInt(accountsResult.rows[0]?.count || '0', 10));
-
-    // Count vault documents
-    const vaultResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM vault_documents WHERE user_id = $1::uuid`,
-      [userId]
-    );
-    counts.set('financial_vault', parseInt(vaultResult.rows[0]?.count || '0', 10));
-
-    // Count custom categories
-    const categoriesResult = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM custom_categories WHERE user_id = $1::uuid`,
-      [userId]
-    );
-    counts.set('categories_management', parseInt(categoriesResult.rows[0]?.count || '0', 10));
-
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      counts.set('bill_tracking', parseInt(row.bills, 10));
+      counts.set('budget_creation', parseInt(row.budgets, 10));
+      counts.set('debt_tracking', parseInt(row.debts, 10));
+      counts.set('savings_goals', parseInt(row.savings_goals, 10));
+      counts.set('asset_tracking', parseInt(row.assets, 10));
+      counts.set('manual_accounts', parseInt(row.manual_accounts, 10));
+      counts.set('financial_vault', parseInt(row.vault_documents, 10));
+      counts.set('categories_management', parseInt(row.custom_categories, 10));
+    }
   } catch (error) {
     console.error('Error getting cumulative item counts:', error);
   }

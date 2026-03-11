@@ -98,7 +98,6 @@ export function FeatureUsageProvider({ children }: { children: ReactNode }) {
   // Populate usageMap when the API responds
   useEffect(() => {
     if (!data) return;
-    console.log('[FeatureUsageContext] API response:', data);
     setPlan(data.plan || "free");
     const map = new Map<string, FeatureSummaryItem>();
     for (const item of data.summary) {
@@ -107,7 +106,6 @@ export function FeatureUsageProvider({ children }: { children: ReactNode }) {
         resetDate: item.resetDate ? new Date(item.resetDate) : null,
       });
     }
-    console.log('[FeatureUsageContext] Usage map populated:', Array.from(map.keys()));
     setUsageMap(map);
   }, [data]);
 
