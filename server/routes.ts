@@ -12677,7 +12677,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       }
 
       const coupon = promoCode.coupon;
-      const isFullDiscount = coupon.percent_off === 100 || coupon.amount_off != null;
+      const isFullDiscount = coupon.percent_off === 100;
 
       if (!isFullDiscount) {
         return res.status(400).json({ error: "This code is not a lifetime access code" });
@@ -12728,12 +12728,12 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const { getOrCreateStripeCustomer } = await import("./stripe");
       const customerId = await getOrCreateStripeCustomer(userId);
 
-      const subscription = await (stripe.subscriptions.create as any)({
+      const subscription = await stripe.subscriptions.create({
         customer: customerId,
         items: [{ price: priceId }],
         discounts: [{ promotion_code: promoCode.id }],
         metadata: { userId, planId: planId || '', plan: planName, source: 'redeem' },
-      });
+      } as any);
 
       // Update user's plan in DB
       await storage.updateUserStripeInfo(userId, {

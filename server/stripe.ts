@@ -62,6 +62,8 @@ export async function createSubscriptionCheckout(
 
   // Get the plan details to determine trial settings
   const plan = await storage.getLandingPricingPlan(planId);
+  // Default to 0 trial days in the freemium model — users start on the free plan
+  // and only see trials if the plan explicitly configures them.
   const trialDays = plan?.trialDays || 0;
   const requiresCard = plan?.requiresCard !== "false";
 

@@ -148,7 +148,13 @@ export default function UpgradePage() {
       </div>
 
       {/* Plan cards */}
-      <div className={`grid gap-6 ${filteredPlans.length > 0 ? `grid-cols-1 md:grid-cols-${Math.min(filteredPlans.length + 1, 3)}` : "grid-cols-1 md:grid-cols-2"}`}>
+      <div className={`grid gap-6 ${
+        filteredPlans.length === 0
+          ? "grid-cols-1 md:grid-cols-2"
+          : filteredPlans.length === 1
+          ? "grid-cols-1 md:grid-cols-2"
+          : "grid-cols-1 md:grid-cols-3"
+      }`}>
         {/* Free tier — always shown */}
         <div className="rounded-xl border p-6 space-y-4">
           <div>

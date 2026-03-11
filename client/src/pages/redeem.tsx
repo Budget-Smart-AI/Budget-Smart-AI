@@ -16,7 +16,7 @@ export default function RedeemPage() {
 
   const redeemMutation = useMutation({
     mutationFn: async (licenseCode: string) => {
-      const response = await apiRequest("POST", "/api/stripe/redeem-code", { code: licenseCode });
+      const response = await apiRequest("POST", "/api/stripe/redeem-code", { code: licenseCode.trim().toUpperCase() });
       return response.json();
     },
     onSuccess: (data: any) => {
@@ -69,7 +69,7 @@ export default function RedeemPage() {
                   id="code"
                   placeholder="e.g. APPSUMO-XXXXX"
                   value={code}
-                  onChange={e => setCode(e.target.value.trim().toUpperCase())}
+                  onChange={e => setCode(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === "Enter" && code) redeemMutation.mutate(code);
                   }}
