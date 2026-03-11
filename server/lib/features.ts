@@ -484,7 +484,7 @@ export const FEATURES: Record<string, Feature> = {
     description: 'Create custom automation rules for transactions',
     tier: 'pro',
     category: 'planning',
-    monthlyLimit: 5,
+    monthlyLimit: 10,
     limitUnit: 'rules',
   },
   FINANCIAL_AUTOPILOT: {
@@ -616,7 +616,7 @@ export const FEATURES: Record<string, Feature> = {
     description: 'Secure encrypted storage for financial documents',
     tier: 'pro',
     category: 'utilities',
-    monthlyLimit: null,  // Limit is on total storage, not monthly uploads
+    monthlyLimit: null,  // Limit is on total document count, not monthly uploads
     limitUnit: 'documents',
   },
   VAULT_AI_SEARCH: {
@@ -625,7 +625,7 @@ export const FEATURES: Record<string, Feature> = {
     description: 'AI-powered search and question answering over vault documents',
     tier: 'pro',
     category: 'utilities',
-    monthlyLimit: 10,
+    monthlyLimit: null,  // Unlimited on pro/family tiers
     limitUnit: 'queries',
   },
   CATEGORIES_MANAGEMENT: {
@@ -795,8 +795,8 @@ export const FEATURE_LIMITS = {
     cash_flow_forecast: null,           // unlimited
     financial_health: null,             // unlimited
     data_export_csv: null,              // unlimited
-    data_export_json: 12,               // once per month
-    tax_reporting: 12,                  // once per month
+    data_export_json: 12,               // 12 per year (once per month)
+    tax_reporting: 12,                  // 12 per year (once per month)
 
     // Household (Limited - Family plan required for full access)
     household_management: 0,            // disabled (Family plan required)
@@ -806,7 +806,7 @@ export const FEATURE_LIMITS = {
 
     // Utilities
     receipt_scanner: null,              // unlimited
-    financial_vault: 50,                // 50 documents
+    financial_vault: 50,                // 50 documents total (storage limit)
     vault_ai_search: null,              // unlimited
     categories_management: null,        // unlimited
     security_alerts: null,              // unlimited
@@ -864,7 +864,7 @@ export const FEATURE_LIMITS = {
 
     // Utilities (enhanced on family tier)
     receipt_scanner: null,
-    financial_vault: 100,               // 100 documents
+    financial_vault: 100,               // 100 documents total (storage limit)
     vault_ai_search: null,
     categories_management: null,
     security_alerts: null,

@@ -8838,7 +8838,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
-  // FEATURE: AUTOPILOT_RULES | tier: pro | limit: 5 rules
+  // FEATURE: AUTOPILOT_RULES | tier: pro | limit: 10 rules
   // FEATURE: FINANCIAL_AUTOPILOT | tier: pro | limit: unlimited
   // ============ FINANCIAL AUTOPILOT ============
 

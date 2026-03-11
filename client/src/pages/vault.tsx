@@ -1,5 +1,5 @@
 // FEATURE: FINANCIAL_VAULT | tier: pro | limit: disabled (free), 50 docs (pro), 100 docs (family)
-// FEATURE: VAULT_AI_SEARCH | tier: pro | limit: 10 queries/month
+// FEATURE: VAULT_AI_SEARCH | tier: pro | limit: unlimited
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
