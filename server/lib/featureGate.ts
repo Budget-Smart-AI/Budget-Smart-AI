@@ -338,6 +338,91 @@ export async function checkAndConsume(
 // ============================================================================
 
 /**
+ * Get actual item counts for cumulative-limit features (bills, budgets, debts, etc.)
+ * These features limit the TOTAL number of items, not monthly usage.
+ */
+async function getCumulativeItemCounts(userId: string): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+
+  try {
+    // Count bills
+    const billsResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM bills WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('bill_tracking', parseInt(billsResult.rows[0]?.count || '0', 10));
+
+    // Count budgets (unique categories - since budgets are per-category)
+    const budgetsResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT category) as count FROM budgets WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('budget_creation', parseInt(budgetsResult.rows[0]?.count || '0', 10));
+
+    // Count debts
+    const debtsResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM debt_details WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('debt_tracking', parseInt(debtsResult.rows[0]?.count || '0', 10));
+
+    // Count savings goals
+    const savingsResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM savings_goals WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('savings_goals', parseInt(savingsResult.rows[0]?.count || '0', 10));
+
+    // Count assets
+    const assetsResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM assets WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('asset_tracking', parseInt(assetsResult.rows[0]?.count || '0', 10));
+
+    // Count manual accounts
+    const accountsResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM manual_accounts WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('manual_accounts', parseInt(accountsResult.rows[0]?.count || '0', 10));
+
+    // Count vault documents
+    const vaultResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM vault_documents WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('financial_vault', parseInt(vaultResult.rows[0]?.count || '0', 10));
+
+    // Count custom categories
+    const categoriesResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM custom_categories WHERE user_id = $1::uuid`,
+      [userId]
+    );
+    counts.set('categories_management', parseInt(categoriesResult.rows[0]?.count || '0', 10));
+
+  } catch (error) {
+    console.error('Error getting cumulative item counts:', error);
+  }
+
+  return counts;
+}
+
+/**
+ * Features that use total item counts instead of monthly usage tracking
+ */
+const CUMULATIVE_LIMIT_FEATURES = new Set([
+  'bill_tracking',
+  'budget_creation',
+  'debt_tracking',
+  'savings_goals',
+  'asset_tracking',
+  'manual_accounts',
+  'financial_vault',
+  'categories_management',
+]);
+
+/**
  * Returns a summary of all registered features for `userId` on `plan`,
  * including current usage, limits, and remaining capacity for each feature.
  */
@@ -363,11 +448,18 @@ export async function getUserFeatureSummary(
     usageMap.set(row.feature_key, row.usage_count);
   }
 
+  // Get actual item counts for cumulative-limit features
+  const itemCounts = await getCumulativeItemCounts(userId);
+
   const summary: UserFeatureSummaryItem[] = [];
 
   for (const feature of Object.values(FEATURES)) {
     const limit = getFeatureLimit(tier, feature.key);
-    const currentUsage = usageMap.get(feature.key.toLowerCase()) ?? 0;
+    
+    // Use actual item count for cumulative-limit features, otherwise use usage count
+    const currentUsage = CUMULATIVE_LIMIT_FEATURES.has(feature.key)
+      ? (itemCounts.get(feature.key) ?? 0)
+      : (usageMap.get(feature.key.toLowerCase()) ?? 0);
 
     // Feature unavailable on this plan
     if (limit === 0) {
