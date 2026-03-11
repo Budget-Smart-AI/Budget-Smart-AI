@@ -258,7 +258,10 @@ export async function checkAndSendReminders(): Promise<void> {
  */
 const TRIAL_REMINDER_DAYS_BEFORE = 3;
 
-/** Build the subject/body for a trial-end reminder email. */
+/**
+ * DEPRECATED: Trial reminder email builder - kept for backwards compatibility only.
+ * No longer used in the freemium model.
+ */
 export function buildTrialReminderEmail(firstName: string, trialEndStr: string): {
   subject: string;
   text: string;
@@ -275,88 +278,14 @@ export function buildTrialReminderEmail(firstName: string, trialEndStr: string):
   };
 }
 
+/**
+ * DEPRECATED: Trial reminders are no longer used in the freemium model.
+ * This function is kept for backwards compatibility but will not send any emails.
+ */
 export async function checkAndSendTrialReminders(): Promise<void> {
-  const fromEmail = process.env.ALERT_EMAIL_FROM || process.env.POSTMARK_FROM_EMAIL;
-  if (!fromEmail) {
-    console.log("[TrialReminder] ALERT_EMAIL_FROM not configured, skipping trial reminders");
-    return;
-  }
-
-  const client = getPostmarkClient();
-  if (!client) {
-    console.log("[TrialReminder] Postmark not configured, skipping trial reminders");
-    return;
-  }
-
-  // Find users whose trial ends within the next N days and who have opted in
-  const now = new Date();
-  const windowStart = now.toISOString();
-  const windowEnd = addDays(now, TRIAL_REMINDER_DAYS_BEFORE).toISOString();
-
-  let usersToRemind: any[] = [];
-  try {
-    const result = await pool.query(
-      `SELECT id, email, first_name, username, trial_ends_at
-       FROM users
-       WHERE trial_email_reminder = 'true'
-         AND subscription_status = 'trialing'
-         AND trial_ends_at IS NOT NULL
-         AND trial_ends_at >= $1
-         AND trial_ends_at <= $2
-         AND is_deleted = false`,
-      [windowStart, windowEnd],
-    );
-    usersToRemind = result.rows;
-  } catch (err) {
-    console.error("[TrialReminder] Failed to query users for trial reminders:", err);
-    return;
-  }
-
-  console.log(`[TrialReminder] Found ${usersToRemind.length} users to remind`);
-
-  for (const row of usersToRemind) {
-    if (!row.email) continue;
-
-    const trialEnd = parseISO(row.trial_ends_at);
-    const trialEndStr = format(trialEnd, "MMMM d, yyyy");
-    const firstName = row.first_name || row.username || "there";
-
-    try {
-      const { subject, text, html } = buildTrialReminderEmail(firstName, trialEndStr);
-      await client.sendEmail({
-        From: fromEmail,
-        To: row.email,
-        Subject: subject,
-        TextBody: text,
-        HtmlBody: html,
-      });
-
-      console.log(`[TrialReminder] Reminder sent to user ${row.id} (${row.email})`);
-
-      auditLog({
-        eventType: "email.trial_reminder_sent",
-        eventCategory: "billing",
-        actorId: null,
-        actorType: "system",
-        targetUserId: row.id,
-        action: "trial_reminder_email_sent",
-        outcome: "success",
-        metadata: { trialEnd: trialEndStr },
-      });
-    } catch (err: any) {
-      console.error(`[TrialReminder] Failed to send reminder to user ${row.id}:`, err);
-      auditLog({
-        eventType: "email.trial_reminder_failed",
-        eventCategory: "billing",
-        actorId: null,
-        actorType: "system",
-        targetUserId: row.id,
-        action: "trial_reminder_email_failed",
-        outcome: "failure",
-        metadata: { trialEnd: trialEndStr, error: err?.message || String(err) },
-      });
-    }
-  }
+  // Trials removed in freemium model - function disabled
+  console.log("[TrialReminder] Skipped - no trials in freemium model");
+  return;
 }
 
 export function startEmailScheduler(): void {

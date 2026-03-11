@@ -344,7 +344,7 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
                             <Badge className="text-xs bg-emerald-500 text-white">Most Popular</Badge>
                           )}
                           {isFamilyPlan && plan.billingPeriod === "yearly" && (
-                            <Badge className="text-xs bg-amber-500 text-white">2 Months FREE</Badge>
+                            <Badge className="text-xs bg-amber-500 text-white">4 Months FREE</Badge>
                           )}
                         </div>
                         <div className="text-right">
