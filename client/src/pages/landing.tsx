@@ -184,7 +184,7 @@ const pricingPlans = {
       "Secure Bank Connections",
       "Email Support"
     ],
-    cta: "Start Free Trial"
+    cta: "Get Started Free"
   },
   family: {
     name: "Family",
@@ -202,7 +202,7 @@ const pricingPlans = {
       "Priority Support",
       "Data Export & API Access"
     ],
-    cta: "Start Free Trial",
+    cta: "Get Started Free",
     isPopular: true,
     bonusMonths: 2
   }
@@ -586,7 +586,7 @@ function PricingSection() {
             Choose Your Plan
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto mb-8">
-            Start with a 14-day free trial. Cancel anytime.
+            Free Plan available. Upgrade for unlimited features.
           </p>
 
           {/* Billing Toggle - Fixed spacing */}
@@ -742,7 +742,7 @@ function PricingSection() {
         >
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800/50 border border-slate-700/50">
             <Shield className="h-4 w-4 text-emerald-400" />
-            <span className="text-sm text-slate-300">14-day free trial · Cancel anytime · You won't be charged until trial ends</span>
+            <span className="text-sm text-slate-300">Cancel anytime · Secure payments via Stripe</span>
           </div>
         </motion.div>
       </div>
@@ -1570,12 +1570,12 @@ export default function LandingPage() {
               </p>
               <a href="https://app.budgetsmart.io/signup" target="_self">
                 <Button size="lg" className="bg-white text-emerald-600 hover:bg-slate-100 px-8 py-6 text-lg shadow-xl">
-                  Start Your Free Trial
+                  Get Started Free
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </a>
               <p className="mt-4 text-sm text-white/60">
-                14-day free trial included.
+                Free Plan available. No credit card required.
               </p>
             </div>
           </motion.div>

@@ -12750,9 +12750,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
         stripeSubscriptionId: subscription.id,
         subscriptionStatus: subscription.status,
         subscriptionPlanId: planId,
-        trialEndsAt: sub.trial_end
-          ? new Date(sub.trial_end * 1000).toISOString()
-          : null,
+        trialEndsAt: null, // No trials in freemium model
         subscriptionEndsAt: sub.current_period_end
           ? new Date(sub.current_period_end * 1000).toISOString()
           : null,

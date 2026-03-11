@@ -137,7 +137,9 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
     );
   }
 
-  // Check if user has an active subscription, is in trial, or is on the free plan
+  // Check if user has an active subscription or is on the free plan
+  // Free users (plan === 'free') should pass through completely
+  // Only users with no plan assigned (null/undefined) should be blocked
   const hasAccess =
     (subscription?.hasSubscription && ["active", "trialing"].includes(subscription?.status || "")) ||
     subscription?.userPlan === "free";
@@ -145,6 +147,9 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
   if (hasAccess) {
     return <>{children}</>;
   }
+
+  // If userPlan is null or undefined, user needs to select a plan
+  // Free tier users with plan='free' are already allowed through above
 
   // Get available plans (with Stripe price IDs)
   const plans = landingData?.pricing?.filter(p => p.stripePriceId) || [];
@@ -212,9 +217,9 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
               <Zap className="h-3 w-3 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold mb-2 text-white">Start Your Free Trial</h1>
+          <h1 className="text-3xl font-bold mb-2 text-white">Get Started Free</h1>
           <p className="text-slate-400 max-w-md mx-auto">
-            Get full access to Budget Smart AI with a free trial. Cancel anytime.
+            Choose a plan that works for you. Start with our Free Plan or upgrade anytime.
           </p>
         </div>
 
@@ -266,10 +271,6 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
 
                 <div className="pt-4 space-y-2 border-t border-slate-700">
                   <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <Calendar className="w-4 h-4" />
-                    <span>We'll remind you before trial ends</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-slate-400">
                     <Shield className="w-4 h-4" />
                     <span>Cancel anytime, no hassle</span>
                   </div>
@@ -282,11 +283,6 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-white">Choose Your Plan</CardTitle>
-                  {popularPlan?.trialDays && (
-                    <Badge className="bg-emerald-500">
-                      {popularPlan.trialDays}-day free trial
-                    </Badge>
-                  )}
                 </div>
                 <CardDescription className="text-slate-400">
                   Start free, upgrade anytime
@@ -359,11 +355,6 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
                       {plan.billingPeriod === "yearly" && (
                         <p className="text-xs text-slate-400">
                           Billed annually (${price.toFixed(2)}/year)
-                        </p>
-                      )}
-                      {plan.trialDays && plan.trialDays > 0 && (
-                        <p className="text-xs text-emerald-400 mt-1">
-                          {plan.trialDays}-day free trial included
                         </p>
                       )}
                     </button>
