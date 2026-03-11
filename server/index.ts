@@ -116,7 +116,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// Security headers via helmet
+// Security headers via helmet — registered here (before session and static files)
+// so that ALL responses, including static files like robots.txt, receive the
+// full set of security headers.
+//
+// Pen-test findings addressed:
+//   1. HSTS (Strict-Transport-Security) — set via strictTransportSecurity with
+//      a 1-year max-age, includeSubDomains, and preload flag.
+//   2. X-Content-Type-Options: nosniff — set via xContentTypeOptions so that
+//      every response (including static files such as /robots.txt) includes the
+//      header.  The static-file middleware (express.static) is registered later
+//      in the async startup IIFE, ensuring helmet always runs first.
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -144,8 +154,10 @@ app.use(
         objectSrc: ["'none'"],
       },
     },
-    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
-    noSniff: true,
+    // Pen-test fix 1: HSTS with 1-year max-age, includeSubDomains, and preload.
+    strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    // Pen-test fix 2: X-Content-Type-Options: nosniff on all responses.
+    xContentTypeOptions: true,
     referrerPolicy: { policy: "strict-origin" },
   })
 );
