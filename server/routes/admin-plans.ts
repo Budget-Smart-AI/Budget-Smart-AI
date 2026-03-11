@@ -4,22 +4,6 @@
  * Provides API endpoints for admins to dynamically configure which features
  * are available on each plan (Free/Pro/Family) and what their limits are.
  * 
- * This allows business logic changes without code deploys.
- */
-
-import { Router } from "express";
-import { pool } from "../db";
-import { FEATURES, FEATURE_LIMITS } from "../lib/features";
-import { auditLogFromRequest } from "../audit-logger";
-
-const router = Router();
-
-/**
- * Admin Plan-Feature Management Routes
- * 
- * Provides API endpoints for admins to dynamically configure which features
- * are available on each plan (Free/Pro/Family) and what their limits are.
- * 
  * Changes take effect IMMEDIATELY at runtime - no redeploy needed.
  */
 
@@ -54,91 +38,40 @@ interface PlanFeatureConfig {
 }
 
 // ============================================================================
-// Auto-Seed Database with Hardcoded Limits (First Run Only)
+// Auto-Seed Database with Hardcoded Limits (Runs on every deploy)
 // ============================================================================
 
 /**
- * Seeds plan_feature_limits table with current hardcoded FEATURE_LIMITS.
- * Only inserts if no data exists (idempotent).
- * Called automatically on server startup.
+ * Upserts plan_feature_limits table with current hardcoded FEATURE_LIMITS.
+ * Runs on every server startup — DO UPDATE ensures limits stay in sync with
+ * features.ts after code changes.
+ * Called automatically on server startup and also via POST /features/seed.
  */
 export async function seedPlanFeatureLimits(): Promise<void> {
   try {
-    // Check if already seeded
-    const { rows: existing } = await pool.query(
-      `SELECT COUNT(*) as count FROM plan_feature_limits`
-    );
-    
-    if (parseInt(existing[0]?.count || '0', 10) > 0) {
-      console.log('[PlanFeatureLimits] Already seeded, skipping');
-      return;
-    }
+    console.log('[PlanFeatureLimits] Upserting limits from features.ts...');
 
-    console.log('[PlanFeatureLimits] Seeding with hardcoded limits from features.ts...');
-    
-    const plans = ['free', 'pro', 'family'];
-    let insertCount = 0;
+    const plans = ['free', 'pro', 'family'] as const;
+    let upsertCount = 0;
 
     for (const plan of plans) {
       const limits = FEATURE_LIMITS[plan] as Record<string, number | null>;
-      
-      for (const [featureKey, limitValue] of Object.entries(limits)) {
-        await pool.query(
-          `INSERT INTO plan_feature_limits (plan_name, feature_key, limit_value, is_enabled, updated_at)
-           VALUES ($1, $2, $3, true, $4)
-           ON CONFLICT (plan_name, feature_key) DO NOTHING`,
-          [plan, featureKey, limitValue, new Date().toISOString()]
-        );
-        insertCount++;
-      }
+      const entries = Object.entries(limits);
+      if (entries.length === 0) continue;
+      const planNames = entries.map(() => plan);
+      const featureKeys = entries.map(([k]) => k);
+      const limitValues = entries.map(([, v]) => v);
+      await pool.query(
+        `INSERT INTO plan_feature_limits (plan_name, feature_key, limit_value, is_enabled, updated_at)
+         SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::int[]), true, NOW()
+         ON CONFLICT (plan_name, feature_key)
+         DO UPDATE SET limit_value = EXCLUDED.limit_value, updated_at = NOW()`,
+        [planNames, featureKeys, limitValues]
+      );
+      upsertCount += entries.length;
     }
 
-    console.log(`[PlanFeatureLimits] ✅ Seeded ${insertCount} feature limits across ${plans.length} plans`);
-  } catch (error) {
-    console.error('[PlanFeatureLimits] ❌ Seed failed:', error);
-  }
-}
-
-// ============================================================================
-// Auto-Seed Database with Hardcoded Limits (First Run Only)
-// ============================================================================
-
-/**
- * Seeds plan_feature_limits table with current hardcoded FEATURE_LIMITS.
- * Only inserts if no data exists (idempotent).
- */
-export async function seedPlanFeatureLimits(): Promise<void> {
-  try {
-    // Check if already seeded
-    const { rows: existing } = await pool.query(
-      `SELECT COUNT(*) as count FROM plan_feature_limits`
-    );
-    
-    if (parseInt(existing[0]?.count || '0', 10) > 0) {
-      console.log('[PlanFeatureLimits] Already seeded, skipping');
-      return;
-    }
-
-    console.log('[PlanFeatureLimits] Seeding with hardcoded limits from features.ts...');
-    
-    const plans = ['free', 'pro', 'family'];
-    let insertCount = 0;
-
-    for (const plan of plans) {
-      const limits = FEATURE_LIMITS[plan] as Record<string, number | null>;
-      
-      for (const [featureKey, limitValue] of Object.entries(limits)) {
-        await pool.query(
-          `INSERT INTO plan_feature_limits (plan_name, feature_key, limit_value, is_enabled, updated_at)
-           VALUES ($1, $2, $3, true, $4)
-           ON CONFLICT (plan_name, feature_key) DO NOTHING`,
-          [plan, featureKey, limitValue, new Date().toISOString()]
-        );
-        insertCount++;
-      }
-    }
-
-    console.log(`[PlanFeatureLimits] ✅ Seeded ${insertCount} feature limits across ${plans.length} plans`);
+    console.log(`[PlanFeatureLimits] ✅ Upserted ${upsertCount} feature limits across ${plans.length} plans`);
   } catch (error) {
     console.error('[PlanFeatureLimits] ❌ Seed failed:', error);
   }

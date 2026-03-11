@@ -333,7 +333,9 @@ app.use((req, res, next) => {
     console.error("Failed to ensure plan_feature_limits table — dynamic plan management will not work:", err)
   );
 
-  // Auto-seed plan_feature_limits from features.ts (first run only)
+  // seedPlanFeatureLimits is also called inside ensurePlanFeatureLimitsTable above,
+  // but we keep this explicit call so the admin-plans endpoint stays independently
+  // exercised and so startup logs confirm the upsert count.
   const { seedPlanFeatureLimits } = await import("./routes/admin-plans");
   await seedPlanFeatureLimits().catch(err =>
     console.error("Failed to seed plan_feature_limits — admin panel may show empty:", err)
