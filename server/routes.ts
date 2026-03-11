@@ -12674,6 +12674,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
         hasSubscription: !!user.stripeSubscriptionId,
         status: user.subscriptionStatus,
         planId: user.subscriptionPlanId,
+        userPlan: user.plan || null,
         plan: plan ? {
           id: plan.id,
           name: plan.name,

@@ -58,6 +58,7 @@ import { format, setDate, addMonths, isBefore, addDays, addWeeks, getDay, setDay
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BILL_CATEGORIES, RECURRENCE_OPTIONS, type Bill } from "@shared/schema";
+import { FeatureGate } from "@/components/FeatureGate";
 
 const DAYS_OF_WEEK = [
   { value: 0, label: "Sunday" },
@@ -1016,10 +1017,12 @@ export default function Bills() {
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => setEditingBill(undefined)} data-testid="button-add-bill">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Bill
-              </Button>
+              <FeatureGate feature="bill_tracking" blurIntensity="low">
+                <Button onClick={() => setEditingBill(undefined)} data-testid="button-add-bill">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Bill
+                </Button>
+              </FeatureGate>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>

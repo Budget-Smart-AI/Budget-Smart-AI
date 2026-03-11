@@ -20,6 +20,7 @@ interface SubscriptionData {
   hasSubscription: boolean;
   status: string | null;
   planId: string | null;
+  userPlan: string | null;
   plan: {
     id: string;
     name: string;
@@ -136,9 +137,10 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
     );
   }
 
-  // Check if user has an active subscription or is in trial
-  const hasAccess = subscription?.hasSubscription &&
-    ["active", "trialing"].includes(subscription?.status || "");
+  // Check if user has an active subscription, is in trial, or is on the free plan
+  const hasAccess =
+    (subscription?.hasSubscription && ["active", "trialing"].includes(subscription?.status || "")) ||
+    subscription?.userPlan === "free";
 
   if (hasAccess) {
     return <>{children}</>;
