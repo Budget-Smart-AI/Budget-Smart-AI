@@ -372,6 +372,7 @@ export function startEmailScheduler(): void {
   checkAndSendMonthlyReports().catch(console.error);
   checkVaultExpiryNotifications().catch(console.error);
   checkAndSendTrialReminders().catch(console.error);
+  checkAndSendUsageMilestoneEmails().catch(console.error);
 
   // Then run every 24 hours (once per day)
   const oneDayMs = 24 * 60 * 60 * 1000;
@@ -381,6 +382,7 @@ export function startEmailScheduler(): void {
     checkAndSendMonthlyReports().catch(console.error);
     checkVaultExpiryNotifications().catch(console.error);
     checkAndSendTrialReminders().catch(console.error);
+    checkAndSendUsageMilestoneEmails().catch(console.error);
     // Run data retention cleanup weekly (every Sunday)
     if (new Date().getDay() === 0) {
       runDataRetentionCleanup().catch(console.error);
@@ -1241,5 +1243,124 @@ The Budget Smart AI Team`;
   } catch (error) {
     console.error("Failed to send upgrade confirmation email:", error);
     return false;
+  }
+}
+
+/**
+ * Check all free users for feature usage milestones (80% warning, 100% limit hit)
+ * and send notification emails if not already sent this month.
+ * Runs daily from the email scheduler.
+ */
+export async function checkAndSendUsageMilestoneEmails(): Promise<void> {
+  const client = getPostmarkClient();
+  const fromEmail = process.env.ALERT_EMAIL_FROM;
+  const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
+
+  if (!client || !fromEmail) {
+    console.log("[UsageMilestone] Email not configured, skipping usage milestone emails.");
+    return;
+  }
+
+  // Lazy import to avoid circular dependencies
+  const { FEATURE_LIMITS } = await import("./lib/features");
+  const freeLimits = FEATURE_LIMITS.free as Record<string, number | null>;
+
+  // Fetch all usage rows for free users in the current month that haven't had
+  // both milestone emails sent yet, joined with user details.
+  let rows: any[];
+  try {
+    const result = await pool.query(
+      `SELECT
+         ufu.id,
+         ufu.user_id,
+         ufu.feature_key,
+         ufu.usage_count,
+         ufu.warning_sent_at,
+         ufu.limit_sent_at,
+         u.email,
+         u.first_name,
+         u.username
+       FROM user_feature_usage ufu
+       JOIN users u ON u.id = ufu.user_id
+       WHERE ufu.period_start = date_trunc('month', NOW())
+         AND (u.plan IS NULL OR u.plan = 'free')
+         AND (u.is_deleted IS NULL OR u.is_deleted = false)
+         AND u.email IS NOT NULL
+         AND u.email != ''
+         -- Only rows where at least one milestone notification hasn't been sent
+         AND (ufu.warning_sent_at IS NULL OR ufu.limit_sent_at IS NULL)`,
+    );
+    rows = result.rows;
+  } catch (err) {
+    console.error("[UsageMilestone] Failed to query usage rows:", err);
+    return;
+  }
+
+  const resetDate = (() => {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  })();
+  const resetDateStr = format(resetDate, "MMMM d, yyyy");
+
+  for (const row of rows) {
+    const limit = freeLimits[row.feature_key as string];
+    if (!limit || limit <= 0) continue; // not a limited feature
+
+    const pct = (row.usage_count / limit) * 100;
+    const featureName = row.feature_key
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c: string) => c.toUpperCase());
+    const firstName = row.first_name || row.username || "there";
+
+    try {
+      // 80% warning — send once if not already sent
+      if (pct >= 80 && pct < 100 && !row.warning_sent_at) {
+        const subject = `You're running low on ${featureName} this month`;
+        const text = `Hi ${firstName},
+
+You've used ${row.usage_count} of your ${limit} free ${featureName.toLowerCase()} this month. \
+Upgrade to Pro for unlimited access, or your usage resets on ${resetDateStr}.
+
+Upgrade now: ${appUrl}/upgrade
+
+Best regards,
+The Budget Smart AI Team`;
+
+        await client.sendEmail({ From: fromEmail, To: row.email, Subject: subject, TextBody: text });
+        await pool.query(
+          `UPDATE user_feature_usage SET warning_sent_at = NOW() WHERE id = $1`,
+          [row.id],
+        );
+        console.log(`[UsageMilestone] 80% warning sent for user ${row.user_id}, feature ${row.feature_key}`);
+      }
+
+      // 100% limit hit — send once if not already sent
+      if (pct >= 100 && !row.limit_sent_at) {
+        const subject = `You've used all your free ${featureName}`;
+        const text = `Hi ${firstName},
+
+You've reached your ${limit} ${featureName.toLowerCase()} limit for this month. \
+Your usage resets on ${resetDateStr}.
+
+Upgrade to Pro for unlimited access and never hit a limit again.
+
+Upgrade now: ${appUrl}/upgrade
+
+Best regards,
+The Budget Smart AI Team`;
+
+        await client.sendEmail({ From: fromEmail, To: row.email, Subject: subject, TextBody: text });
+        await pool.query(
+          `UPDATE user_feature_usage SET limit_sent_at = NOW() WHERE id = $1`,
+          [row.id],
+        );
+        console.log(`[UsageMilestone] 100% limit email sent for user ${row.user_id}, feature ${row.feature_key}`);
+      }
+    } catch (emailErr) {
+      console.error(
+        `[UsageMilestone] Failed to send email to ${row.email} for feature ${row.feature_key}:`,
+        emailErr,
+      );
+    }
   }
 }

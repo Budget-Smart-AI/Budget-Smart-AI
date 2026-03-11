@@ -167,6 +167,22 @@ interface AggregateInsightsData {
     totalCostUsd: number;
     callCount: number;
   }>;
+  featureUsage?: {
+    freeUserCount: number;
+    byFeature: Array<{
+      featureKey: string;
+      usersUsing: number;
+      avgUsage: number;
+      usersAtLimit: number;
+    }>;
+    conversionSignals: Array<{
+      userId: string;
+      username: string | null;
+      email: string | null;
+      displayName: string | null;
+      featuresAtLimit: number;
+    }>;
+  };
 }
 
 const createUserSchema = z.object({
@@ -468,7 +484,92 @@ function UserAnalyticsSection({ userId }: { userId: string }) {
           )}
         </div>
       </CollapsibleSection>
+
+      {/* Section 5 — Feature Usage (free plan only) */}
+      <UserFeatureUsageSection userId={userId} />
     </div>
+  );
+}
+
+// ── Per-user feature usage (free plan) ─────────────────────────────────────
+interface AdminFeatureUsageItem {
+  key: string;
+  displayName: string;
+  used: number;
+  limit: number;
+  remaining: number;
+  percentUsed: number;
+}
+interface AdminFeatureUsageData {
+  plan: string;
+  features: AdminFeatureUsageItem[];
+}
+
+function progressColor(pct: number) {
+  if (pct >= 86) return "bg-red-500";
+  if (pct >= 61) return "bg-amber-500";
+  return "bg-emerald-500";
+}
+
+function UserFeatureUsageSection({ userId }: { userId: string }) {
+  const { data, isLoading } = useQuery<AdminFeatureUsageData>({
+    queryKey: [`/api/admin/users/${userId}/feature-usage`],
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <CollapsibleSection title="Feature Usage" icon={BarChart2}>
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+        </div>
+      </CollapsibleSection>
+    );
+  }
+
+  if (!data || data.plan !== "free" || data.features.length === 0) {
+    return (
+      <CollapsibleSection title="Feature Usage" icon={BarChart2}>
+        <p className="text-xs text-muted-foreground italic">
+          {!data || data.plan !== "free"
+            ? "Feature usage tracking is for free-plan users only."
+            : "No limited-feature usage recorded this month."}
+        </p>
+      </CollapsibleSection>
+    );
+  }
+
+  return (
+    <CollapsibleSection title="Feature Usage (This Month)" icon={BarChart2}>
+      <div className="space-y-1.5">
+        {data.features.map((f) => (
+          <div key={f.key} className="space-y-0.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground truncate max-w-[65%]">{f.displayName}</span>
+              <span
+                className={`font-medium tabular-nums ${
+                  f.percentUsed >= 86
+                    ? "text-red-600 dark:text-red-400"
+                    : f.percentUsed >= 61
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-emerald-600 dark:text-emerald-400"
+                }`}
+              >
+                {f.used}/{f.limit}
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full rounded-full ${progressColor(f.percentUsed)}`}
+                style={{ width: `${f.percentUsed}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </CollapsibleSection>
   );
 }
 
@@ -580,6 +681,83 @@ function AggregateInsights() {
               </div>
             </CollapsibleContent>
           </Collapsible>
+        )}
+
+        {/* Free plan feature usage — conversion signals */}
+        {data.featureUsage && data.featureUsage.freeUserCount > 0 && (
+          <div className="space-y-3 border-t pt-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <BarChart2 className="w-3.5 h-3.5" />
+              Free-Plan Feature Usage — This Month ({data.featureUsage.freeUserCount} free users)
+            </p>
+            {data.featureUsage.byFeature.length > 0 ? (
+              <div className="border rounded-md overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-muted/50">
+                      <th className="text-left p-2 font-medium text-muted-foreground">Feature</th>
+                      <th className="text-right p-2 font-medium text-muted-foreground">Users</th>
+                      <th className="text-right p-2 font-medium text-muted-foreground">Avg Usage</th>
+                      <th className="text-right p-2 font-medium text-muted-foreground">At Limit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.featureUsage.byFeature.map((f) => (
+                      <tr key={f.featureKey} className="border-t">
+                        <td className="p-2 font-medium capitalize">
+                          {f.featureKey.replace(/_/g, " ")}
+                        </td>
+                        <td className="p-2 text-right">{f.usersUsing}</td>
+                        <td className="p-2 text-right">{f.avgUsage}</td>
+                        <td className="p-2 text-right">
+                          {f.usersAtLimit > 0 ? (
+                            <Badge variant="destructive" className="text-xs h-4 px-1.5">
+                              {f.usersAtLimit}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No feature usage recorded this month.</p>
+            )}
+
+            {data.featureUsage.conversionSignals.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  High-Intent Upgrade Candidates (hit limit, still on free)
+                </p>
+                <div className="border rounded-md overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-muted/50">
+                        <th className="text-left p-2 font-medium text-muted-foreground">User</th>
+                        <th className="text-right p-2 font-medium text-muted-foreground">Features at Limit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.featureUsage.conversionSignals.map((u) => (
+                        <tr key={u.userId} className="border-t">
+                          <td className="p-2">{u.displayName || u.username || u.userId}</td>
+                          <td className="p-2 text-right">
+                            <Badge variant="outline" className="text-xs">
+                              {u.featuresAtLimit}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>
