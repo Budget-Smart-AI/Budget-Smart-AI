@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { FeatureGate } from "@/components/FeatureGate";
 
 interface SimulationOption {
   id: string;
@@ -144,6 +145,7 @@ export default function SimulatorPage() {
   const selectedDebt = options?.debts.find(d => d.id === selectedDebtId);
 
   return (
+    <FeatureGate feature="what_if_simulator">
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
         <Calculator className="h-8 w-8 text-primary" />
@@ -424,5 +426,6 @@ export default function SimulatorPage() {
         </Card>
       </div>
     </div>
+    </FeatureGate>
   );
 }

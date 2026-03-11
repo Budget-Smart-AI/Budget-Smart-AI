@@ -57,6 +57,7 @@ import {
   type PlaidTransaction,
   EXPENSE_CATEGORIES,
 } from "@shared/schema";
+import { FeatureGate } from "@/components/FeatureGate";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", {
@@ -1159,10 +1160,12 @@ export default function ReportsPage() {
           </div>
           <p className="text-muted-foreground">Analyze your spending patterns</p>
         </div>
-        <Button variant="outline" onClick={exportToCSV}>
-          <Download className="h-4 w-4 mr-2" />
-          Export CSV
-        </Button>
+        <FeatureGate feature="data_export_csv">
+          <Button variant="outline" onClick={exportToCSV}>
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+        </FeatureGate>
       </div>
 
       <div className="flex items-center justify-between">

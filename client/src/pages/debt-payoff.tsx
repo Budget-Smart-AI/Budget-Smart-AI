@@ -43,6 +43,7 @@ import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { DebtDetails, PlaidAccount } from "@shared/schema";
+import { FeatureGate } from "@/components/FeatureGate";
 
 interface DebtItem {
   id: string;
@@ -426,6 +427,7 @@ Keep the response concise and actionable.`;
   }
 
   return (
+    <FeatureGate feature="debt_payoff_planner">
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -898,5 +900,6 @@ Keep the response concise and actionable.`;
         </Card>
       )}
     </div>
+    </FeatureGate>
   );
 }

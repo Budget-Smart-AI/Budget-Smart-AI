@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { FeatureGate } from "@/components/FeatureGate";
 
 interface Message {
   role: "user" | "assistant";
@@ -297,6 +298,7 @@ export default function AIAssistant() {
   };
 
   return (
+    <FeatureGate feature="ai_assistant" displayName="AI messages">
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -445,5 +447,6 @@ export default function AIAssistant() {
         </CardContent>
       </Card>
     </div>
+    </FeatureGate>
   );
 }

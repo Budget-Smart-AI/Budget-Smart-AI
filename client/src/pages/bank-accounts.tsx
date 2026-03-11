@@ -82,6 +82,7 @@ import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditC
 import { TransactionDrilldown } from "@/components/transaction-drilldown";
 import { BankProviderSelectionDialog } from "@/components/bank-provider-selection";
 import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
+import { FeatureGate } from "@/components/FeatureGate";
 
 // Category color map mirrors server/merchant-categories.ts CATEGORY_COLORS
 const CATEGORY_COLORS: Record<string, string> = {
@@ -1444,6 +1445,7 @@ export default function BankAccounts() {
           )}
           {activeTab === "bank" && (
             <div className="flex gap-2">
+              <FeatureGate feature="mx_bank_connections" blurIntensity="low">
               {selectedProvider === null ? (
                 <Button 
                   onClick={() => setShowProviderSelection(true)} 
@@ -1457,6 +1459,7 @@ export default function BankAccounts() {
               ) : (
                 <PlaidLinkButton onSuccess={handleAccountConnected} autoOpen={true} />
               )}
+              </FeatureGate>
             </div>
           )}
           {activeTab === "manual" && (
