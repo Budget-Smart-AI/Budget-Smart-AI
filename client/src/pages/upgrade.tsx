@@ -82,17 +82,17 @@ export default function UpgradePage() {
   const allPlans = landingData?.pricing?.filter(p => p.stripePriceId) || [];
   const filteredPlans = allPlans.filter(p => p.billingPeriod === billingPeriod);
 
-  // Compute annual savings badge per plan
+  // Compute annual savings message per plan (in months free)
   const getAnnualSavings = (plan: PlanData): string | null => {
     if (plan.billingPeriod !== "yearly") return null;
-    const monthlyEquivalent = parseFloat(plan.price) / 12;
     const monthlyPlan = allPlans.find(
       p => p.billingPeriod === "monthly" && p.name === plan.name
     );
     if (!monthlyPlan) return null;
     const monthlyPrice = parseFloat(monthlyPlan.price);
-    const savings = ((monthlyPrice - monthlyEquivalent) / monthlyPrice) * 100;
-    return savings > 0 ? `Save ${Math.round(savings)}%` : null;
+    const yearlyTotal = parseFloat(plan.price);
+    const monthsFree = Math.round((monthlyPrice * 12 - yearlyTotal) / monthlyPrice);
+    return monthsFree > 0 ? `Save ${monthsFree} months free` : null;
   };
 
   if (isLoading) {
@@ -141,7 +141,7 @@ export default function UpgradePage() {
           >
             Annual
             <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-medium border border-emerald-500/30">
-              Save up to 30%
+              Save up to 4 months
             </span>
           </button>
         </div>

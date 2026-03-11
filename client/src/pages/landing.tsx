@@ -170,7 +170,7 @@ const pricingPlans = {
   pro: {
     name: "Pro",
     monthlyPrice: 7.99,
-    yearlyPrice: 5.58, // per month when billed yearly
+    yearlyPrice: 5.58, // per month when billed yearly ($67/12 = $5.58)
     yearlyTotal: 67, // total yearly cost
     description: "Perfect for individuals taking control of their finances",
     features: [
@@ -184,13 +184,13 @@ const pricingPlans = {
       "Secure Bank Connections",
       "Email Support"
     ],
-    cta: "Start Free Trial"
+    cta: "Get Started Free"
   },
   family: {
     name: "Family",
     monthlyPrice: 14.99,
-    yearlyPrice: 8.08, // per month when billed yearly ($97/12)
-    yearlyTotal: 97, // total yearly cost
+    yearlyPrice: 10.75, // per month when billed yearly ($129 total / 12 months)
+    yearlyTotal: 129, // total yearly cost
     description: "Best value for households managing finances together",
     features: [
       "Everything in Pro, plus:",
@@ -202,9 +202,9 @@ const pricingPlans = {
       "Priority Support",
       "Data Export & API Access"
     ],
-    cta: "Start Free Trial",
+    cta: "Get Started Free",
     isPopular: true,
-    bonusMonths: 2
+    bonusMonths: 4 // 4 months free when paying yearly
   }
 };
 
@@ -228,7 +228,7 @@ function PromoBanner() {
         {[...Array(6)].map((_, i) => (
           <span key={i} className="mx-8 flex items-center gap-2 text-sm font-semibold">
             <Sparkles className="h-4 w-4" />
-            LIMITED TIME: Get 2 FREE MONTHS with Family Plan
+            LIMITED TIME: Get 4 FREE MONTHS with Family Plan
             <span className="mx-4">•</span>
             <Gift className="h-4 w-4" />
             Save even more - Offer ends soon!
@@ -586,7 +586,7 @@ function PricingSection() {
             Choose Your Plan
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto mb-8">
-            Start with a 14-day free trial. Cancel anytime.
+            Free Plan available. Upgrade for unlimited features.
           </p>
 
           {/* Billing Toggle - Fixed spacing */}
@@ -612,7 +612,7 @@ function PricingSection() {
             </span>
             {billingPeriod === "yearly" && (
               <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 ml-1">
-                Save 30%
+                Save up to 4 months
               </Badge>
             )}
           </div>
@@ -637,8 +637,8 @@ function PricingSection() {
                   <span className="text-slate-400">/month</span>
                 </div>
                 {billingPeriod === "yearly" && (
-                  <p className="text-sm text-slate-500 mt-1">
-                    Billed ${pricingPlans.pro.yearlyTotal}/year
+                  <p className="text-sm text-emerald-400 mt-1 font-medium">
+                    Save 3 months free (billed ${pricingPlans.pro.yearlyTotal}/year)
                   </p>
                 )}
                 <CardDescription className="mt-3">{pricingPlans.pro.description}</CardDescription>
@@ -680,7 +680,7 @@ function PricingSection() {
               <CardHeader className="text-center pb-2">
                 <CardTitle className="text-2xl text-white">{pricingPlans.family.name}</CardTitle>
 
-                {/* 2 FREE MONTHS Highlight */}
+                {/* 4 FREE MONTHS Highlight */}
                 <div className="my-3">
                   <motion.div
                     initial={{ scale: 0.9 }}
@@ -689,7 +689,7 @@ function PricingSection() {
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/50"
                   >
                     <Gift className="h-5 w-5 text-amber-400" />
-                    <span className="text-amber-400 font-bold text-sm">+2 FREE MONTHS</span>
+                    <span className="text-amber-400 font-bold text-sm">+4 FREE MONTHS</span>
                     <Sparkles className="h-4 w-4 text-amber-400" />
                   </motion.div>
                   <p className="text-xs text-amber-400/80 mt-1">Limited time offer!</p>
@@ -702,8 +702,8 @@ function PricingSection() {
                   <span className="text-slate-400">/month</span>
                 </div>
                 {billingPeriod === "yearly" && (
-                  <p className="text-sm text-slate-500 mt-1">
-                    Billed ${pricingPlans.family.yearlyTotal}/year
+                  <p className="text-sm text-amber-400 mt-1 font-medium">
+                    Save 4 months free (billed ${pricingPlans.family.yearlyTotal}/year)
                   </p>
                 )}
                 <CardDescription className="mt-3">{pricingPlans.family.description}</CardDescription>
@@ -716,10 +716,10 @@ function PricingSection() {
                       <span className="text-sm text-slate-300">{feature}</span>
                     </li>
                   ))}
-                  {/* Highlight 2 Free Months in features */}
+                  {/* Highlight 4 Free Months in features */}
                   <li className="flex items-start gap-2">
                     <Gift className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-                    <span className="text-sm text-amber-400 font-medium">2 Bonus Months Free!</span>
+                    <span className="text-sm text-amber-400 font-medium">4 Bonus Months Free!</span>
                   </li>
                 </ul>
                 <Button
@@ -742,7 +742,7 @@ function PricingSection() {
         >
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800/50 border border-slate-700/50">
             <Shield className="h-4 w-4 text-emerald-400" />
-            <span className="text-sm text-slate-300">14-day free trial · Cancel anytime · You won't be charged until trial ends</span>
+            <span className="text-sm text-slate-300">Cancel anytime · Secure payments via Stripe</span>
           </div>
         </motion.div>
       </div>
@@ -1149,7 +1149,7 @@ export default function LandingPage() {
           >
             <a href="https://app.budgetsmart.io/signup" target="_self">
               <Button size="lg" className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-lg shadow-emerald-500/25 px-8 py-6 text-lg">
-                {settings.hero_cta_primary || "Start Free Trial"}
+                {settings.hero_cta_primary || "Get Started Free"}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </a>
@@ -1570,12 +1570,12 @@ export default function LandingPage() {
               </p>
               <a href="https://app.budgetsmart.io/signup" target="_self">
                 <Button size="lg" className="bg-white text-emerald-600 hover:bg-slate-100 px-8 py-6 text-lg shadow-xl">
-                  Start Your Free Trial
+                  Get Started Free
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </a>
               <p className="mt-4 text-sm text-white/60">
-                14-day free trial included.
+                Free Plan available. No credit card required.
               </p>
             </div>
           </motion.div>

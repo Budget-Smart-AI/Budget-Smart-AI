@@ -118,9 +118,9 @@ export default function TermsOfService() {
               <a href="mailto:admin@budgetsmart.io" className="text-primary hover:underline">admin@budgetsmart.io</a>.
             </p>
 
-            <h3 className="text-lg font-medium mt-4 mb-2">4.5 Free Trial</h3>
-            <p className="text-muted-foreground">
-              If a free trial is offered, it converts automatically to a paid subscription at the end of the trial period unless cancelled beforehand. We will notify you before the trial ends.
+            <h3 className="text-lg font-medium mt-4 mb-2">4.5 Subscription Billing</h3>
+            <p className="leading-relaxed mb-4">
+              When you upgrade to a paid subscription, you will be charged the subscription fee at the beginning of each billing cycle (monthly or annually, based on your selected plan). If you cancel, your paid subscription remains active until the end of the current billing period, after which your account reverts to the Free Plan.
             </p>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">5. Prohibited Uses</h2>

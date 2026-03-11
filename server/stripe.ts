@@ -25,6 +25,26 @@ export async function getOrCreateStripeCustomer(userId: string): Promise<string>
     return user.stripeCustomerId;
   }
 
+  // Check if a Stripe customer already exists with this email to avoid duplicates
+  if (user.email) {
+    const existingCustomers = await stripe.customers.list({
+      email: user.email,
+      limit: 1,
+    });
+    
+    if (existingCustomers.data.length > 0) {
+      const existingCustomer = existingCustomers.data[0];
+      console.log(`[Stripe] Found existing customer ${existingCustomer.id} for email ${user.email}`);
+      
+      // Update user with the existing Stripe customer ID
+      await storage.updateUserStripeInfo(userId, {
+        stripeCustomerId: existingCustomer.id,
+      });
+      
+      return existingCustomer.id;
+    }
+  }
+
   // Create a new Stripe customer
   const customer = await stripe.customers.create({
     email: user.email || undefined,
@@ -60,17 +80,9 @@ export async function createSubscriptionCheckout(
 
   const customerId = await getOrCreateStripeCustomer(userId);
 
-  // Get the plan details to determine trial settings
-  const plan = await storage.getLandingPricingPlan(planId);
-  // Default to 0 trial days in the freemium model — users start on the free plan
-  // and only see trials if the plan explicitly configures them.
-  const trialDays = plan?.trialDays || 0;
-  const requiresCard = plan?.requiresCard !== "false";
-
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
-    customer: customerId,
+    customer: customerId, // Always use customer ID to avoid duplicate customer creation
     client_reference_id: userId,
-    customer_email: user.stripeCustomerId ? undefined : (user.email || undefined),
     mode: "subscription",
     payment_method_types: ["card"],
     line_items: [
@@ -93,18 +105,6 @@ export async function createSubscriptionCheckout(
       },
     },
   };
-
-  // Add trial if applicable (only when plan has trial days configured)
-  if (trialDays > 0) {
-    sessionParams.subscription_data!.trial_period_days = trialDays;
-
-    // If card is required for trial, use trial settings
-    if (requiresCard) {
-      sessionParams.payment_method_collection = "always";
-    } else {
-      sessionParams.payment_method_collection = "if_required";
-    }
-  }
 
   const session = await stripe.checkout.sessions.create(sessionParams);
   return session;
@@ -270,11 +270,7 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
         break;
       }
 
-      case "customer.subscription.trial_will_end": {
-        const subscription = event.data.object as Stripe.Subscription;
-        await handleTrialWillEnd(subscription);
-        break;
-      }
+      // Removed trial_will_end handler - no trials in freemium model
 
       default:
         console.log(`Unhandled webhook event type: ${event.type}`);
@@ -413,9 +409,7 @@ async function processCheckoutForUser(
       stripeSubscriptionId: subscription.id,
       subscriptionStatus: subscription.status,
       subscriptionPlanId: resolvedPlanId,
-      trialEndsAt: subscription.trial_end
-        ? new Date(subscription.trial_end * 1000).toISOString()
-        : null,
+      trialEndsAt: null, // No trials in freemium model
       subscriptionEndsAt: subscription.current_period_end
         ? new Date(subscription.current_period_end * 1000).toISOString()
         : null,
@@ -486,9 +480,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription): Prom
           stripeSubscriptionId: sub.id,
           subscriptionStatus: sub.status,
           subscriptionPlanId: planId || null,
-          trialEndsAt: sub.trial_end
-            ? new Date(sub.trial_end * 1000).toISOString()
-            : null,
+          trialEndsAt: null, // No trials in freemium model
           subscriptionEndsAt: sub.current_period_end
             ? new Date(sub.current_period_end * 1000).toISOString()
             : null,
@@ -502,9 +494,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription): Prom
     stripeSubscriptionId: sub.id,
     subscriptionStatus: sub.status,
     subscriptionPlanId: planId || null,
-    trialEndsAt: sub.trial_end
-      ? new Date(sub.trial_end * 1000).toISOString()
-      : null,
+    trialEndsAt: null, // No trials in freemium model
     subscriptionEndsAt: sub.current_period_end
       ? new Date(sub.current_period_end * 1000).toISOString()
       : null,
@@ -562,90 +552,6 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void
 
     // TODO: Send email notification about failed payment
     console.log(`Payment failed for user ${user.id}`);
-  }
-}
-
-/**
- * Handle trial ending soon notification (fired by Stripe ~3 days before trial ends)
- */
-async function handleTrialWillEnd(subscription: Stripe.Subscription): Promise<void> {
-  const userId = subscription.metadata?.userId;
-
-  let user = userId ? await storage.getUser(userId) : null;
-
-  if (!user) {
-    user = await storage.getUserByStripeCustomerId(subscription.customer as string) || null;
-  }
-
-  if (!user) {
-    console.warn(`handleTrialWillEnd: could not find user for subscription ${subscription.id}`);
-    return;
-  }
-
-  console.log(`Trial ending soon for user ${user.id}`);
-
-  // Only send reminder if the user opted in
-  if (user.trialEmailReminder !== "true") {
-    console.log(`User ${user.id} opted out of trial reminder emails, skipping`);
-    return;
-  }
-
-  const userEmail = user.email;
-  if (!userEmail) {
-    console.warn(`User ${user.id} has no email address, cannot send trial reminder`);
-    return;
-  }
-
-  const trialEnd = subscription.trial_end
-    ? new Date(subscription.trial_end * 1000)
-    : null;
-  const trialEndStr = trialEnd
-    ? trialEnd.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-    : "soon";
-
-  try {
-    const { sendEmailViaPostmark, buildTrialReminderEmail } = await import("./email");
-    const fromEmail = process.env.ALERT_EMAIL_FROM || process.env.POSTMARK_FROM_EMAIL;
-    if (!fromEmail) {
-      console.warn("ALERT_EMAIL_FROM not configured, cannot send trial reminder");
-      return;
-    }
-
-    const firstName = user.firstName || user.username || "there";
-    const { subject, text, html } = buildTrialReminderEmail(firstName, trialEndStr);
-
-    await sendEmailViaPostmark({
-      from: fromEmail,
-      to: userEmail,
-      subject,
-      text,
-      html,
-    });
-
-    console.log(`Trial reminder email sent to user ${user.id} (${userEmail})`);
-
-    auditLog({
-      eventType: "stripe.trial_reminder_sent",
-      eventCategory: "billing",
-      actorId: null,
-      actorType: "system",
-      targetUserId: user.id,
-      action: "trial_reminder_email_sent",
-      outcome: "success",
-      metadata: { subscriptionId: subscription.id, trialEnd: trialEndStr },
-    });
-  } catch (err: any) {
-    console.error(`Failed to send trial reminder email to user ${user.id}:`, err);
-    auditLog({
-      eventType: "stripe.trial_reminder_failed",
-      eventCategory: "billing",
-      actorId: null,
-      actorType: "system",
-      targetUserId: user.id,
-      action: "trial_reminder_email_failed",
-      outcome: "failure",
-      metadata: { subscriptionId: subscription.id, error: err?.message || String(err) },
-    });
   }
 }
 

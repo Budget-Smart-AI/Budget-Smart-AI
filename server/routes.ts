@@ -9406,6 +9406,8 @@ ${JSON.stringify(txSummary)}`;
 
   // ============ TRIAL CONVERSION FLOW ============
 
+  // DEPRECATED: Trial status endpoint - kept for backwards compatibility
+  // Returns no-op response since trials are removed in freemium model
   app.get("/api/trial/status", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -9415,45 +9417,15 @@ ${JSON.stringify(txSummary)}`;
         return res.status(404).json({ error: "User not found" });
       }
 
-      // Calculate trial day
-      const createdAt = user.createdAt ? new Date(user.createdAt) : new Date();
-      const daysSinceSignup = Math.floor(
-        (Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
-      );
-
-      // Determine trial phase (Day 3, 7, 10, 12)
-      const phases = [
-        { day: 3, message: "You've been tracking for 3 days! See your progress." },
-        { day: 7, message: "One week in! Your spending patterns are becoming clear." },
-        { day: 10, message: "10 days of insights! Ready to take control?" },
-        { day: 12, message: "Trial ending soon! Don't lose your financial clarity." },
-        { day: 14, message: "Last day! Upgrade to keep your financial journey going." },
-      ];
-
-      const currentPhase = phases.find(p => daysSinceSignup >= p.day && daysSinceSignup < p.day + 2);
-
-      // Get user's achievements/value realized
-      const [bills, expenses, budgets] = await Promise.all([
-        storage.getBills(userId),
-        storage.getExpenses(userId),
-        storage.getBudgets(userId),
-      ]);
-
-      const valueRealized = {
-        billsTracked: bills.length,
-        expensesLogged: expenses.length,
-        budgetsCreated: budgets.length,
-        estimatedSavings: bills.length * 5 + expenses.length * 2, // Rough estimate
-      };
-
+      // Return minimal response - no trial in freemium model
       res.json({
-        daysSinceSignup,
-        trialDaysRemaining: Math.max(0, 14 - daysSinceSignup),
-        isTrialExpired: daysSinceSignup > 14,
-        currentPhase: currentPhase || null,
-        valueRealized,
-        showConversionModal: currentPhase !== null,
-        isPremium: (user as any).isPremium === "true",
+        daysSinceSignup: 0,
+        trialDaysRemaining: 0,
+        isTrialExpired: false,
+        currentPhase: null,
+        valueRealized: { billsTracked: 0, expensesLogged: 0, budgetsCreated: 0, estimatedSavings: 0 },
+        showConversionModal: false,
+        isPremium: user.plan === "pro" || user.plan === "family",
       });
     } catch (error) {
       console.error("Error getting trial status:", error);
@@ -9461,7 +9433,7 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
-  // Log trial event
+  // DEPRECATED: Trial event logging - kept for backwards compatibility
   app.post("/api/trial/events", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -9476,8 +9448,8 @@ ${JSON.stringify(txSummary)}`;
 
       res.json(event);
     } catch (error) {
-      console.error("Error dismissing leak alert:", error);
-      res.status(500).json({ error: "Failed to dismiss alert" });
+      console.error("Error logging trial event:", error);
+      res.status(500).json({ error: "Failed to log event" });
     }
   });
 
@@ -12750,9 +12722,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
         stripeSubscriptionId: subscription.id,
         subscriptionStatus: subscription.status,
         subscriptionPlanId: planId,
-        trialEndsAt: sub.trial_end
-          ? new Date(sub.trial_end * 1000).toISOString()
-          : null,
+        trialEndsAt: null, // No trials in freemium model
         subscriptionEndsAt: sub.current_period_end
           ? new Date(sub.current_period_end * 1000).toISOString()
           : null,
