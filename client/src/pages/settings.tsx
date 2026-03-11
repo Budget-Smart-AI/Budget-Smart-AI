@@ -943,7 +943,7 @@ function BillingTab() {
           <p className="text-sm text-muted-foreground">
             Subscribe to a plan to unlock all features.
           </p>
-          <Button onClick={() => window.location.href = "https://budgetsmart.io/#pricing"} className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600">
+          <Button onClick={() => navigate("/upgrade")} className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600">
             <Sparkles className="w-4 h-4 mr-2" />
             Start a Plan
           </Button>
@@ -1969,7 +1969,7 @@ export default function Settings({ onLogout }: SettingsProps) {
             <div className="text-center py-4">
               <p className="text-muted-foreground mb-4">No active subscription</p>
               <Button
-                onClick={() => window.location.href = "https://budgetsmart.io/#pricing"}
+                onClick={() => navigate("/upgrade")}
                 className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
               >
                 <Sparkles className="w-4 h-4 mr-2" />

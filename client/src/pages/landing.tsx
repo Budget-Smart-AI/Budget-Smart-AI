@@ -556,8 +556,18 @@ function PricingSection() {
   const [, navigate] = useLocation();
   const [billingPeriod, setBillingPeriod] = useState<"yearly" | "monthly">("yearly");
 
+  const { data: session } = useQuery<{ authenticated?: boolean }>({
+    queryKey: ["/api/auth/session"],
+    retry: false,
+  });
+
   const handleSubscribe = (planName: string) => {
-    navigate(`/signup?plan=${planName.toLowerCase()}&billing=${billingPeriod}`);
+    if (session?.authenticated === true) {
+      // Already logged in — go to the in-app upgrade page
+      navigate(`/upgrade?plan=${planName.toLowerCase()}&billing=${billingPeriod}`);
+    } else {
+      navigate(`/signup?plan=${planName.toLowerCase()}&billing=${billingPeriod}`);
+    }
   };
 
   return (

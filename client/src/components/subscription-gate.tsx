@@ -190,7 +190,7 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
                 )}
               </p>
             </div>
-            <Button variant="outline" className="border-slate-700 text-white hover:bg-slate-800" onClick={() => window.location.href = "https://budgetsmart.io/#pricing"}>
+            <Button variant="outline" className="border-slate-700 text-white hover:bg-slate-800" onClick={() => navigate("/upgrade")}>
               View Plans
             </Button>
           </CardContent>
@@ -394,7 +394,7 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
 
         {/* View all plans link */}
         <div className="text-center mt-6 flex flex-col items-center gap-2">
-          <Button variant="ghost" className="text-slate-400 hover:text-white hover:bg-slate-800" onClick={() => window.location.href = "https://budgetsmart.io/#pricing"}>
+          <Button variant="ghost" className="text-slate-400 hover:text-white hover:bg-slate-800" onClick={() => navigate("/upgrade")}>
             View all plan details
             <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
@@ -408,6 +408,7 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
               } catch {
                 // Ignore network errors – redirect to login regardless
               }
+              queryClient.clear();
               window.location.href = "/login";
             }}
           >
