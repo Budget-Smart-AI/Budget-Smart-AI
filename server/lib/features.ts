@@ -63,12 +63,13 @@
  * ├─ DATA_EXPORT_CSV             → /api/export/csv/:type, server/routes.ts:8525
  * └─ DATA_EXPORT_JSON            → /api/user/export-data, server/routes.ts:8721
  * 
- * HOUSEHOLD (3 features)
+ * HOUSEHOLD (4 features)
  * ├─ HOUSEHOLD_MANAGEMENT        → /api/households/*, client/src/components/household-settings.tsx
+ * ├─ HOUSEHOLD_MEMBERS           → /api/households/members/*, client/src/components/household-settings.tsx
  * ├─ SPLIT_EXPENSES              → /api/split-expenses, client/src/pages/split-expenses.tsx
  * └─ HOUSEHOLD_INVITATIONS       → /api/households/invite, server/routes.ts:11461
  * 
- * UTILITIES (9 features)
+ * UTILITIES (10 features)
  * ├─ RECEIPT_SCANNER             → /api/receipts/upload, server/routes/receipts.ts
  * ├─ FINANCIAL_VAULT             → /api/vault/*, server/routes/vault.ts
  * ├─ CATEGORIES_MANAGEMENT       → /api/custom-categories, client/src/pages/categories.tsx
@@ -187,7 +188,7 @@ export const FEATURES: Record<string, Feature> = {
     key: 'ai_assistant',
     displayName: 'AI Assistant',
     description: 'Chat with AI financial advisor for personalized insights and advice',
-    tier: 'pro',
+    tier: 'free',
     category: 'ai',
     monthlyLimit: 10,
     limitUnit: 'messages',
@@ -196,7 +197,7 @@ export const FEATURES: Record<string, Feature> = {
     key: 'receipt_scanning',
     displayName: 'Receipt Scanning',
     description: 'AI-powered OCR to extract merchant, amount, date, and category from receipt images',
-    tier: 'pro',
+    tier: 'free',
     category: 'ai',
     monthlyLimit: 3,
     limitUnit: 'scans',
@@ -205,7 +206,7 @@ export const FEATURES: Record<string, Feature> = {
     key: 'portfolio_advisor',
     displayName: 'Portfolio Advisor',
     description: 'AI analysis of investment holdings with Canadian tax context (TFSA, RRSP)',
-    tier: 'pro',
+    tier: 'free',
     category: 'ai',
     monthlyLimit: 1,
     limitUnit: 'insights',
@@ -214,7 +215,7 @@ export const FEATURES: Record<string, Feature> = {
     key: 'ai_budget_suggestions',
     displayName: 'AI Budget Suggestions',
     description: 'AI-generated budget recommendations based on spending patterns',
-    tier: 'pro',
+    tier: 'free',
     category: 'ai',
     monthlyLimit: 5,
     limitUnit: 'requests',
@@ -232,9 +233,9 @@ export const FEATURES: Record<string, Feature> = {
     key: 'ai_savings_advisor',
     displayName: 'AI Savings Advisor',
     description: 'AI recommendations for safe savings amounts based on cash flow',
-    tier: 'pro',
+    tier: 'free',
     category: 'ai',
-    monthlyLimit: 10,
+    monthlyLimit: 3,
     limitUnit: 'requests',
   },
   AI_INSIGHTS: {
@@ -615,7 +616,7 @@ export const FEATURES: Record<string, Feature> = {
     description: 'Secure encrypted storage for financial documents',
     tier: 'pro',
     category: 'utilities',
-    monthlyLimit: 5,
+    monthlyLimit: null,  // Limit is on total storage, not monthly uploads
     limitUnit: 'documents',
   },
   VAULT_AI_SEARCH: {

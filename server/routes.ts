@@ -6056,7 +6056,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
-  // FEATURE: AI_ASSISTANT | tier: pro | limit: 10 messages/month
+  // FEATURE: AI_ASSISTANT | tier: free | limit: 10 messages/month (free), unlimited (pro/family)
   // ==================== AI ASSISTANT ROUTES ====================
 
   // Chat with AI assistant
@@ -6262,7 +6262,7 @@ Rules:
     }
   });
 
-  // FEATURE: AI_BUDGET_SUGGESTIONS | tier: pro | limit: 5 requests/month
+  // FEATURE: AI_BUDGET_SUGGESTIONS | tier: free | limit: 5 requests/month (free), unlimited (pro/family)
   app.post("/api/ai/suggest-budgets", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -6439,7 +6439,7 @@ Rules:
     }
   });
 
-  // FEATURE: AI_SAVINGS_ADVISOR | tier: pro | limit: 10 requests/month
+  // FEATURE: AI_SAVINGS_ADVISOR | tier: free | limit: 3 requests/month (free), unlimited (pro/family)
   // AI Savings Goal Advisor
   app.post("/api/ai/savings-advisor", requireAuth, async (req, res) => {
     try {
@@ -10702,7 +10702,7 @@ The Budget Smart AI Team`,
     }
   });
 
-  // FEATURE: PORTFOLIO_ADVISOR | tier: pro | limit: 1 insight/month
+  // FEATURE: PORTFOLIO_ADVISOR | tier: free | limit: 1 insight/month (free), unlimited (pro/family)
   // Persistent chat with portfolio context
   app.post("/api/investments/advisor-chat", requireAuth, async (req, res) => {
     try {

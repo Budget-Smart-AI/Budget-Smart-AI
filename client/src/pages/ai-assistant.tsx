@@ -1,4 +1,4 @@
-// FEATURE: AI_ASSISTANT | tier: pro | limit: 10 messages/month
+// FEATURE: AI_ASSISTANT | tier: free | limit: 10 messages/month (free), unlimited (pro/family)
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";

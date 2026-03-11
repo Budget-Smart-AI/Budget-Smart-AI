@@ -1,4 +1,4 @@
-// FEATURE: FINANCIAL_VAULT | tier: pro | limit: 5 documents (free tier), 50 documents (pro tier), 100 documents (family tier)
+// FEATURE: FINANCIAL_VAULT | tier: pro | limit: disabled (free), 50 docs (pro), 100 docs (family)
 // FEATURE: VAULT_AI_SEARCH | tier: pro | limit: 10 queries/month
 import express from "express";
 import multer from "multer";
