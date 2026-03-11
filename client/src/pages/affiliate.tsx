@@ -222,7 +222,7 @@ If you manage finances with a partner or family, this is for you.
 
 Money is the #1 cause of stress in relationships. But it doesn't have to be.
 
-BudgetSmart AI's Family Plan ($12.99/month or $97/year) includes:
+BudgetSmart AI's Family Plan ($14.99/month or $129/year) includes:
 
 👨‍👩‍👧‍👦 Up to 5 family members
 🏦 Up to 3 bank accounts connected
@@ -268,7 +268,7 @@ Here's what you get when you start today:
 ✅ Personalized savings recommendations
 ✅ Bank-level security
 
-Plans start at just $7.99/month (Standard) or $12.99/month (Family).
+Plans start at just $7.99/month (Pro) or $14.99/month (Family).
 
 That's less than one coffee run per week.
 
@@ -326,8 +326,8 @@ export default function AffiliatePage() {
   const partneroUrl = settings?.partneroUrl || "https://affiliate.budgetsmart.io";
 
   // Pricing
-  const familyMonthly = 12.99;
-  const familyYearly = 97;
+  const familyMonthly = 14.99;
+  const familyYearly = 129;
   const standardMonthly = 7.99;
   const standardYearly = 67;
 
@@ -638,7 +638,7 @@ export default function AffiliatePage() {
 
                 <Card className="bg-slate-800/50 border-slate-700">
                   <CardHeader>
-                    <CardTitle className="text-lg text-white">Standard Plan Earnings</CardTitle>
+                    <CardTitle className="text-lg text-white">Pro Plan Earnings</CardTitle>
                     <CardDescription>${standardMonthly}/mo or ${standardYearly}/yr</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">

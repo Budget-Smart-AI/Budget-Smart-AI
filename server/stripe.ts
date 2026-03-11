@@ -557,9 +557,6 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void
 }
 
 /**
- * Handle trial ending soon notification (fired by Stripe ~3 days before trial ends)
- */
-/**
  * Verify Stripe webhook signature
  */
 export function constructWebhookEvent(
