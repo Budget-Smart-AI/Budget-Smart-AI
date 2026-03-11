@@ -794,12 +794,21 @@ export const FEATURE_LIMITS = {
     mx_bank_connections: null,          // unlimited
     plaid_bank_connections: null,       // unlimited
     manual_accounts: null,              // unlimited
+    account_sync: null,                 // unlimited
+    account_refresh: null,              // unlimited
     transaction_history: null,          // unlimited (all history)
+    transaction_search: null,           // unlimited
     manual_transactions: null,          // unlimited
 
     // Financial Tracking
     asset_tracking: null,               // unlimited
+    net_worth_tracking: null,           // unlimited
+    investment_tracking: null,          // unlimited
+    income_tracking: null,              // unlimited
     expense_tracking: null,             // unlimited
+    spending_analysis: null,            // unlimited
+    unmatched_transactions: null,       // unlimited
+    subscription_tracking: null,        // unlimited
 
     // Planning
     budget_creation: null,              // unlimited
@@ -807,6 +816,8 @@ export const FEATURE_LIMITS = {
     debt_tracking: null,                // unlimited
     debt_payoff_planner: null,          // unlimited
     bill_tracking: null,                // unlimited
+    bill_reminders: null,               // unlimited
+    calendar_view: null,                // unlimited
     what_if_simulator: null,            // unlimited
     autopilot_rules: 10,                // 10 rules max
     financial_autopilot: null,          // unlimited
@@ -814,6 +825,9 @@ export const FEATURE_LIMITS = {
     // Reporting
     cash_flow_forecast: null,           // unlimited
     financial_health: null,             // unlimited
+    financial_reports: null,            // unlimited
+    budget_vs_actual: null,             // unlimited
+    money_timeline: null,               // unlimited
     data_export_csv: null,              // unlimited
     data_export_json: 12,               // 12 per year (once per month)
     tax_reporting: 12,                  // 12 per year (once per month)
@@ -829,6 +843,8 @@ export const FEATURE_LIMITS = {
     financial_vault: 50,                // 50 documents total (storage limit)
     vault_ai_search: null,              // unlimited
     categories_management: null,        // unlimited
+    merchant_management: null,          // unlimited
+    notifications: null,                // unlimited
     security_alerts: null,              // unlimited
     silent_leaks_detector: null,        // unlimited
     payday_optimizer: null,             // unlimited
@@ -852,12 +868,21 @@ export const FEATURE_LIMITS = {
     mx_bank_connections: null,
     plaid_bank_connections: null,
     manual_accounts: null,
+    account_sync: null,
+    account_refresh: null,
     transaction_history: null,
+    transaction_search: null,
     manual_transactions: null,
 
     // Financial Tracking (same as pro)
     asset_tracking: null,
+    net_worth_tracking: null,
+    investment_tracking: null,
+    income_tracking: null,
     expense_tracking: null,
+    spending_analysis: null,
+    unmatched_transactions: null,
+    subscription_tracking: null,
 
     // Planning (same as pro)
     budget_creation: null,
@@ -865,6 +890,8 @@ export const FEATURE_LIMITS = {
     debt_tracking: null,
     debt_payoff_planner: null,
     bill_tracking: null,
+    bill_reminders: null,
+    calendar_view: null,
     what_if_simulator: null,
     autopilot_rules: 10,
     financial_autopilot: null,
@@ -872,6 +899,9 @@ export const FEATURE_LIMITS = {
     // Reporting (same as pro)
     cash_flow_forecast: null,
     financial_health: null,
+    financial_reports: null,
+    budget_vs_actual: null,
+    money_timeline: null,
     data_export_csv: null,
     data_export_json: 12,
     tax_reporting: 12,
@@ -887,6 +917,8 @@ export const FEATURE_LIMITS = {
     financial_vault: 100,               // 100 documents total (storage limit)
     vault_ai_search: null,
     categories_management: null,
+    merchant_management: null,
+    notifications: null,
     security_alerts: null,
     silent_leaks_detector: null,
     payday_optimizer: null,
