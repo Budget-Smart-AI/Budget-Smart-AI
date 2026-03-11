@@ -49,6 +49,7 @@ import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Budget, type Expense } from "@shared/schema";
+import { FeatureGate } from "@/components/FeatureGate";
 
 const budgetFormSchema = z.object({
   category: z.enum(EXPENSE_CATEGORIES),
@@ -372,10 +373,12 @@ export default function BudgetsPage() {
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
+              <FeatureGate feature="budget_creation" blurIntensity="low">
               <Button onClick={() => setEditingBudget(undefined)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Set Budget
               </Button>
+              </FeatureGate>
             </DialogTrigger>
           <DialogContent className="sm:max-w-[400px]">
             <DialogHeader>

@@ -73,6 +73,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INVESTMENT_ACCOUNT_TYPES, HOLDING_TYPES, type InvestmentAccount, type Holding, type PlaidAccount } from "@shared/schema";
 import { useChartColors } from "@/hooks/useChartColors";
+import { FeatureGate } from "@/components/FeatureGate";
 
 const accountFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -1412,7 +1413,9 @@ export default function Investments() {
         </TabsContent>
 
         <TabsContent value="advisor">
-          <AIAdvisor holdings={holdings} />
+          <FeatureGate feature="portfolio_advisor" displayName="portfolio insights">
+            <AIAdvisor holdings={holdings} />
+          </FeatureGate>
         </TabsContent>
       </Tabs>
 

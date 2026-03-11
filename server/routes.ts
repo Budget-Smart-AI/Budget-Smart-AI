@@ -12072,6 +12072,27 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // ============ FEATURE USAGE / GATING ============
+
+  /**
+   * GET /api/features/usage
+   * Returns the current user's feature usage summary for the active billing month.
+   * Used by the client-side FeatureGate component to decide what to blur/lock.
+   */
+  app.get("/api/features/usage", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const { getUserFeatureSummary } = await import("./lib/featureGate");
+      const summary = await getUserFeatureSummary(userId, plan);
+      res.json({ plan, summary });
+    } catch (error: any) {
+      console.error("Error fetching feature usage:", error);
+      res.status(500).json({ error: "Failed to fetch feature usage" });
+    }
+  });
+
   // ============ LANDING PAGE ADMIN ROUTES ============
   // (Uses requireAdmin middleware imported from ./auth)
 

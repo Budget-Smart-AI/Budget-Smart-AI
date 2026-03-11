@@ -42,6 +42,7 @@ import { format, differenceInDays, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { type SavingsGoal } from "@shared/schema";
+import { FeatureGate } from "@/components/FeatureGate";
 
 const GOAL_COLORS = [
   { value: "#3b82f6", label: "Blue" },
@@ -426,10 +427,12 @@ export default function SavingsGoalsPage() {
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
+              <FeatureGate feature="savings_goals" blurIntensity="low">
               <Button onClick={() => setEditingGoal(undefined)}>
                 <Plus className="h-4 w-4 mr-2" />
                 New Goal
               </Button>
+              </FeatureGate>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
