@@ -33,6 +33,7 @@ import { SmartSavings } from "@/components/smart-savings";
 import { MoneyTimeline } from "@/components/money-timeline";
 import { MoneyLeaksWidget } from "@/components/money-leaks-widget";
 import { SpendabilityWidget } from "@/components/spendability-widget";
+import { UsageSummaryWidget } from "@/components/UsageSummaryWidget";
 import { Link } from "wouter";
 
 function formatCurrency(amount: string | number) {
@@ -805,6 +806,13 @@ export default function Dashboard() {
           </Card>
         );
       })()}
+
+      {/* ============================================ */}
+      {/* FREE PLAN USAGE SUMMARY WIDGET               */}
+      {/* ============================================ */}
+      {sessionData?.plan === "free" || !sessionData?.plan ? (
+        <UsageSummaryWidget />
+      ) : null}
 
       {/* ============================================ */}
       {/* SECTION A: REAL CASH FLOW (Your Actual Money) */}

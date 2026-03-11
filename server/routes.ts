@@ -1694,6 +1694,54 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  /**
+   * GET /api/user/feature-usage
+   * Returns the current free-plan user's limited feature usage for the current month.
+   * Used by the UsageSummaryWidget to display a usage dashboard.
+   * Only returns features that have a finite monthly limit (> 0) on the free plan.
+   */
+  app.get("/api/user/feature-usage", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+
+      const { getUserFeatureSummary } = await import("./lib/featureGate");
+      const summary = await getUserFeatureSummary(userId, plan);
+
+      // Only expose features that have a finite positive limit (not null = unlimited, not 0 = disabled)
+      const limitedFeatures = summary.filter(
+        (f) => f.limit !== null && f.limit > 0
+      );
+
+      const resetDate = limitedFeatures[0]?.resetDate ?? null;
+      const resetDateStr = resetDate
+        ? resetDate.toISOString().split("T")[0]
+        : null;
+      const daysUntilReset = resetDate
+        ? Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 86400000))
+        : null;
+
+      const features = limitedFeatures.map((f) => ({
+        key: f.featureKey,
+        displayName: f.displayName,
+        used: f.currentUsage,
+        limit: f.limit as number,
+        remaining: f.remaining as number,
+        resetDate: resetDateStr,
+        percentUsed:
+          f.limit && f.limit > 0
+            ? Math.min(100, Math.round((f.currentUsage / f.limit) * 100))
+            : 0,
+      }));
+
+      res.json({ plan, features, resetDate: resetDateStr, daysUntilReset });
+    } catch (error: any) {
+      console.error("Error fetching user feature usage:", error);
+      res.status(500).json({ error: "Failed to fetch feature usage" });
+    }
+  });
+
   // FEATURE: MERCHANT_MANAGEMENT | tier: free | limit: unlimited
   // ── Merchants ─────────────────────────────────────────────────────────────
   app.get("/api/merchants", requireAuth, async (req, res) => {
@@ -3661,6 +3709,41 @@ Return JSON: { "income": [...] }`;
   });
 
   /**
+   * GET /api/admin/users/:id/feature-usage
+   * Returns the current month's feature usage for a specific user (admin only).
+   */
+  app.get("/api/admin/users/:id/feature-usage", requireAdmin, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.params.id as string;
+      const userResult = await pool.query(`SELECT plan FROM users WHERE id = $1`, [userId]);
+      const plan = userResult.rows[0]?.plan || "free";
+
+      const { getUserFeatureSummary } = await import("./lib/featureGate");
+      const summary = await getUserFeatureSummary(userId, plan);
+
+      // Return only features that have a finite positive limit
+      const limitedFeatures = summary
+        .filter((f) => f.limit !== null && f.limit > 0)
+        .map((f) => ({
+          key: f.featureKey,
+          displayName: f.displayName,
+          used: f.currentUsage,
+          limit: f.limit as number,
+          remaining: f.remaining as number,
+          percentUsed:
+            f.limit && f.limit > 0
+              ? Math.min(100, Math.round((f.currentUsage / (f.limit as number)) * 100))
+              : 0,
+        }));
+
+      res.json({ plan, features: limitedFeatures });
+    } catch (error) {
+      console.error("Error fetching user feature usage (admin):", error);
+      res.status(500).json({ error: "Failed to fetch user feature usage" });
+    }
+  });
+
+  /**
    * GET /api/admin/analytics/aggregate
    * Returns platform-wide aggregate insights for the top of the User Management page.
    */
@@ -3732,6 +3815,51 @@ Return JSON: { "income": [...] }`;
          LIMIT 10`,
       );
 
+      // Free user feature usage: average % usage per feature, count at limit, conversion signals
+      const freeUserCountResult = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM users
+         WHERE (plan IS NULL OR plan = 'free')
+           AND (is_deleted IS NULL OR is_deleted = false)
+           AND is_approved = 'true'`,
+      );
+      const freeUserCount = Number(freeUserCountResult.rows[0]?.count ?? 0);
+
+      // Per feature: users using it, avg usage count, users who received a limit email (at limit)
+      const featureStatsResult = await pool.query(
+        `SELECT
+           ufu.feature_key,
+           COUNT(DISTINCT ufu.user_id)::int                          AS users_using,
+           ROUND(AVG(ufu.usage_count), 2)::numeric                   AS avg_usage,
+           COUNT(CASE WHEN ufu.limit_sent_at IS NOT NULL THEN 1 END)::int AS users_at_limit
+         FROM user_feature_usage ufu
+         JOIN users u ON u.id = ufu.user_id
+         WHERE ufu.period_start = date_trunc('month', NOW())
+           AND (u.plan IS NULL OR u.plan = 'free')
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)
+         GROUP BY ufu.feature_key
+         ORDER BY avg_usage DESC`,
+      );
+
+      // Users who hit a limit but haven't upgraded (high conversion signal)
+      const conversionSignalResult = await pool.query(
+        `SELECT
+           u.id,
+           u.username,
+           u.email,
+           u.first_name,
+           u.last_name,
+           COUNT(DISTINCT ufu.feature_key)::int AS features_at_limit
+         FROM user_feature_usage ufu
+         JOIN users u ON u.id = ufu.user_id
+         WHERE ufu.period_start = date_trunc('month', NOW())
+           AND ufu.limit_sent_at IS NOT NULL
+           AND (u.plan IS NULL OR u.plan = 'free')
+           AND (u.is_deleted IS NULL OR u.is_deleted = false)
+         GROUP BY u.id, u.username, u.email, u.first_name, u.last_name
+         ORDER BY features_at_limit DESC
+         LIMIT 20`,
+      );
+
       const aiSpendThisMonth  = parseFloat(Number(aiThisMonthResult.rows[0]?.total ?? 0).toFixed(6));
       const aiSpendTotal      = parseFloat(Number(aiTotalResult.rows[0]?.total ?? 0).toFixed(6));
       const avgAiPerUserMonth = parseFloat(Number(aiPerUserMonthResult.rows[0]?.avg_cost ?? 0).toFixed(6));
@@ -3760,6 +3888,22 @@ Return JSON: { "income": [...] }`;
           totalCostUsd: parseFloat(Number(r.total_cost ?? 0).toFixed(6)),
           callCount:   Number(r.call_count ?? 0),
         })),
+        featureUsage: {
+          freeUserCount,
+          byFeature: featureStatsResult.rows.map(r => ({
+            featureKey:   r.feature_key,
+            usersUsing:   Number(r.users_using ?? 0),
+            avgUsage:     parseFloat(Number(r.avg_usage ?? 0).toFixed(2)),
+            usersAtLimit: Number(r.users_at_limit ?? 0),
+          })),
+          conversionSignals: conversionSignalResult.rows.map(r => ({
+            userId:           r.id,
+            username:         r.username ?? null,
+            email:            r.email ?? null,
+            displayName:      [r.first_name, r.last_name].filter(Boolean).join(" ") || r.username || null,
+            featuresAtLimit:  Number(r.features_at_limit ?? 0),
+          })),
+        },
       });
     } catch (error) {
       console.error("Error fetching aggregate analytics:", error);

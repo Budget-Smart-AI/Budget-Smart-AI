@@ -626,4 +626,7 @@ export async function ensureUserFeatureUsageTable(): Promise<void> {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_feature_usage_user_id ON user_feature_usage(user_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_feature_usage_period ON user_feature_usage(period_start)`);
+  // Add milestone notification tracking columns (idempotent)
+  await pool.query(`ALTER TABLE user_feature_usage ADD COLUMN IF NOT EXISTS warning_sent_at TIMESTAMP`);
+  await pool.query(`ALTER TABLE user_feature_usage ADD COLUMN IF NOT EXISTS limit_sent_at TIMESTAMP`);
 }
