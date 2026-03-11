@@ -600,6 +600,11 @@ export const users = pgTable("users", {
   // Soft-delete / GDPR account deletion
   isDeleted: boolean("is_deleted").default(false),
   deletedAt: text("deleted_at"),
+  // Login security / brute-force protection
+  failedLoginAttempts: integer("failed_login_attempts").default(0),
+  lockedUntil: text("locked_until"),
+  lastLoginAt: text("last_login_at"),
+  lastLoginIp: varchar("last_login_ip", { length: 50 }),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -1851,6 +1856,12 @@ export const supportTickets = pgTable("support_tickets", {
   emailSent: text("email_sent").notNull().default("false"),
   createdAt: text("created_at"),
   updatedAt: text("updated_at"),
+  // AI triage columns (added by ensureSupportPortalTables)
+  category: varchar("category", { length: 100 }),
+  confidenceScore: integer("confidence_score"),
+  tier: varchar("tier", { length: 20 }),
+  aiSummary: text("ai_summary"),
+  aiResponseSentAt: text("ai_response_sent_at"),
 });
 
 export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true }).extend({
@@ -1918,3 +1929,30 @@ export const grantFinancialAccessSchema = z.object({
   professionalName: z.string().max(255).optional(),
 });
 export type GrantFinancialAccessInput = z.infer<typeof grantFinancialAccessSchema>;
+
+// Cumulative per-user AI cost tracking (populated from ai_usage_log rollup)
+export const userAiCosts = pgTable("user_ai_costs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  featureTag: varchar("feature_tag", { length: 100 }).notNull(),
+  totalTokensIn: numeric("total_tokens_in").default("0"),
+  totalTokensOut: numeric("total_tokens_out").default("0"),
+  totalCostUsd: numeric("total_cost_usd", { precision: 12, scale: 6 }).default("0"),
+  lastUpdated: text("last_updated"),
+});
+
+export type UserAiCost = typeof userAiCosts.$inferSelect;
+export type InsertUserAiCost = typeof userAiCosts.$inferInsert;
+
+// Dynamic plan-feature limit configuration (managed via admin UI)
+export const planFeatureLimits = pgTable("plan_feature_limits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planName: text("plan_name").notNull(),
+  featureKey: text("feature_key").notNull(),
+  limitValue: integer("limit_value"),
+  isEnabled: boolean("is_enabled").default(true),
+  updatedAt: text("updated_at"),
+});
+
+export type PlanFeatureLimit = typeof planFeatureLimits.$inferSelect;
+export type InsertPlanFeatureLimit = typeof planFeatureLimits.$inferInsert;
