@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -307,6 +307,10 @@ app.use((req, res, next) => {
 
   await ensureUserAICostsTable().catch(err =>
     console.error("Failed to ensure user_ai_costs table — admin AI cost analytics will not work:", err)
+  );
+
+  await ensureUserFeatureUsageTable().catch(err =>
+    console.error("Failed to ensure user_feature_usage table — feature gating enforcement will not work:", err)
   );
 
   // Apply apiRateLimiter globally to all /api routes before route definitions.
