@@ -549,7 +549,7 @@ export default function Dashboard() {
         description: "Welcome to BudgetSmart AI! Your subscription is now active.",
       });
 
-      if (typeof window !== 'undefined' && (window as any).po) {
+      if (import.meta.env.VITE_PARTNERO_ENABLED === 'true' && typeof window !== 'undefined' && (window as any).po) {
         try {
           (window as any).po('customer', 'conversion', {
             action: 'subscription_started',

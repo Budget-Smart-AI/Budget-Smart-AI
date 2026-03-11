@@ -369,10 +369,14 @@ export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
             </div>
           </Link>
           <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
-            <Link href="/affiliate" className="hover:text-primary transition-colors">
-              Affiliate Program
-            </Link>
-            <span>·</span>
+            {import.meta.env.VITE_PARTNERO_ENABLED === 'true' && (
+              <>
+                <Link href="/affiliate" className="hover:text-primary transition-colors">
+                  Affiliate Program
+                </Link>
+                <span>·</span>
+              </>
+            )}
             <Link href="/help" className="hover:text-primary transition-colors">
               Help
             </Link>

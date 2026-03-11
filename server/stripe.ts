@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { storage } from "./storage";
 import { auditLog } from "./audit-logger";
+import { sendUpgradeConfirmationEmail } from "./email";
 
 // Initialize Stripe with the secret key
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
@@ -54,15 +55,20 @@ export async function createSubscriptionCheckout(
   successUrl: string,
   cancelUrl: string
 ): Promise<Stripe.Checkout.Session> {
+  const user = await storage.getUser(userId);
+  if (!user) throw new Error("User not found");
+
   const customerId = await getOrCreateStripeCustomer(userId);
 
   // Get the plan details to determine trial settings
   const plan = await storage.getLandingPricingPlan(planId);
-  const trialDays = plan?.trialDays || 14;
+  const trialDays = plan?.trialDays || 0;
   const requiresCard = plan?.requiresCard !== "false";
 
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
     customer: customerId,
+    client_reference_id: userId,
+    customer_email: user.stripeCustomerId ? undefined : (user.email || undefined),
     mode: "subscription",
     payment_method_types: ["card"],
     line_items: [
@@ -86,7 +92,7 @@ export async function createSubscriptionCheckout(
     },
   };
 
-  // Add trial if applicable
+  // Add trial if applicable (only when plan has trial days configured)
   if (trialDays > 0) {
     sessionParams.subscription_data!.trial_period_days = trialDays;
 
@@ -389,6 +395,18 @@ async function processCheckoutForUser(
 
     console.log(`[Stripe Webhook] Updating user ${userId} — subscriptionId=${subscription.id} status=${subscription.status} planId=${resolvedPlanId}`);
 
+    // Derive plan name from the landing_pricing record or fallback to 'pro'
+    let planName: string = 'pro';
+    if (resolvedPlanId) {
+      const planRecord = await storage.getLandingPricingPlan(resolvedPlanId);
+      if (planRecord) {
+        const nameLower = planRecord.name.toLowerCase();
+        if (nameLower.includes('family')) planName = 'family';
+        else if (nameLower.includes('pro')) planName = 'pro';
+        else planName = nameLower;
+      }
+    }
+
     const updateResult = await storage.updateUserStripeInfo(userId, {
       stripeSubscriptionId: subscription.id,
       subscriptionStatus: subscription.status,
@@ -399,6 +417,9 @@ async function processCheckoutForUser(
       subscriptionEndsAt: subscription.current_period_end
         ? new Date(subscription.current_period_end * 1000).toISOString()
         : null,
+      plan: planName,
+      planStatus: 'active',
+      planStartedAt: new Date().toISOString(),
     });
 
     if (updateResult) {
@@ -420,8 +441,19 @@ async function processCheckoutForUser(
         subscriptionId: subscription.id,
         subscriptionStatus: subscription.status,
         planId: resolvedPlanId,
+        plan: planName,
       },
     });
+
+    // Send upgrade confirmation email asynchronously (fire-and-forget)
+    const user = await storage.getUser(userId);
+    if (user?.email) {
+      sendUpgradeConfirmationEmail(
+        user.email,
+        user.firstName || user.username,
+        planName.charAt(0).toUpperCase() + planName.slice(1)
+      ).catch(err => console.error('[Stripe Webhook] Failed to send upgrade confirmation email:', err));
+    }
 
     console.log(`[Stripe Webhook] ✓ checkout.session.completed fully processed for user ${userId}`);
   } else if (session.mode === "payment") {

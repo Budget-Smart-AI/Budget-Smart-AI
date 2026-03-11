@@ -151,8 +151,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       return response.json();
     },
     onSuccess: (data, variables) => {
-      // Track signup with Partnero for affiliate attribution
-      if (typeof window !== 'undefined' && (window as any).po) {
+      // Track signup with Partnero for affiliate attribution (only when enabled)
+      if (import.meta.env.VITE_PARTNERO_ENABLED === 'true' && typeof window !== 'undefined' && (window as any).po) {
         try {
           (window as any).po('customer', 'signup', {
             email: variables.email,

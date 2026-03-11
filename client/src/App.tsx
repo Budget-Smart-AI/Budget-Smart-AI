@@ -14,7 +14,6 @@ import { NotificationsDropdown } from "@/components/notifications-dropdown";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { FloatingChatbot } from "@/components/floating-chatbot";
-import { SubscriptionGate } from "@/components/subscription-gate";
 import Dashboard from "@/pages/dashboard";
 import Bills from "@/pages/bills";
 import Income from "@/pages/income";
@@ -68,6 +67,8 @@ import Receipts from "@/pages/receipts";
 import VaultPage from "@/pages/vault";
 import NotFound from "@/pages/not-found";
 import DemoPage from "@/pages/demo";
+import UpgradePage from "@/pages/upgrade";
+import RedeemPage from "@/pages/redeem";
 import { Loader2 } from "lucide-react";
 
 function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin: boolean }) {
@@ -134,6 +135,8 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/receipts" component={Receipts} />
       <Route path="/vault" component={VaultPage} />
       <Route path="/anomalies" component={AnomaliesPage} />
+      <Route path="/upgrade" component={UpgradePage} />
+      <Route path="/redeem" component={RedeemPage} />
       <Route path="/support" component={Support} />
       <Route path="/help" component={Help} />
       {isAdmin && (
@@ -154,61 +157,15 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
 
 function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: () => void; isAdmin: boolean; username: string; isDemo: boolean }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [checkingPendingCheckout, setCheckingPendingCheckout] = useState(true);
   const [location, setLocation] = useLocation();
 
   const { data: onboardingStatus } = useQuery<{ onboardingComplete: boolean }>({
     queryKey: ["/api/onboarding/status"],
   });
 
-  // Check for pending checkout after OAuth login
+  // Clean up any leftover pendingCheckout from the old signup flow
   useEffect(() => {
-    const checkPendingCheckout = async () => {
-      const pendingCheckoutStr = localStorage.getItem("pendingCheckout");
-      if (pendingCheckoutStr) {
-        try {
-          const pendingCheckout = JSON.parse(pendingCheckoutStr);
-          // Clear the pending checkout immediately to prevent loops
-          localStorage.removeItem("pendingCheckout");
-
-          if (pendingCheckout.priceId && pendingCheckout.planId) {
-            // Discard stale pending checkouts (older than 15 minutes) to prevent
-            // a leftover localStorage entry from auto-triggering checkout on a
-            // future session when the user logs in via cookie.
-            // Also discard entries without a timestamp (created before this fix).
-            const MAX_AGE_MS = 15 * 60 * 1000;
-            if (!pendingCheckout.timestamp || (Date.now() - pendingCheckout.timestamp) > MAX_AGE_MS) {
-              setCheckingPendingCheckout(false);
-              return;
-            }
-            // Create checkout session and redirect
-            const response = await fetch("/api/stripe/create-checkout-session", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                priceId: pendingCheckout.priceId,
-                planId: pendingCheckout.planId,
-              }),
-            });
-
-            if (response.ok) {
-              const data = await response.json();
-              if (data.url) {
-                window.location.href = data.url;
-                return; // Don't set checkingPendingCheckout to false, we're redirecting
-              }
-            }
-          }
-        } catch (e) {
-          console.error("Error processing pending checkout:", e);
-          localStorage.removeItem("pendingCheckout");
-        }
-      }
-      setCheckingPendingCheckout(false);
-    };
-
-    checkPendingCheckout();
+    localStorage.removeItem("pendingCheckout");
   }, []);
 
   useEffect(() => {
@@ -234,48 +191,37 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
     "--sidebar-width-icon": "3rem",
   };
 
-  // Show loading while checking for pending checkout
-  if (checkingPendingCheckout) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
   return (
-    <SubscriptionGate isAdmin={isAdmin} isDemo={isDemo}>
-      <SidebarProvider style={style as React.CSSProperties}>
-        <div className="flex h-screen w-full">
-          <AppSidebar isAdmin={isAdmin} username={username} />
-          <div className="flex flex-col flex-1 overflow-hidden">
-            {isDemo && (
-              <div className="bg-amber-500/90 text-amber-950 px-4 py-2 text-center text-sm font-medium" data-testid="banner-demo-mode">
-                <span className="inline-flex items-center gap-2 flex-wrap justify-center">
-                  You're viewing the demo with sample data. This is read-only mode.
-                  <Link href="/signup" className="underline font-semibold" data-testid="link-demo-signup">
-                    Sign up for full access
-                  </Link>
-                </span>
-              </div>
-            )}
-            <header className="flex items-center justify-between gap-2 p-3 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
-              <div className="flex items-center gap-2">
-                <NotificationsDropdown />
-                <ThemeQuickSwitcher />
-              </div>
-            </header>
-            <main className="flex-1 overflow-auto p-6">
-              <ProtectedRouter onLogout={onLogout} isAdmin={isAdmin} />
-            </main>
-          </div>
+    <SidebarProvider style={style as React.CSSProperties}>
+      <div className="flex h-screen w-full">
+        <AppSidebar isAdmin={isAdmin} username={username} />
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {isDemo && (
+            <div className="bg-amber-500/90 text-amber-950 px-4 py-2 text-center text-sm font-medium" data-testid="banner-demo-mode">
+              <span className="inline-flex items-center gap-2 flex-wrap justify-center">
+                You're viewing the demo with sample data. This is read-only mode.
+                <Link href="/signup" className="underline font-semibold" data-testid="link-demo-signup">
+                  Sign up for full access
+                </Link>
+              </span>
+            </div>
+          )}
+          <header className="flex items-center justify-between gap-2 p-3 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+            <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <div className="flex items-center gap-2">
+              <NotificationsDropdown />
+              <ThemeQuickSwitcher />
+            </div>
+          </header>
+          <main className="flex-1 overflow-auto p-6">
+            <ProtectedRouter onLogout={onLogout} isAdmin={isAdmin} />
+          </main>
         </div>
-        <OnboardingWizard open={showOnboarding} onComplete={handleOnboardingComplete} isDemo={isDemo} />
-        <PWAInstallPrompt />
-        <FloatingChatbot />
-      </SidebarProvider>
-    </SubscriptionGate>
+      </div>
+      <OnboardingWizard open={showOnboarding} onComplete={handleOnboardingComplete} isDemo={isDemo} />
+      <PWAInstallPrompt />
+      <FloatingChatbot />
+    </SidebarProvider>
   );
 }
 
