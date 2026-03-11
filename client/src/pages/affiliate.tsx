@@ -281,7 +281,7 @@ The ROI is insane.
 
 I've shared everything I know. Now it's your turn to take action.
 
-👉 Start your free trial: [YOUR AFFILIATE LINK]
+👉 Get started with the Free Plan: [YOUR AFFILIATE LINK]
 
 Your future self will thank you.
 

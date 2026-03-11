@@ -916,7 +916,7 @@ function PricingTab({ pricing }: { pricing: LandingPricing[] }) {
     stripeProductId: "",
     maxBankAccounts: 1,
     maxFamilyMembers: 1,
-    trialDays: 14,
+    trialDays: 0,
     requiresCard: "true",
   });
 
@@ -971,7 +971,7 @@ function PricingTab({ pricing }: { pricing: LandingPricing[] }) {
       stripeProductId: "",
       maxBankAccounts: 1,
       maxFamilyMembers: 1,
-      trialDays: 14,
+      trialDays: 0,
       requiresCard: "true",
     });
   };
@@ -993,7 +993,7 @@ function PricingTab({ pricing }: { pricing: LandingPricing[] }) {
       stripeProductId: item.stripeProductId || "",
       maxBankAccounts: item.maxBankAccounts || 1,
       maxFamilyMembers: item.maxFamilyMembers || 1,
-      trialDays: item.trialDays || 14,
+      trialDays: item.trialDays || 0,
       requiresCard: item.requiresCard || "true",
     });
     setDialogOpen(true);
