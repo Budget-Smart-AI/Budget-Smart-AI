@@ -73,6 +73,7 @@ import { useToast } from "@/hooks/use-toast";
 import { HelpTooltip } from "@/components/help-tooltip";
 import type { DebtDetails, PlaidAccount } from "@shared/schema";
 import { Link } from "wouter";
+import { FeatureGate } from "@/components/FeatureGate";
 
 const DEBT_TYPES = [
   "Credit Card",
@@ -542,10 +543,12 @@ export default function DebtsPage() {
               Import from Banks ({unlinkedPlaidAccounts.length})
             </Button>
           )}
-          <Button onClick={handleOpenCreate} data-testid="button-add-debt">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Debt
-          </Button>
+          <FeatureGate feature="debt_tracking" blurIntensity="low">
+            <Button onClick={handleOpenCreate} data-testid="button-add-debt">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Debt
+            </Button>
+          </FeatureGate>
         </div>
       </div>
 

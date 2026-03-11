@@ -34,6 +34,7 @@ import { MoneyTimeline } from "@/components/money-timeline";
 import { MoneyLeaksWidget } from "@/components/money-leaks-widget";
 import { SpendabilityWidget } from "@/components/spendability-widget";
 import { UsageSummaryWidget } from "@/components/UsageSummaryWidget";
+import { FeatureGate } from "@/components/FeatureGate";
 import { Link } from "wouter";
 
 function formatCurrency(amount: string | number) {
@@ -935,7 +936,9 @@ export default function Dashboard() {
 
           {/* Cash Flow Forecast - Detailed 30 Day View */}
           <div className="mt-4">
-            <CashFlowForecast />
+            <FeatureGate feature="cash_flow_forecast">
+              <CashFlowForecast />
+            </FeatureGate>
           </div>
         </div>
       </div>
@@ -989,7 +992,9 @@ export default function Dashboard() {
 
           {/* Financial Health Score + Smart Savings */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <FinancialHealthScore />
+            <FeatureGate feature="financial_health">
+              <FinancialHealthScore />
+            </FeatureGate>
             <SmartSavings />
           </div>
 
