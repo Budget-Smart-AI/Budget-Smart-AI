@@ -78,14 +78,59 @@ function currentPeriodEnd(): Date {
  * - Returns `0`     → feature not available on this plan
  * - Returns `N > 0` → limited to N uses per month
  */
-export function getFeatureLimit(plan: string, featureKey: string): number | null {
+/**
+ * Get the feature limit for a given plan and feature key.
+ * READS FROM DATABASE AT RUNTIME for immediate effect of admin changes.
+ * Falls back to hardcoded FEATURE_LIMITS if not found in database.
+ * Returns:
+ *  - null: unlimited
+ *  - 0: feature disabled (upgrade required)
+ *  - N: specific limit
+ */
+export async function getFeatureLimit(plan: string, featureKey: string): Promise<number | null> {
+  const tier = normaliseTier(plan);
+  const key = featureKey.toLowerCase();
+
+  try {
+    // Check database FIRST for dynamic configuration (reads at runtime - no caching)
+    const { rows } = await pool.query<{ limit_value: number | null; is_enabled: boolean }>(
+      `SELECT limit_value, is_enabled
+       FROM plan_feature_limits
+       WHERE plan_name = $1 AND feature_key = $2 AND is_enabled = true
+       LIMIT 1`,
+      [tier, key]
+    );
+
+    if (rows.length > 0) {
+      // Database override found - use it immediately
+      return rows[0].limit_value;
+    }
+  } catch (error) {
+    // Database not available or table doesn't exist yet - fall back to hardcoded
+    // This ensures the app works even if DB migration hasn't run
+    console.warn(`Failed to query plan_feature_limits, using hardcoded limits:`, error);
+  }
+
+  // Fall back to hardcoded FEATURE_LIMITS from features.ts
+  const limits = FEATURE_LIMITS[tier] as Record<string, number | null>;
+  if (key in limits) {
+    return limits[key] ?? null;
+  }
+  // Feature key not registered in this tier's limits — treat as unavailable
+  return 0;
+}
+
+/**
+ * Synchronous version for backwards compatibility.
+ * NOTE: This only uses hardcoded limits and will be deprecated.
+ */
+export function getFeatureLimitSync(plan: string, featureKey: string): number | null {
   const tier = normaliseTier(plan);
   const key = featureKey.toLowerCase();
   const limits = FEATURE_LIMITS[tier] as Record<string, number | null>;
   if (key in limits) {
     return limits[key] ?? null;
   }
-  // Feature key not registered in this tier's limits — treat as unavailable
   return 0;
 }
 
@@ -130,7 +175,7 @@ export async function checkFeatureAccess(
   plan: string,
   featureKey: string
 ): Promise<FeatureAccessResult> {
-  const limit = getFeatureLimit(plan, featureKey);
+  const limit = await getFeatureLimit(plan, featureKey);
   const resetDate = currentPeriodEnd();
 
   // Feature entirely unavailable on this plan
@@ -229,7 +274,7 @@ export async function checkAndConsume(
   plan: string,
   featureKey: string
 ): Promise<FeatureAccessResult> {
-  const limit = getFeatureLimit(plan, featureKey);
+  const limit = await getFeatureLimit(plan, featureKey);
   const resetDate = currentPeriodEnd();
   const key = featureKey.toLowerCase();
 
@@ -432,7 +477,7 @@ export async function getUserFeatureSummary(
   const summary: UserFeatureSummaryItem[] = [];
 
   for (const feature of Object.values(FEATURES)) {
-    const limit = getFeatureLimit(tier, feature.key);
+    const limit = await getFeatureLimit(tier, feature.key);
     
     // Use actual item count for cumulative-limit features, otherwise use usage count
     const currentUsage = CUMULATIVE_LIMIT_FEATURES.has(feature.key)

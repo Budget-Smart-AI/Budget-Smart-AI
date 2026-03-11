@@ -37,6 +37,7 @@ import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
+import adminPlansRouter from "./routes/admin-plans";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
 
@@ -110,6 +111,9 @@ export async function registerRoutes(
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
   app.use("/api/vault", vaultRouter);
+  
+  // Admin plan-feature management routes (protected with requireAdmin)
+  app.use("/api/admin/plans", adminPlansRouter);
 
   // Field encryption status endpoint (admin only)
   app.get("/api/encryption/status", requireAuth, requireAdmin, (_req, res) => {

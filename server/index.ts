@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -327,6 +327,16 @@ app.use((req, res, next) => {
 
   await ensureUserFeatureUsageTable().catch(err =>
     console.error("Failed to ensure user_feature_usage table — feature gating enforcement will not work:", err)
+  );
+
+  await ensurePlanFeatureLimitsTable().catch(err =>
+    console.error("Failed to ensure plan_feature_limits table — dynamic plan management will not work:", err)
+  );
+
+  // Auto-seed plan_feature_limits from features.ts (first run only)
+  const { seedPlanFeatureLimits } = await import("./routes/admin-plans");
+  await seedPlanFeatureLimits().catch(err =>
+    console.error("Failed to seed plan_feature_limits — admin panel may show empty:", err)
   );
 
   // Apply apiRateLimiter globally to all /api routes before route definitions.

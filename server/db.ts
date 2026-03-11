@@ -630,3 +630,23 @@ export async function ensureUserFeatureUsageTable(): Promise<void> {
   await pool.query(`ALTER TABLE user_feature_usage ADD COLUMN IF NOT EXISTS warning_sent_at TIMESTAMP`);
   await pool.query(`ALTER TABLE user_feature_usage ADD COLUMN IF NOT EXISTS limit_sent_at TIMESTAMP`);
 }
+
+/**
+ * Ensure plan_feature_limits table exists for dynamic plan-feature management.
+ * This allows admins to configure feature limits per plan via admin UI.
+ */
+export async function ensurePlanFeatureLimitsTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS plan_feature_limits (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      plan_name text NOT NULL,
+      feature_key text NOT NULL,
+      limit_value integer,
+      is_enabled boolean DEFAULT true,
+      updated_at text,
+      UNIQUE(plan_name, feature_key)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_plan_feature_limits_plan ON plan_feature_limits(plan_name)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_plan_feature_limits_feature ON plan_feature_limits(feature_key)`);
+}

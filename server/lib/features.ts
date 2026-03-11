@@ -722,12 +722,21 @@ export const FEATURE_LIMITS = {
     mx_bank_connections: 1,             // MX connections (counts toward bank_connections)
     plaid_bank_connections: 1,          // Plaid connections (counts toward bank_connections)
     manual_accounts: 3,                 // total manual accounts
+    account_sync: 5,                    // manual syncs per day
+    account_refresh: 10,                // manual refreshes per day
     transaction_history: 90,            // days of history viewable
+    transaction_search: null,           // unlimited searches
     manual_transactions: 50,            // manual transactions per month
 
     // Financial Tracking
     asset_tracking: 10,                 // total assets tracked
+    net_worth_tracking: null,           // unlimited (basic feature)
+    investment_tracking: null,          // unlimited (basic feature)
+    income_tracking: null,              // unlimited (basic feature)
     expense_tracking: 100,              // manual expenses per month
+    spending_analysis: null,            // unlimited (basic feature)
+    unmatched_transactions: null,       // unlimited (basic feature)
+    subscription_tracking: null,        // unlimited (basic feature)
 
     // Planning
     budget_creation: 2,                 // total budgets
@@ -735,6 +744,8 @@ export const FEATURE_LIMITS = {
     debt_tracking: 3,                   // total debts
     debt_payoff_planner: 0,             // disabled on free
     bill_tracking: 5,                   // total bills
+    bill_reminders: null,               // unlimited (basic feature)
+    calendar_view: null,                // unlimited (basic feature)
     what_if_simulator: 0,               // disabled on free
     autopilot_rules: 0,                 // disabled on free
     financial_autopilot: 0,             // disabled on free
@@ -742,6 +753,9 @@ export const FEATURE_LIMITS = {
     // Reporting
     cash_flow_forecast: 0,              // disabled on free
     financial_health: 0,                // disabled on free
+    financial_reports: null,            // unlimited (basic feature)
+    budget_vs_actual: null,             // unlimited (basic feature)
+    money_timeline: null,               // unlimited (basic feature)
     data_export_csv: 5,                 // exports per month
     data_export_json: 0,                // disabled on free
     tax_reporting: 0,                   // disabled on free
@@ -757,6 +771,8 @@ export const FEATURE_LIMITS = {
     financial_vault: 0,                 // disabled on free
     vault_ai_search: 0,                 // disabled on free
     categories_management: 20,          // total custom categories
+    merchant_management: null,          // unlimited (basic feature)
+    notifications: null,                // unlimited (basic feature)
     security_alerts: 0,                 // disabled on free
     silent_leaks_detector: 0,           // disabled on free
     payday_optimizer: 0,                // disabled on free
