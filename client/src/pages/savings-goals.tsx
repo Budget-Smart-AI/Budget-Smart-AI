@@ -444,155 +444,157 @@ export default function SavingsGoalsPage() {
         </div>
       </div>
 
-      {goals.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PiggyBank className="h-5 w-5" />
-              Total Savings Overview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Saved</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalSaved)}</p>
+      <FeatureGate feature="savings_goals" displayName="savings goals">
+        {goals.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PiggyBank className="h-5 w-5" />
+                Total Savings Overview
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Saved</p>
+                  <p className="text-2xl font-bold text-green-600">{formatCurrency(totalSaved)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Target</p>
+                  <p className="text-2xl font-bold">{formatCurrency(totalTarget)}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Target</p>
-                <p className="text-2xl font-bold">{formatCurrency(totalTarget)}</p>
+              <div className="mt-4">
+                <Progress value={(totalSaved / totalTarget) * 100} className="h-3" />
+                <p className="text-sm text-muted-foreground mt-1">
+                  {Math.round((totalSaved / totalTarget) * 100)}% of all goals achieved
+                </p>
               </div>
-            </div>
-            <div className="mt-4">
-              <Progress value={(totalSaved / totalTarget) * 100} className="h-3" />
-              <p className="text-sm text-muted-foreground mt-1">
-                {Math.round((totalSaved / totalTarget) * 100)}% of all goals achieved
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {isLoading ? (
-          [1, 2, 3].map((i) => (
-            <Card key={i}>
-              <CardContent className="pt-6">
-                <Skeleton className="h-32 w-full" />
-              </CardContent>
-            </Card>
-          ))
-        ) : goals.length === 0 ? (
-          <Card className="col-span-full">
-            <CardContent className="text-center py-12">
-              <Target className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p className="text-muted-foreground mb-4">No savings goals yet</p>
-              <Button onClick={() => setIsDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Your First Goal
-              </Button>
             </CardContent>
           </Card>
-        ) : (
-          goals.map((goal) => {
-            const current = parseFloat(goal.currentAmount);
-            const target = parseFloat(goal.targetAmount);
-            const percentage = target > 0 ? Math.min((current / target) * 100, 100) : 0;
-            const remaining = target - current;
-            const isComplete = current >= target;
+        )}
 
-            let daysLeft: number | null = null;
-            if (goal.targetDate) {
-              daysLeft = differenceInDays(parseISO(goal.targetDate), new Date());
-            }
-
-            return (
-              <Card key={goal.id} className="overflow-hidden">
-                <div className="h-2" style={{ backgroundColor: goal.color || "#3b82f6" }} />
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Target className="h-4 w-4" style={{ color: goal.color || "#3b82f6" }} />
-                      {goal.name}
-                    </CardTitle>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => handleEdit(goal)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeletingGoal(goal)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <p className="text-2xl font-bold" style={{ color: goal.color || "#3b82f6" }}>
-                          {formatCurrency(current)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          of {formatCurrency(target)}
-                        </p>
-                      </div>
-                      <p className="text-lg font-semibold">{Math.round(percentage)}%</p>
-                    </div>
-
-                    <Progress
-                      value={percentage}
-                      className="h-3"
-                      style={{ "--progress-background": goal.color || "#3b82f6" } as React.CSSProperties}
-                    />
-
-                    <div className="flex justify-between text-sm text-muted-foreground">
-                      {isComplete ? (
-                        <span className="text-green-600 font-medium">Goal achieved!</span>
-                      ) : (
-                        <span>{formatCurrency(remaining)} to go</span>
-                      )}
-                      {daysLeft !== null && daysLeft > 0 && (
-                        <span>{daysLeft} days left</span>
-                      )}
-                      {daysLeft !== null && daysLeft <= 0 && !isComplete && (
-                        <span className="text-red-600">Past due</span>
-                      )}
-                    </div>
-
-                    {goal.notes && (
-                      <p className="text-xs text-muted-foreground border-t pt-2 mt-2">
-                        {goal.notes}
-                      </p>
-                    )}
-
-                    <div className="flex gap-2 mt-2">
-                      {!isComplete && (
-                        <Button
-                          className="flex-1"
-                          variant="outline"
-                          onClick={() => setAddingMoneyGoal(goal)}
-                        >
-                          <TrendingUp className="h-4 w-4 mr-2" />
-                          Add Money
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0"
-                        onClick={() => handleAiAdvisor(goal)}
-                        title="Get AI savings advice"
-                      >
-                        <Sparkles className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {isLoading ? (
+            [1, 2, 3].map((i) => (
+              <Card key={i}>
+                <CardContent className="pt-6">
+                  <Skeleton className="h-32 w-full" />
                 </CardContent>
               </Card>
-            );
-          })
-        )}
-      </div>
+            ))
+          ) : goals.length === 0 ? (
+            <Card className="col-span-full">
+              <CardContent className="text-center py-12">
+                <Target className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="text-muted-foreground mb-4">No savings goals yet</p>
+                <Button onClick={() => setIsDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Your First Goal
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            goals.map((goal) => {
+              const current = parseFloat(goal.currentAmount);
+              const target = parseFloat(goal.targetAmount);
+              const percentage = target > 0 ? Math.min((current / target) * 100, 100) : 0;
+              const remaining = target - current;
+              const isComplete = current >= target;
+
+              let daysLeft: number | null = null;
+              if (goal.targetDate) {
+                daysLeft = differenceInDays(parseISO(goal.targetDate), new Date());
+              }
+
+              return (
+                <Card key={goal.id} className="overflow-hidden">
+                  <div className="h-2" style={{ backgroundColor: goal.color || "#3b82f6" }} />
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Target className="h-4 w-4" style={{ color: goal.color || "#3b82f6" }} />
+                        {goal.name}
+                      </CardTitle>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => handleEdit(goal)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => setDeletingGoal(goal)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <p className="text-2xl font-bold" style={{ color: goal.color || "#3b82f6" }}>
+                            {formatCurrency(current)}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            of {formatCurrency(target)}
+                          </p>
+                        </div>
+                        <p className="text-lg font-semibold">{Math.round(percentage)}%</p>
+                      </div>
+
+                      <Progress
+                        value={percentage}
+                        className="h-3"
+                        style={{ "--progress-background": goal.color || "#3b82f6" } as React.CSSProperties}
+                      />
+
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        {isComplete ? (
+                          <span className="text-green-600 font-medium">Goal achieved!</span>
+                        ) : (
+                          <span>{formatCurrency(remaining)} to go</span>
+                        )}
+                        {daysLeft !== null && daysLeft > 0 && (
+                          <span>{daysLeft} days left</span>
+                        )}
+                        {daysLeft !== null && daysLeft <= 0 && !isComplete && (
+                          <span className="text-red-600">Past due</span>
+                        )}
+                      </div>
+
+                      {goal.notes && (
+                        <p className="text-xs text-muted-foreground border-t pt-2 mt-2">
+                          {goal.notes}
+                        </p>
+                      )}
+
+                      <div className="flex gap-2 mt-2">
+                        {!isComplete && (
+                          <Button
+                            className="flex-1"
+                            variant="outline"
+                            onClick={() => setAddingMoneyGoal(goal)}
+                          >
+                            <TrendingUp className="h-4 w-4 mr-2" />
+                            Add Money
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0"
+                          onClick={() => handleAiAdvisor(goal)}
+                          title="Get AI savings advice"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+        </div>
+      </FeatureGate>
 
       <AlertDialog open={!!deletingGoal} onOpenChange={() => setDeletingGoal(undefined)}>
         <AlertDialogContent>
