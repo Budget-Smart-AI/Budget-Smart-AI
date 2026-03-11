@@ -81,9 +81,8 @@ export async function createSubscriptionCheckout(
   const customerId = await getOrCreateStripeCustomer(userId);
 
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
-    customer: customerId,
+    customer: customerId, // Always use customer ID to avoid duplicate customer creation
     client_reference_id: userId,
-    // Never pass customer_email when customer ID is provided to avoid conflicts
     mode: "subscription",
     payment_method_types: ["card"],
     line_items: [

@@ -326,23 +326,23 @@ export default function AffiliatePage() {
   const partneroUrl = settings?.partneroUrl || "https://affiliate.budgetsmart.io";
 
   // Pricing
+  const proMonthly = 7.99;
+  const proYearly = 67;
   const familyMonthly = 14.99;
   const familyYearly = 129;
-  const standardMonthly = 7.99;
-  const standardYearly = 67;
 
   // Calculate earnings
-  const calculateMonthlyEarnings = (customers: number, plan: "family" | "standard", period: "monthly" | "yearly") => {
+  const calculateMonthlyEarnings = (customers: number, plan: "family" | "pro", period: "monthly" | "yearly") => {
     const price = plan === "family"
       ? (period === "monthly" ? familyMonthly : familyYearly / 12)
-      : (period === "monthly" ? standardMonthly : standardYearly / 12);
+      : (period === "monthly" ? proMonthly : proYearly / 12);
     return (customers * price * (commissionPercent / 100)).toFixed(2);
   };
 
-  const calculateYearlyEarnings = (customers: number, plan: "family" | "standard", period: "monthly" | "yearly") => {
+  const calculateYearlyEarnings = (customers: number, plan: "family" | "pro", period: "monthly" | "yearly") => {
     const price = plan === "family"
       ? (period === "monthly" ? familyMonthly * 12 : familyYearly)
-      : (period === "monthly" ? standardMonthly * 12 : standardYearly);
+      : (period === "monthly" ? proMonthly * 12 : proYearly);
     return (customers * price * (commissionPercent / 100)).toFixed(2);
   };
 
@@ -639,20 +639,20 @@ export default function AffiliatePage() {
                 <Card className="bg-slate-800/50 border-slate-700">
                   <CardHeader>
                     <CardTitle className="text-lg text-white">Pro Plan Earnings</CardTitle>
-                    <CardDescription>${standardMonthly}/mo or ${standardYearly}/yr</CardDescription>
+                    <CardDescription>${proMonthly}/mo or ${proYearly}/yr</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">Monthly (per customer)</span>
-                      <span className="text-emerald-400 font-bold">${(standardMonthly * commissionPercent / 100).toFixed(2)}/mo</span>
+                      <span className="text-emerald-400 font-bold">${(proMonthly * commissionPercent / 100).toFixed(2)}/mo</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-400">Your Monthly Total</span>
-                      <span className="text-emerald-400 font-bold text-xl">${calculateMonthlyEarnings(referralCount, "standard", "monthly")}/mo</span>
+                      <span className="text-emerald-400 font-bold text-xl">${calculateMonthlyEarnings(referralCount, "pro", "monthly")}/mo</span>
                     </div>
                     <div className="flex justify-between items-center pt-4 border-t border-slate-700">
                       <span className="text-slate-400">Your Yearly Total</span>
-                      <span className="text-emerald-400 font-bold text-2xl">${calculateYearlyEarnings(referralCount, "standard", "monthly")}/yr</span>
+                      <span className="text-emerald-400 font-bold text-2xl">${calculateYearlyEarnings(referralCount, "pro", "monthly")}/yr</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -674,8 +674,8 @@ export default function AffiliatePage() {
                       <TableHead className="text-slate-400">Customers</TableHead>
                       <TableHead className="text-slate-400 text-right">Family Monthly</TableHead>
                       <TableHead className="text-slate-400 text-right">Family Yearly</TableHead>
-                      <TableHead className="text-slate-400 text-right">Standard Monthly</TableHead>
-                      <TableHead className="text-slate-400 text-right">Standard Yearly</TableHead>
+                      <TableHead className="text-slate-400 text-right">Pro Monthly</TableHead>
+                      <TableHead className="text-slate-400 text-right">Pro Yearly</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -691,12 +691,12 @@ export default function AffiliatePage() {
                           <span className="block text-xs text-slate-500">${(row.customers * familyYearly * commissionPercent / 100).toFixed(2)}/yr</span>
                         </TableCell>
                         <TableCell className="text-right text-teal-400">
-                          ${calculateMonthlyEarnings(row.customers, "standard", "monthly")}/mo
-                          <span className="block text-xs text-slate-500">${calculateYearlyEarnings(row.customers, "standard", "monthly")}/yr</span>
+                          ${calculateMonthlyEarnings(row.customers, "pro", "monthly")}/mo
+                          <span className="block text-xs text-slate-500">${calculateYearlyEarnings(row.customers, "pro", "monthly")}/yr</span>
                         </TableCell>
                         <TableCell className="text-right text-teal-400">
-                          ${(row.customers * standardYearly * commissionPercent / 100 / 12).toFixed(2)}/mo
-                          <span className="block text-xs text-slate-500">${(row.customers * standardYearly * commissionPercent / 100).toFixed(2)}/yr</span>
+                          ${(row.customers * proYearly * commissionPercent / 100 / 12).toFixed(2)}/mo
+                          <span className="block text-xs text-slate-500">${(row.customers * proYearly * commissionPercent / 100).toFixed(2)}/yr</span>
                         </TableCell>
                       </TableRow>
                     ))}

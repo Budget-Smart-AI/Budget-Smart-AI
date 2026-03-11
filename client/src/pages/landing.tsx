@@ -189,7 +189,7 @@ const pricingPlans = {
   family: {
     name: "Family",
     monthlyPrice: 14.99,
-    yearlyPrice: 10.75, // per month when billed yearly ($129/12 = $10.75)
+    yearlyPrice: 10.75, // per month when billed yearly ($129 total / 12 months)
     yearlyTotal: 129, // total yearly cost
     description: "Best value for households managing finances together",
     features: [
@@ -641,11 +641,6 @@ function PricingSection() {
                     Save 3 months free (billed ${pricingPlans.pro.yearlyTotal}/year)
                   </p>
                 )}
-                {billingPeriod === "monthly" && (
-                  <p className="text-sm text-slate-500 mt-1">
-                    Billed monthly
-                  </p>
-                )}
                 <CardDescription className="mt-3">{pricingPlans.pro.description}</CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
@@ -709,11 +704,6 @@ function PricingSection() {
                 {billingPeriod === "yearly" && (
                   <p className="text-sm text-amber-400 mt-1 font-medium">
                     Save 4 months free (billed ${pricingPlans.family.yearlyTotal}/year)
-                  </p>
-                )}
-                {billingPeriod === "monthly" && (
-                  <p className="text-sm text-slate-500 mt-1">
-                    Billed monthly
                   </p>
                 )}
                 <CardDescription className="mt-3">{pricingPlans.family.description}</CardDescription>
