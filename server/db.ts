@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "@shared/schema";
+import { FEATURE_LIMITS } from "./lib/features";
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -634,6 +635,8 @@ export async function ensureUserFeatureUsageTable(): Promise<void> {
 /**
  * Ensure plan_feature_limits table exists for dynamic plan-feature management.
  * This allows admins to configure feature limits per plan via admin UI.
+ * Seeds / upserts all FEATURE_LIMITS values on every startup so Railway
+ * redeploys always keep the table in sync with features.ts.
  */
 export async function ensurePlanFeatureLimitsTable(): Promise<void> {
   await pool.query(`
@@ -649,4 +652,24 @@ export async function ensurePlanFeatureLimitsTable(): Promise<void> {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_plan_feature_limits_plan ON plan_feature_limits(plan_name)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_plan_feature_limits_feature ON plan_feature_limits(feature_key)`);
+
+  // Upsert every value from FEATURE_LIMITS for all three plans on every startup.
+  // ON CONFLICT DO UPDATE ensures values stay in sync with features.ts after code changes.
+  // Batch all rows into a single query per plan using unnest to avoid N+1 round-trips.
+  const plans = ['free', 'pro', 'family'] as const;
+  for (const plan of plans) {
+    const limits = FEATURE_LIMITS[plan] as Record<string, number | null>;
+    const entries = Object.entries(limits);
+    if (entries.length === 0) continue;
+    const planNames = entries.map(() => plan);
+    const featureKeys = entries.map(([k]) => k);
+    const limitValues = entries.map(([, v]) => v);
+    await pool.query(
+      `INSERT INTO plan_feature_limits (plan_name, feature_key, limit_value, is_enabled, updated_at)
+       SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::int[]), true, NOW()
+       ON CONFLICT (plan_name, feature_key)
+       DO UPDATE SET limit_value = EXCLUDED.limit_value, updated_at = NOW()`,
+      [planNames, featureKeys, limitValues]
+    );
+  }
 }
