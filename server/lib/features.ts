@@ -169,9 +169,13 @@ export interface Feature {
   tier: FeatureTier;
   /** Category this feature belongs to */
   category: FeatureCategory;
-  /** Monthly limit (null = unlimited) */
+  /** 
+   * Monthly limit (null = unlimited)
+   * Note: For some features (e.g., FINANCIAL_VAULT, ASSET_TRACKING), this represents
+   * a total/cumulative limit rather than a monthly recurring limit.
+   */
   monthlyLimit: number | null;
-  /** Unit for the limit (e.g., 'messages', 'scans', 'days') */
+  /** Unit for the limit (e.g., 'messages', 'scans', 'days', 'documents') */
   limitUnit: string | null;
 }
 
