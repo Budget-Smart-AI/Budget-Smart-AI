@@ -597,3 +597,27 @@ export async function ensureUserAICostsTable(): Promise<void> {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_ai_costs_user ON user_ai_costs(user_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_ai_costs_feature ON user_ai_costs(feature_tag)`);
 }
+
+/**
+ * Ensure the user_feature_usage table exists for per-user feature usage tracking.
+ * Stores monthly usage counts per (user, feature_key) pair and is used by the
+ * feature gating enforcement layer (server/lib/featureGate.ts).
+ * Safe to call on every startup (uses IF NOT EXISTS).
+ */
+export async function ensureUserFeatureUsageTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_feature_usage (
+      id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      feature_key   VARCHAR(50) NOT NULL,
+      usage_count   INTEGER DEFAULT 0,
+      period_start  TIMESTAMP NOT NULL DEFAULT date_trunc('month', NOW()),
+      period_end    TIMESTAMP NOT NULL DEFAULT (date_trunc('month', NOW()) + INTERVAL '1 month'),
+      created_at    TIMESTAMP DEFAULT NOW(),
+      updated_at    TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, feature_key, period_start)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_feature_usage_user_id ON user_feature_usage(user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_feature_usage_period ON user_feature_usage(period_start)`);
+}

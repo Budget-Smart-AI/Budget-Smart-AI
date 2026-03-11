@@ -1,0 +1,417 @@
+/**
+ * Feature Gating Enforcement Layer
+ *
+ * Provides the runtime enforcement infrastructure for checking, tracking, and
+ * enforcing per-user feature limits based on subscription plan.
+ *
+ * Depends on:
+ *  - server/lib/features.ts  — feature registry and FEATURE_LIMITS
+ *  - server/db.ts            — shared pg pool
+ *  - user_feature_usage table (created by ensureUserFeatureUsageTable in db.ts)
+ */
+
+import { pool } from "../db";
+import { FEATURE_LIMITS, FEATURES, FeatureTier } from "./features";
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export interface FeatureAccessResult {
+  allowed: boolean;
+  reason: "allowed" | "upgrade_required" | "limit_reached";
+  currentUsage: number;
+  limit: number | null;
+  remaining: number | null;
+  resetDate: Date | null;
+  upgradeRequired: boolean;
+}
+
+export interface UserFeatureSummaryItem {
+  featureKey: string;
+  displayName: string;
+  allowed: boolean;
+  currentUsage: number;
+  limit: number | null;
+  remaining: number | null;
+  resetDate: Date | null;
+  upgradeRequired: boolean;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/**
+ * Normalise a plan string to a FeatureTier, defaulting to 'free' for unknown values.
+ */
+function normaliseTier(plan: string): FeatureTier {
+  const lower = plan.toLowerCase() as FeatureTier;
+  if (lower === "free" || lower === "pro" || lower === "family") return lower;
+  return "free";
+}
+
+/**
+ * Return the start of the current calendar month (UTC).
+ */
+function currentPeriodStart(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+/**
+ * Return the start of the next calendar month (UTC) — i.e. period_end.
+ */
+function currentPeriodEnd(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+}
+
+// ============================================================================
+// A) getFeatureLimit
+// ============================================================================
+
+/**
+ * Returns the monthly limit for `featureKey` on `plan`.
+ *
+ * - Returns `null`  → unlimited access
+ * - Returns `0`     → feature not available on this plan
+ * - Returns `N > 0` → limited to N uses per month
+ */
+export function getFeatureLimit(plan: string, featureKey: string): number | null {
+  const tier = normaliseTier(plan);
+  const key = featureKey.toLowerCase();
+  const limits = FEATURE_LIMITS[tier] as Record<string, number | null>;
+  if (key in limits) {
+    return limits[key] ?? null;
+  }
+  // Feature key not registered in this tier's limits — treat as unavailable
+  return 0;
+}
+
+// ============================================================================
+// B) getCurrentUsage
+// ============================================================================
+
+/**
+ * Returns the usage count for `featureKey` in the current billing month for
+ * `userId`. Returns `0` when no record exists yet.
+ *
+ * Automatically handles month rollover: only counts rows whose `period_start`
+ * matches the current calendar month.
+ */
+export async function getCurrentUsage(userId: string, featureKey: string): Promise<number> {
+  const periodStart = currentPeriodStart();
+
+  const { rows } = await pool.query<{ usage_count: number }>(
+    `SELECT usage_count
+     FROM user_feature_usage
+     WHERE user_id = $1::uuid
+       AND feature_key = $2
+       AND period_start = $3`,
+    [userId, featureKey.toLowerCase(), periodStart.toISOString()]
+  );
+
+  return rows.length > 0 ? rows[0].usage_count : 0;
+}
+
+// ============================================================================
+// C) checkFeatureAccess
+// ============================================================================
+
+/**
+ * Full access check for a (user, plan, feature) combination.
+ *
+ * Returns a rich result object describing whether the action is allowed,
+ * the current usage, the limit, remaining capacity, and when the period resets.
+ */
+export async function checkFeatureAccess(
+  userId: string,
+  plan: string,
+  featureKey: string
+): Promise<FeatureAccessResult> {
+  const limit = getFeatureLimit(plan, featureKey);
+  const resetDate = currentPeriodEnd();
+
+  // Feature entirely unavailable on this plan
+  if (limit === 0) {
+    return {
+      allowed: false,
+      reason: "upgrade_required",
+      currentUsage: 0,
+      limit: 0,
+      remaining: 0,
+      resetDate,
+      upgradeRequired: true,
+    };
+  }
+
+  // Unlimited access — no need to query usage
+  if (limit === null) {
+    return {
+      allowed: true,
+      reason: "allowed",
+      currentUsage: 0,
+      limit: null,
+      remaining: null,
+      resetDate: null,
+      upgradeRequired: false,
+    };
+  }
+
+  // Limited access — check current usage
+  const currentUsage = await getCurrentUsage(userId, featureKey);
+  const remaining = Math.max(0, limit - currentUsage);
+
+  if (currentUsage >= limit) {
+    return {
+      allowed: false,
+      reason: "limit_reached",
+      currentUsage,
+      limit,
+      remaining: 0,
+      resetDate,
+      upgradeRequired: false,
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: "allowed",
+    currentUsage,
+    limit,
+    remaining,
+    resetDate,
+    upgradeRequired: false,
+  };
+}
+
+// ============================================================================
+// D) incrementFeatureUsage
+// ============================================================================
+
+/**
+ * Increments the usage counter for `featureKey` for `userId` in the current
+ * billing month. Creates the row if it does not yet exist.
+ */
+export async function incrementFeatureUsage(userId: string, featureKey: string): Promise<void> {
+  const periodStart = currentPeriodStart();
+  const periodEnd = currentPeriodEnd();
+
+  await pool.query(
+    `INSERT INTO user_feature_usage
+       (user_id, feature_key, usage_count, period_start, period_end)
+     VALUES ($1::uuid, $2, 1, $3, $4)
+     ON CONFLICT (user_id, feature_key, period_start)
+     DO UPDATE SET
+       usage_count = user_feature_usage.usage_count + 1,
+       updated_at  = NOW()`,
+    [userId, featureKey.toLowerCase(), periodStart.toISOString(), periodEnd.toISOString()]
+  );
+}
+
+// ============================================================================
+// E) checkAndConsume
+// ============================================================================
+
+/**
+ * Atomically checks access and, if allowed, increments the usage counter.
+ *
+ * For limited features this uses a database transaction with a SELECT FOR UPDATE
+ * lock to prevent concurrent requests from exceeding the limit. Unlimited and
+ * unavailable features are handled synchronously without a DB transaction.
+ *
+ * Use this in API route handlers so that a single call both validates the
+ * request and records the usage.
+ */
+export async function checkAndConsume(
+  userId: string,
+  plan: string,
+  featureKey: string
+): Promise<FeatureAccessResult> {
+  const limit = getFeatureLimit(plan, featureKey);
+  const resetDate = currentPeriodEnd();
+  const key = featureKey.toLowerCase();
+
+  // Feature entirely unavailable on this plan — no DB interaction needed
+  if (limit === 0) {
+    return {
+      allowed: false,
+      reason: "upgrade_required",
+      currentUsage: 0,
+      limit: 0,
+      remaining: 0,
+      resetDate,
+      upgradeRequired: true,
+    };
+  }
+
+  // Unlimited access — just increment without a limit check
+  if (limit === null) {
+    await incrementFeatureUsage(userId, featureKey);
+    return {
+      allowed: true,
+      reason: "allowed",
+      currentUsage: 0,
+      limit: null,
+      remaining: null,
+      resetDate: null,
+      upgradeRequired: false,
+    };
+  }
+
+  // Limited access — atomic check + increment using a transaction with row lock
+  const periodStart = currentPeriodStart();
+  const periodEnd = currentPeriodEnd();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Ensure the row exists so we can lock it
+    await client.query(
+      `INSERT INTO user_feature_usage
+         (user_id, feature_key, usage_count, period_start, period_end)
+       VALUES ($1::uuid, $2, 0, $3, $4)
+       ON CONFLICT (user_id, feature_key, period_start) DO NOTHING`,
+      [userId, key, periodStart.toISOString(), periodEnd.toISOString()]
+    );
+
+    // Lock the row for the duration of this transaction
+    const { rows } = await client.query<{ usage_count: number }>(
+      `SELECT usage_count
+       FROM user_feature_usage
+       WHERE user_id = $1::uuid
+         AND feature_key = $2
+         AND period_start = $3
+       FOR UPDATE`,
+      [userId, key, periodStart.toISOString()]
+    );
+
+    const currentUsage = rows[0]?.usage_count ?? 0;
+
+    if (currentUsage >= limit) {
+      await client.query("ROLLBACK");
+      return {
+        allowed: false,
+        reason: "limit_reached",
+        currentUsage,
+        limit,
+        remaining: 0,
+        resetDate,
+        upgradeRequired: false,
+      };
+    }
+
+    await client.query(
+      `UPDATE user_feature_usage
+       SET usage_count = usage_count + 1,
+           updated_at  = NOW()
+       WHERE user_id = $1::uuid
+         AND feature_key = $2
+         AND period_start = $3`,
+      [userId, key, periodStart.toISOString()]
+    );
+
+    await client.query("COMMIT");
+
+    const newUsage = currentUsage + 1;
+    const remaining = Math.max(0, limit - newUsage);
+    return {
+      allowed: true,
+      reason: "allowed",
+      currentUsage: newUsage,
+      limit,
+      remaining,
+      resetDate,
+      upgradeRequired: false,
+    };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ============================================================================
+// F) getUserFeatureSummary
+// ============================================================================
+
+/**
+ * Returns a summary of all registered features for `userId` on `plan`,
+ * including current usage, limits, and remaining capacity for each feature.
+ */
+export async function getUserFeatureSummary(
+  userId: string,
+  plan: string
+): Promise<UserFeatureSummaryItem[]> {
+  const tier = normaliseTier(plan);
+  const periodStart = currentPeriodStart();
+  const resetDate = currentPeriodEnd();
+
+  // Bulk-fetch all current-period usage rows for this user in one query
+  const { rows } = await pool.query<{ feature_key: string; usage_count: number }>(
+    `SELECT feature_key, usage_count
+     FROM user_feature_usage
+     WHERE user_id = $1::uuid
+       AND period_start = $2`,
+    [userId, periodStart.toISOString()]
+  );
+
+  const usageMap = new Map<string, number>();
+  for (const row of rows) {
+    usageMap.set(row.feature_key, row.usage_count);
+  }
+
+  const summary: UserFeatureSummaryItem[] = [];
+
+  for (const feature of Object.values(FEATURES)) {
+    const limit = getFeatureLimit(tier, feature.key);
+    const currentUsage = usageMap.get(feature.key.toLowerCase()) ?? 0;
+
+    // Feature unavailable on this plan
+    if (limit === 0) {
+      summary.push({
+        featureKey: feature.key,
+        displayName: feature.displayName,
+        allowed: false,
+        currentUsage: 0,
+        limit: 0,
+        remaining: 0,
+        resetDate,
+        upgradeRequired: true,
+      });
+      continue;
+    }
+
+    // Unlimited feature
+    if (limit === null) {
+      summary.push({
+        featureKey: feature.key,
+        displayName: feature.displayName,
+        allowed: true,
+        currentUsage,
+        limit: null,
+        remaining: null,
+        resetDate: null,
+        upgradeRequired: false,
+      });
+      continue;
+    }
+
+    // Limited feature
+    const remaining = Math.max(0, limit - currentUsage);
+    summary.push({
+      featureKey: feature.key,
+      displayName: feature.displayName,
+      allowed: currentUsage < limit,
+      currentUsage,
+      limit,
+      remaining,
+      resetDate,
+      upgradeRequired: false,
+    });
+  }
+
+  return summary;
+}
