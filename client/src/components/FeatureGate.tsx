@@ -53,7 +53,7 @@ const FEATURE_COPY: Record<
   ai_daily_coach: {
     icon: "🎯",
     heading: "AI Daily Coach",
-    body: "Daily financial briefings and personalised coaching to hit your goals.",
+    body: "Daily financial briefings and personalized coaching to hit your goals.",
     cta: "Start Free Trial",
   },
   financial_reports: {
@@ -83,7 +83,7 @@ const FEATURE_COPY: Record<
   debt_payoff_planner: {
     icon: "💳",
     heading: "Debt Payoff Planner",
-    body: "Avalanche & snowball payoff strategies with a personalised payoff timeline.",
+    body: "Avalanche & snowball payoff strategies with a personalized payoff timeline.",
     cta: "Start Free Trial",
   },
   mx_bank_connections: {
@@ -240,6 +240,47 @@ function UpgradePromptOverlay({
 
 const DISMISSAL_KEY_PREFIX = "bsai_gate_dismissed_";
 
+/** Feature-specific "last usage" warning message and upgrade CTA */
+const LAST_USAGE_COPY: Record<string, { warning: string; cta: string }> = {
+  ai_assistant: {
+    warning: "Last free message this month",
+    cta: "Upgrade to Pro for unlimited AI access →",
+  },
+  receipt_scanning: {
+    warning: "Last free receipt scan this month",
+    cta: "Upgrade to Pro for unlimited scanning →",
+  },
+  portfolio_advisor: {
+    warning: "Last free portfolio insight this month",
+    cta: "Upgrade to Pro for unlimited advisor access →",
+  },
+  data_export_csv: {
+    warning: "Last free export this month",
+    cta: "Upgrade to Pro for unlimited exports →",
+  },
+  budget_creation: {
+    warning: "Approaching your budget limit",
+    cta: "Upgrade to Pro for unlimited budgets →",
+  },
+  savings_goals: {
+    warning: "Last free savings goal",
+    cta: "Upgrade to Pro for unlimited goals →",
+  },
+  mx_bank_connections: {
+    warning: "Last free bank connection",
+    cta: "Upgrade to Pro to connect all your accounts →",
+  },
+  plaid_bank_connections: {
+    warning: "Last free bank connection",
+    cta: "Upgrade to Pro to connect all your accounts →",
+  },
+};
+
+const DEFAULT_LAST_USAGE_COPY = {
+  warning: "Last free use this month",
+  cta: "Upgrade to Pro for unlimited access →",
+};
+
 interface WarningBannerProps {
   featureKey: string;
 }
@@ -255,6 +296,9 @@ function LastUsageWarningBanner({ featureKey }: WarningBannerProps) {
   });
 
   if (dismissed) return null;
+
+  const copy =
+    LAST_USAGE_COPY[featureKey.toLowerCase()] ?? DEFAULT_LAST_USAGE_COPY;
 
   const handleDismiss = () => {
     try {
@@ -275,14 +319,14 @@ function LastUsageWarningBanner({ featureKey }: WarningBannerProps) {
       ].join(" ")}
     >
       <span className="text-sm">
-        ⚡ Last free message this month —{" "}
+        ⚡ {copy.warning} —{" "}
         <button
           className="font-semibold underline underline-offset-2 hover:text-amber-200 transition-colors"
           onClick={() => {
             window.location.href = "/upgrade";
           }}
         >
-          Upgrade to Pro for unlimited AI access →
+          {copy.cta}
         </button>
       </span>
       <button

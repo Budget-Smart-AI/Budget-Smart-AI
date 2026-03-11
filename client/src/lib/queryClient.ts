@@ -39,7 +39,7 @@ function publish402(payload: GatePayload) {
  */
 async function tryParseGatePayload(res: Response): Promise<GatePayload | null> {
   try {
-    const body = await res.clone().json();
+    const body = await res.json();
     if (body && typeof body.feature === "string") {
       return {
         feature: body.feature,

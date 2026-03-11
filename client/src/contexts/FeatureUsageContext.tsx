@@ -125,7 +125,13 @@ export function FeatureUsageProvider({ children }: { children: ReactNode }) {
             ...existing,
             allowed: false,
             remaining: 0,
-            currentUsage: existing.limit ?? existing.currentUsage,
+            // If the feature has a finite limit, set usage to the limit.
+            // For unlimited features that returned a 402 this should not happen
+            // in practice, but fall back to incrementing by 1 defensively.
+            currentUsage:
+              existing.limit !== null
+                ? existing.limit
+                : existing.currentUsage + 1,
           });
         } else {
           next.set(key, {
