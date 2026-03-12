@@ -14,6 +14,7 @@ import {
   Loader2, Lock, User, Mail, Brain, Zap, ArrowRight
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { BudgetSmartLogo } from "@/components/logo";
 
 import { COUNTRIES } from "@shared/schema";
 
