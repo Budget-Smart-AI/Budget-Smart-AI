@@ -234,30 +234,35 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
           const syncRes = await apiRequest("POST", "/api/plaid/transactions/fetch-historical");
           const syncData = await syncRes.json();
 
-          // Check if we got transactions
-          if (syncData.added > 0) {
-            syncSuccess = true;
+          // Sync is successful if we get a response (even with 0 transactions for new accounts)
+          syncSuccess = true;
+          const count = syncData.added || 0;
+          if (count > 0) {
             toast({ 
               title: "Sync complete!", 
-              description: `${syncData.added} transaction${syncData.added !== 1 ? 's' : ''} synced` 
+              description: `${count} transaction${count !== 1 ? 's' : ''} synced` 
             });
           } else {
-            // Wait 3 seconds before retrying
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            toast({ 
+              title: "Account connected!", 
+              description: "No transactions found - new transactions will sync automatically" 
+            });
           }
         } catch (syncError) {
           console.error("Sync attempt failed:", syncError);
           if (attempts < maxAttempts) {
+            // Wait 3 seconds before retrying
             await new Promise(resolve => setTimeout(resolve, 3000));
           }
         }
       }
 
-      // If sync didn't succeed after all retries, still show a success message
+      // If sync didn't succeed after all retries, show a warning
       if (!syncSuccess) {
         toast({ 
-          title: "Account connected!", 
-          description: "Transactions will sync in the background" 
+          title: "Account connected with sync issues", 
+          description: "Initial sync encountered errors. Transactions will sync in the background.",
+          variant: "default"
         });
       }
 
