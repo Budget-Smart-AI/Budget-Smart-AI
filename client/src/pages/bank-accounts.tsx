@@ -2043,7 +2043,7 @@ export default function BankAccounts() {
                                 onClick={() => setDrilldownTransaction(tx)}
                               >
                                 {tx.merchantCleanName === null && !tx.merchantLogoUrl && !tx.logoUrl ? (
-                                  <Skeleton className="w-6 h-6 rounded-full flex-shrink-0" />
+                                  <div className="w-6 h-6 rounded-full flex-shrink-0 bg-muted" />
                                 ) : (tx.merchantLogoUrl || tx.logoUrl) ? (
                                   <img
                                     src={(tx.merchantLogoUrl || tx.logoUrl)!}
@@ -2063,7 +2063,7 @@ export default function BankAccounts() {
                                 )}
                                 <div className="flex flex-col min-w-0">
                                   {(tx as any).merchantCleanName === null ? (
-                                    <Skeleton className="h-3 w-20 mb-1" />
+                                    <div className="h-3 w-20 mb-1 bg-muted rounded" />
                                   ) : (
                                     <p className="text-xs sm:text-sm font-medium group-hover:underline flex items-center gap-1 truncate max-w-[120px] sm:max-w-none">
                                       {(tx as any).merchantCleanName || tx.merchantName || tx.name}

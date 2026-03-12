@@ -4923,6 +4923,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           additional_consented_products: additionalProducts,
           country_codes: PLAID_COUNTRY_CODES,
           language: PLAID_LANGUAGE,
+          transactions: {
+            days_requested: 730,  // Request up to 2 years of transaction history
+          },
         });
 
         console.log("[Plaid] Link token created successfully with liabilities + additional products");
@@ -4954,6 +4957,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             products: [Products.Transactions, Products.Auth],
             country_codes: PLAID_COUNTRY_CODES,
             language: PLAID_LANGUAGE,
+            transactions: {
+              days_requested: 730,  // Request up to 2 years of transaction history
+            },
           });
 
           console.log("[Plaid] Link token created successfully without liabilities");
@@ -5402,6 +5408,15 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         }
       }
 
+      // Trigger enrichment for newly added transactions in the background
+      if (totalAdded > 0) {
+        const { enrichPendingTransactions } = await import("./merchant-enricher");
+        // Run in background without blocking the response
+        enrichPendingTransactions(userId, 100).catch(err => 
+          console.error('[Enricher] Background enrichment failed:', err)
+        );
+      }
+
       res.json({ success: true, added: totalAdded, modified: totalModified, removed: totalRemoved });
     } catch (error) {
       console.error("Error syncing transactions:", error);
@@ -5546,6 +5561,15 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           console.error(`Error fetching historical for item ${item.id}:`, errorCode, errorMsg);
           errors.push(`${item.institutionName}: ${errorMsg}`);
         }
+      }
+
+      // Trigger enrichment for newly added transactions in the background
+      if (totalAdded > 0) {
+        const { enrichPendingTransactions } = await import("./merchant-enricher");
+        // Run in background without blocking the response
+        enrichPendingTransactions(userId, 100).catch(err => 
+          console.error('[Enricher] Background enrichment failed:', err)
+        );
       }
 
       res.json({ 
