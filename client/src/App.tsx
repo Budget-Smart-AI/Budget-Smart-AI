@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Switch, Route, useLocation, Redirect, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { queryClient } from "./lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,6 +16,9 @@ import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { FloatingChatbot } from "@/components/floating-chatbot";
 import { FeatureUsageProvider } from "@/contexts/FeatureUsageContext";
 import { SubscriptionGate } from "@/components/subscription-gate";
+import { Button } from "@/components/ui/button";
+import { LogOut, Settings as SettingsIcon } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import Dashboard from "@/pages/dashboard";
 import Bills from "@/pages/bills";
 import Income from "@/pages/income";
@@ -162,9 +165,25 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
 function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: () => void; isAdmin: boolean; username: string; isDemo: boolean }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [location, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const { data: onboardingStatus } = useQuery<{ onboardingComplete: boolean }>({
     queryKey: ["/api/onboarding/status"],
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/auth/logout");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      toast({ title: "Logged Out", description: "You have been logged out successfully" });
+      onLogout();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Logout Failed", description: error.message, variant: "destructive" });
+    },
   });
 
   // Clean up any leftover pendingCheckout from the old signup flow
@@ -200,7 +219,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
     <FeatureUsageProvider>
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
-        <AppSidebar isAdmin={isAdmin} username={username} />
+        <AppSidebar isAdmin={isAdmin} username={username} onLogout={onLogout} />
         <div className="flex flex-col flex-1 overflow-hidden">
           {isDemo && (
             <div className="bg-amber-500/90 text-amber-950 px-4 py-2 text-center text-sm font-medium" data-testid="banner-demo-mode">
@@ -217,6 +236,26 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
             <div className="flex items-center gap-2">
               <NotificationsDropdown />
               <ThemeQuickSwitcher />
+              <Link href="/settings">
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  className="h-9 w-9"
+                  data-testid="header-settings-button"
+                >
+                  <SettingsIcon className="h-4 w-4" />
+                </Button>
+              </Link>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => logoutMutation.mutate()}
+                disabled={logoutMutation.isPending}
+                data-testid="header-logout-button"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
             </div>
           </header>
           <main className="flex-1 overflow-auto p-6">
