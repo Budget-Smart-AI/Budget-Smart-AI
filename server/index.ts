@@ -253,6 +253,36 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CRITICAL DATABASE INITIALIZATION - FATAL IF THESE FAIL
+  // These tables are required for feature gating to work. Without them, the app
+  // cannot enforce plan limits and will not function correctly. We must halt
+  // startup if either table creation fails.
+  // ═══════════════════════════════════════════════════════════════════════════
+  try {
+    await ensureUserFeatureUsageTable();
+    console.log("✅ user_feature_usage table ready");
+  } catch (err) {
+    console.error("❌ FATAL: Failed to create user_feature_usage table:", err);
+    console.error("Cannot start server without user_feature_usage table - feature gating will not work");
+    process.exit(1);
+  }
+
+  try {
+    await ensurePlanFeatureLimitsTable();
+    console.log("✅ plan_feature_limits table ready");
+  } catch (err) {
+    console.error("❌ FATAL: Failed to create plan_feature_limits table:", err);
+    console.error("Cannot start server without plan_feature_limits table - feature gating will not work");
+    process.exit(1);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NON-CRITICAL TABLE INITIALIZATION
+  // These tables are important but not critical - if they fail, log the error
+  // and continue with degraded functionality.
+  // ═══════════════════════════════════════════════════════════════════════════
+
   // Ensure the receipts table exists before handling any requests.
   // This is safe to call on every startup (uses CREATE TABLE IF NOT EXISTS).
   // If this fails, receipt functionality will be unavailable but other features
@@ -325,13 +355,8 @@ app.use((req, res, next) => {
     console.error("Failed to ensure user_ai_costs table — admin AI cost analytics will not work:", err)
   );
 
-  await ensureUserFeatureUsageTable().catch(err =>
-    console.error("Failed to ensure user_feature_usage table — feature gating enforcement will not work:", err)
-  );
-
-  await ensurePlanFeatureLimitsTable().catch(err =>
-    console.error("Failed to ensure plan_feature_limits table — dynamic plan management will not work:", err)
-  );
+  // Note: ensureUserFeatureUsageTable() and ensurePlanFeatureLimitsTable() are now
+  // called at the very top of startup (CRITICAL section) and will halt if they fail.
 
   // seedPlanFeatureLimits is also called inside ensurePlanFeatureLimitsTable above,
   // but we keep this explicit call so the admin-plans endpoint stays independently
