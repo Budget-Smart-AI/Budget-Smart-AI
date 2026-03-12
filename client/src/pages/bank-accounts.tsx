@@ -237,10 +237,16 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
           // Sync is successful if we get a response (even with 0 transactions for new accounts)
           syncSuccess = true;
           const count = syncData.added || 0;
+          
           if (count > 0) {
+            // Show date range if available
+            const dateInfo = syncData.dateRange?.oldest && syncData.dateRange?.newest
+              ? ` (${syncData.dateRange.oldest} to ${syncData.dateRange.newest})`
+              : '';
+            
             toast({ 
               title: "Sync complete!", 
-              description: `${count} transaction${count !== 1 ? 's' : ''} synced` 
+              description: `${count} transaction${count !== 1 ? 's' : ''} synced${dateInfo}` 
             });
           } else {
             toast({ 

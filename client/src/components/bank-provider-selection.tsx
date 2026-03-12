@@ -128,15 +128,28 @@ export function BankProviderSelectionDialog({
   }, [open]);
 
   // Fetch enabled providers from the backend
+  // Try country-specific providers first, fallback to all providers if none found
   const { data: apiProviders = [], isLoading: providersLoading } = useQuery<ApiProvider[]>({
     queryKey: ["/api/bank-providers", userCountry],
     queryFn: async () => {
-      const url = userCountry
-        ? `/api/bank-providers?country=${encodeURIComponent(userCountry)}`
-        : "/api/bank-providers";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) return [];
-      return res.json();
+      // First try country-specific providers
+      if (userCountry) {
+        const countryUrl = `/api/bank-providers?country=${encodeURIComponent(userCountry)}`;
+        const countryRes = await fetch(countryUrl, { credentials: "include" });
+        if (countryRes.ok) {
+          const countryProviders = await countryRes.json();
+          // If we got providers for this country, use them
+          if (Array.isArray(countryProviders) && countryProviders.length > 0) {
+            return countryProviders;
+          }
+        }
+      }
+      
+      // Fallback: fetch all enabled providers (no country filter)
+      const allUrl = "/api/bank-providers";
+      const allRes = await fetch(allUrl, { credentials: "include" });
+      if (!allRes.ok) return [];
+      return allRes.json();
     },
     enabled: open,
     staleTime: 60 * 1000,
