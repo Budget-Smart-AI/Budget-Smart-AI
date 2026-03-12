@@ -12,6 +12,8 @@ import { createRateLimiter, apiRateLimiter } from "../rate-limiter";
 import { Pool } from "pg";
 import { sendEmailViaPostmark } from "../email";
 import { withTimeout } from "../timeout";
+import { checkAndConsume } from "../lib/featureGate";
+import { storage } from "../storage";
 
 const router = express.Router();
 
@@ -165,6 +167,18 @@ router.post("/upload", requireAuth, uploadRateLimiter, upload.array("file", 10),
     }
 
     const userId = String(req.session.userId ?? "");
+    const user = await storage.getUser(userId);
+    const plan = user?.plan || "free";
+    const gateResult = await checkAndConsume(userId, plan, "financial_vault");
+    if (!gateResult.allowed) {
+      return res.status(402).json({
+        feature: "financial_vault",
+        remaining: gateResult.remaining,
+        resetDate: gateResult.resetDate?.toISOString() ?? null,
+        upgradeRequired: gateResult.upgradeRequired,
+      });
+    }
+
     const db = getPool();
 
     const results: any[] = [];

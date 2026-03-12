@@ -6,6 +6,7 @@ import { processReceiptUpload, generateSignedUrl, testR2Connection } from "../re
 import { requireAuth as authenticate } from "../auth";
 import { storage } from "../storage";
 import { EXPENSE_CATEGORIES } from "@shared/schema";
+import { checkAndConsume } from "../lib/featureGate";
 
 const router = express.Router();
 
@@ -46,6 +47,17 @@ router.post('/upload', authenticate, upload.single('receipt'), async (req, res) 
     }
 
     const userId = String(req.session.userId ?? '');
+    const user = await storage.getUser(userId);
+    const plan = user?.plan || "free";
+    const gateResult = await checkAndConsume(userId, plan, "receipt_scanning");
+    if (!gateResult.allowed) {
+      return res.status(402).json({
+        feature: "receipt_scanning",
+        remaining: gateResult.remaining,
+        resetDate: gateResult.resetDate?.toISOString() ?? null,
+        upgradeRequired: gateResult.upgradeRequired,
+      });
+    }
 
     // Fetch user's expenses and manual transactions for matching
     const [expenses, manualTx] = await Promise.all([
