@@ -182,6 +182,7 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const [showConsent, setShowConsent] = useState(false);
   const [privacyChecked, setPrivacyChecked] = useState(false);
   const [limitError, setLimitError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const autoOpenConsentShown = useRef(false);
   const { toast } = useToast();
 
@@ -210,17 +211,60 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   }, []);
 
   const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
+    setIsSyncing(true);
     try {
+      // Step 1: Exchange token and create account
       await apiRequest("POST", "/api/plaid/exchange-token", {
         public_token: publicToken,
         metadata: {
           institution: metadata.institution,
         },
       });
-      toast({ title: "Bank account connected successfully" });
+      toast({ title: "Bank account connected! Syncing transactions..." });
+
+      // Step 2: Trigger initial transaction sync to fetch up to 2 years of history
+      // Use fetch-historical for initial connection to get full available history
+      let attempts = 0;
+      const maxAttempts = 5;
+      let syncSuccess = false;
+
+      while (attempts < maxAttempts && !syncSuccess) {
+        attempts++;
+        try {
+          const syncRes = await apiRequest("POST", "/api/plaid/transactions/fetch-historical");
+          const syncData = await syncRes.json();
+
+          // Check if we got transactions or reached max attempts
+          if (syncData.added > 0 || attempts >= maxAttempts) {
+            syncSuccess = true;
+            toast({ 
+              title: "Sync complete!", 
+              description: `${syncData.added} transaction${syncData.added !== 1 ? 's' : ''} synced` 
+            });
+          } else {
+            // Wait 3 seconds before retrying
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        } catch (syncError) {
+          console.log("Sync attempt failed, retrying...", syncError);
+          if (attempts >= maxAttempts) {
+            // If sync fails after all retries, still consider it a success
+            // Background sync will catch up later
+            toast({ 
+              title: "Account connected!", 
+              description: "Transactions will sync in the background" 
+            });
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        }
+      }
+
       onSuccess();
     } catch (error) {
       toast({ title: "Failed to connect bank account", variant: "destructive" });
+    } finally {
+      setIsSyncing(false);
     }
   }, [onSuccess, toast]);
 
@@ -259,9 +303,13 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 
   return (
     <>
-      <Button onClick={() => setShowConsent(true)} disabled={!ready || !linkToken} className="gap-2">
+      <Button 
+        onClick={() => setShowConsent(true)} 
+        disabled={!ready || !linkToken || isSyncing} 
+        className="gap-2"
+      >
         <Link2 className="h-4 w-4" />
-        Connect Bank Account
+        {isSyncing ? "Syncing Transactions..." : "Connect Bank Account"}
       </Button>
       <AlertDialog open={showConsent} onOpenChange={handleConsentDialogChange}>
         <AlertDialogContent>
