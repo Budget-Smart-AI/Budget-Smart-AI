@@ -234,8 +234,8 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
           const syncRes = await apiRequest("POST", "/api/plaid/transactions/fetch-historical");
           const syncData = await syncRes.json();
 
-          // Check if we got transactions or reached max attempts
-          if (syncData.added > 0 || attempts >= maxAttempts) {
+          // Check if we got transactions
+          if (syncData.added > 0) {
             syncSuccess = true;
             toast({ 
               title: "Sync complete!", 
@@ -246,18 +246,19 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
             await new Promise(resolve => setTimeout(resolve, 3000));
           }
         } catch (syncError) {
-          console.log("Sync attempt failed, retrying...", syncError);
-          if (attempts >= maxAttempts) {
-            // If sync fails after all retries, still consider it a success
-            // Background sync will catch up later
-            toast({ 
-              title: "Account connected!", 
-              description: "Transactions will sync in the background" 
-            });
-          } else {
+          console.error("Sync attempt failed:", syncError);
+          if (attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 3000));
           }
         }
+      }
+
+      // If sync didn't succeed after all retries, still show a success message
+      if (!syncSuccess) {
+        toast({ 
+          title: "Account connected!", 
+          description: "Transactions will sync in the background" 
+        });
       }
 
       onSuccess();
