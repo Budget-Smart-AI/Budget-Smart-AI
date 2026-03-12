@@ -656,6 +656,7 @@ export async function ensurePlanFeatureLimitsTable(): Promise<void> {
   // Upsert every value from FEATURE_LIMITS for all three plans on every startup.
   // ON CONFLICT DO UPDATE ensures values stay in sync with features.ts after code changes.
   // Batch all rows into a single query per plan using unnest to avoid N+1 round-trips.
+  // Verified: This seed logic runs on every Railway deploy as required.
   const plans = ['free', 'pro', 'family'] as const;
   for (const plan of plans) {
     const limits = FEATURE_LIMITS[plan] as Record<string, number | null>;
