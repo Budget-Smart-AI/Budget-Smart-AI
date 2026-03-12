@@ -48,8 +48,10 @@ function getUserFriendlyErrorMessage(status: number, originalMessage: string): s
     return "Something went wrong on our end. Try again shortly. If this persists, please contact support.";
   }
   
-  // For other statuses, try to use the original message if it's helpful
-  if (originalMessage && !originalMessage.includes(status.toString())) {
+  // For other statuses, use the original message if it looks like a custom message
+  // (not just a generic status code message)
+  const statusCodePattern = new RegExp(`\\b${status}\\b`);
+  if (originalMessage && !statusCodePattern.test(originalMessage) && originalMessage.length > 10) {
     return originalMessage;
   }
   

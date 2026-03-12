@@ -398,6 +398,8 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
               disabled={logoutMutation.isPending}
               className="hover:text-primary transition-colors disabled:opacity-50"
               data-testid="sidebar-logout-button"
+              aria-label="Logout"
+              aria-busy={logoutMutation.isPending}
             >
               {logoutMutation.isPending ? "Logging out..." : "Logout"}
             </button>

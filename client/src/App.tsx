@@ -242,6 +242,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
                   size="icon"
                   className="h-9 w-9"
                   data-testid="header-settings-button"
+                  aria-label="Settings"
                 >
                   <SettingsIcon className="h-4 w-4" />
                 </Button>
@@ -253,6 +254,8 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
                 onClick={() => logoutMutation.mutate()}
                 disabled={logoutMutation.isPending}
                 data-testid="header-logout-button"
+                aria-label="Logout"
+                aria-busy={logoutMutation.isPending}
               >
                 <LogOut className="h-4 w-4" />
               </Button>
