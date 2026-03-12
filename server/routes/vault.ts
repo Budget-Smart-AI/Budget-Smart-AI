@@ -421,6 +421,18 @@ router.patch("/documents/:id", requireAuth, vaultRateLimiter, async (req, res) =
 router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? "");
+    const user = await storage.getUser(userId);
+    const plan = user?.plan || "free";
+    const gateResult = await checkAndConsume(userId, plan, "vault_ai_search");
+    if (!gateResult.allowed) {
+      return res.status(402).json({
+        feature: "vault_ai_search",
+        remaining: gateResult.remaining,
+        resetDate: gateResult.resetDate?.toISOString() ?? null,
+        upgradeRequired: gateResult.upgradeRequired,
+      });
+    }
+
     const db = getPool();
     const { question } = req.body;
     if (!question) return res.status(400).json({ error: "question is required" });
