@@ -4923,6 +4923,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           additional_consented_products: additionalProducts,
           country_codes: PLAID_COUNTRY_CODES,
           language: PLAID_LANGUAGE,
+          transactions: {
+            days_requested: 730,  // Request up to 2 years of transaction history
+          },
         });
 
         console.log("[Plaid] Link token created successfully with liabilities + additional products");
@@ -4954,6 +4957,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             products: [Products.Transactions, Products.Auth],
             country_codes: PLAID_COUNTRY_CODES,
             language: PLAID_LANGUAGE,
+            transactions: {
+              days_requested: 730,  // Request up to 2 years of transaction history
+            },
           });
 
           console.log("[Plaid] Link token created successfully without liabilities");
