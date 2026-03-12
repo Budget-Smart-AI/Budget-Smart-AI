@@ -29,7 +29,7 @@ import { startEmailScheduler, sendHouseholdInvitation, sendTestEmail, sendEmailV
 import crypto from "crypto";
 import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, generateBackupCodes, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
 import passport from "passport";
-import { authRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
+import { authRateLimiter, apiRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending } from "./cash-flow";
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
@@ -757,9 +757,21 @@ Return JSON: { "bills": [...] }`;
     }
   });
 
-  app.post("/api/expenses", requireAuth, requireWriteAccess, async (req, res) => {
+  app.post("/api/expenses", requireAuth, requireWriteAccess, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "expense_tracking");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "expense_tracking",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const parsed = insertExpenseSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid expense data", details: parsed.error });
@@ -1392,9 +1404,20 @@ Return JSON: { "income": [...] }`;
   // ============ HOUSEHOLD COLLABORATION API ============
 
   // Create a new household
-  app.post("/api/households", requireAuth, async (req, res) => {
+  app.post("/api/households", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "household_management");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "household_management",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
 
       // Check if user is already in a household
       const existingHousehold = await storage.getHouseholdByUserId(userId);
@@ -1572,9 +1595,21 @@ Return JSON: { "income": [...] }`;
   });
 
   // Invite a new member (owner only)
-  app.post("/api/households/invite", requireAuth, async (req, res) => {
+  app.post("/api/households/invite", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "household_invitations");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "household_invitations",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const householdId = req.session.householdId;
 
       if (!householdId) {
@@ -4941,8 +4976,30 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   });
 
   // Exchange public token for access token
-  app.post("/api/plaid/exchange-token", requireAuth, async (req, res) => {
+  app.post("/api/plaid/exchange-token", requireAuth, apiRateLimiter, async (req, res) => {
     try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+
+      // Cumulative count check for plaid_bank_connections BEFORE creating
+      const limit = await getFeatureLimit(plan, "plaid_bank_connections");
+      if (limit !== null) {
+        const { rows } = await pool.query(
+          "SELECT COUNT(*) as count FROM plaid_items WHERE user_id = $1",
+          [userId]
+        );
+        const currentCount = parseInt(rows[0]?.count || "0", 10);
+        if (currentCount >= limit) {
+          return res.status(402).json({
+            feature: "plaid_bank_connections",
+            remaining: 0,
+            resetDate: null,
+            upgradeRequired: true,
+          });
+        }
+      }
+
       const { plaidClient } = await import("./plaid");
       const { public_token, metadata } = req.body;
 
@@ -5968,10 +6025,11 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   });
 
   // MX member connected - sync accounts
-  app.post("/api/mx/members/:memberGuid/sync", requireAuth, async (req, res) => {
+  app.post("/api/mx/members/:memberGuid/sync", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
       const memberGuid = req.params.memberGuid as string;
       
       if (!user?.mxUserGuid) {
@@ -5992,6 +6050,24 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       // Create or update member record
       let existingMember = await storage.getMxMemberByGuid(memberGuid);
       if (!existingMember) {
+        // Cumulative count check for mx_bank_connections BEFORE creating
+        const limit = await getFeatureLimit(plan, "mx_bank_connections");
+        if (limit !== null) {
+          const { rows } = await pool.query(
+            "SELECT COUNT(*) as count FROM mx_members WHERE user_id = $1",
+            [userId]
+          );
+          const currentCount = parseInt(rows[0]?.count || "0", 10);
+          if (currentCount >= limit) {
+            return res.status(402).json({
+              feature: "mx_bank_connections",
+              remaining: 0,
+              resetDate: null,
+              upgradeRequired: true,
+            });
+          }
+        }
+
         existingMember = await storage.createMxMember({
           userId,
           memberGuid: mxMember.guid,
@@ -7776,9 +7852,20 @@ ${JSON.stringify(txSummary)}`;
 
   // FEATURE: DATA_EXPORT_JSON | tier: pro | limit: 2 exports/month
   // ── Full account data export (JSON) ─────────────────────────────────────────
-  app.get("/api/user/export-data", requireAuth, async (req, res) => {
+  app.get("/api/user/export-data", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "data_export_json");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "data_export_json",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
 
       auditLogFromRequest(req, {
         eventType: "data.export_requested",
@@ -7811,8 +7898,6 @@ ${JSON.stringify(txSummary)}`;
 
       const manualAccounts = await storage.getManualAccounts(userId);
       const manualTxns = await storage.getManualTransactionsByUser(userId);
-
-      const user = await storage.getUser(userId);
 
       // Vault documents — metadata only (no file content)
       let vaultDocuments: any[] = [];
@@ -7858,9 +7943,21 @@ ${JSON.stringify(txSummary)}`;
   });
 
   // FEATURE: DATA_EXPORT_CSV | tier: free | limit: 5 exports/month
-  app.get("/api/export/csv/:type", requireAuth, async (req, res) => {
+  app.get("/api/export/csv/:type", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "data_export_csv");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "data_export_csv",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const type = req.params.type as string;
       let data: any[] = [];
       let headers: string[] = [];
@@ -8033,9 +8130,21 @@ ${JSON.stringify(txSummary)}`;
 
   // FEATURE: FINANCIAL_HEALTH | tier: pro | limit: unlimited
   // Financial Health Score
-  app.get("/api/reports/financial-health", requireAuth, async (req, res) => {
+  app.get("/api/reports/financial-health", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "financial_health");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "financial_health",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const householdId = req.session.householdId;
 
       // Determine which users to include
@@ -8605,9 +8714,21 @@ ${JSON.stringify(txSummary)}`;
   // FEATURE: WHAT_IF_SIMULATOR | tier: pro | limit: 20 simulations/month
   // ============ WHAT-IF SIMULATOR ============
 
-  app.post("/api/simulator/what-if", requireAuth, async (req, res) => {
+  app.post("/api/simulator/what-if", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "what_if_simulator");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "what_if_simulator",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const householdId = req.session.householdId;
       
       // Parse simulation changes from request body
@@ -8921,9 +9042,20 @@ ${JSON.stringify(txSummary)}`;
   // FEATURE: SILENT_LEAKS_DETECTOR | tier: pro | limit: unlimited
   // ============ SILENT MONEY LEAKS DETECTOR ============
 
-  app.get("/api/leaks/detect", requireAuth, async (req, res) => {
+  app.get("/api/leaks/detect", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "silent_leaks_detector");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "silent_leaks_detector",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
       
       // Get Plaid transactions from the last 90 days
       const plaidItems = await storage.getPlaidItems(userId);
@@ -9134,12 +9266,33 @@ ${JSON.stringify(txSummary)}`;
   });
 
   // Create autopilot rule
-  app.post("/api/autopilot/rules", requireAuth, async (req, res) => {
+  app.post("/api/autopilot/rules", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       if ((req.session as any).isDemo) {
         return res.status(403).json({ error: "Demo accounts cannot create autopilot rules" });
       }
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+
+      // Cumulative count check for autopilot_rules
+      const limit = await getFeatureLimit(plan, "autopilot_rules");
+      if (limit !== null) {
+        const { rows } = await pool.query(
+          "SELECT COUNT(*) as count FROM autopilot_rules WHERE user_id = $1",
+          [userId]
+        );
+        const currentCount = parseInt(rows[0]?.count || "0", 10);
+        if (currentCount >= limit) {
+          return res.status(402).json({
+            feature: "autopilot_rules",
+            remaining: 0,
+            resetDate: null,
+            upgradeRequired: true,
+          });
+        }
+      }
+
       const { ruleType, category, threshold, action, isActive } = req.body;
       
       const rule = await storage.createAutopilotRule({
@@ -9192,9 +9345,21 @@ ${JSON.stringify(txSummary)}`;
   });
 
   // Get spendability meter (how much is safe to spend today)
-  app.get("/api/autopilot/spendability", requireAuth, async (req, res) => {
+  app.get("/api/autopilot/spendability", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "financial_autopilot");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "financial_autopilot",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const householdId = req.session.householdId;
 
       let userIds = [userId];
@@ -9304,9 +9469,21 @@ ${JSON.stringify(txSummary)}`;
   // FEATURE: PAYDAY_OPTIMIZER | tier: pro | limit: unlimited
   // ============ PAYDAY OPTIMIZER ============
 
-  app.get("/api/payday/optimize", requireAuth, async (req, res) => {
+  app.get("/api/payday/optimize", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "payday_optimizer");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "payday_optimizer",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const householdId = req.session.householdId;
 
       let userIds = [userId];
@@ -9400,9 +9577,20 @@ ${JSON.stringify(txSummary)}`;
   // FEATURE: AI_DAILY_COACH | tier: pro | limit: unlimited
   // ============ AI MONEY COACH NOTIFICATIONS ============
 
-  app.get("/api/coach/daily-briefing", requireAuth, async (req, res) => {
+  app.get("/api/coach/daily-briefing", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "ai_daily_coach");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "ai_daily_coach",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
 
       // Gather financial context
       const [
@@ -9772,9 +9960,21 @@ ${JSON.stringify(txSummary)}`;
   // FEATURE: AI_INSIGHTS | tier: pro | limit: unlimited
   // ============ AI INSIGHTS ============
 
-  app.get("/api/ai/insights", requireAuth, async (req, res) => {
+  app.get("/api/ai/insights", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "ai_insights");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "ai_insights",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const includeRead = req.query.includeRead === "true";
       const includeDismissed = req.query.includeDismissed === "true";
 
@@ -9821,9 +10021,21 @@ ${JSON.stringify(txSummary)}`;
   // FEATURE: SECURITY_ALERTS | tier: pro | limit: unlimited
   // ============ TRANSACTION ANOMALIES ============
 
-  app.get("/api/anomalies", requireAuth, async (req, res) => {
+  app.get("/api/anomalies", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "security_alerts");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "security_alerts",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const includeReviewed = req.query.includeReviewed === "true";
       const includeDismissed = req.query.includeDismissed === "true";
 
@@ -9924,9 +10136,20 @@ ${JSON.stringify(txSummary)}`;
   // FEATURE: AI_TRANSACTION_CATEGORIZATION | tier: pro | limit: unlimited
   // ============ AI AUTO-RECONCILIATION ============
 
-  app.post("/api/plaid/transactions/auto-reconcile", requireAuth, async (req, res) => {
+  app.post("/api/plaid/transactions/auto-reconcile", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "ai_transaction_categorization");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "ai_transaction_categorization",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
       
       // Get all plaid items and accounts for this user
       const plaidItems = await storage.getPlaidItems(userId);
@@ -10316,9 +10539,30 @@ The Budget Smart AI Team`,
   });
 
   // Create manual account
-  app.post("/api/accounts/manual", requireAuth, requireWriteAccess, async (req, res) => {
+  app.post("/api/accounts/manual", requireAuth, requireWriteAccess, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+
+      // Cumulative count check for manual_accounts
+      const limit = await getFeatureLimit(plan, "manual_accounts");
+      if (limit !== null) {
+        const { rows } = await pool.query(
+          "SELECT COUNT(*) as count FROM manual_accounts WHERE user_id = $1",
+          [userId]
+        );
+        const currentCount = parseInt(rows[0]?.count || "0", 10);
+        if (currentCount >= limit) {
+          return res.status(402).json({
+            feature: "manual_accounts",
+            remaining: 0,
+            resetDate: null,
+            upgradeRequired: true,
+          });
+        }
+      }
+
       const parsed = insertManualAccountSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid account data", details: parsed.error });
@@ -10425,9 +10669,21 @@ The Budget Smart AI Team`,
   });
 
   // Create manual transaction
-  app.post("/api/transactions/manual", requireAuth, requireWriteAccess, async (req, res) => {
+  app.post("/api/transactions/manual", requireAuth, requireWriteAccess, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "manual_transactions");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "manual_transactions",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const parsed = insertManualTransactionSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid transaction data", details: parsed.error });
@@ -10955,9 +11211,21 @@ The Budget Smart AI Team`,
 
   // FEATURE: PORTFOLIO_ADVISOR | tier: free | limit: 1 insight/month (free), unlimited (pro/family)
   // Persistent chat with portfolio context
-  app.post("/api/investments/advisor-chat", requireAuth, async (req, res) => {
+  app.post("/api/investments/advisor-chat", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "portfolio_advisor");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "portfolio_advisor",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const { question, chatHistory = [] } = req.body;
 
       if (!question || typeof question !== "string") {
@@ -11856,9 +12124,21 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
-  app.post("/api/split-expenses", requireAuth, async (req, res) => {
+  app.post("/api/split-expenses", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "split_expenses");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "split_expenses",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const householdId = req.session.householdId;
       if (!householdId) {
         return res.status(400).json({ error: "Must be part of a household to create split expenses" });
@@ -12056,9 +12336,21 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     res.json(TAX_CATEGORIES);
   });
 
-  app.get("/api/tax/summary", requireAuth, async (req, res) => {
+  app.get("/api/tax/summary", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "tax_reporting");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "tax_reporting",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
