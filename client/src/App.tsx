@@ -16,6 +16,9 @@ import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { FloatingChatbot } from "@/components/floating-chatbot";
 import { FeatureUsageProvider } from "@/contexts/FeatureUsageContext";
 import { SubscriptionGate } from "@/components/subscription-gate";
+import { Button } from "@/components/ui/button";
+import { LogOut, Settings as SettingsIcon } from "lucide-react";
+import { useLogout } from "@/hooks/use-logout";
 import Dashboard from "@/pages/dashboard";
 import Bills from "@/pages/bills";
 import Income from "@/pages/income";
@@ -167,6 +170,8 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
     queryKey: ["/api/onboarding/status"],
   });
 
+  const logoutMutation = useLogout(onLogout);
+
   // Clean up any leftover pendingCheckout from the old signup flow
   useEffect(() => {
     localStorage.removeItem("pendingCheckout");
@@ -200,7 +205,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
     <FeatureUsageProvider>
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
-        <AppSidebar isAdmin={isAdmin} username={username} />
+        <AppSidebar isAdmin={isAdmin} username={username} onLogout={onLogout} />
         <div className="flex flex-col flex-1 overflow-hidden">
           {isDemo && (
             <div className="bg-amber-500/90 text-amber-950 px-4 py-2 text-center text-sm font-medium" data-testid="banner-demo-mode">
@@ -217,6 +222,29 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
             <div className="flex items-center gap-2">
               <NotificationsDropdown />
               <ThemeQuickSwitcher />
+              <Link href="/settings">
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  className="h-9 w-9"
+                  data-testid="header-settings-button"
+                  aria-label="Settings"
+                >
+                  <SettingsIcon className="h-4 w-4" />
+                </Button>
+              </Link>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => logoutMutation.mutate()}
+                disabled={logoutMutation.isPending}
+                data-testid="header-logout-button"
+                aria-label="Logout"
+                aria-busy={logoutMutation.isPending}
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
             </div>
           </header>
           <main className="flex-1 overflow-auto p-6">

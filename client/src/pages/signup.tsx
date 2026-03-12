@@ -14,6 +14,7 @@ import {
   Loader2, Lock, User, Mail, Brain, Zap, ArrowRight
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { BudgetSmartLogo } from "@/components/logo";
 
 import { COUNTRIES } from "@shared/schema";
 
@@ -119,12 +120,7 @@ export default function SignupPage() {
       <div className="flex-1 flex items-center justify-center p-4">
         <Card className="w-full max-w-md bg-slate-900/50 border-slate-800">
           <CardHeader className="text-center pb-2">
-            <div className="mx-auto mb-3 relative flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-green-500 to-teal-500 shadow-lg shadow-emerald-500/30">
-              <Brain className="h-7 w-7 text-white" />
-              <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-gradient-to-r from-yellow-400 to-amber-400 flex items-center justify-center shadow-sm">
-                <Zap className="h-2.5 w-2.5 text-white" />
-              </div>
-            </div>
+            <BudgetSmartLogo className="h-14 w-14 mx-auto mb-3" />
             <CardTitle className="text-xl font-extrabold bg-gradient-to-r from-emerald-400 via-green-400 to-teal-400 bg-clip-text text-transparent">
               Budget Smart AI
             </CardTitle>

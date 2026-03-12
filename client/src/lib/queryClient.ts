@@ -34,6 +34,38 @@ function publish402(payload: GatePayload) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
+ * Minimum length for a message to be considered a "custom" error message
+ * rather than a generic status text. Messages shorter than this are likely
+ * to be generic HTTP status text like "Not Found" or "Bad Request".
+ */
+const MIN_CUSTOM_MESSAGE_LENGTH = 10;
+
+/**
+ * Maps HTTP status codes to user-friendly error messages
+ */
+function getUserFriendlyErrorMessage(status: number, originalMessage: string): string {
+  if (status === 400) return "Something looks off with that request.";
+  if (status === 401) return "Please log in to continue.";
+  if (status === 403) return "You don't have permission to do that.";
+  if (status === 404) return "That resource doesn't exist.";
+  if (status === 409) return "A conflict occurred — this may already exist.";
+  if (status === 422) return "Some fields have errors. Please review and try again.";
+  if (status === 429) return "Slow down — too many requests.";
+  if (status >= 500) {
+    return "Something went wrong on our end. Try again shortly. If this persists, please contact support.";
+  }
+  
+  // For other statuses, use the original message if it looks like a custom message
+  // (not just a generic status code message)
+  const statusCodePattern = new RegExp(`\\b${status}\\b`);
+  if (originalMessage && !statusCodePattern.test(originalMessage) && originalMessage.length > MIN_CUSTOM_MESSAGE_LENGTH) {
+    return originalMessage;
+  }
+  
+  return "An unexpected error occurred.";
+}
+
+/**
  * Tries to extract a GatePayload from a 402 response body.
  * Returns null when the body is not the expected shape.
  */
@@ -60,8 +92,11 @@ async function throwIfResNotOk(res: Response) {
       const payload = await tryParseGatePayload(res);
       if (payload) publish402(payload);
     }
+    
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const userFriendlyMessage = getUserFriendlyErrorMessage(res.status, text);
+    
+    throw new Error(userFriendlyMessage);
   }
 }
 

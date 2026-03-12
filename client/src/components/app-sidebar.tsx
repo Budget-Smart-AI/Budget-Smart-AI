@@ -1,4 +1,4 @@
-import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity } from "lucide-react";
+import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -14,6 +14,8 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { BudgetSmartLogoWithText } from "@/components/logo";
+import { useLogout } from "@/hooks/use-logout";
 
 const overviewItems = [
   {
@@ -191,12 +193,16 @@ const adminMenuItems = [
 interface AppSidebarProps {
   isAdmin?: boolean;
   username?: string;
+  onLogout?: () => void;
 }
 
-export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
+export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarProps) {
   const [location] = useLocation();
 
   const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
+  
+  const logoutMutation = useLogout(onLogout);
+
   const s = session as any;
   const displayName = s?.displayName || s?.firstName || username || "User";
   const avatarUrl = s?.avatarUrl || null;
@@ -209,18 +215,7 @@ export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
-        <div className="flex items-center gap-3">
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-green-500 to-teal-500 shadow-lg shadow-emerald-500/30">
-            <Brain className="h-5 w-5 text-white" />
-            <div className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-gradient-to-r from-yellow-400 to-amber-400 flex items-center justify-center shadow-sm">
-              <Zap className="h-2 w-2 text-white" />
-            </div>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-base font-extrabold bg-gradient-to-r from-emerald-400 via-green-400 to-teal-400 bg-clip-text text-transparent tracking-tight">Budget Smart AI</span>
-            <span className="text-[10px] text-sidebar-foreground/60 font-medium tracking-wide">Smarter Money, Brighter Future</span>
-          </div>
-        </div>
+        <BudgetSmartLogoWithText showTagline={true} />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -380,6 +375,17 @@ export function AppSidebar({ isAdmin = false, username }: AppSidebarProps) {
             <Link href="/help" className="hover:text-primary transition-colors">
               Help
             </Link>
+            <span>·</span>
+            <button
+              onClick={() => logoutMutation.mutate()}
+              disabled={logoutMutation.isPending}
+              className="hover:text-primary transition-colors disabled:opacity-50"
+              data-testid="sidebar-logout-button"
+              aria-label="Logout"
+              aria-busy={logoutMutation.isPending}
+            >
+              {logoutMutation.isPending ? "Logging out..." : "Logout"}
+            </button>
           </div>
         </div>
       </SidebarFooter>

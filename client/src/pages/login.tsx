@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Lock, User, Shield, Mail, UserPlus, Brain, Zap } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { BudgetSmartLogo } from "@/components/logo";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -585,12 +586,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           <CardHeader className="text-center">
             {!showMfa && !showRegister ? (
               <>
-                <div className="mx-auto mb-3 relative flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 via-green-500 to-teal-500 shadow-lg shadow-emerald-500/30">
-                  <Brain className="h-7 w-7 text-white" aria-hidden="true" />
-                  <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-gradient-to-r from-yellow-400 to-amber-400 flex items-center justify-center shadow-sm" aria-hidden="true">
-                    <Zap className="h-2.5 w-2.5 text-white" aria-hidden="true" />
-                  </div>
-                </div>
+                <BudgetSmartLogo className="h-14 w-14 mx-auto mb-3" />
                 <CardTitle className="text-2xl font-extrabold bg-gradient-to-r from-emerald-400 via-green-400 to-teal-400 bg-clip-text text-transparent">
                   Budget Smart AI
                 </CardTitle>
