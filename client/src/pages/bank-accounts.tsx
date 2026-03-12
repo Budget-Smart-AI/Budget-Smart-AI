@@ -240,9 +240,12 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
           
           if (count > 0) {
             // Show date range if available
-            const dateInfo = syncData.dateRange?.oldest && syncData.dateRange?.newest
-              ? ` (${syncData.dateRange.oldest} to ${syncData.dateRange.newest})`
-              : '';
+            let dateInfo = '';
+            if (syncData.dateRange?.oldest && syncData.dateRange?.newest) {
+              const oldestFormatted = format(new Date(syncData.dateRange.oldest), 'MMM d, yyyy');
+              const newestFormatted = format(new Date(syncData.dateRange.newest), 'MMM d, yyyy');
+              dateInfo = ` (${oldestFormatted} to ${newestFormatted})`;
+            }
             
             toast({ 
               title: "Sync complete!", 

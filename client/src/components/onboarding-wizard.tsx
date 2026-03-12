@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { usePlaidLink } from "react-plaid-link";
+import { format } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -333,12 +334,14 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
             
             // Show user what date range was retrieved
             if (syncData.dateRange?.oldest && syncData.dateRange?.newest) {
-              console.log(`[Wizard] Fetched transactions from ${syncData.dateRange.oldest} to ${syncData.dateRange.newest}`);
-              // Log to console for debugging - the user can check browser console
+              const oldestFormatted = format(new Date(syncData.dateRange.oldest), 'MMM d, yyyy');
+              const newestFormatted = format(new Date(syncData.dateRange.newest), 'MMM d, yyyy');
+              console.log(`[Wizard] Fetched transactions from ${oldestFormatted} to ${newestFormatted}`);
+              
               if (syncData.added > 0) {
                 toast({ 
                   title: "Transactions synced!", 
-                  description: `Retrieved ${syncData.added} transactions from ${syncData.dateRange.oldest} to ${syncData.dateRange.newest}`
+                  description: `Retrieved ${syncData.added} transactions from ${oldestFormatted} to ${newestFormatted}`
                 });
               }
             } else if (syncData.added > 0) {
