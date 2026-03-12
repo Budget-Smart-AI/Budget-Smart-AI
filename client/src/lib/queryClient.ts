@@ -34,6 +34,13 @@ function publish402(payload: GatePayload) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
+ * Minimum length for a message to be considered a "custom" error message
+ * rather than a generic status text. Messages shorter than this are likely
+ * to be generic HTTP status text like "Not Found" or "Bad Request".
+ */
+const MIN_CUSTOM_MESSAGE_LENGTH = 10;
+
+/**
  * Maps HTTP status codes to user-friendly error messages
  */
 function getUserFriendlyErrorMessage(status: number, originalMessage: string): string {
@@ -51,7 +58,7 @@ function getUserFriendlyErrorMessage(status: number, originalMessage: string): s
   // For other statuses, use the original message if it looks like a custom message
   // (not just a generic status code message)
   const statusCodePattern = new RegExp(`\\b${status}\\b`);
-  if (originalMessage && !statusCodePattern.test(originalMessage) && originalMessage.length > 10) {
+  if (originalMessage && !statusCodePattern.test(originalMessage) && originalMessage.length > MIN_CUSTOM_MESSAGE_LENGTH) {
     return originalMessage;
   }
   

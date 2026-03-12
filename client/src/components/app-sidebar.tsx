@@ -1,6 +1,6 @@
 import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut } from "lucide-react";
 import { useLocation, Link } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -15,10 +15,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BudgetSmartLogoWithText } from "@/components/logo";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { useLogout } from "@/hooks/use-logout";
 
 const overviewItems = [
   {
@@ -201,24 +198,10 @@ interface AppSidebarProps {
 
 export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarProps) {
   const [location] = useLocation();
-  const { toast } = useToast();
 
   const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
   
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/auth/logout");
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.clear();
-      toast({ title: "Logged Out", description: "You have been logged out successfully" });
-      if (onLogout) onLogout();
-    },
-    onError: (error: Error) => {
-      toast({ title: "Logout Failed", description: error.message, variant: "destructive" });
-    },
-  });
+  const logoutMutation = useLogout(onLogout);
 
   const s = session as any;
   const displayName = s?.displayName || s?.firstName || username || "User";

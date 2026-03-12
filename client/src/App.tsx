@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Switch, Route, useLocation, Redirect, Link } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "./lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -18,7 +18,7 @@ import { FeatureUsageProvider } from "@/contexts/FeatureUsageContext";
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { Button } from "@/components/ui/button";
 import { LogOut, Settings as SettingsIcon } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useLogout } from "@/hooks/use-logout";
 import Dashboard from "@/pages/dashboard";
 import Bills from "@/pages/bills";
 import Income from "@/pages/income";
@@ -165,26 +165,12 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
 function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: () => void; isAdmin: boolean; username: string; isDemo: boolean }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [location, setLocation] = useLocation();
-  const { toast } = useToast();
 
   const { data: onboardingStatus } = useQuery<{ onboardingComplete: boolean }>({
     queryKey: ["/api/onboarding/status"],
   });
 
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/auth/logout");
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.clear();
-      toast({ title: "Logged Out", description: "You have been logged out successfully" });
-      onLogout();
-    },
-    onError: (error: Error) => {
-      toast({ title: "Logout Failed", description: error.message, variant: "destructive" });
-    },
-  });
+  const logoutMutation = useLogout(onLogout);
 
   // Clean up any leftover pendingCheckout from the old signup flow
   useEffect(() => {
