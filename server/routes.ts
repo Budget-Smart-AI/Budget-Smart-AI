@@ -40,6 +40,7 @@ import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
+import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -589,6 +590,21 @@ Return JSON: { "bills": [...] }`;
   app.post("/api/bills", requireAuth, requireWriteAccess, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const billLimit = await getFeatureLimit(plan, "bill_tracking");
+      if (billLimit !== null) {
+        if (billLimit === 0) {
+          return res.status(402).json({ feature: "bill_tracking", remaining: 0, resetDate: null, upgradeRequired: true });
+        }
+        const { rows: billRows } = await pool.query<{ cnt: number }>(
+          "SELECT COUNT(*)::int AS cnt FROM bills WHERE user_id = $1::uuid",
+          [userId]
+        );
+        if ((billRows[0]?.cnt ?? 0) >= billLimit) {
+          return res.status(402).json({ feature: "bill_tracking", remaining: 0, resetDate: null });
+        }
+      }
       const parsed = insertBillSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid bill data", details: parsed.error });
@@ -1136,6 +1152,21 @@ Return JSON: { "income": [...] }`;
   app.post("/api/budgets", requireAuth, requireWriteAccess, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const budgetLimit = await getFeatureLimit(plan, "budget_creation");
+      if (budgetLimit !== null) {
+        if (budgetLimit === 0) {
+          return res.status(402).json({ feature: "budget_creation", remaining: 0, resetDate: null, upgradeRequired: true });
+        }
+        const { rows: budgetRows } = await pool.query<{ cnt: number }>(
+          "SELECT COUNT(DISTINCT category)::int AS cnt FROM budgets WHERE user_id = $1::uuid",
+          [userId]
+        );
+        if ((budgetRows[0]?.cnt ?? 0) >= budgetLimit) {
+          return res.status(402).json({ feature: "budget_creation", remaining: 0, resetDate: null });
+        }
+      }
       const parsed = insertBudgetSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid budget data", details: parsed.error });
@@ -1211,6 +1242,21 @@ Return JSON: { "income": [...] }`;
   app.post("/api/savings-goals", requireAuth, requireWriteAccess, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const goalLimit = await getFeatureLimit(plan, "savings_goals");
+      if (goalLimit !== null) {
+        if (goalLimit === 0) {
+          return res.status(402).json({ feature: "savings_goals", remaining: 0, resetDate: null, upgradeRequired: true });
+        }
+        const { rows: goalRows } = await pool.query<{ cnt: number }>(
+          "SELECT COUNT(*)::int AS cnt FROM savings_goals WHERE user_id = $1::uuid",
+          [userId]
+        );
+        if ((goalRows[0]?.cnt ?? 0) >= goalLimit) {
+          return res.status(402).json({ feature: "savings_goals", remaining: 0, resetDate: null });
+        }
+      }
       const parsed = insertSavingsGoalSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid savings goal data", details: parsed.error });
@@ -1286,6 +1332,21 @@ Return JSON: { "income": [...] }`;
   app.post("/api/debts", requireAuth, requireWriteAccess, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const debtLimit = await getFeatureLimit(plan, "debt_tracking");
+      if (debtLimit !== null) {
+        if (debtLimit === 0) {
+          return res.status(402).json({ feature: "debt_tracking", remaining: 0, resetDate: null, upgradeRequired: true });
+        }
+        const { rows: debtRows } = await pool.query<{ cnt: number }>(
+          "SELECT COUNT(*)::int AS cnt FROM debt_details WHERE user_id = $1::uuid",
+          [userId]
+        );
+        if ((debtRows[0]?.cnt ?? 0) >= debtLimit) {
+          return res.status(402).json({ feature: "debt_tracking", remaining: 0, resetDate: null });
+        }
+      }
       const parsed = insertDebtDetailsSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid debt data", details: parsed.error });
@@ -6216,6 +6277,19 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   // Chat with AI assistant
   app.post("/api/ai/chat", requireAuth, async (req, res) => {
     try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "ai_assistant");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "ai_assistant",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const { messages } = req.body;
 
       if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -6261,6 +6335,17 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   app.post("/api/ai/forecast", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "cash_flow_forecast");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "cash_flow_forecast",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
 
       if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
         return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
@@ -6420,6 +6505,18 @@ Rules:
   app.post("/api/ai/suggest-budgets", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "ai_budget_suggestions");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "ai_budget_suggestions",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const { month } = req.body;
 
       if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
@@ -6598,6 +6695,18 @@ Rules:
   app.post("/api/ai/savings-advisor", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const gateResult = await checkAndConsume(userId, plan, "ai_savings_advisor");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "ai_savings_advisor",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
       const { goalName, targetAmount, currentAmount, targetDate } = req.body;
 
       if (!goalName) {
@@ -7214,9 +7323,25 @@ ${JSON.stringify(txSummary)}`;
 
   app.post("/api/custom-categories", requireAuth, async (req, res) => {
     try {
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const catLimit = await getFeatureLimit(plan, "categories_management");
+      if (catLimit !== null) {
+        if (catLimit === 0) {
+          return res.status(402).json({ feature: "categories_management", remaining: 0, resetDate: null, upgradeRequired: true });
+        }
+        const { rows: catRows } = await pool.query<{ cnt: number }>(
+          "SELECT COUNT(*)::int AS cnt FROM custom_categories WHERE user_id = $1::uuid",
+          [userId]
+        );
+        if ((catRows[0]?.cnt ?? 0) >= catLimit) {
+          return res.status(402).json({ feature: "categories_management", remaining: 0, resetDate: null });
+        }
+      }
       const category = await storage.createCustomCategory({
         ...req.body,
-        userId: req.session.userId!,
+        userId,
       });
       res.status(201).json(category);
     } catch (error) {
@@ -11142,6 +11267,21 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.post("/api/assets", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const plan = user?.plan || "free";
+      const assetLimit = await getFeatureLimit(plan, "asset_tracking");
+      if (assetLimit !== null) {
+        if (assetLimit === 0) {
+          return res.status(402).json({ feature: "asset_tracking", remaining: 0, resetDate: null, upgradeRequired: true });
+        }
+        const { rows: assetRows } = await pool.query<{ cnt: number }>(
+          "SELECT COUNT(*)::int AS cnt FROM assets WHERE user_id = $1::uuid",
+          [userId]
+        );
+        if ((assetRows[0]?.cnt ?? 0) >= assetLimit) {
+          return res.status(402).json({ feature: "asset_tracking", remaining: 0, resetDate: null });
+        }
+      }
       const data = insertAssetSchema.parse(req.body);
       const asset = await storage.createAsset({ ...data, userId });
 
