@@ -7899,8 +7899,6 @@ ${JSON.stringify(txSummary)}`;
       const manualAccounts = await storage.getManualAccounts(userId);
       const manualTxns = await storage.getManualTransactionsByUser(userId);
 
-      const user = await storage.getUser(userId);
-
       // Vault documents — metadata only (no file content)
       let vaultDocuments: any[] = [];
       try {
