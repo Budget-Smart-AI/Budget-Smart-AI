@@ -5408,6 +5408,15 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         }
       }
 
+      // Trigger enrichment for newly added transactions in the background
+      if (totalAdded > 0) {
+        const { enrichPendingTransactions } = await import("./merchant-enricher");
+        // Run in background without blocking the response
+        enrichPendingTransactions(userId, 100).catch(err => 
+          console.error('[Enricher] Background enrichment failed:', err)
+        );
+      }
+
       res.json({ success: true, added: totalAdded, modified: totalModified, removed: totalRemoved });
     } catch (error) {
       console.error("Error syncing transactions:", error);
@@ -5552,6 +5561,15 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           console.error(`Error fetching historical for item ${item.id}:`, errorCode, errorMsg);
           errors.push(`${item.institutionName}: ${errorMsg}`);
         }
+      }
+
+      // Trigger enrichment for newly added transactions in the background
+      if (totalAdded > 0) {
+        const { enrichPendingTransactions } = await import("./merchant-enricher");
+        // Run in background without blocking the response
+        enrichPendingTransactions(userId, 100).catch(err => 
+          console.error('[Enricher] Background enrichment failed:', err)
+        );
       }
 
       res.json({ 
