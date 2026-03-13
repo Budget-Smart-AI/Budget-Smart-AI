@@ -21,11 +21,12 @@ import { COUNTRIES } from "@shared/schema";
 const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Valid email is required"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
+  // Username serves as the email address
+  username: z.string().email("Valid email is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
   country: z.string().default("US"),
+  stateProvince: z.string().min(1, "State/Province is required"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -51,11 +52,11 @@ export default function SignupPage() {
     defaultValues: {
       firstName: "",
       lastName: "",
-      email: "",
       username: "",
       password: "",
       confirmPassword: "",
       country: "US",
+      stateProvince: "",
     },
   });
 
@@ -64,6 +65,8 @@ export default function SignupPage() {
       const { confirmPassword, ...registerData } = data;
       const response = await apiRequest("POST", "/api/auth/register", {
         ...registerData,
+        // Backend expects a separate email field; use username as email
+        email: data.username,
         country: data.country,
       });
       return response.json();
@@ -73,7 +76,7 @@ export default function SignupPage() {
       if (import.meta.env.VITE_PARTNERO_ENABLED === 'true' && typeof window !== 'undefined' && (window as any).po) {
         try {
           (window as any).po('customer', 'signup', {
-            email: variables.email,
+            email: variables.username,
             name: `${variables.firstName || ''} ${variables.lastName || ''}`.trim() || variables.username,
           });
         } catch (e) {
@@ -87,7 +90,7 @@ export default function SignupPage() {
           title: "Account Created",
           description: "Please check your email to verify your account.",
         });
-        navigate(`/verify-email-pending?email=${encodeURIComponent(variables.email)}`);
+        navigate(`/verify-email-pending?email=${encodeURIComponent(variables.username)}`);
         return;
       }
 
@@ -223,7 +226,21 @@ export default function SignupPage() {
 
                   <FormField
                     control={registerForm.control}
-                    name="email"
+                    name="stateProvince"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>State / Province</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="State or Province" autoComplete="address-level1" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={registerForm.control}
+                    name="username"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Email</FormLabel>
@@ -236,27 +253,6 @@ export default function SignupPage() {
                               placeholder="john@example.com"
                               className="pl-10"
                               autoComplete="email"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={registerForm.control}
-                    name="username"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Username</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                            <Input
-                              {...field}
-                              placeholder="Choose a username"
-                              className="pl-10"
                             />
                           </div>
                         </FormControl>

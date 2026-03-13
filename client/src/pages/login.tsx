@@ -22,8 +22,8 @@ const loginSchema = z.object({
 const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Valid email is required"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
+  // Username serves as the email address
+  username: z.string().email("Valid email is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -87,7 +87,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     defaultValues: { 
       firstName: "", 
       lastName: "", 
-      email: "", 
       username: "", 
       password: "",
       confirmPassword: "",
@@ -148,7 +147,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterFormData) => {
       const { confirmPassword, ...registerData } = data;
-      const response = await apiRequest("POST", "/api/auth/register", registerData);
+      const response = await apiRequest("POST", "/api/auth/register", {
+        ...registerData,
+        // Backend expects a separate email field; use username as email
+        email: data.username,
+      });
       return response.json();
     },
     onSuccess: (data, variables) => {
@@ -156,7 +159,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       if (import.meta.env.VITE_PARTNERO_ENABLED === 'true' && typeof window !== 'undefined' && (window as any).po) {
         try {
           (window as any).po('customer', 'signup', {
-            email: variables.email,
+            email: variables.username,
             name: `${variables.firstName || ''} ${variables.lastName || ''}`.trim() || variables.username,
           });
         } catch (e) {
@@ -170,7 +173,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           title: "Account Created",
           description: "Please check your email to verify your account.",
         });
-        navigate(`/verify-email-pending?email=${encodeURIComponent(variables.email)}`);
+        navigate(`/verify-email-pending?email=${encodeURIComponent(variables.username)}`);
         return;
       }
 
@@ -307,7 +310,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             type="button"
             variant="ghost"
             className="text-emerald-400 underline-offset-4 hover:underline"
-            onClick={() => setShowRegister(true)}
+            onClick={() => navigate("/signup")}
             data-testid="button-show-register"
           >
             Don't have an account? Sign up
@@ -383,7 +386,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         </div>
         <FormField
           control={registerForm.control}
-          name="email"
+          name="username"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Email</FormLabel>
@@ -392,33 +395,11 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
                   <Input 
                     {...field} 
-                    type="email" 
+                    type="email"
                     placeholder="john@example.com"
                     className="pl-10"
                     autoComplete="email"
                     data-testid="input-register-email"
-                  />
-                </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={registerForm.control}
-          name="username"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Username</FormLabel>
-              <FormControl>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
-                  <Input 
-                    {...field} 
-                    placeholder="Choose a username"
-                    className="pl-10"
-                    autoComplete="username"
-                    data-testid="input-register-username"
                   />
                 </div>
               </FormControl>

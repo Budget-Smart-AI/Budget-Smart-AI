@@ -139,8 +139,18 @@ app.use(
           "https://assets.mx.com",
           "https://atrium.mx.com",
           "https://js.stripe.com",
+          "https://www.googletagmanager.com",
+          "https://app.partnero.com",
+          "https://static.cloudflareinsights.com",
         ],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.plaid.com", "https://atrium.mx.com"],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://cdn.plaid.com",
+          "https://atrium.mx.com",
+          "https://fonts.googleapis.com",
+        ],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: [
           "'self'",
@@ -399,21 +409,17 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
+
+  if (process.env.NODE_ENV === "development") {
+    httpServer.listen(port, "127.0.0.1", () => {
       log(`serving on port ${port}`);
-    },
-  );
+    });
+  } else {
+    httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+      log(`serving on port ${port}`);
+    });
+  }
 })().catch((err) => {
   console.error("Fatal startup error:", err);
   process.exit(1);
