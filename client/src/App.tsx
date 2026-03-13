@@ -349,26 +349,10 @@ function AuthenticatedOrRedirect() {
     );
   }
 
-  // Not authenticated - check domain
+  // Not authenticated: / always redirects to /login (no landing page at /)
   if (!isAuthenticated) {
-    // Check if we're on app.budgetsmart.io
-    const isAppDomain = window.location.hostname === 'app.budgetsmart.io';
-    
-    if (isAppDomain) {
-      // On app domain but not authenticated - redirect to login
-      window.location.href = '/login';
-      return (
-        <div className="min-h-screen flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <span className="ml-2">Redirecting to login...</span>
-        </div>
-      );
-    }
-
-    // On main domain – admin paths must go through the CMS on the app subdomain
-    // so there is only one management interface and one login.
+    // Main domain – admin paths must go through the CMS on the app subdomain
     if (window.location.pathname.startsWith('/admin')) {
-      // Only forward the pathname (no search params) to avoid open-redirect issues.
       window.location.href = `https://app.budgetsmart.io${window.location.pathname}`;
       return (
         <div className="min-h-screen flex items-center justify-center">
@@ -377,9 +361,14 @@ function AuthenticatedOrRedirect() {
         </div>
       );
     }
-    
-    // On main domain (budgetsmart.io) - show landing page
-    return <LandingPage />;
+    // All other paths (including /): redirect to login
+    window.location.href = '/login';
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <span className="ml-2">Redirecting to login...</span>
+      </div>
+    );
   }
 
   return <AuthenticatedApp onLogout={handleLogout} isAdmin={isAdmin} username={username} isDemo={isDemo} />;

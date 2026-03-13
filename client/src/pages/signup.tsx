@@ -229,13 +229,17 @@ export default function SignupPage() {
                         <FormLabel>Email</FormLabel>
                         <FormControl>
                           <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <Mail
+                              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"
+                              aria-hidden="true"
+                            />
                             <Input
                               {...field}
                               type="email"
                               placeholder="john@example.com"
-                              className="pl-10"
+                              className="pl-10 bg-white text-black"
                               autoComplete="email"
+                              data-testid="input-register-email"
                             />
                           </div>
                         </FormControl>

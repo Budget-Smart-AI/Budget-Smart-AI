@@ -5,7 +5,6 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
-import { isLandingPageDomain, serveLandingPage } from "./domain-router";
 
 const viteLogger = createLogger();
 
@@ -32,14 +31,12 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("/*splat", async (req, res, next) => {
+  // SPA fallback: serve index.html for any non-API path (including "/")
+  // Root / is handled by the SPA: redirect to /login or /dashboard based on auth
+  app.use(async (req, res, next) => {
     // Skip API routes – let the API handlers process them
     if (req.path.startsWith("/api/")) {
       return next();
-    }
-    // For landing page domain, serve the landing page
-    if (isLandingPageDomain(req)) {
-      return serveLandingPage(req, res);
     }
 
     const url = req.originalUrl;
