@@ -295,30 +295,35 @@ export default function UpgradePage() {
         </p>
 
         <div className="flex items-center justify-center gap-4 mb-12">
-          <div className="flex items-center bg-muted rounded-full p-1 gap-1">
-            <button
-              type="button"
-              className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
-                billing === "monthly"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground font-medium"
+          <span
+            className={`text-sm font-medium cursor-pointer transition-colors ${
+              billing === "monthly" ? "text-white" : "text-slate-500"
+            }`}
+            onClick={() => setBilling("monthly")}
+          >
+            Monthly
+          </span>
+          <button
+            type="button"
+            onClick={() => setBilling(billing === "monthly" ? "yearly" : "monthly")}
+            className={`relative w-14 h-7 rounded-full transition-colors duration-300 ${
+              billing === "yearly" ? "bg-emerald-500" : "bg-slate-700"
+            }`}
+          >
+            <span
+              className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-300 ${
+                billing === "yearly" ? "translate-x-8" : "translate-x-1"
               }`}
-              onClick={() => setBilling("monthly")}
-            >
-              Monthly
-            </button>
-            <button
-              type="button"
-              className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${
-                billing === "yearly"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground font-medium"
-              }`}
-              onClick={() => setBilling("yearly")}
-            >
-              Yearly
-            </button>
-          </div>
+            />
+          </button>
+          <span
+            className={`text-sm font-medium cursor-pointer transition-colors ${
+              billing === "yearly" ? "text-white" : "text-slate-500"
+            }`}
+            onClick={() => setBilling("yearly")}
+          >
+            Yearly
+          </span>
           {savingsLabel && (
             <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-bold border border-emerald-500/20">
               {savingsLabel}
