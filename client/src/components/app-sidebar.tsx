@@ -277,6 +277,26 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
         <BudgetSmartLogoWithText showTagline={true} />
       </SidebarHeader>
       <SidebarContent>
+        {/* Dashboard Home Button */}
+        <SidebarGroup className="px-2 pt-2 pb-1">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/dashboard"}
+                  data-testid="nav-dashboard-home"
+                >
+                  <Link href="/dashboard">
+                    <LayoutDashboard className="h-5 w-5" />
+                    <span>Dashboard</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         {isFree && (
           <SidebarGroup className="px-2">
             <TooltipProvider>
