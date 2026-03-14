@@ -7,11 +7,13 @@
  * Depends on:
  *  - server/lib/features.ts  — feature registry and FEATURE_LIMITS
  *  - server/db.ts            — shared pg pool
+ *  - server/lib/planResolver.ts — plan resolution with admin override precedence
  *  - user_feature_usage table (created by ensureUserFeatureUsageTable in db.ts)
  */
 
 import { pool } from "../db";
 import { FEATURE_LIMITS, FEATURES, FeatureTier } from "./features";
+import { getEffectivePlan, normalizePlanTier } from "./planResolver";
 
 // ============================================================================
 // TYPES
@@ -44,11 +46,10 @@ export interface UserFeatureSummaryItem {
 
 /**
  * Normalise a plan string to a FeatureTier, defaulting to 'free' for unknown values.
+ * Uses the new plan resolver's normalization function for consistency.
  */
 function normaliseTier(plan: string): FeatureTier {
-  const lower = plan.toLowerCase() as FeatureTier;
-  if (lower === "free" || lower === "pro" || lower === "family") return lower;
-  return "free";
+  return normalizePlanTier(plan);
 }
 
 /**
@@ -166,6 +167,7 @@ export async function getCurrentUsage(userId: string, featureKey: string): Promi
 
 /**
  * Full access check for a (user, plan, feature) combination.
+ * Uses the effective plan resolution system to respect admin manual overrides.
  *
  * Returns a rich result object describing whether the action is allowed,
  * the current usage, the limit, remaining capacity, and when the period resets.
@@ -175,7 +177,9 @@ export async function checkFeatureAccess(
   plan: string,
   featureKey: string
 ): Promise<FeatureAccessResult> {
-  const limit = await getFeatureLimit(plan, featureKey);
+  // Use effective plan resolution to respect admin manual overrides
+  const effectivePlan = await getEffectivePlan(userId);
+  const limit = await getFeatureLimit(effectivePlan, featureKey);
   const resetDate = currentPeriodEnd();
 
   // Feature entirely unavailable on this plan
@@ -261,6 +265,7 @@ export async function incrementFeatureUsage(userId: string, featureKey: string):
 
 /**
  * Atomically checks access and, if allowed, increments the usage counter.
+ * Uses effective plan resolution to respect admin manual overrides.
  *
  * For limited features this uses a database transaction with a SELECT FOR UPDATE
  * lock to prevent concurrent requests from exceeding the limit. Unlimited and
@@ -274,7 +279,9 @@ export async function checkAndConsume(
   plan: string,
   featureKey: string
 ): Promise<FeatureAccessResult> {
-  const limit = await getFeatureLimit(plan, featureKey);
+  // Use effective plan resolution to respect admin manual overrides
+  const effectivePlan = await getEffectivePlan(userId);
+  const limit = await getFeatureLimit(effectivePlan, featureKey);
   const resetDate = currentPeriodEnd();
   const key = featureKey.toLowerCase();
 
@@ -448,12 +455,15 @@ const CUMULATIVE_LIMIT_FEATURES = new Set([
 /**
  * Returns a summary of all registered features for `userId` on `plan`,
  * including current usage, limits, and remaining capacity for each feature.
+ * Uses effective plan resolution to respect admin manual overrides.
  */
 export async function getUserFeatureSummary(
   userId: string,
   plan: string
 ): Promise<UserFeatureSummaryItem[]> {
-  const tier = normaliseTier(plan);
+  // Use effective plan resolution to respect admin manual overrides
+  const effectivePlan = await getEffectivePlan(userId);
+  const tier = normaliseTier(effectivePlan);
   const periodStart = currentPeriodStart();
   const resetDate = currentPeriodEnd();
 
