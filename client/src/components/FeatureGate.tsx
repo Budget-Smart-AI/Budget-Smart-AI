@@ -19,6 +19,7 @@ import { Zap, Lock, X, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { useLocation } from "wouter";
+import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 
 // ─── Feature display copy ─────────────────────────────────────────────────────
 
@@ -205,7 +206,10 @@ function UpgradePromptOverlay({
         {/* CTA */}
         <Button
           className="w-full bg-[#22C55E] hover:bg-[#16a34a] text-white font-semibold rounded-xl h-10 text-sm transition-all"
-          onClick={() => navigate("/upgrade")}
+          onClick={() => {
+            trackUpgradeCta("feature_gate");
+            navigate("/upgrade");
+          }}
         >
           {copy.cta}
           <ArrowRight className="ml-2 h-4 w-4" />
