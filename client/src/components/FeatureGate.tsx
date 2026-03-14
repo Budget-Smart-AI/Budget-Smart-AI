@@ -6,7 +6,7 @@
  * Behaviour:
  *  – If the user has access → renders children normally.
  *  – If limit reached or upgrade required → renders children with a CSS blur
- *    overlay, plus a centred UpgradePromptOverlay card on top.
+ *    overlay, plus a centred UpgradePromptOverlay card on top with animated shimmer.
  *  – If remaining === 1 (last free usage) → renders children normally plus
  *    a dismissible warning banner below them.
  *
@@ -20,6 +20,14 @@ import { Button } from "@/components/ui/button";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { useLocation } from "wouter";
 import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
+
+// ─── Shimmer animation ────────────────────────────────────────────────────────
+const shimmerStyles = `
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+`;
 
 // ─── Feature display copy ─────────────────────────────────────────────────────
 
@@ -93,15 +101,15 @@ function UpgradePromptOverlay({
 
   return (
     <div
-      className="absolute inset-0 z-10 flex items-center justify-center p-4"
+      className="absolute inset-0 z-20 flex items-center justify-center p-4"
       aria-label="Upgrade required to access this feature"
     >
       <div
         className={[
           "relative w-full max-w-[360px] rounded-2xl p-6",
-          "bg-background/90 backdrop-blur-xl",
-          "border border-amber-400/40",
-          "shadow-[0_0_0_1px_rgba(245,158,11,0.08),0_20px_50px_-24px_rgba(245,158,11,0.9)]",
+          "bg-background/90 backdrop-blur-md",
+          "border border-amber-500/30",
+          "shadow-[0_0_40px_rgba(245,158,11,0.12)]",
         ].join(" ")}
       >
         <div className="flex flex-col items-center text-center">
@@ -131,15 +139,15 @@ function UpgradePromptOverlay({
           ))}
         </ul>
 
-        <Button
-          className="mt-5 w-full rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-400 hover:to-yellow-400 font-semibold"
-          onClick={() => {
-            trackUpgradeCta("feature_gate");
-            navigate("/upgrade");
-          }}
-        >
-          Upgrade to Pro — See Plans →
-        </Button>
+      <Button
+        className="mt-5 w-full rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-400 hover:to-yellow-400 font-semibold"
+        onClick={() => {
+          trackUpgradeCta("feature_gate");
+          navigate("/upgrade");
+        }}
+      >
+        Unlock with Pro — See Plans →
+      </Button>
 
         <p className="mt-3 text-center text-xs text-muted-foreground">
           Cancel anytime. Unlock all features with Pro.
@@ -321,6 +329,16 @@ export function FeatureGate({
 
       <div className={`absolute inset-0 ${blurClass} bg-background/35 z-[5]`} aria-hidden="true" />
 
+      {/* Animated shimmer sweep */}
+      <div
+        className="absolute inset-0 z-[6] pointer-events-none"
+        aria-hidden="true"
+        style={{
+          background: 'linear-gradient(105deg, transparent 40%, rgba(245, 158, 11, 0.08) 50%, transparent 60%)',
+          animation: 'shimmer 2.8s ease-in-out infinite',
+        }}
+      />
+
       <UpgradePromptOverlay
         featureKey={feature}
         reason={state.reason as "limit_reached" | "upgrade_required"}
@@ -330,6 +348,9 @@ export function FeatureGate({
         displayName={displayName}
         bullets={bullets}
       />
+
+      {/* Inject shimmer styles */}
+      <style>{shimmerStyles}</style>
     </div>
   );
 }
