@@ -152,7 +152,7 @@ export async function getCurrentUsage(userId: string, featureKey: string): Promi
   const { rows } = await pool.query<{ usage_count: number }>(
     `SELECT usage_count
      FROM user_feature_usage
-     WHERE user_id = $1::uuid
+     WHERE user_id = $1
        AND feature_key = $2
        AND period_start = $3`,
     [userId, featureKey.toLowerCase(), periodStart.toISOString()]
@@ -250,7 +250,7 @@ export async function incrementFeatureUsage(userId: string, featureKey: string):
   await pool.query(
     `INSERT INTO user_feature_usage
        (user_id, feature_key, usage_count, period_start, period_end)
-     VALUES ($1::uuid, $2, 1, $3, $4)
+     VALUES ($1, $2, 1, $3, $4)
      ON CONFLICT (user_id, feature_key, period_start)
      DO UPDATE SET
        usage_count = user_feature_usage.usage_count + 1,
@@ -323,7 +323,7 @@ export async function checkAndConsume(
     await client.query(
       `INSERT INTO user_feature_usage
          (user_id, feature_key, usage_count, period_start, period_end)
-       VALUES ($1::uuid, $2, 0, $3, $4)
+       VALUES ($1, $2, 0, $3, $4)
        ON CONFLICT (user_id, feature_key, period_start) DO NOTHING`,
       [userId, key, periodStart.toISOString(), periodEnd.toISOString()]
     );
@@ -332,7 +332,7 @@ export async function checkAndConsume(
     const { rows } = await client.query<{ usage_count: number }>(
       `SELECT usage_count
        FROM user_feature_usage
-       WHERE user_id = $1::uuid
+       WHERE user_id = $1
          AND feature_key = $2
          AND period_start = $3
        FOR UPDATE`,
@@ -358,7 +358,7 @@ export async function checkAndConsume(
       `UPDATE user_feature_usage
        SET usage_count = usage_count + 1,
            updated_at  = NOW()
-       WHERE user_id = $1::uuid
+       WHERE user_id = $1
          AND feature_key = $2
          AND period_start = $3`,
       [userId, key, periodStart.toISOString()]
@@ -409,14 +409,14 @@ async function getCumulativeItemCounts(userId: string): Promise<Map<string, numb
       custom_categories: string;
     }>(
       `SELECT 
-        (SELECT COUNT(*) FROM bills WHERE user_id = $1::uuid) as bills,
-        (SELECT COUNT(DISTINCT category) FROM budgets WHERE user_id = $1::uuid) as budgets,
-        (SELECT COUNT(*) FROM debt_details WHERE user_id = $1::uuid) as debts,
-        (SELECT COUNT(*) FROM savings_goals WHERE user_id = $1::uuid) as savings_goals,
-        (SELECT COUNT(*) FROM assets WHERE user_id = $1::uuid) as assets,
-        (SELECT COUNT(*) FROM manual_accounts WHERE user_id = $1::uuid) as manual_accounts,
-        (SELECT COUNT(*) FROM vault_documents WHERE user_id = $1::uuid) as vault_documents,
-        (SELECT COUNT(*) FROM custom_categories WHERE user_id = $1::uuid) as custom_categories`,
+        (SELECT COUNT(*) FROM bills WHERE user_id = $1) as bills,
+        (SELECT COUNT(DISTINCT category) FROM budgets WHERE user_id = $1) as budgets,
+        (SELECT COUNT(*) FROM debt_details WHERE user_id = $1) as debts,
+        (SELECT COUNT(*) FROM savings_goals WHERE user_id = $1) as savings_goals,
+        (SELECT COUNT(*) FROM assets WHERE user_id = $1) as assets,
+        (SELECT COUNT(*) FROM manual_accounts WHERE user_id = $1) as manual_accounts,
+        (SELECT COUNT(*) FROM vault_documents WHERE user_id = $1) as vault_documents,
+        (SELECT COUNT(*) FROM custom_categories WHERE user_id = $1) as custom_categories`,
       [userId]
     );
 
@@ -471,7 +471,7 @@ export async function getUserFeatureSummary(
   const { rows } = await pool.query<{ feature_key: string; usage_count: number }>(
     `SELECT feature_key, usage_count
      FROM user_feature_usage
-     WHERE user_id = $1::uuid
+     WHERE user_id = $1
        AND period_start = $2`,
     [userId, periodStart.toISOString()]
   );
