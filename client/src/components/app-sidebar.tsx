@@ -1,4 +1,5 @@
-import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut } from "lucide-react";
+import { useState } from "react";
+import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut, Lock } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -16,43 +17,33 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BudgetSmartLogoWithText } from "@/components/logo";
 import { useLogout } from "@/hooks/use-logout";
+import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
+import { UpgradeModal, type UpgradeModalFeature } from "@/components/UpgradeModal";
+import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
+import { cn } from "@/lib/utils";
+
+/** Nav items that are gated on paid plans (feature key from featureGate) */
+const GATED_NAV_FEATURE: Record<string, string> = {
+  "AI Assistant": "ai_assistant",
+  "What-If Simulator": "what_if_simulator",
+  "Debt Payoff": "debt_payoff_planner",
+  "Financial Vault": "financial_vault",
+};
 
 const overviewItems = [
-  {
-    title: "Dashboard",
-    url: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Net Worth",
-    url: "/net-worth",
-    icon: TrendingUp,
-  },
-  {
-    title: "Calendar",
-    url: "/calendar",
-    icon: Calendar,
-  },
-  {
-    title: "AI Assistant",
-    url: "/ai-assistant",
-    icon: Bot,
-  },
-  {
-    title: "What-If Simulator",
-    url: "/simulator",
-    icon: Calculator,
-  },
-  {
-    title: "Reports",
-    url: "/reports",
-    icon: BarChart3,
-  },
-  {
-    title: "Security Alerts",
-    url: "/anomalies",
-    icon: ShieldAlert,
-  },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Net Worth", url: "/net-worth", icon: TrendingUp },
+  { title: "Calendar", url: "/calendar", icon: Calendar },
+  { title: "AI Assistant", url: "/ai-assistant", icon: Bot },
+  { title: "What-If Simulator", url: "/simulator", icon: Calculator },
+  { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Security Alerts", url: "/anomalies", icon: ShieldAlert },
 ];
 
 const trackingItems = [
@@ -196,11 +187,17 @@ interface AppSidebarProps {
   onLogout?: () => void;
 }
 
+function formatResetDate(d: Date | null): string {
+  if (!d) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const [upgradeModalFeature, setUpgradeModalFeature] = useState<UpgradeModalFeature | null>(null);
+  const { plan, getFeatureState, usageMap } = useFeatureUsage();
 
   const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
-  
   const logoutMutation = useLogout(onLogout);
 
   const s = session as any;
@@ -212,30 +209,125 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     ? `${firstName[0]}${lastName[0]}`.toUpperCase()
     : (username || "U")[0]?.toUpperCase() || "U";
 
+  const isFree = !plan || plan === "free";
+
+  // Primary usage for free plan card: prefer ai_assistant (most visible limit)
+  const aiUsage = usageMap.get("ai_assistant");
+  const usageCurrent = aiUsage?.currentUsage ?? 0;
+  const usageLimit = aiUsage?.limit ?? 10;
+  const usagePct = usageLimit > 0 ? (usageCurrent / usageLimit) * 100 : 0;
+  const usageResetStr = aiUsage?.resetDate ? formatResetDate(aiUsage.resetDate) : "";
+
+  const handleNavClick = (item: { title: string; url: string }, e: React.MouseEvent) => {
+    const featureKey = GATED_NAV_FEATURE[item.title];
+    if (!featureKey || !isFree) return;
+    const state = getFeatureState(featureKey);
+    if (state?.upgradeRequired) {
+      e.preventDefault();
+      setUpgradeModalFeature({
+        featureKey,
+        displayName: item.title,
+        benefits: [],
+      });
+    }
+  };
+
+  const renderNavItem = (item: { title: string; url: string; icon: typeof Bot }) => {
+    const featureKey = GATED_NAV_FEATURE[item.title];
+    const state = featureKey ? getFeatureState(featureKey) : null;
+    const showLock = isFree && state?.upgradeRequired;
+    const isActive = location === item.url;
+
+    if (showLock) {
+      return (
+        <SidebarMenuItem key={item.title}>
+          <SidebarMenuButton
+            isActive={isActive}
+            data-testid={`nav-${item.title.toLowerCase().replace(/ /g, "-")}`}
+            onClick={(e: React.MouseEvent) => handleNavClick(item, e)}
+            className="cursor-pointer"
+          >
+            <item.icon className="h-4 w-4 shrink-0" />
+            <span className="flex-1 truncate">{item.title}</span>
+            <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      );
+    }
+    return (
+      <SidebarMenuItem key={item.title}>
+        <SidebarMenuButton
+          asChild
+          isActive={isActive}
+          data-testid={`nav-${item.title.toLowerCase().replace(/ /g, "-")}`}
+        >
+          <Link href={item.url}>
+            <item.icon className="h-4 w-4" />
+            <span>{item.title}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
+
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
         <BudgetSmartLogoWithText showTagline={true} />
       </SidebarHeader>
       <SidebarContent>
+        {isFree && (
+          <SidebarGroup className="px-2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      trackUpgradeCta("sidebar");
+                      navigate("/upgrade");
+                    }}
+                    className="w-full rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold text-sm py-2.5 px-3 flex items-center justify-center gap-2 transition-all"
+                  >
+                    <Zap className="h-4 w-4" />
+                    Upgrade Plan
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  Unlock unlimited AI, all bank connections & more
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <div className="mt-2 px-2 py-2 rounded-lg border border-border/80 bg-muted/30">
+              <p className="text-xs font-medium text-foreground">
+                {usageCurrent}/{usageLimit} AI uses left
+              </p>
+              <div className="h-1.5 rounded-full mt-1.5 overflow-hidden bg-muted">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-colors",
+                    usagePct >= 90 ? "bg-red-500" : usagePct >= 70 ? "bg-amber-500" : "bg-emerald-500"
+                  )}
+                  style={{ width: `${Math.min(100, usagePct)}%` }}
+                />
+              </div>
+              {usageResetStr && (
+                <p className="text-[10px] text-muted-foreground mt-1">Resets {usageResetStr}</p>
+              )}
+              <Link
+                href="/upgrade"
+                className="text-[10px] text-primary hover:underline mt-0.5 inline-block"
+              >
+                See all limits →
+              </Link>
+            </div>
+          </SidebarGroup>
+        )}
         <SidebarGroup>
           <SidebarGroupLabel>Overview</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {overviewItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}
-                  >
-                    <Link href={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {overviewItems.map((item) => renderNavItem(item))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -243,20 +335,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           <SidebarGroupLabel>Tracking</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {trackingItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    data-testid={`nav-${item.title.toLowerCase()}`}
-                  >
-                    <Link href={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {trackingItems.map((item) => renderNavItem(item))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -264,20 +343,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           <SidebarGroupLabel>Planning</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {planningItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    data-testid={`nav-${item.title.toLowerCase().replace(" ", "-")}`}
-                  >
-                    <Link href={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {planningItems.map((item) => renderNavItem(item))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -389,6 +455,14 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           </div>
         </div>
       </SidebarFooter>
+      {upgradeModalFeature && (
+        <UpgradeModal
+          open={!!upgradeModalFeature}
+          onOpenChange={(open) => !open && setUpgradeModalFeature(null)}
+          feature={upgradeModalFeature}
+          source="locked_nav"
+        />
+      )}
     </Sidebar>
   );
 }

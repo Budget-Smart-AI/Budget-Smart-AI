@@ -40,7 +40,8 @@ export type AuditEventType =
   | "stripe.code_redeemed"
   | "email.trial_reminder_sent"
   | "email.trial_reminder_failed"
-  | "data.ai_coach_run";
+  | "data.ai_coach_run"
+  | "billing.upgrade_cta_click";
 
 export type AuditOutcome = "success" | "failure" | "blocked";
 

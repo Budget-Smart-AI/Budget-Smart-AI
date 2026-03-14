@@ -8,16 +8,16 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeContextProvider } from "@/contexts/ThemeContext";
 import { CookieConsent } from "@/components/cookie-consent";
 import { ThemeQuickSwitcher } from "@/components/ui/ThemeQuickSwitcher";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { NotificationsDropdown } from "@/components/notifications-dropdown";
+import { TopNavBar } from "@/components/TopNavBar";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { FloatingChatbot } from "@/components/floating-chatbot";
 import { FeatureUsageProvider } from "@/contexts/FeatureUsageContext";
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { Button } from "@/components/ui/button";
-import { LogOut, Settings as SettingsIcon } from "lucide-react";
+import { Settings as SettingsIcon } from "lucide-react";
 import { useLogout } from "@/hooks/use-logout";
 import Dashboard from "@/pages/dashboard";
 import Bills from "@/pages/bills";
@@ -217,36 +217,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
               </span>
             </div>
           )}
-          <header className="flex items-center justify-between gap-2 p-3 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <div className="flex items-center gap-2">
-              <NotificationsDropdown />
-              <ThemeQuickSwitcher />
-              <Link href="/settings">
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  className="h-9 w-9"
-                  data-testid="header-settings-button"
-                  aria-label="Settings"
-                >
-                  <SettingsIcon className="h-4 w-4" />
-                </Button>
-              </Link>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="h-9 w-9"
-                onClick={() => logoutMutation.mutate()}
-                disabled={logoutMutation.isPending}
-                data-testid="header-logout-button"
-                aria-label="Logout"
-                aria-busy={logoutMutation.isPending}
-              >
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
-          </header>
+          <TopNavBar />
           <main className="flex-1 overflow-auto p-6">
             <ProtectedRouter onLogout={onLogout} isAdmin={isAdmin} />
           </main>

@@ -12669,6 +12669,27 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  /**
+   * POST /api/billing/track-upgrade-cta
+   * Logs an audit event when the user clicks an upgrade CTA (for conversion tracking).
+   */
+  app.post("/api/billing/track-upgrade-cta", requireAuth, async (req, res) => {
+    try {
+      const source = (req.body?.source as string) || "unknown";
+      const validSources = ["top_nav", "sidebar", "feature_gate", "locked_nav"];
+      const sanitized = validSources.includes(source) ? source : "unknown";
+      auditLogFromRequest(req, {
+        eventType: "billing.upgrade_cta_click",
+        eventCategory: "billing",
+        action: "upgrade_cta_click",
+        metadata: { source: sanitized },
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to track" });
+    }
+  });
+
   // ============ LANDING PAGE ADMIN ROUTES ============
   // (Uses requireAdmin middleware imported from ./auth)
 
