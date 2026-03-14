@@ -1017,7 +1017,15 @@ export default function Bills() {
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <FeatureGate feature="bill_tracking" blurIntensity="low">
+              <FeatureGate
+                feature="bill_tracking"
+                blurIntensity="low"
+                bullets={[
+                  "Track unlimited recurring bills and due dates",
+                  "Prevent missed payments with clearer visibility",
+                  "Keep cash flow planning accurate every month",
+                ]}
+              >
                 <Button onClick={() => setEditingBill(undefined)} data-testid="button-add-bill">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Bill
@@ -1168,7 +1176,15 @@ export default function Bills() {
           </div>
         </CardHeader>
         <CardContent>
-          <FeatureGate feature="bill_tracking" displayName="bills">
+          <FeatureGate
+            feature="bill_tracking"
+            displayName="bills"
+            bullets={[
+              "Track unlimited recurring bills and due dates",
+              "Prevent missed payments with clearer visibility",
+              "Keep cash flow planning accurate every month",
+            ]}
+          >
             {isLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (

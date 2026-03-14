@@ -40,6 +40,7 @@ function getFeatureRoute(key: string): string {
     ai_savings_advisor: "/savings-goals",
     manual_transactions: "/bank-accounts",
     manual_accounts: "/bank-accounts",
+    bank_connections: "/accounts",
     expense_tracking: "/expenses",
     budgets: "/budgets",
     savings_goals: "/savings-goals",

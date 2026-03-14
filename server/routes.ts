@@ -1809,12 +1809,35 @@ Return JSON: { "income": [...] }`;
       const { getUserFeatureSummary } = await import("./lib/featureGate");
       const summary = await getUserFeatureSummary(userId, plan);
 
-      // Only expose features that have a finite positive limit (not null = unlimited, not 0 = disabled)
+      // Only expose features with finite positive limits (not null = unlimited, not 0 = disabled)
+      // and collapse MX/Plaid into one combined "Bank Connections (MX / Plaid)" line.
+      const mxUsage = summary.find((f) => f.featureKey === "mx_bank_connections");
+      const plaidUsage = summary.find((f) => f.featureKey === "plaid_bank_connections");
+      const bankConnectionsLimit = await getFeatureLimit(plan, "bank_connections");
+      const combinedBankUsed = (mxUsage?.currentUsage ?? 0) + (plaidUsage?.currentUsage ?? 0);
+
       const limitedFeatures = summary.filter(
-        (f) => f.limit !== null && f.limit > 0
+        (f) =>
+          f.limit !== null &&
+          f.limit > 0 &&
+          f.featureKey !== "mx_bank_connections" &&
+          f.featureKey !== "plaid_bank_connections"
       );
 
-      const resetDate = limitedFeatures[0]?.resetDate ?? null;
+      if (bankConnectionsLimit !== null && bankConnectionsLimit > 0) {
+        limitedFeatures.push({
+          featureKey: "bank_connections",
+          displayName: "Bank Connections (MX / Plaid)",
+          allowed: combinedBankUsed < bankConnectionsLimit,
+          currentUsage: combinedBankUsed,
+          limit: bankConnectionsLimit,
+          remaining: Math.max(0, bankConnectionsLimit - combinedBankUsed),
+          resetDate: null,
+          upgradeRequired: false,
+        });
+      }
+
+      const resetDate = limitedFeatures.find((f) => f.resetDate)?.resetDate ?? null;
       const resetDateStr = resetDate
         ? resetDate.toISOString().split("T")[0]
         : null;
@@ -4988,11 +5011,13 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       const user = await storage.getUser(userId);
       const plan = user?.plan || "free";
 
-      // Cumulative count check for plaid_bank_connections BEFORE creating
-      const limit = await getFeatureLimit(plan, "plaid_bank_connections");
+      // Cumulative count check for total bank connections (MX + Plaid) BEFORE creating
+      const limit = await getFeatureLimit(plan, "bank_connections");
       if (limit !== null) {
         const { rows } = await pool.query(
-          "SELECT COUNT(*) as count FROM plaid_items WHERE user_id = $1",
+          `SELECT
+             (SELECT COUNT(*) FROM plaid_items WHERE user_id = $1) +
+             (SELECT COUNT(*) FROM mx_members WHERE user_id = $1) AS count`,
           [userId]
         );
         const currentCount = parseInt(rows[0]?.count || "0", 10);
@@ -6074,11 +6099,13 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       // Create or update member record
       let existingMember = await storage.getMxMemberByGuid(memberGuid);
       if (!existingMember) {
-        // Cumulative count check for mx_bank_connections BEFORE creating
-        const limit = await getFeatureLimit(plan, "mx_bank_connections");
+        // Cumulative count check for total bank connections (MX + Plaid) BEFORE creating
+        const limit = await getFeatureLimit(plan, "bank_connections");
         if (limit !== null) {
           const { rows } = await pool.query(
-            "SELECT COUNT(*) as count FROM mx_members WHERE user_id = $1",
+            `SELECT
+               (SELECT COUNT(*) FROM plaid_items WHERE user_id = $1) +
+               (SELECT COUNT(*) FROM mx_members WHERE user_id = $1) AS count`,
             [userId]
           );
           const currentCount = parseInt(rows[0]?.count || "0", 10);

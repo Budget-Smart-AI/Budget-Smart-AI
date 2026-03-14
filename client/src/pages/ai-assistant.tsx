@@ -298,7 +298,15 @@ export default function AIAssistant() {
   };
 
   return (
-    <FeatureGate feature="ai_assistant" displayName="AI messages">
+    <FeatureGate
+      feature="ai_assistant"
+      displayName="AI messages"
+      bullets={[
+        "Ask unlimited personalized questions about your money",
+        "Get instant analysis tied to your real financial data",
+        "Receive clear action steps to improve cash flow",
+      ]}
+    >
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">

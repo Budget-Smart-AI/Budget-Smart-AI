@@ -1508,7 +1508,15 @@ export default function BankAccounts() {
           )}
           {activeTab === "bank" && (
             <div className="flex gap-2">
-              <FeatureGate feature="mx_bank_connections" blurIntensity="low">
+              <FeatureGate
+                feature="mx_bank_connections"
+                blurIntensity="low"
+                bullets={[
+                  "Connect all banks in one unified dashboard",
+                  "Sync balances and transactions automatically",
+                  "Get a complete view of your cash flow",
+                ]}
+              >
               {selectedProvider === null ? (
                 <Button 
                   onClick={() => setShowProviderSelection(true)} 

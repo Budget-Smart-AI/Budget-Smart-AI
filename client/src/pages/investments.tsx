@@ -1413,7 +1413,15 @@ export default function Investments() {
         </TabsContent>
 
         <TabsContent value="advisor">
-          <FeatureGate feature="portfolio_advisor" displayName="portfolio insights">
+          <FeatureGate
+            feature="portfolio_advisor"
+            displayName="portfolio insights"
+            bullets={[
+              "Get AI portfolio insights and risk observations",
+              "Spot concentration risks and allocation gaps",
+              "Receive practical ideas to optimize holdings",
+            ]}
+          >
             <AIAdvisor holdings={holdings} />
           </FeatureGate>
         </TabsContent>

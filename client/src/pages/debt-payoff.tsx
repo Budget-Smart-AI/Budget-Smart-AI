@@ -427,7 +427,14 @@ Keep the response concise and actionable.`;
   }
 
   return (
-    <FeatureGate feature="debt_payoff_planner">
+    <FeatureGate
+      feature="debt_payoff_planner"
+      bullets={[
+        "Compare avalanche and snowball payoff strategies",
+        "See projected payoff dates and total interest savings",
+        "Build a clear month-by-month debt elimination plan",
+      ]}
+    >
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>

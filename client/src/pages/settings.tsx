@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { useLocation, Link } from "wouter";
 import { HouseholdSettings } from "@/components/household-settings";
+import { FeatureGate } from "@/components/FeatureGate";
 import { PWAInstallCard } from "@/components/pwa-install-prompt";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building2, RefreshCw, Plus, Tag, FileDown, Database } from "lucide-react";
@@ -2625,7 +2626,17 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       {/* ── Household Tab ── */}
       {activeTab === "household" && (
-        <HouseholdSettings />
+        <FeatureGate
+          feature="household_management"
+          displayName="Household"
+          bullets={[
+            "Create and manage a shared household workspace",
+            "Invite members and collaborate on finances together",
+            "Control access with member roles and permissions",
+          ]}
+        >
+          <HouseholdSettings />
+        </FeatureGate>
       )}
 
       {/* ── Preferences Tab ── */}

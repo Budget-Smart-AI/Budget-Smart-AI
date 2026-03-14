@@ -936,7 +936,14 @@ export default function Dashboard() {
 
           {/* Cash Flow Forecast - Detailed 30 Day View */}
           <div className="mt-4">
-            <FeatureGate feature="cash_flow_forecast">
+            <FeatureGate
+              feature="cash_flow_forecast"
+              bullets={[
+                "Forecast your cash position before bills hit",
+                "Spot risky dates and upcoming shortfalls early",
+                "Plan proactive moves to avoid overdrafts",
+              ]}
+            >
               <CashFlowForecast />
             </FeatureGate>
           </div>
@@ -992,7 +999,14 @@ export default function Dashboard() {
 
           {/* Financial Health Score + Smart Savings */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <FeatureGate feature="financial_health">
+            <FeatureGate
+              feature="financial_health"
+              bullets={[
+                "Get a live financial health score and trend",
+                "See priority actions to improve your score",
+                "Track progress across key money habits",
+              ]}
+            >
               <FinancialHealthScore />
             </FeatureGate>
             <SmartSavings />

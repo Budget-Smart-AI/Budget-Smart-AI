@@ -33,6 +33,7 @@ const GATED_NAV_FEATURE: Record<string, string> = {
   "AI Assistant": "ai_assistant",
   "What-If Simulator": "what_if_simulator",
   "Debt Payoff": "debt_payoff_planner",
+  "Split Expenses": "split_expenses",
   "Financial Vault": "financial_vault",
 };
 

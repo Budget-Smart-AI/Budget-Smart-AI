@@ -1024,7 +1024,15 @@ export default function VaultPage() {
         </div>
       )}
 
-      <FeatureGate feature="financial_vault" displayName="vault documents">
+      <FeatureGate
+        feature="financial_vault"
+        displayName="vault documents"
+        bullets={[
+          "Store sensitive financial documents securely",
+          "Search and organize documents in one protected place",
+          "Prepare records faster for taxes and reviews",
+        ]}
+      >
         {/* Header */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-400/10 to-transparent border p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
