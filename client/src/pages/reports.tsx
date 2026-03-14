@@ -1160,7 +1160,14 @@ export default function ReportsPage() {
           </div>
           <p className="text-muted-foreground">Analyze your spending patterns</p>
         </div>
-        <FeatureGate feature="data_export_csv">
+        <FeatureGate
+          feature="data_export_csv"
+          bullets={[
+            "Export your financial data for deeper analysis",
+            "Share clean reports with advisors or accountants",
+            "Keep portable backups of your financial history",
+          ]}
+        >
           <Button variant="outline" onClick={exportToCSV}>
             <Download className="h-4 w-4 mr-2" />
             Export CSV

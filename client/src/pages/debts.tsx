@@ -543,7 +543,15 @@ export default function DebtsPage() {
               Import from Banks ({unlinkedPlaidAccounts.length})
             </Button>
           )}
-          <FeatureGate feature="debt_tracking" blurIntensity="low">
+          <FeatureGate
+            feature="debt_tracking"
+            blurIntensity="low"
+            bullets={[
+              "Track all debts in one place with live totals",
+              "Monitor APR, payments, and payoff progress",
+              "Build a faster debt reduction strategy",
+            ]}
+          >
             <Button onClick={handleOpenCreate} data-testid="button-add-debt">
               <Plus className="h-4 w-4 mr-2" />
               Add Debt
@@ -577,7 +585,15 @@ export default function DebtsPage() {
         </Card>
       )}
 
-      <FeatureGate feature="debt_tracking" displayName="debts">
+      <FeatureGate
+        feature="debt_tracking"
+        displayName="debts"
+        bullets={[
+          "Track all debts in one place with live totals",
+          "Monitor APR, payments, and payoff progress",
+          "Build a faster debt reduction strategy",
+        ]}
+      >
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
@@ -631,7 +647,15 @@ export default function DebtsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <FeatureGate feature="debt_tracking" displayName="debts">
+          <FeatureGate
+            feature="debt_tracking"
+            displayName="debts"
+            bullets={[
+              "Track all debts in one place with live totals",
+              "Monitor APR, payments, and payoff progress",
+              "Build a faster debt reduction strategy",
+            ]}
+          >
             {debts.length === 0 ? (
               <div className="text-center py-12">
                 <CreditCard className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />

@@ -47,6 +47,7 @@ import { Plus, Trash2, Check, Users, ArrowRight, Wallet, AlertCircle } from "luc
 import { format, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { FeatureGate } from "@/components/FeatureGate";
 import type { SplitExpense, SplitParticipant, HouseholdMember, User } from "@shared/schema";
 
 interface SplitExpenseWithParticipants extends SplitExpense {
@@ -407,25 +408,34 @@ export default function SplitExpenses() {
 
   if (!session?.householdId) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Split Expenses</h1>
-          <p className="text-muted-foreground">Share expenses with your household</p>
+      <FeatureGate
+        feature="split_expenses"
+        bullets={[
+          "Track shared expenses across household members",
+          "See exactly who owes what with live balances",
+          "Settle up faster with clear payment history",
+        ]}
+      >
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold">Split Expenses</h1>
+            <p className="text-muted-foreground">Share expenses with your household</p>
+          </div>
+          <Card>
+            <CardContent className="py-12 text-center">
+              <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium mb-2">Household Required</h3>
+              <p className="text-muted-foreground mb-4">
+                You need to be part of a household to use split expenses.
+                Create or join a household in Settings.
+              </p>
+              <Button variant="outline" asChild>
+                <a href="/settings">Go to Settings</a>
+              </Button>
+            </CardContent>
+          </Card>
         </div>
-        <Card>
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">Household Required</h3>
-            <p className="text-muted-foreground mb-4">
-              You need to be part of a household to use split expenses.
-              Create or join a household in Settings.
-            </p>
-            <Button variant="outline" asChild>
-              <a href="/settings">Go to Settings</a>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      </FeatureGate>
     );
   }
 
@@ -456,6 +466,14 @@ export default function SplitExpenses() {
     .reduce((sum, b) => sum + b.amount, 0);
 
   return (
+    <FeatureGate
+      feature="split_expenses"
+      bullets={[
+        "Track shared expenses across household members",
+        "See exactly who owes what with live balances",
+        "Settle up faster with clear payment history",
+      ]}
+    >
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -666,5 +684,6 @@ export default function SplitExpenses() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </FeatureGate>
   );
 }

@@ -15,7 +15,7 @@
  */
 
 import { useState, ReactNode } from "react";
-import { Zap, Lock, X, ArrowRight } from "lucide-react";
+import { Lock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { useLocation } from "wouter";
@@ -23,109 +23,39 @@ import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 
 // ─── Feature display copy ─────────────────────────────────────────────────────
 
-const FEATURE_COPY: Record<
-  string,
-  { icon: string; heading: string; body: string; cta: string }
-> = {
-  ai_assistant: {
-    icon: "⚡",
-    heading: "AI Financial Advisor",
-    body: "Your AI financial advisor, unlimited — ask anything about your money.",
-    cta: "Unlock with Pro",
-  },
-  receipt_scanning: {
-    icon: "📷",
-    heading: "Receipt Scanning",
-    body: "Scan unlimited receipts, auto-categorized and matched to transactions.",
-    cta: "Unlock with Pro",
-  },
-  portfolio_advisor: {
-    icon: "📈",
-    heading: "Portfolio Advisor",
-    body: "Full portfolio analysis with Canadian tax context (TFSA, RRSP, FHSA).",
-    cta: "Unlock with Pro",
-  },
-  ai_insights: {
-    icon: "✨",
-    heading: "AI Insights",
-    body: "Proactive AI-generated financial insights tailored to your spending.",
-    cta: "Unlock with Pro",
-  },
-  ai_daily_coach: {
-    icon: "🎯",
-    heading: "AI Daily Coach",
-    body: "Daily financial briefings and personalized coaching to hit your goals.",
-    cta: "Unlock with Pro",
-  },
-  financial_reports: {
-    icon: "📊",
-    heading: "Advanced Reports",
-    body: "Deep-dive analytics with custom date ranges and export capabilities.",
-    cta: "Unlock with Pro",
-  },
-  data_export_csv: {
-    icon: "📤",
-    heading: "Data Export",
-    body: "Export all your financial data to CSV or JSON for complete control.",
-    cta: "Unlock with Pro",
-  },
-  data_export_json: {
-    icon: "📤",
-    heading: "Data Export",
-    body: "Export all your financial data to CSV or JSON for complete control.",
-    cta: "Unlock with Pro",
-  },
-  what_if_simulator: {
-    icon: "🔮",
-    heading: "What-If Simulator",
-    body: "Model financial scenarios — what if you saved more, earned less, or changed jobs?",
-    cta: "Unlock with Pro",
-  },
-  debt_payoff_planner: {
-    icon: "💳",
-    heading: "Debt Payoff Planner",
-    body: "Avalanche & snowball payoff strategies with a personalized payoff timeline.",
-    cta: "Unlock with Pro",
-  },
-  mx_bank_connections: {
-    icon: "🏦",
-    heading: "Additional Bank Connection",
-    body: "Connect all your accounts for a complete picture of your finances.",
-    cta: "Unlock with Pro",
-  },
-  plaid_bank_connections: {
-    icon: "🏦",
-    heading: "Additional Bank Connection",
-    body: "Connect all your accounts for a complete picture of your finances.",
-    cta: "Unlock with Pro",
-  },
-  budget_creation: {
-    icon: "📋",
-    heading: "Additional Budgets",
-    body: "Create unlimited budgets to track every category of your spending.",
-    cta: "Unlock with Pro",
-  },
-  savings_goals: {
-    icon: "🎯",
-    heading: "Additional Savings Goals",
-    body: "Set unlimited savings goals and track your progress automatically.",
-    cta: "Unlock with Pro",
-  },
+const FEATURE_HEADINGS: Record<string, string> = {
+  ai_assistant: "AI Financial Advisor",
+  receipt_scanning: "Receipt Scanning",
+  portfolio_advisor: "Portfolio Advisor",
+  ai_insights: "AI Insights",
+  ai_daily_coach: "AI Daily Coach",
+  financial_reports: "Advanced Reports",
+  data_export_csv: "Data Export",
+  data_export_json: "Data Export",
+  what_if_simulator: "What-If Simulator",
+  debt_payoff_planner: "Debt Payoff Planner",
+  mx_bank_connections: "Bank Connections",
+  plaid_bank_connections: "Bank Connections",
+  budget_creation: "Additional Budgets",
+  savings_goals: "Additional Savings Goals",
 };
 
 const FALLBACK_COPY = {
-  icon: "🔒",
   heading: "Pro Feature",
-  body: "This feature unlocks more of your financial potential.",
-  cta: "Unlock with Pro",
 };
+
+const DEFAULT_BULLETS = [
+  "Unlock full access to this feature",
+  "Remove free-tier limits and restrictions",
+  "Get all Pro tools in one plan",
+];
 
 // ─── Blur intensity map ───────────────────────────────────────────────────────
 
 const BLUR_CLASS: Record<"low" | "medium" | "high", string> = {
-  low: "blur-[3px]",
-  medium: "blur-[6px]",
-  high: "blur-[10px]",
+  low: "backdrop-blur-[6px]",
+  medium: "backdrop-blur-[6px]",
+  high: "backdrop-blur-[6px]",
 };
 
 // ─── UpgradePromptOverlay ─────────────────────────────────────────────────────
@@ -137,6 +67,7 @@ interface OverlayProps {
   remaining: number | null;
   resetDate: Date | null;
   displayName?: string;
+  bullets?: string[];
 }
 
 function daysUntil(date: Date): number {
@@ -151,90 +82,68 @@ function UpgradePromptOverlay({
   limit,
   resetDate,
   displayName,
+  bullets,
 }: OverlayProps) {
   const [, navigate] = useLocation();
-  const copy = FEATURE_COPY[featureKey.toLowerCase()] ?? FALLBACK_COPY;
+  const heading = FEATURE_HEADINGS[featureKey.toLowerCase()] ?? FALLBACK_COPY.heading;
   const days = resetDate ? daysUntil(resetDate) : null;
+  const resolvedBullets = bullets?.length ? bullets.slice(0, 3) : DEFAULT_BULLETS;
 
   const isLimitReached = reason === "limit_reached";
 
   return (
     <div
-      className="absolute inset-0 flex items-center justify-center z-10 p-4"
+      className="absolute inset-0 z-10 flex items-center justify-center p-4"
       aria-label="Upgrade required to access this feature"
     >
-      {/* Card */}
       <div
         className={[
-          "relative w-full max-w-sm rounded-2xl border p-6 shadow-2xl",
-          "bg-[#0D1F0F]/90 border-[#22C55E]/30 backdrop-blur-xl",
-          "animate-in fade-in zoom-in-95 duration-300",
+          "relative w-full max-w-[360px] rounded-2xl p-6",
+          "bg-background/90 backdrop-blur-xl",
+          "border border-amber-400/40",
+          "shadow-[0_0_0_1px_rgba(245,158,11,0.08),0_20px_50px_-24px_rgba(245,158,11,0.9)]",
         ].join(" ")}
       >
-        {/* Icon + heading */}
-        <div className="text-center mb-4">
-          <div className="text-3xl mb-2" aria-hidden="true">
-            {copy.icon}
+        <div className="flex flex-col items-center text-center">
+          <div
+            className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/15"
+            aria-hidden="true"
+          >
+            <Lock className="h-8 w-8 text-[#F59E0B]" />
           </div>
-          {isLimitReached ? (
-            <>
-              <h3 className="text-base font-semibold text-white leading-snug">
-                ⚡ You've used all {limit ?? "your free"}{" "}
-                {displayName?.toLowerCase() ?? "uses"} this month
-              </h3>
-              {days !== null && days > 0 && (
-                <p className="mt-1 text-xs text-slate-400">
-                  Resets in {days} day{days !== 1 ? "s" : ""}
-                </p>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="text-xs font-medium text-[#22C55E] uppercase tracking-wider mb-1">
-                Pro Feature
-              </p>
-              <h3 className="text-base font-semibold text-white leading-snug">
-                {copy.heading}
-              </h3>
-              <p className="mt-1 text-xs text-slate-400 leading-relaxed">
-                {copy.body}
-              </p>
-            </>
+          <h3 className="text-lg font-bold text-foreground">
+            {displayName ?? heading}
+          </h3>
+          {isLimitReached && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              You have used all {limit ?? "free"} {displayName?.toLowerCase() ?? "uses"}
+              {days !== null && days > 0 ? ` - resets in ${days} day${days !== 1 ? "s" : ""}` : ""}
+            </p>
           )}
         </div>
 
-        {/* CTA */}
+        <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+          {resolvedBullets.map((bullet) => (
+            <li key={bullet} className="flex items-start gap-2">
+              <span className="mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+              <span>{bullet}</span>
+            </li>
+          ))}
+        </ul>
+
         <Button
-          className="w-full bg-[#22C55E] hover:bg-[#16a34a] text-white font-semibold rounded-xl h-10 text-sm transition-all"
+          className="mt-5 w-full rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-400 hover:to-yellow-400 font-semibold"
           onClick={() => {
             trackUpgradeCta("feature_gate");
             navigate("/upgrade");
           }}
         >
-          {copy.cta}
-          <ArrowRight className="ml-2 h-4 w-4" />
+          Upgrade to Pro — See Plans →
         </Button>
 
-        {/* Secondary link */}
-        <div className="mt-3 text-center">
-          {isLimitReached ? (
-            <button
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline underline-offset-2"
-              onClick={() => navigate("/upgrade")}
-            >
-              See all Pro features
-            </button>
-          ) : (
-            <button
-              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-              onClick={() => {
-                /* no-op dismiss — user can scroll away */
-              }}
-            >
-              Maybe Later
-            </button>
-          )}
-        </div>
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          Cancel anytime. Unlock all features with Pro.
+        </p>
       </div>
     </div>
   );
@@ -358,6 +267,10 @@ export interface FeatureGateProps {
    * Falls back to the value stored in the context.
    */
   displayName?: string;
+  /**
+   * 2-3 short bullets shown in the locked overlay.
+   */
+  bullets?: string[];
 }
 
 export function FeatureGate({
@@ -365,6 +278,7 @@ export function FeatureGate({
   children,
   blurIntensity = "medium",
   displayName,
+  bullets,
 }: FeatureGateProps) {
   const { getFeatureState, isLoading } = useFeatureUsage();
 
@@ -398,18 +312,15 @@ export function FeatureGate({
 
   return (
     <div className="relative overflow-hidden rounded-xl">
-      {/* Blurred content */}
       <div
-        className={`${blurClass} select-none pointer-events-none`}
+        className="select-none pointer-events-none"
         aria-hidden="true"
       >
         {children}
       </div>
 
-      {/* Scrim */}
-      <div className="absolute inset-0 bg-[#0D1F0F]/40 z-[5]" aria-hidden="true" />
+      <div className={`absolute inset-0 ${blurClass} bg-background/35 z-[5]`} aria-hidden="true" />
 
-      {/* Upgrade prompt */}
       <UpgradePromptOverlay
         featureKey={feature}
         reason={state.reason as "limit_reached" | "upgrade_required"}
@@ -417,6 +328,7 @@ export function FeatureGate({
         remaining={state.remaining}
         resetDate={state.resetDate}
         displayName={displayName}
+        bullets={bullets}
       />
     </div>
   );

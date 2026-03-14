@@ -145,7 +145,14 @@ export default function SimulatorPage() {
   const selectedDebt = options?.debts.find(d => d.id === selectedDebtId);
 
   return (
-    <FeatureGate feature="what_if_simulator">
+    <FeatureGate
+      feature="what_if_simulator"
+      bullets={[
+        "Model how income, debt, and spending changes impact your future",
+        "Compare scenarios before making real-life financial decisions",
+        "Use AI-powered projections to avoid costly mistakes",
+      ]}
+    >
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
         <Calculator className="h-8 w-8 text-primary" />

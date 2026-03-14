@@ -15,7 +15,6 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationsDropdown } from "@/components/notifications-dropdown";
 import { ThemeQuickSwitcher } from "@/components/ui/ThemeQuickSwitcher";
-import { BudgetSmartLogo } from "@/components/logo";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
@@ -26,6 +25,8 @@ const FEATURE_LINKS = [
   { label: "Reports", href: "/reports" },
   { label: "Receipt Scanner", href: "/receipts" },
   { label: "What-If Simulator", href: "/simulator" },
+  { label: "Accounts", href: "/accounts" },
+  { label: "Calendarr", href: "/calendar" },
 ];
 
 const UPGRADE_CTA_PULSE_SEEN_KEY = "bsai_upgrade_cta_pulse_seen";
@@ -80,15 +81,9 @@ export function TopNavBar() {
         "px-4 md:px-6"
       )}
     >
-      {/* Left: Sidebar trigger + Logo */}
+      {/* Left: Sidebar trigger */}
       <div className="flex items-center gap-2 shrink-0">
         <SidebarTrigger data-testid="button-sidebar-toggle" className="md:h-8 md:w-8" />
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <BudgetSmartLogo className="h-9 w-9" />
-          <span className="font-semibold text-foreground hidden sm:inline">
-            BudgetSmart AI
-          </span>
-        </Link>
       </div>
 
       {/* Center: Feature pills or mobile dropdown */}

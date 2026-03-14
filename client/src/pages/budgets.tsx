@@ -373,7 +373,15 @@ export default function BudgetsPage() {
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <FeatureGate feature="budget_creation" blurIntensity="low">
+              <FeatureGate
+                feature="budget_creation"
+                blurIntensity="low"
+                bullets={[
+                  "Create unlimited category budgets",
+                  "Track planned vs actual spending in detail",
+                  "Adjust quickly as your monthly priorities change",
+                ]}
+              >
               <Button onClick={() => setEditingBudget(undefined)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Set Budget
@@ -409,7 +417,15 @@ export default function BudgetsPage() {
         </div>
       </div>
 
-      <FeatureGate feature="budget_creation" displayName="budgets">
+      <FeatureGate
+        feature="budget_creation"
+        displayName="budgets"
+        bullets={[
+          "Create unlimited category budgets",
+          "Track planned vs actual spending in detail",
+          "Adjust quickly as your monthly priorities change",
+        ]}
+      >
         {budgetsWithSpent.length > 0 && (
           <Card>
             <CardHeader>

@@ -427,7 +427,15 @@ export default function SavingsGoalsPage() {
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <FeatureGate feature="savings_goals" blurIntensity="low">
+              <FeatureGate
+                feature="savings_goals"
+                blurIntensity="low"
+                bullets={[
+                  "Create unlimited savings goals with milestones",
+                  "Track progress in real time with clear visuals",
+                  "Use AI guidance to reach goals faster",
+                ]}
+              >
               <Button onClick={() => setEditingGoal(undefined)}>
                 <Plus className="h-4 w-4 mr-2" />
                 New Goal
@@ -444,7 +452,15 @@ export default function SavingsGoalsPage() {
         </div>
       </div>
 
-      <FeatureGate feature="savings_goals" displayName="savings goals">
+      <FeatureGate
+        feature="savings_goals"
+        displayName="savings goals"
+        bullets={[
+          "Create unlimited savings goals with milestones",
+          "Track progress in real time with clear visuals",
+          "Use AI guidance to reach goals faster",
+        ]}
+      >
         {goals.length > 0 && (
           <Card>
             <CardHeader>

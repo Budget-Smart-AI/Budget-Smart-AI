@@ -834,9 +834,9 @@ export const FEATURE_LIMITS = {
 
     // Household (Limited - Family plan required for full access)
     household_management: 0,            // disabled (Family plan required)
-    household_members: 2,               // owner + 1 member
+    household_members: 0,               // disabled (Family plan required)
     split_expenses: 0,                  // disabled (Family plan required)
-    household_invitations: 5,           // limited invites
+    household_invitations: 0,           // disabled (Family plan required)
 
     // Utilities
     receipt_scanner: null,              // unlimited
