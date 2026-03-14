@@ -145,11 +145,10 @@ export function TopNavBar() {
           </Button>
         )}
 
-        {/* TODO: Re-enable after AppSumo launch */}
         <Button
           variant="outline"
           size="sm"
-          className="hidden rounded-full border-[#7C3AED] text-[#7C3AED] hover:bg-[#7C3AED]/10 hover:text-[#8B5CF6]"
+          className="rounded-full border-[#7C3AED] text-[#7C3AED] hover:bg-[#7C3AED]/10 hover:text-[#8B5CF6] hidden sm:inline-flex"
           asChild
         >
           <Link href="/affiliate">
