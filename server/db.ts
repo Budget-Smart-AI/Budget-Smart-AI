@@ -615,7 +615,7 @@ export async function ensureUserFeatureUsageTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_feature_usage (
       id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-      user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id       VARCHAR(255) NOT NULL,
       feature_key   VARCHAR(50) NOT NULL,
       usage_count   INTEGER DEFAULT 0,
       period_start  TIMESTAMP NOT NULL DEFAULT date_trunc('month', NOW()),
