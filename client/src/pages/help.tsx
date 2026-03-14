@@ -597,7 +597,7 @@ const MODULES: ModuleConfig[] = [
       {
         question: "Is there a free trial?",
         answer:
-          "Yes — BudgetSmart offers a Free Plan that you can use forever with no credit card required. The Free Plan includes manual transaction entry, basic budgeting, bill tracking, and limited AI queries. When you're ready for unlimited features, upgrade to Pro or Family at any time.",
+          "BudgetSmart uses a freemium model — there is no free trial, only a Free Plan that you can use forever with no credit card required. The Free Plan includes manual transaction entry, basic budgeting, bill tracking, and limited AI queries. When you're ready for unlimited features, upgrade to Pro or Family at any time.",
       },
     ],
   },
