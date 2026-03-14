@@ -26,7 +26,7 @@ const FEATURE_LINKS = [
   { label: "Receipt Scanner", href: "/receipts" },
   { label: "What-If Simulator", href: "/simulator" },
   { label: "Accounts", href: "/accounts" },
-  { label: "Calendarr", href: "/calendar" },
+  { label: "Calendar", href: "/calendar" },
 ];
 
 const UPGRADE_CTA_PULSE_SEEN_KEY = "bsai_upgrade_cta_pulse_seen";
