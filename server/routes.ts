@@ -4897,6 +4897,171 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // ==================== MX WEBHOOK (no auth required) ====================
+
+  // POST /api/mx/webhook — receives MX webhook events
+  // MX uses a single global webhook URL registered once in the MX dashboard.
+  // No authentication required — MX calls this directly.
+  app.post('/api/mx/webhook', async (req, res) => {
+    // Always respond 200 immediately to MX
+    res.status(200).json({ received: true });
+
+    try {
+      const { type, object_type, object_guid, user_guid } = req.body;
+
+      console.log(`[MX Webhook] type:${type} object_type:${object_type} guid:${object_guid}`);
+
+      // Member finished aggregating — sync transactions
+      if (
+        object_type === 'member' && (
+          type === 'aggregation_completed' ||
+          type === 'background_aggregation_completed' ||
+          type === 'historical_data_imported'
+        )
+      ) {
+        // Find user who owns this member
+        const member = await storage.getMxMemberByGuid(object_guid);
+
+        if (!member) {
+          console.error(`[MX Webhook] Member not found: ${object_guid}`);
+          return;
+        }
+
+        console.log(`[MX Webhook] Starting sync for member ${object_guid}, user ${member.userId}`);
+
+        // Fetch and sync transactions for this member
+        const user = await storage.getUser(member.userId);
+        if (!user?.mxUserGuid) {
+          console.error(`[MX Webhook] No mxUserGuid for user ${member.userId}`);
+          return;
+        }
+
+        const { fetchAllTransactions, mapMXCategory } = await import('./mx');
+        const transactions = await fetchAllTransactions(user.mxUserGuid);
+
+        const accounts = await storage.getMxAccounts(member.id);
+        const accountMap = new Map(accounts.map((a: any) => [a.accountGuid, a.id]));
+
+        const toUpsert: any[] = [];
+        for (const tx of transactions) {
+          const mxAccountId = accountMap.get(tx.account_guid);
+          if (!mxAccountId) continue;
+          toUpsert.push({
+            mxAccountId,
+            transactionGuid: tx.guid,
+            date: tx.date,
+            amount: tx.amount.toString(),
+            description: tx.description,
+            originalDescription: tx.original_description,
+            category: mapMXCategory(tx.category, tx.top_level_category),
+            topLevelCategory: tx.top_level_category,
+            type: tx.type,
+            status: tx.status,
+            isBillPay: tx.is_bill_pay ? 'true' : 'false',
+            isDirectDeposit: tx.is_direct_deposit ? 'true' : 'false',
+            isExpense: tx.is_expense ? 'true' : 'false',
+            isIncome: tx.is_income ? 'true' : 'false',
+            isRecurring: tx.is_recurring ? 'true' : 'false',
+            isSubscription: tx.is_subscription ? 'true' : 'false',
+            merchantGuid: tx.merchant_guid || null,
+            transactedAt: tx.transacted_at,
+            postedAt: tx.posted_at || null,
+            pending: tx.status === 'PENDING' ? 'true' : 'false',
+            matchType: 'unmatched',
+            needsReview: false,
+          });
+        }
+
+        if (toUpsert.length > 0) {
+          await storage.upsertMxTransactions(toUpsert);
+        }
+
+        console.log(`[MX Webhook] Synced ${toUpsert.length} transactions for member ${object_guid}`);
+      }
+
+      // Member connection status changed
+      if (object_type === 'member' && type === 'member_status_updated') {
+        const member = await storage.getMxMemberByGuid(object_guid);
+
+        if (member) {
+          const user = await storage.getUser(member.userId);
+          if (!user?.mxUserGuid) return;
+
+          const { mxClient } = await import('./mx');
+          const response = await mxClient.get(`/users/${user.mxUserGuid}/members/${object_guid}`);
+          const status = response.data.member.connection_status;
+
+          await storage.updateMxMember(member.id, { connectionStatus: status });
+
+          console.log(`[MX Webhook] Member status updated: ${status}`);
+
+          // If connected, trigger sync
+          if (status === 'CONNECTED') {
+            const { fetchAllTransactions, mapMXCategory } = await import('./mx');
+            const transactions = await fetchAllTransactions(user.mxUserGuid);
+
+            const accounts = await storage.getMxAccounts(member.id);
+            const accountMap = new Map(accounts.map((a: any) => [a.accountGuid, a.id]));
+
+            const toUpsert: any[] = [];
+            for (const tx of transactions) {
+              const mxAccountId = accountMap.get(tx.account_guid);
+              if (!mxAccountId) continue;
+              toUpsert.push({
+                mxAccountId,
+                transactionGuid: tx.guid,
+                date: tx.date,
+                amount: tx.amount.toString(),
+                description: tx.description,
+                originalDescription: tx.original_description,
+                category: mapMXCategory(tx.category, tx.top_level_category),
+                topLevelCategory: tx.top_level_category,
+                type: tx.type,
+                status: tx.status,
+                isBillPay: tx.is_bill_pay ? 'true' : 'false',
+                isDirectDeposit: tx.is_direct_deposit ? 'true' : 'false',
+                isExpense: tx.is_expense ? 'true' : 'false',
+                isIncome: tx.is_income ? 'true' : 'false',
+                isRecurring: tx.is_recurring ? 'true' : 'false',
+                isSubscription: tx.is_subscription ? 'true' : 'false',
+                merchantGuid: tx.merchant_guid || null,
+                transactedAt: tx.transacted_at,
+                postedAt: tx.posted_at || null,
+                pending: tx.status === 'PENDING' ? 'true' : 'false',
+                matchType: 'unmatched',
+                needsReview: false,
+              });
+            }
+
+            if (toUpsert.length > 0) {
+              await storage.upsertMxTransactions(toUpsert);
+            }
+
+            console.log(`[MX Webhook] Synced ${toUpsert.length} transactions after CONNECTED status`);
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('[MX Webhook] Processing error:', error);
+    }
+  });
+
+  // GET /api/admin/mx/webhook-info — returns the webhook URL to register in MX dashboard
+  app.get('/api/admin/mx/webhook-info', requireAdmin, (req, res) => {
+    res.json({
+      webhookUrl: process.env.MX_WEBHOOK_URL ||
+        `${process.env.APP_URL}/api/mx/webhook`,
+      instructions: [
+        '1. Go to dashboard.mx.com',
+        '2. Navigate to Settings → Webhooks',
+        '3. Add the webhookUrl above',
+        '4. Select events: aggregation_completed, member_status_updated, historical_data_imported',
+        '5. Save for both Development and Production',
+      ],
+    });
+  });
+
   // ==================== PLAID WEBHOOK (no auth required) ====================
 
   // POST /api/plaid/webhook — receives Plaid webhook events
