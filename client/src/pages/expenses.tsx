@@ -86,7 +86,7 @@ import {
 import { format, parseISO, startOfMonth, endOfMonth, startOfMonth as startOfLastMonth, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Expense } from "@shared/schema";
+import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -527,6 +527,11 @@ export default function ExpensesPage() {
   const [summaryExpense, setSummaryExpense] = useState<Expense | undefined>();
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
 
+  // tax category dialog
+  const [taxCategoryExpense, setTaxCategoryExpense] = useState<Expense | undefined>();
+  const [isTaxCategoryOpen, setIsTaxCategoryOpen] = useState(false);
+  const [selectedTaxCategory, setSelectedTaxCategory] = useState<string>("other_business");
+
   // filters
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -605,6 +610,19 @@ export default function ExpensesPage() {
       });
     },
     onError: () => toast({ title: "Auto-reconcile failed", variant: "destructive" }),
+  });
+
+  // Single expense patch — used by "Mark as Tax Deductible" context menu
+  const singlePatchMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: Record<string, string> }) =>
+      apiRequest("PATCH", `/api/expenses/${id}`, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      setIsTaxCategoryOpen(false);
+      setTaxCategoryExpense(undefined);
+      toast({ title: "Expense marked as tax deductible" });
+    },
+    onError: () => toast({ title: "Failed to update expense", variant: "destructive" }),
   });
 
   // Addition 2: Bulk reconcile by category — marks all filtered expenses in the
@@ -1238,15 +1256,32 @@ export default function ExpensesPage() {
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => setDeletingExpense(expense)}
-                              aria-label="Delete expense"
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More actions">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setTaxCategoryExpense(expense);
+                                    setSelectedTaxCategory(expense.taxCategory || "other_business");
+                                    setIsTaxCategoryOpen(true);
+                                  }}
+                                >
+                                  <Tag className="h-4 w-4 mr-2 text-green-600" />
+                                  Mark as Tax Deductible
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => setDeletingExpense(expense)}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1313,6 +1348,78 @@ export default function ExpensesPage() {
           </DialogHeader>
           {summaryExpense && (
             <ExpenseSummary expense={summaryExpense} onClose={handleCloseSummary} />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Tax Category Selector Dialog ── */}
+      <Dialog
+        open={isTaxCategoryOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsTaxCategoryOpen(false);
+            setTaxCategoryExpense(undefined);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="h-5 w-5 text-green-600" />
+              Mark as Tax Deductible
+            </DialogTitle>
+          </DialogHeader>
+          {taxCategoryExpense && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <p className="font-medium">{taxCategoryExpense.merchant}</p>
+                <p className="text-muted-foreground">
+                  {formatCurrency(taxCategoryExpense.amount)} · {format(parseISO(taxCategoryExpense.date), "MMM d, yyyy")}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Tax Category</Label>
+                <Select value={selectedTaxCategory} onValueChange={setSelectedTaxCategory}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select tax category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="business_meals">Business Meals</SelectItem>
+                    <SelectItem value="software">Software &amp; Subscriptions</SelectItem>
+                    <SelectItem value="home_office">Home Office</SelectItem>
+                    <SelectItem value="travel">Business Travel</SelectItem>
+                    <SelectItem value="professional_development">Professional Development</SelectItem>
+                    <SelectItem value="equipment">Equipment</SelectItem>
+                    <SelectItem value="marketing">Marketing</SelectItem>
+                    <SelectItem value="vehicle">Vehicle</SelectItem>
+                    <SelectItem value="other_business">Other Business</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsTaxCategoryOpen(false);
+                    setTaxCategoryExpense(undefined);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  disabled={singlePatchMutation.isPending}
+                  onClick={() =>
+                    singlePatchMutation.mutate({
+                      id: taxCategoryExpense.id,
+                      patch: { taxDeductible: "true", taxCategory: selectedTaxCategory },
+                    })
+                  }
+                >
+                  {singlePatchMutation.isPending ? "Saving..." : "Mark as Tax Deductible"}
+                </Button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>

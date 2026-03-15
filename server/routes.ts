@@ -12727,6 +12727,83 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
+  // ============ TAX DEDUCTIBLE REPORT ============
+
+  app.get("/api/reports/tax-deductible", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
+      const format = (req.query.format as string) || "json";
+      const startDate = `${year}-01-01`;
+      const endDate = `${year}-12-31`;
+
+      const expenses = await storage.getExpenses(userId);
+
+      // Filter to tax-deductible or business expenses within the requested year
+      const deductible = expenses.filter((e: any) => {
+        const isDeductible = e.taxDeductible === "true" || e.isBusinessExpense === "true";
+        if (!isDeductible) return false;
+        return e.date >= startDate && e.date <= endDate;
+      });
+
+      const totalDeductible = deductible.reduce((sum: number, e: any) => sum + Math.abs(parseFloat(e.amount || "0")), 0);
+
+      // Group by tax category
+      const categoryMap: Record<string, { total: number; count: number }> = {};
+      for (const e of deductible) {
+        const cat = e.taxCategory || "other_business";
+        if (!categoryMap[cat]) categoryMap[cat] = { total: 0, count: 0 };
+        categoryMap[cat].total += Math.abs(parseFloat(e.amount || "0"));
+        categoryMap[cat].count++;
+      }
+      const byCategory = Object.entries(categoryMap)
+        .map(([category, val]) => ({ category, ...val }))
+        .sort((a, b) => b.total - a.total);
+
+      if (format === "csv") {
+        const headers = ["Date", "Merchant", "Amount (CAD)", "Category", "Tax Category", "Notes"];
+        const rows = deductible.map((e: any) => [
+          e.date,
+          `"${(e.merchant || "").replace(/"/g, '""')}"`,
+          parseFloat(e.amount || "0").toFixed(2),
+          `"${e.category || ""}"`,
+          `"${e.taxCategory || ""}"`,
+          `"${(e.notes || "").replace(/"/g, '""')}"`,
+        ]);
+        const csvContent = [headers.join(","), ...rows.map((r: string[]) => r.join(","))].join("\n");
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename=tax-deductible-${year}.csv`);
+        return res.send(csvContent);
+      }
+
+      res.json({
+        taxYear: year,
+        totalDeductible,
+        byCategory,
+        expenses: deductible.map((e: any) => ({
+          date: e.date,
+          merchant: e.merchant,
+          amount: parseFloat(e.amount || "0"),
+          category: e.category,
+          taxCategory: e.taxCategory || null,
+          notes: e.notes || null,
+          taxDeductible: e.taxDeductible === "true",
+          isBusinessExpense: e.isBusinessExpense === "true",
+        })),
+        canadianTaxNotes: {
+          t2125: "These expenses may qualify for T2125 Business Income reporting",
+          hst: "Keep receipts for HST input tax credits",
+          homeOffice: "If applicable, claim home office expenses on T777",
+          vehicle: "Keep a mileage log for vehicle expense deductions",
+          meals: "Only 50% of business meal expenses are deductible under CRA rules",
+        },
+      });
+    } catch (error) {
+      console.error("Error generating tax deductible report:", error);
+      res.status(500).json({ error: "Failed to generate tax report" });
+    }
+  });
+
   // FEATURE: TAX_REPORTING | tier: pro | limit: 1 summary/month
   // ============ TAX TAGGING API ============
 
