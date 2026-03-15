@@ -42,6 +42,7 @@ import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
 import { getEffectivePlan } from "./lib/planResolver";
+import { autoReconcile } from "./lib/auto-reconciler";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -10163,6 +10164,31 @@ ${JSON.stringify(txSummary)}`;
       });
     } catch (error) {
       console.error("Error auto-reconciling:", error);
+      res.status(500).json({ error: "Failed to auto-reconcile transactions" });
+    }
+  });
+
+  // ── NEW: Smart auto-reconcile endpoint (uses auto-reconciler.ts) ──────────
+  // POST /api/transactions/auto-reconcile
+  // Runs the full 3-step auto-reconciliation pipeline for the current user.
+  // Step 1: Match transactions → Bills
+  // Step 2: Match transactions → Expenses
+  // Step 3: Auto-create Expense records for remaining unmatched spending
+  app.post("/api/transactions/auto-reconcile", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const result = await autoReconcile(userId);
+      res.json({
+        success: true,
+        billMatches: result.billMatches,
+        expenseMatches: result.expenseMatches,
+        autoCreated: result.autoCreated,
+        total: result.billMatches + result.expenseMatches + result.autoCreated,
+        message: `Reconciled ${result.billMatches + result.expenseMatches + result.autoCreated} transactions ` +
+          `(${result.billMatches} bill matches, ${result.expenseMatches} expense matches, ${result.autoCreated} auto-created)`,
+      });
+    } catch (error) {
+      console.error("Error running auto-reconcile:", error);
       res.status(500).json({ error: "Failed to auto-reconcile transactions" });
     }
   });

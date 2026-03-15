@@ -1,0 +1,292 @@
+/**
+ * Auto-Reconciler
+ *
+ * Automatically matches Plaid transactions to bills and expenses,
+ * and auto-creates expense records for unmatched spending transactions.
+ *
+ * Steps:
+ *  1. Match transactions → Bills (name similarity + amount within 10% + date within 5 days of dueDay)
+ *  2. Match transactions → Expenses (merchant fuzzy match + exact amount + date within 3 days)
+ *  3. Auto-create Expense records for unmatched spending transactions
+ */
+
+import { storage } from "../storage";
+import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
+
+// Categories that should NOT auto-create expenses
+const SKIP_CATEGORIES = new Set([
+  "TRANSFER_IN",
+  "TRANSFER_OUT",
+  "INCOME",
+  "BANK_FEES",
+]);
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Returns true if two strings share a meaningful substring match (case-insensitive).
+ */
+function nameMatches(a: string, b: string): boolean {
+  const aLower = a.toLowerCase().trim();
+  const bLower = b.toLowerCase().trim();
+  return aLower.includes(bLower) || bLower.includes(aLower);
+}
+
+/**
+ * Returns true if |actual - expected| / expected <= tolerance (default 10%).
+ */
+function amountWithinTolerance(
+  actual: number,
+  expected: number,
+  tolerance = 0.1
+): boolean {
+  if (expected === 0) return actual === 0;
+  return Math.abs(actual - expected) / Math.abs(expected) <= tolerance;
+}
+
+/**
+ * Returns the absolute difference in days between two yyyy-MM-dd strings.
+ */
+function daysDiff(dateA: string, dateB: string): number {
+  const msPerDay = 86_400_000;
+  return Math.abs(
+    new Date(dateA).getTime() - new Date(dateB).getTime()
+  ) / msPerDay;
+}
+
+/**
+ * Builds a yyyy-MM-dd string for the given dueDay in the same month as txDate.
+ * Clamps to the last day of the month if dueDay > days-in-month.
+ */
+function dueDateForMonth(txDate: string, dueDay: number): string {
+  const d = new Date(txDate);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth(); // 0-based
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const clampedDay = Math.min(dueDay, lastDay);
+  const mm = String(month + 1).padStart(2, "0");
+  const dd = String(clampedDay).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+// ─── Main export ─────────────────────────────────────────────────────────────
+
+/**
+ * Run the full auto-reconciliation pipeline for a given user.
+ * Safe to call multiple times — already-reconciled transactions are skipped.
+ */
+export async function autoReconcile(userId: string): Promise<{
+  billMatches: number;
+  expenseMatches: number;
+  autoCreated: number;
+}> {
+  console.log(`[AutoReconciler] Starting reconciliation for user ${userId}`);
+
+  // ── Fetch data ──────────────────────────────────────────────────────────
+  const [plaidAccounts, bills, existingExpenses] = await Promise.all([
+    storage.getAllPlaidAccounts(userId),
+    storage.getBills(userId),
+    storage.getExpenses(userId),
+  ]);
+
+  if (plaidAccounts.length === 0) {
+    console.log(`[AutoReconciler] No Plaid accounts for user ${userId}, skipping.`);
+    return { billMatches: 0, expenseMatches: 0, autoCreated: 0 };
+  }
+
+  const accountIds = plaidAccounts.map((a) => a.id);
+
+  // Fetch ALL transactions for this user (not just unmatched) so we can
+  // re-evaluate any that may have been missed on a previous run.
+  // We use getUnmatchedTransactions which already filters reconciled=false.
+  const unmatched = await storage.getUnmatchedTransactions(accountIds);
+
+  if (unmatched.length === 0) {
+    console.log(`[AutoReconciler] No unmatched transactions for user ${userId}.`);
+    return { billMatches: 0, expenseMatches: 0, autoCreated: 0 };
+  }
+
+  console.log(
+    `[AutoReconciler] Processing ${unmatched.length} unmatched transactions for user ${userId}`
+  );
+
+  let billMatches = 0;
+  let expenseMatches = 0;
+  let autoCreated = 0;
+
+  // Work through a mutable copy so we can mark items as handled
+  const pending: PlaidTransaction[] = [...unmatched];
+
+  // ── STEP 1: Match to Bills ───────────────────────────────────────────────
+  for (const tx of pending) {
+    if (tx.reconciled === "true") continue;
+
+    const txAmount = Math.abs(parseFloat(tx.amount as string));
+    const txMerchant = (tx.merchantCleanName || tx.name || "").toLowerCase().trim();
+
+    for (const bill of bills) {
+      const billAmount = parseFloat(bill.amount as string);
+      const billName = (bill.name || "").toLowerCase().trim();
+
+      // Name match
+      if (!nameMatches(txMerchant, billName)) continue;
+
+      // Amount within 10%
+      if (!amountWithinTolerance(txAmount, billAmount, 0.1)) continue;
+
+      // Date within 5 days of dueDay for the transaction's month
+      const expectedDueDate = dueDateForMonth(tx.date, bill.dueDay);
+      if (daysDiff(tx.date, expectedDueDate) > 5) continue;
+
+      // ✅ Match found
+      await storage.updatePlaidTransaction(tx.id, {
+        matchType: "bill",
+        matchedBillId: bill.id,
+        reconciled: "true",
+      });
+
+      tx.reconciled = "true"; // mark in-memory so step 2/3 skip it
+      billMatches++;
+      console.log(
+        `[AutoReconciler] Bill match: tx "${tx.name}" (${tx.amount}) → bill "${bill.name}" (${bill.amount})`
+      );
+      break; // first match wins
+    }
+  }
+
+  // ── STEP 2: Match to Expenses ────────────────────────────────────────────
+  for (const tx of pending) {
+    if (tx.reconciled === "true") continue;
+
+    const txAmount = Math.abs(parseFloat(tx.amount as string));
+    const txMerchant = (tx.merchantCleanName || tx.name || "").toLowerCase().trim();
+
+    for (const exp of existingExpenses) {
+      const expAmount = parseFloat(exp.amount as string);
+      const expMerchant = (exp.merchant || "").toLowerCase().trim();
+
+      // Merchant fuzzy match
+      if (!nameMatches(txMerchant, expMerchant)) continue;
+
+      // Exact amount match
+      if (Math.abs(txAmount - expAmount) > 0.01) continue;
+
+      // Date within 3 days
+      if (daysDiff(tx.date, exp.date) > 3) continue;
+
+      // ✅ Match found
+      await storage.updatePlaidTransaction(tx.id, {
+        matchType: "expense",
+        matchedExpenseId: exp.id,
+        reconciled: "true",
+      });
+
+      tx.reconciled = "true";
+      expenseMatches++;
+      console.log(
+        `[AutoReconciler] Expense match: tx "${tx.name}" (${tx.amount}) → expense "${exp.merchant}" (${exp.amount})`
+      );
+      break;
+    }
+  }
+
+  // ── STEP 3: Auto-create Expenses for remaining unmatched transactions ────
+  for (const tx of pending) {
+    if (tx.reconciled === "true") continue;
+
+    // Skip transfers, income, bank fees
+    const cat = (tx.personalCategory || tx.category || "").toUpperCase();
+    if (
+      SKIP_CATEGORIES.has(cat) ||
+      cat.includes("TRANSFER") ||
+      cat.includes("INCOME") ||
+      cat.includes("BANK_FEE")
+    ) {
+      continue;
+    }
+
+    // Only process spending (positive amount in Plaid = money leaving account)
+    const txAmount = parseFloat(tx.amount as string);
+    if (txAmount <= 0) continue;
+
+    const merchant = tx.merchantCleanName || tx.name || "Unknown";
+
+    // Map Plaid/personal category to a valid expense category, defaulting to "Other"
+    const category = mapToExpenseCategory(tx.personalCategory || tx.category);
+
+    try {
+      const newExpense = await storage.createExpense({
+        userId,
+        merchant,
+        amount: String(txAmount),
+        date: tx.date,
+        category,
+        notes: "Auto-imported from bank transaction",
+        taxDeductible: "false",
+        taxCategory: null,
+        isBusinessExpense: "false",
+      });
+
+      await storage.updatePlaidTransaction(tx.id, {
+        matchType: "expense",
+        matchedExpenseId: newExpense.id,
+        reconciled: "true",
+      });
+
+      tx.reconciled = "true";
+      autoCreated++;
+      console.log(
+        `[AutoReconciler] Auto-created expense: "${merchant}" $${txAmount} on ${tx.date}`
+      );
+    } catch (err) {
+      console.error(
+        `[AutoReconciler] Failed to auto-create expense for tx ${tx.id}:`,
+        err
+      );
+    }
+  }
+
+  console.log(
+    `[AutoReconciler] Done for user ${userId}: ` +
+      `${billMatches} bill matches, ${expenseMatches} expense matches, ${autoCreated} auto-created`
+  );
+
+  return { billMatches, expenseMatches, autoCreated };
+}
+
+// ─── Category mapping ────────────────────────────────────────────────────────
+
+/**
+ * Maps a Plaid personal_finance_category or category string to a valid
+ * Budget Smart AI expense category.
+ */
+function mapToExpenseCategory(rawCategory: string | null | undefined): string {
+  if (!rawCategory) return "Other";
+
+  const cat = rawCategory.toUpperCase();
+
+  if (cat.includes("GROCER") || cat.includes("SUPERMARKET")) return "Groceries";
+  if (cat.includes("RESTAURANT") || cat.includes("DINING") || cat.includes("FOOD_AND_DRINK")) return "Restaurant & Bars";
+  if (cat.includes("COFFEE") || cat.includes("CAFE")) return "Coffee Shops";
+  if (cat.includes("GAS") || cat.includes("FUEL")) return "Gas";
+  if (cat.includes("TRANSPORT") || cat.includes("TRANSIT") || cat.includes("BUS") || cat.includes("SUBWAY")) return "Public Transit";
+  if (cat.includes("TAXI") || cat.includes("RIDE") || cat.includes("UBER") || cat.includes("LYFT")) return "Taxi & Ride Share";
+  if (cat.includes("PARKING") || cat.includes("TOLL")) return "Parking & Tolls";
+  if (cat.includes("ENTERTAINMENT") || cat.includes("RECREATION")) return "Entertainment";
+  if (cat.includes("SHOP") || cat.includes("RETAIL") || cat.includes("MERCHANDISE")) return "Shopping";
+  if (cat.includes("HEALTH") || cat.includes("MEDICAL") || cat.includes("PHARMACY") || cat.includes("DOCTOR")) return "Healthcare";
+  if (cat.includes("EDUCATION") || cat.includes("SCHOOL") || cat.includes("TUITION")) return "Education";
+  if (cat.includes("FITNESS") || cat.includes("GYM") || cat.includes("SPORT")) return "Fitness";
+  if (cat.includes("TRAVEL") || cat.includes("HOTEL") || cat.includes("AIRLINE") || cat.includes("FLIGHT")) return "Travel";
+  if (cat.includes("CLOTHING") || cat.includes("APPAREL")) return "Clothing";
+  if (cat.includes("PERSONAL") || cat.includes("BEAUTY") || cat.includes("SALON")) return "Personal";
+  if (cat.includes("ATM") || cat.includes("CASH")) return "Cash & ATM";
+  if (cat.includes("MORTGAGE")) return "Mortgage";
+  if (cat.includes("CREDIT_CARD") || cat.includes("CREDIT CARD")) return "Credit Card";
+  if (cat.includes("COMMUNICATION") || cat.includes("PHONE") || cat.includes("INTERNET")) return "Communications";
+  if (cat.includes("ELECTRIC") || cat.includes("UTILITY") || cat.includes("UTILITIES")) return "Electrical";
+  if (cat.includes("MAINTENANCE") || cat.includes("HOME_IMPROVEMENT")) return "Maintenance";
+  if (cat.includes("FURNITURE") || cat.includes("HOUSEWARE")) return "Furniture & Houseware";
+
+  return "Other";
+}

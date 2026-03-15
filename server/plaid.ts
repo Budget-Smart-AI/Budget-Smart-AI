@@ -4,6 +4,7 @@ import { db } from "./db";
 import { plaidItems, plaidTransactions } from "@shared/schema";
 import { storage } from "./storage";
 import { reconcileTransaction } from "./reconciliation";
+import { autoReconcile } from "./lib/auto-reconciler";
 
 const configuration = new Configuration({
   basePath: PlaidEnvironments.production,
@@ -163,6 +164,11 @@ export async function syncTransactions(
       .set({ syncCursor: cursor })
       .where(eq(plaidItems.id, itemId));
   }
+
+  // Auto-reconcile after every sync — fire-and-forget (don't block the response)
+  autoReconcile(userId).catch((err) =>
+    console.error("[syncTransactions] autoReconcile failed:", err)
+  );
 
   return { added: addedCount, modified: modifiedCount, removed: removedCount };
 }
