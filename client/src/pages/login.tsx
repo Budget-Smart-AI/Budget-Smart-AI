@@ -104,7 +104,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       if (error.message.includes("verify your email")) {
         toast({
           title: "Email Verification Required",
-          description: "Please check your email to verify your account.",
+          description: "Please check your email to verify your account before signing in.",
         });
         const email = (error as any).email || loginForm.getValues("username");
         navigate(`/verify-email-pending?email=${encodeURIComponent(email)}`);
@@ -119,8 +119,18 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           description: error.message,
           variant: "destructive",
         });
+      } else if (error.message.toLowerCase().includes("invalid username or password")) {
+        toast({
+          title: "Sign-In Failed",
+          description: "The username or password you entered is incorrect. Please try again.",
+          variant: "destructive",
+        });
       } else {
-        toast({ title: "Login Failed", description: error.message, variant: "destructive" });
+        toast({
+          title: "Sign-In Failed",
+          description: error.message,
+          variant: "destructive",
+        });
       }
     },
   });

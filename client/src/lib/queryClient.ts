@@ -97,7 +97,14 @@ function getUserFriendlyErrorMessage(status: number, originalMessage: string): s
     return "Something looks off with that request.";
   }
 
-  if (status === 401) return "Please log in to continue.";
+  if (status === 401) {
+    // Pass through meaningful server messages (e.g. "Invalid username or password",
+    // "Account locked", "MFA verification required") so the user sees actionable guidance.
+    if (originalMessage && originalMessage.length > MIN_CUSTOM_MESSAGE_LENGTH) {
+      return originalMessage;
+    }
+    return "Please log in to continue.";
+  }
   if (status === 403) return "You don't have permission to do that.";
   if (status === 404) return "That resource doesn't exist.";
   if (status === 409) return "A conflict occurred — this may already exist.";
