@@ -388,8 +388,53 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const [showConsent, setShowConsent] = useState(false);
   const [privacyChecked, setPrivacyChecked] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [mxPendingConnection, setMxPendingConnection] = useState<string | null>(null);
   const autoOpenConsentShown = useRef(false);
+  const mxPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mxPollAttemptsRef = useRef(0);
   const { toast } = useToast();
+
+  // Cleanup MX polling on unmount
+  useEffect(() => {
+    return () => {
+      if (mxPollIntervalRef.current) clearInterval(mxPollIntervalRef.current);
+    };
+  }, []);
+
+  const startPollingForMxTransactions = useCallback((institutionName: string) => {
+    mxPollAttemptsRef.current = 0;
+    const MAX_POLLS = 10; // 10 × 15s = 2.5 minutes
+
+    mxPollIntervalRef.current = setInterval(async () => {
+      mxPollAttemptsRef.current += 1;
+      try {
+        const res = await apiRequest("GET", "/api/mx/members");
+        const members: MxMemberGroup[] = await res.json();
+        // Check if any member has accounts that have been synced
+        const hasSyncedMember = members.some(m =>
+          m.aggregatedAt != null && m.accounts.length > 0
+        );
+        if (hasSyncedMember) {
+          if (mxPollIntervalRef.current) clearInterval(mxPollIntervalRef.current);
+          setMxPendingConnection(null);
+          toast({ title: "🎉 Your MX transactions are ready!" });
+          queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
+          onSuccess();
+          return;
+        }
+      } catch (err) {
+        console.error("[MX Poll] Error polling members:", err);
+      }
+
+      if (mxPollAttemptsRef.current >= MAX_POLLS) {
+        if (mxPollIntervalRef.current) clearInterval(mxPollIntervalRef.current);
+        setMxPendingConnection(null);
+        queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
+        onSuccess();
+      }
+    }, 15000);
+  }, [onSuccess, toast]);
 
   const openMXConnect = async () => {
     setLoading(true);
@@ -434,20 +479,26 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       if (event.data?.mx === true) {
         const { type, metadata } = event.data;
         if (type === "mx/connect/memberConnected") {
-          // Sync the new member
+          const memberGuid = metadata?.member_guid;
+          const institutionName = metadata?.institution?.name || "your bank";
+          setShowWidget(false);
+          // Show pending state immediately
+          setMxPendingConnection(institutionName);
+          // Kick off background sync
           try {
-            const memberGuid = metadata?.member_guid;
             if (memberGuid) {
               await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`);
-              // Sync transactions
               await apiRequest("POST", "/api/mx/transactions/sync");
-              toast({ title: "Bank account connected successfully" });
-              onSuccess();
             }
           } catch (error) {
-            toast({ title: "Connected, syncing data...", description: "Transactions will sync in background" });
+            console.error("[MX] Background sync error:", error);
           }
-          setShowWidget(false);
+          toast({
+            title: "Bank account connected!",
+            description: "MX is aggregating your account data. Transactions appear within 2-3 minutes.",
+          });
+          // Start polling for transactions
+          startPollingForMxTransactions(institutionName);
         } else if (type === "mx/connect/loaded") {
           console.log("MX Connect widget loaded");
         }
@@ -456,14 +507,31 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [onSuccess, toast]);
+  }, [onSuccess, toast, startPollingForMxTransactions]);
 
   return (
     <>
-      <Button onClick={() => setShowConsent(true)} disabled={loading} className="gap-2" variant="outline">
-        <Building2 className="h-4 w-4" />
-        {loading ? "Loading..." : "Connect via MX"}
+      <Button onClick={() => setShowConsent(true)} disabled={loading || !!mxPendingConnection} className="gap-2" variant="outline">
+        {mxPendingConnection ? (
+          <RefreshCw className="h-4 w-4 animate-spin" />
+        ) : (
+          <Building2 className="h-4 w-4" />
+        )}
+        {mxPendingConnection ? "Connecting..." : loading ? "Loading..." : "Connect via MX"}
       </Button>
+
+      {/* MX Pending Connection State */}
+      {mxPendingConnection && (
+        <div className="flex items-center gap-3 p-4 mt-3 bg-muted/50 rounded-xl border border-border">
+          <div className="text-primary animate-spin text-lg">⟳</div>
+          <div>
+            <p className="text-sm font-medium">Connecting {mxPendingConnection}...</p>
+            <p className="text-xs text-muted-foreground">
+              MX is aggregating your account data. Transactions appear within 2-3 minutes.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* MX Informed Consent Dialog */}
       <AlertDialog open={showConsent} onOpenChange={handleConsentDialogChange}>

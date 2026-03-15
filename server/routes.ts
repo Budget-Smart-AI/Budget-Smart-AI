@@ -5062,6 +5062,49 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     });
   });
 
+  // GET /api/admin/mx/checklist — MX production readiness checklist
+  app.get('/api/admin/mx/checklist', requireAdmin, async (_req, res) => {
+    try {
+      const webhookUrl = process.env.MX_WEBHOOK_URL;
+      const appUrl = process.env.APP_URL;
+      const mxApiKey = process.env.MX_API_KEY;
+      const mxClientId = process.env.MX_CLIENT_ID;
+      const isProduction = process.env.MX_ENVIRONMENT === 'production';
+
+      // Count MX members in DB
+      const { mxMembers: mxMembersTable } = await import('@shared/schema');
+      const { sql } = await import('drizzle-orm');
+      const memberCount = await db.select({
+        count: sql`count(*)`
+      }).from(mxMembersTable);
+
+      res.json({
+        checklist: {
+          webhookUrlSet: !!webhookUrl,
+          webhookUrl: webhookUrl || 'NOT SET',
+          appUrlSet: !!appUrl,
+          mxApiKeySet: !!mxApiKey,
+          mxClientIdSet: !!mxClientId,
+          environment: isProduction ? 'PRODUCTION' : 'DEVELOPMENT/SANDBOX',
+          connectedMembers: memberCount[0]?.count || 0,
+          readyForProduction: !!(webhookUrl && appUrl && mxApiKey && mxClientId && isProduction),
+        },
+        nextSteps: !isProduction ? [
+          '1. Get MX production key approval from Savanna',
+          '2. Set MX_ENVIRONMENT=production in Railway',
+          '3. Set MX_API_KEY to production key in Railway',
+          `4. Register webhook in MX dashboard: ${webhookUrl || '(set MX_WEBHOOK_URL first)'}`,
+          '5. Test with real bank connection',
+          '6. Monitor Railway logs for webhook events',
+        ] : [
+          'MX is configured for production ✅',
+        ],
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ==================== PLAID WEBHOOK (no auth required) ====================
 
   // POST /api/plaid/webhook — receives Plaid webhook events
