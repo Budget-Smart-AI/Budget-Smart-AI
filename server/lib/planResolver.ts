@@ -1,13 +1,16 @@
 /**
  * Plan Resolution System
- * 
+ *
  * Determines the effective plan for a user based on the following precedence:
- * 1. Admin manual override (direct DB update to user.plan field) - HIGHEST PRECEDENCE
- * 2. Stripe subscription status (active subscription with valid plan)
- * 3. Default "free" plan
- * 
- * This ensures that admins can manually override any user's plan for testing,
- * support, or special circumstances, regardless of their Stripe subscription status.
+ *
+ * Priority 1: user.isAdmin === 'true'  → always Family plan
+ * Priority 2: Active Stripe subscription (stripeSubscriptionId + subscriptionStatus === 'active')
+ * Priority 3: user.plan set in DB (not null, not 'free') → use as effectivePlan (manual override)
+ * Priority 4: Default → free tier
+ *
+ * This ensures admins always get full access, Stripe subscribers get their paid plan,
+ * and users with a manually-set DB plan (e.g. support grants) are respected even
+ * without an active Stripe subscription.
  */
 
 import { storage } from "../storage";
@@ -17,7 +20,7 @@ export type PlanTier = 'free' | 'pro' | 'family';
 
 export interface PlanResolutionResult {
   effectivePlan: PlanTier;
-  source: 'manual_override' | 'stripe_subscription' | 'default';
+  source: 'admin_role' | 'stripe_subscription' | 'manual_override' | 'default';
   stripeSubscriptionId: string | null;
   stripeSubscriptionStatus: string | null;
   manualPlan: string | null;
@@ -26,7 +29,12 @@ export interface PlanResolutionResult {
 }
 
 /**
- * Resolve the effective plan for a user based on precedence rules
+ * Resolve the effective plan for a user based on precedence rules.
+ *
+ * Priority 1: Admin role  → Family plan (always)
+ * Priority 2: Active Stripe subscription → plan from subscription
+ * Priority 3: DB plan field (not null, not 'free') → manual override
+ * Priority 4: Default → free
  */
 export async function resolveUserPlan(userId: string): Promise<PlanResolutionResult> {
   const user = await storage.getUser(userId);
@@ -42,47 +50,57 @@ export async function resolveUserPlan(userId: string): Promise<PlanResolutionRes
     };
   }
 
-  // Check for admin manual override first (highest precedence)
-  const manualPlan = user.plan;
-  const isManualOverride = manualPlan && manualPlan !== 'free';
-  
-  // Check Stripe subscription status
-  const stripeSubscriptionId = user.stripeSubscriptionId;
-  const stripeSubscriptionStatus = user.subscriptionStatus;
-  const subscriptionPlanId = user.subscriptionPlanId;
-  const planStartedAt = user.planStartedAt;
+  const stripeSubscriptionId = user.stripeSubscriptionId ?? null;
+  const stripeSubscriptionStatus = user.subscriptionStatus ?? null;
+  const subscriptionPlanId = user.subscriptionPlanId ?? null;
+  const planStartedAt = user.planStartedAt ?? null;
+  const manualPlan = user.plan ?? null;
 
-  // Determine effective plan based on precedence
-  let effectivePlan: PlanTier = 'free';
-  let source: PlanResolutionResult['source'] = 'default';
-
-  // Rule 1: Admin manual override takes highest precedence
-  if (isManualOverride && isValidPlanTier(manualPlan)) {
-    effectivePlan = manualPlan as PlanTier;
-    source = 'manual_override';
+  // ── Priority 1: Admin role → always Family ──────────────────────────────
+  if (user.isAdmin === 'true' || user.isAdmin === true) {
+    return {
+      effectivePlan: 'family',
+      source: 'admin_role',
+      stripeSubscriptionId,
+      stripeSubscriptionStatus,
+      manualPlan,
+      subscriptionPlanId,
+      planStartedAt,
+    };
   }
-  // Rule 2: Active Stripe subscription
-  else if (stripeSubscriptionId && stripeSubscriptionStatus === 'active') {
-    // Try to determine plan from subscription
+
+  // ── Priority 2: Active Stripe subscription ──────────────────────────────
+  if (stripeSubscriptionId && stripeSubscriptionStatus === 'active') {
     const planFromSubscription = await getPlanFromSubscription(user);
-    if (planFromSubscription) {
-      effectivePlan = planFromSubscription;
-      source = 'stripe_subscription';
-    } else if (manualPlan && isValidPlanTier(manualPlan)) {
-      // Fallback to manual plan if subscription doesn't specify
-      effectivePlan = manualPlan as PlanTier;
-      source = 'stripe_subscription'; // Still considered from subscription context
-    }
-  }
-  // Rule 3: Default to manual plan if set (even if free)
-  else if (manualPlan && isValidPlanTier(manualPlan)) {
-    effectivePlan = manualPlan as PlanTier;
-    source = manualPlan === 'free' ? 'default' : 'manual_override';
+    const effectivePlan: PlanTier = planFromSubscription ?? 'pro';
+    return {
+      effectivePlan,
+      source: 'stripe_subscription',
+      stripeSubscriptionId,
+      stripeSubscriptionStatus,
+      manualPlan,
+      subscriptionPlanId,
+      planStartedAt,
+    };
   }
 
+  // ── Priority 3: DB plan field set (not null, not 'free') ────────────────
+  if (manualPlan && manualPlan !== 'free' && isValidPlanTier(manualPlan)) {
+    return {
+      effectivePlan: manualPlan as PlanTier,
+      source: 'manual_override',
+      stripeSubscriptionId,
+      stripeSubscriptionStatus,
+      manualPlan,
+      subscriptionPlanId,
+      planStartedAt,
+    };
+  }
+
+  // ── Priority 4: Default → free ──────────────────────────────────────────
   return {
-    effectivePlan,
-    source,
+    effectivePlan: 'free',
+    source: 'default',
     stripeSubscriptionId,
     stripeSubscriptionStatus,
     manualPlan,
@@ -92,10 +110,10 @@ export async function resolveUserPlan(userId: string): Promise<PlanResolutionRes
 }
 
 /**
- * Extract plan tier from user's subscription data
+ * Extract plan tier from user's subscription data.
  */
 async function getPlanFromSubscription(user: any): Promise<PlanTier | null> {
-  // First check if we have a subscription plan ID
+  // Check subscription plan ID first (most reliable)
   if (user.subscriptionPlanId) {
     try {
       const planRecord = await storage.getLandingPricingPlan(user.subscriptionPlanId);
@@ -103,8 +121,7 @@ async function getPlanFromSubscription(user: any): Promise<PlanTier | null> {
         const nameLower = planRecord.name.toLowerCase();
         if (nameLower.includes('family')) return 'family';
         if (nameLower.includes('pro')) return 'pro';
-        // Default to pro for any paid subscription
-        return 'pro';
+        return 'pro'; // Default to pro for any paid subscription
       }
     } catch (error) {
       console.warn(`Failed to get landing pricing plan ${user.subscriptionPlanId}:`, error);
@@ -120,7 +137,7 @@ async function getPlanFromSubscription(user: any): Promise<PlanTier | null> {
 }
 
 /**
- * Validate that a plan string is a valid tier
+ * Validate that a plan string is a valid tier.
  */
 export function isValidPlanTier(plan: string | null): plan is PlanTier {
   if (!plan) return false;
@@ -129,7 +146,7 @@ export function isValidPlanTier(plan: string | null): plan is PlanTier {
 }
 
 /**
- * Normalize a plan string to a valid tier (defaults to 'free')
+ * Normalize a plan string to a valid tier (defaults to 'free').
  */
 export function normalizePlanTier(plan: string | null): PlanTier {
   if (!plan) return 'free';
@@ -141,7 +158,7 @@ export function normalizePlanTier(plan: string | null): PlanTier {
 }
 
 /**
- * Check if a user has an active paid subscription (pro or family)
+ * Check if a user has an active paid subscription (pro or family).
  */
 export async function hasActivePaidSubscription(userId: string): Promise<boolean> {
   const resolution = await resolveUserPlan(userId);
@@ -149,29 +166,32 @@ export async function hasActivePaidSubscription(userId: string): Promise<boolean
 }
 
 /**
- * Get plan display name with source indicator
+ * Get plan display name with source indicator.
  */
 export function getPlanDisplayName(resolution: PlanResolutionResult): string {
-  const planNames = {
+  const planNames: Record<PlanTier, string> = {
     free: 'Free',
     pro: 'Pro',
     family: 'Family',
   };
 
   const planName = planNames[resolution.effectivePlan];
-  
-  if (resolution.source === 'manual_override') {
-    return `${planName} (Manual Override)`;
-  } else if (resolution.source === 'stripe_subscription') {
-    return `${planName} (Subscription)`;
+
+  switch (resolution.source) {
+    case 'admin_role':
+      return `${planName} (Admin)`;
+    case 'stripe_subscription':
+      return `${planName} (Subscription)`;
+    case 'manual_override':
+      return `${planName} (Manual Override)`;
+    default:
+      return planName;
   }
-  
-  return planName;
 }
 
 /**
- * Helper to get effective plan for use in feature gating
- * This is the main function that should be used by featureGate.ts
+ * Helper to get effective plan for use in feature gating.
+ * This is the main function that should be used by featureGate.ts and routes.ts.
  */
 export async function getEffectivePlan(userId: string): Promise<PlanTier> {
   const resolution = await resolveUserPlan(userId);

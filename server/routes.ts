@@ -41,6 +41,7 @@ import adminPlansRouter from "./routes/admin-plans";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
+import { getEffectivePlan } from "./lib/planResolver";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -591,7 +592,7 @@ Return JSON: { "bills": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const billLimit = await getFeatureLimit(plan, "bill_tracking");
       if (billLimit !== null) {
         if (billLimit === 0) {
@@ -768,7 +769,7 @@ Return JSON: { "bills": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "expense_tracking");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -1172,7 +1173,7 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const budgetLimit = await getFeatureLimit(plan, "budget_creation");
       if (budgetLimit !== null) {
         if (budgetLimit === 0) {
@@ -1262,7 +1263,7 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const goalLimit = await getFeatureLimit(plan, "savings_goals");
       if (goalLimit !== null) {
         if (goalLimit === 0) {
@@ -1352,7 +1353,7 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const debtLimit = await getFeatureLimit(plan, "debt_tracking");
       if (debtLimit !== null) {
         if (debtLimit === 0) {
@@ -1415,7 +1416,7 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "household_management");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -1606,7 +1607,7 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "household_invitations");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -1811,7 +1812,7 @@ Return JSON: { "income": [...] }`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
 
       const { getUserFeatureSummary } = await import("./lib/featureGate");
       const summary = await getUserFeatureSummary(userId, plan);
@@ -3409,6 +3410,8 @@ Return JSON: { "income": [...] }`;
         createdAt: user.createdAt,
         subscriptionPlanId: user.subscriptionPlanId,
         subscriptionStatus: user.subscriptionStatus,
+        plan: user.plan ?? null,
+        stripeSubscriptionId: user.stripeSubscriptionId ?? null,
       }));
       auditLogFromRequest(req, {
         eventType: "admin.user_viewed",
@@ -3845,8 +3848,7 @@ Return JSON: { "income": [...] }`;
   app.get("/api/admin/users/:id/feature-usage", requireAdmin, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.params.id as string;
-      const userResult = await pool.query(`SELECT plan FROM users WHERE id = $1`, [userId]);
-      const plan = userResult.rows[0]?.plan || "free";
+      const plan = await getEffectivePlan(userId);
 
       const { getUserFeatureSummary } = await import("./lib/featureGate");
       const summary = await getUserFeatureSummary(userId, plan);
@@ -5135,7 +5137,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
 
       // Cumulative count check for total bank connections (MX + Plaid) BEFORE creating
       const limit = await getFeatureLimit(plan, "bank_connections");
@@ -5895,7 +5897,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const memberGuid = req.params.memberGuid as string;
       
       if (!user?.mxUserGuid) {
@@ -6223,7 +6225,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "ai_assistant");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -6280,7 +6282,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "cash_flow_forecast");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -6450,7 +6452,7 @@ Rules:
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "ai_budget_suggestions");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -6640,7 +6642,7 @@ Rules:
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "ai_savings_advisor");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -7269,7 +7271,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const catLimit = await getFeatureLimit(plan, "categories_management");
       if (catLimit !== null) {
         if (catLimit === 0) {
@@ -7724,7 +7726,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "data_export_json");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -7815,7 +7817,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "data_export_csv");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -8002,7 +8004,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "financial_health");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -8586,7 +8588,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "what_if_simulator");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -8914,7 +8916,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "silent_leaks_detector");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -9141,7 +9143,7 @@ ${JSON.stringify(txSummary)}`;
       }
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
 
       // Cumulative count check for autopilot_rules
       const limit = await getFeatureLimit(plan, "autopilot_rules");
@@ -9217,7 +9219,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "financial_autopilot");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -9341,7 +9343,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "payday_optimizer");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -9449,7 +9451,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "ai_daily_coach");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -9610,7 +9612,7 @@ ${JSON.stringify(txSummary)}`;
         currentPhase: null,
         valueRealized: { billsTracked: 0, expensesLogged: 0, budgetsCreated: 0, estimatedSavings: 0 },
         showConversionModal: false,
-        isPremium: user.plan === "pro" || user.plan === "family",
+        isPremium: plan === "pro" || plan === "family",
       });
     } catch (error) {
       console.error("Error getting trial status:", error);
@@ -9832,7 +9834,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "ai_insights");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -9893,7 +9895,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "security_alerts");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -10008,7 +10010,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "ai_transaction_categorization");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -10411,7 +10413,7 @@ The Budget Smart AI Team`,
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
 
       // Cumulative count check for manual_accounts
       const limit = await getFeatureLimit(plan, "manual_accounts");
@@ -10541,7 +10543,7 @@ The Budget Smart AI Team`,
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "manual_transactions");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -11083,7 +11085,7 @@ The Budget Smart AI Team`,
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "portfolio_advisor");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -11404,7 +11406,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const assetLimit = await getFeatureLimit(plan, "asset_tracking");
       if (assetLimit !== null) {
         if (assetLimit === 0) {
@@ -11996,7 +11998,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "split_expenses");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -12208,7 +12210,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "tax_reporting");
       if (!gateResult.allowed) {
         return res.status(402).json({
@@ -12503,7 +12505,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     try {
       const userId = req.session.userId!;
       const user = await storage.getUser(userId);
-      const plan = user?.plan || "free";
+      const plan = await getEffectivePlan(userId);
       const { getUserFeatureSummary } = await import("./lib/featureGate");
       const summary = await getUserFeatureSummary(userId, plan);
       res.json({ plan, summary });

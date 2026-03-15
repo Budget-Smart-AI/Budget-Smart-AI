@@ -66,7 +66,7 @@ import {
   Plus, Pencil, Trash2, Users, Shield, ShieldCheck, Check, X, Clock,
   CreditCard, AlertTriangle, Pause, Eye, ChevronDown, ChevronUp,
   HardDrive, Bot, Activity, Landmark, TrendingUp, TrendingDown,
-  BarChart2, DollarSign, Database,
+  BarChart2, DollarSign, Database, Wrench,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -95,6 +95,21 @@ interface User {
   createdAt: string | null;
   subscriptionPlanId: string | null;
   subscriptionStatus: string | null;
+  /** DB plan field (free / pro / family) — set manually or by Stripe webhook */
+  plan: string | null;
+  /** Stripe subscription ID — present when user has a Stripe subscription */
+  stripeSubscriptionId: string | null;
+}
+
+/**
+ * Returns true when the user has a non-free DB plan but NO active Stripe subscription.
+ * This indicates the plan was set manually (admin override / support grant).
+ */
+function isManualOverride(user: User): boolean {
+  const hasDbPlan = !!user.plan && user.plan !== "free";
+  const hasActiveStripe =
+    !!user.stripeSubscriptionId && user.subscriptionStatus === "active";
+  return hasDbPlan && !hasActiveStripe;
 }
 
 interface Plan {
@@ -1489,6 +1504,22 @@ export default function AdminUsers() {
                                 {user.subscriptionStatus}
                               </Badge>
                             )}
+                            {isManualOverride(user) && (
+                              <Badge variant="outline" className="text-[10px] sm:text-xs w-fit border-orange-500 text-orange-600">
+                                <Wrench className="w-2.5 h-2.5 mr-0.5" />
+                                Manual Override
+                              </Badge>
+                            )}
+                          </div>
+                        ) : isManualOverride(user) ? (
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="default" className="bg-orange-600 text-[10px] sm:text-xs w-fit">
+                              <Wrench className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
+                              {user.plan?.charAt(0).toUpperCase()}{user.plan?.slice(1)}
+                            </Badge>
+                            <Badge variant="outline" className="text-[10px] sm:text-xs w-fit border-orange-500 text-orange-600">
+                              Manual Override
+                            </Badge>
                           </div>
                         ) : (
                           <Badge variant="outline" className="text-[10px] sm:text-xs text-muted-foreground">
