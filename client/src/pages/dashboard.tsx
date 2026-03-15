@@ -26,7 +26,7 @@ import {
   BarChart3, ShieldAlert, type LucideIcon
 } from "lucide-react";
 import { format, addMonths, setDate, isBefore, isAfter, addDays, parseISO, startOfMonth, endOfMonth, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isEqual, setDay } from "date-fns";
-import type { Bill, Income, Budget } from "@shared/schema";
+import type { Bill, Income, Budget, SavingsGoal } from "@shared/schema";
 import { FinancialHealthScore } from "@/components/financial-health-score";
 import { CashFlowForecast } from "@/components/cash-flow-forecast";
 import { SmartSavings } from "@/components/smart-savings";
@@ -317,14 +317,26 @@ function WhereYourMoneyWent({
   transactions, 
   isLoading 
 }: { 
-  transactions: Array<{ category: string | null; amount: string }>; 
+  transactions: Array<{ category: string | null; personalCategory?: string | null; amount: string; isTransfer?: boolean }>; 
   isLoading: boolean 
 }) {
-  // Group by category and sum amounts
+  // Transfer/income categories to exclude
+  const excludedCategories = new Set([
+    "TRANSFER_IN", "TRANSFER_OUT", "INCOME", "LOAN_PAYMENTS",
+    "Transfer", "Transfers", "Income", "Payroll", "Deposit",
+  ]);
+
+  // Group by personalCategory (or category fallback), exclude transfers/income, positive amounts only
   const categoryTotals = transactions
-    .filter(tx => parseFloat(tx.amount) > 0)
+    .filter(tx => {
+      if (parseFloat(tx.amount) <= 0) return false;
+      if (tx.isTransfer) return false;
+      const cat = tx.personalCategory || tx.category || "";
+      if (excludedCategories.has(cat)) return false;
+      return true;
+    })
     .reduce((acc, tx) => {
-      const category = tx.category || "Uncategorized";
+      const category = tx.personalCategory || tx.category || "Uncategorized";
       acc[category] = (acc[category] || 0) + parseFloat(tx.amount);
       return acc;
     }, {} as Record<string, number>);
@@ -596,16 +608,28 @@ export default function Dashboard() {
     amount: string;
     merchant: string;
     category: string | null;
+    personalCategory: string | null;
     source: "plaid" | "manual";
     isTransfer: boolean;
     pending: boolean;
   }
 
   const { data: allTransactions = [], isLoading: transactionsLoading } = useQuery<UnifiedTransaction[]>({
-    queryKey: ["/api/transactions/all", `?startDate=${startDate}&endDate=${endDate}`],
+    queryKey: ["/api/transactions/all", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/transactions/all?startDate=${startDate}&endDate=${endDate}`, {
+        credentials: "include",
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
   });
 
-  const isLoading = billsLoading || incomeLoading || transactionsLoading || budgetsLoading;
+  const { data: savingsGoals = [], isLoading: savingsGoalsLoading } = useQuery<SavingsGoal[]>({
+    queryKey: ["/api/savings-goals"],
+  });
+
+  const isLoading = billsLoading || incomeLoading || transactionsLoading || budgetsLoading || savingsGoalsLoading;
 
   // ============================================
   // SECTION A: REAL CASH FLOW CALCULATIONS
@@ -964,12 +988,30 @@ export default function Dashboard() {
                       const daysUntil = Math.ceil(
                         (bill.nextDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
                       );
+                      const daysColor =
+                        daysUntil < 0 || daysUntil < 3
+                          ? "text-red-600 dark:text-red-400"
+                          : daysUntil <= 7
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-emerald-600 dark:text-emerald-400";
+                      const rowBg =
+                        daysUntil < 0 || daysUntil < 3
+                          ? "bg-red-50/60 dark:bg-red-950/20 border border-red-200 dark:border-red-800"
+                          : daysUntil <= 7
+                          ? "bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800"
+                          : "bg-muted/50";
                       return (
-                        <div key={bill.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/50">
+                        <div key={bill.id} className={`flex items-center justify-between p-2 rounded-lg ${rowBg}`}>
                           <div>
                             <p className="font-medium text-sm">{bill.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {daysUntil === 0 ? "Due today" : daysUntil === 1 ? "Tomorrow" : `In ${daysUntil} days`}
+                            <p className={`text-xs font-medium ${daysColor}`}>
+                              {daysUntil < 0
+                                ? `Overdue by ${Math.abs(daysUntil)} day${Math.abs(daysUntil) !== 1 ? "s" : ""}`
+                                : daysUntil === 0
+                                ? "Due today"
+                                : daysUntil === 1
+                                ? "Tomorrow"
+                                : `In ${daysUntil} days`}
                             </p>
                           </div>
                           <span className="font-semibold text-red-600 dark:text-red-400">
@@ -1079,6 +1121,96 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
             <MoneyLeaksWidget />
             <SpendabilityWidget />
+          </div>
+
+          {/* Savings Goals Progress */}
+          <div className="mt-4">
+            <Card className="border-emerald-200 dark:border-emerald-800">
+              <CardHeader className="px-4 py-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <PiggyBank className="h-4 w-4 text-emerald-500" />
+                    Savings Goals
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <DataSourceLabel type="plan" />
+                    <Link href="/savings-goals">
+                      <Button variant="ghost" size="sm" className="text-xs h-7">
+                        Manage <ChevronRight className="h-3 w-3 ml-1" />
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+                <CardDescription className="text-xs">Track progress toward your financial goals</CardDescription>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+                  </div>
+                ) : savingsGoals.length === 0 ? (
+                  <div className="text-center py-6 space-y-3">
+                    <div className="flex justify-center">
+                      <div className="p-3 rounded-full bg-emerald-100 dark:bg-emerald-950/50">
+                        <Target className="h-6 w-6 text-emerald-500" />
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Set a savings goal to track your progress
+                    </p>
+                    <Link href="/savings-goals">
+                      <Button size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
+                        <PiggyBank className="h-4 w-4" />
+                        + Add Goal
+                      </Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {savingsGoals.slice(0, 4).map((goal: SavingsGoal) => {
+                      const current = parseFloat(String(goal.currentAmount ?? "0"));
+                      const target = parseFloat(String(goal.targetAmount ?? "0"));
+                      const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
+                      return (
+                        <div key={goal.id} className="space-y-1.5">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium truncate">{goal.name}</span>
+                            <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                              {formatCurrency(current)} / {formatCurrency(target)}
+                            </span>
+                          </div>
+                          <Progress value={pct} className="h-2" />
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-medium ${
+                              pct >= 100
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : pct >= 50
+                                ? "text-teal-600 dark:text-teal-400"
+                                : "text-muted-foreground"
+                            }`}>
+                              {pct >= 100 ? "🎉 Goal reached!" : `${pct}% complete`}
+                            </span>
+                            {goal.targetDate && (
+                              <span className="text-xs text-muted-foreground">
+                                By {format(parseISO(String(goal.targetDate)), "MMM yyyy")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {savingsGoals.length > 4 && (
+                      <Link href="/savings-goals">
+                        <Button variant="ghost" size="sm" className="w-full gap-1 text-xs">
+                          View all {savingsGoals.length} goals
+                          <ArrowRight className="h-3 w-3" />
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>

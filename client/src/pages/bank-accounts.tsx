@@ -1424,6 +1424,13 @@ export default function BankAccounts() {
     queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
     queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
     queryClient.invalidateQueries({ queryKey: ["/api/net-worth"] });
+    // Invalidate all dashboard-related queries so data refreshes immediately
+    queryClient.invalidateQueries({ queryKey: ["/api/transactions/all"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/budgets"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/savings-goals"] });
     // Reset selected provider after successful connection
     setSelectedProvider(null);
   };
