@@ -10,14 +10,64 @@
  *     → On match: create bill_payments record + update bill lastPaidDate/nextDueDate
  *  2. Match transactions → Expenses (merchant fuzzy match + exact amount + date within 3 days)
  *  3. Auto-create Expense records for unmatched spending transactions
+ *  4. (reserved)
+ *  5. Auto-detect subscriptions from transactions flagged isSubscription=true
  */
 
 import { storage } from "../storage";
 import { db } from "../db";
-import { billPayments } from "../../shared/schema";
+import { billPayments, bills as billsTable } from "../../shared/schema";
+import { eq, and, ilike } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 
-// Categories that should NOT auto-create expenses
+// ─── Known Subscriptions Lookup ──────────────────────────────────────────────
+
+/**
+ * Common Canadian/North American subscription services with their billing cycles.
+ * Used to improve billing-cycle detection accuracy when transaction history is limited.
+ */
+const KNOWN_SUBSCRIPTIONS: Array<{ merchant: string; cycle: string }> = [
+  { merchant: "Netflix", cycle: "monthly" },
+  { merchant: "Spotify", cycle: "monthly" },
+  { merchant: "Disney Plus", cycle: "monthly" },
+  { merchant: "Disney+", cycle: "monthly" },
+  { merchant: "Apple", cycle: "monthly" },
+  { merchant: "Amazon", cycle: "monthly" },
+  { merchant: "Google One", cycle: "monthly" },
+  { merchant: "OpenAI", cycle: "monthly" },
+  { merchant: "Claude", cycle: "monthly" },
+  { merchant: "LinkedIn", cycle: "monthly" },
+  { merchant: "Crunch Fitness", cycle: "monthly" },
+  { merchant: "Peloton", cycle: "monthly" },
+  { merchant: "YouTube", cycle: "monthly" },
+  { merchant: "GitHub", cycle: "monthly" },
+  { merchant: "Bell", cycle: "monthly" },
+  { merchant: "Rogers", cycle: "monthly" },
+  { merchant: "Telus", cycle: "monthly" },
+  { merchant: "Fido", cycle: "monthly" },
+  { merchant: "Koodo", cycle: "monthly" },
+  { merchant: "Freedom Mobile", cycle: "monthly" },
+  { merchant: "Enbridge", cycle: "monthly" },
+  { merchant: "Alectra", cycle: "monthly" },
+  { merchant: "AWS", cycle: "monthly" },
+  { merchant: "Manychat", cycle: "monthly" },
+  { merchant: "Elest.io", cycle: "monthly" },
+];
+
+/**
+ * Returns the billing cycle for a known subscription merchant, or null if not found.
+ */
+function lookupKnownCycle(merchantName: string): string | null {
+  const lower = merchantName.toLowerCase().trim();
+  for (const known of KNOWN_SUBSCRIPTIONS) {
+    if (lower.includes(known.merchant.toLowerCase())) {
+      return known.cycle;
+    }
+  }
+  return null;
+}
+
+// Categories that should NOT auto-create expenses or subscriptions
 const SKIP_CATEGORIES = new Set([
   "TRANSFER_IN",
   "TRANSFER_OUT",
@@ -146,6 +196,8 @@ export async function autoReconcile(userId: string): Promise<{
   expenseMatches: number;
   autoCreated: number;
   incomeCreated: number;
+  subscriptionsCreated: number;
+  subscriptionsUpdated: number;
 }> {
   console.log(`[AutoReconciler] Starting reconciliation for user ${userId}`);
 
@@ -158,7 +210,7 @@ export async function autoReconcile(userId: string): Promise<{
 
   if (plaidAccounts.length === 0) {
     console.log(`[AutoReconciler] No Plaid accounts for user ${userId}, skipping.`);
-    return { billMatches: 0, expenseMatches: 0, autoCreated: 0, incomeCreated: 0 };
+    return { billMatches: 0, expenseMatches: 0, autoCreated: 0, incomeCreated: 0, subscriptionsCreated: 0, subscriptionsUpdated: 0 };
   }
 
   const accountIds = plaidAccounts.map((a) => a.id);
@@ -170,7 +222,7 @@ export async function autoReconcile(userId: string): Promise<{
 
   if (unmatched.length === 0) {
     console.log(`[AutoReconciler] No unmatched transactions for user ${userId}.`);
-    return { billMatches: 0, expenseMatches: 0, autoCreated: 0, incomeCreated: 0 };
+    return { billMatches: 0, expenseMatches: 0, autoCreated: 0, incomeCreated: 0, subscriptionsCreated: 0, subscriptionsUpdated: 0 };
   }
 
   console.log(
@@ -181,6 +233,8 @@ export async function autoReconcile(userId: string): Promise<{
   let expenseMatches = 0;
   let autoCreated = 0;
   let incomeCreated = 0;
+  let subscriptionsCreated = 0;
+  let subscriptionsUpdated = 0;
 
   // Work through a mutable copy so we can mark items as handled
   const pending: PlaidTransaction[] = [...unmatched];
@@ -406,13 +460,140 @@ export async function autoReconcile(userId: string): Promise<{
     }
   }
 
+  // ── STEP 5: Auto-detect subscriptions ───────────────────────────────────
+  // For each transaction flagged isSubscription=true, check if a subscription
+  // bill already exists for this merchant. If not, create one. If yes, update
+  // lastChargedDate info via notes.
+  for (const tx of pending) {
+    // Only process transactions flagged as subscriptions
+    if ((tx.isSubscription || "false") !== "true") continue;
+
+    // Only outgoing money (positive amount in Plaid = money leaving account)
+    const txAmount = parseFloat(tx.amount as string);
+    if (txAmount <= 0) continue;
+
+    // Skip transfers and income categories
+    const cat = (tx.personalCategory || tx.category || "").toUpperCase();
+    if (
+      SKIP_CATEGORIES.has(cat) ||
+      cat.includes("TRANSFER") ||
+      cat.includes("INCOME")
+    ) {
+      continue;
+    }
+
+    const merchantName = tx.merchantCleanName || tx.merchantName || tx.name || "Unknown";
+
+    try {
+      // Check if a subscription bill already exists for this merchant
+      const existingBills = await db
+        .select()
+        .from(billsTable)
+        .where(
+          and(
+            eq(billsTable.userId, userId),
+            eq(billsTable.category, "Subscriptions"),
+            ilike(billsTable.merchant, `%${merchantName.replace(/[%_]/g, "\\$&")}%`)
+          )
+        )
+        .limit(1);
+
+      // Also check by name if merchant lookup found nothing
+      const existingByName = existingBills.length === 0
+        ? await db
+            .select()
+            .from(billsTable)
+            .where(
+              and(
+                eq(billsTable.userId, userId),
+                eq(billsTable.category, "Subscriptions"),
+                ilike(billsTable.name, `%${merchantName.replace(/[%_]/g, "\\$&")}%`)
+              )
+            )
+            .limit(1)
+        : [];
+
+      const existing = existingBills[0] || existingByName[0];
+
+      if (existing) {
+        // ── Update existing subscription ──────────────────────────────────
+        // Recalculate next billing date based on this charge date
+        const nextBillingDate = calcNextDueDate(
+          tx.date,
+          existing.recurrence || "monthly",
+          existing.dueDay || new Date(tx.date).getUTCDate()
+        );
+
+        const updatedNotes = [
+          existing.notes || "",
+          `Last charged: ${tx.date} ($${txAmount.toFixed(2)})`,
+          `Next billing: ${nextBillingDate}`,
+        ]
+          .filter(Boolean)
+          .join(" | ")
+          .substring(0, 500); // keep notes reasonable length
+
+        await storage.updateBill(existing.id, {
+          notes: updatedNotes,
+          dueDay: new Date(tx.date).getUTCDate(),
+        } as any);
+
+        subscriptionsUpdated++;
+        console.log(
+          `[AutoReconciler] Updated subscription: "${merchantName}" last charged ${tx.date} ($${txAmount})`
+        );
+      } else {
+        // ── Create new subscription bill ──────────────────────────────────
+        // Detect billing cycle: check known subscriptions first, then default monthly
+        const billingCycle = lookupKnownCycle(merchantName) || "monthly";
+
+        const dueDay = new Date(tx.date).getUTCDate();
+        const nextBillingDate = calcNextDueDate(tx.date, billingCycle, dueDay);
+
+        // Map personal category to a bill category
+        const billCategory = "Subscriptions";
+
+        await storage.createBill({
+          userId,
+          name: merchantName,
+          amount: String(txAmount),
+          category: billCategory,
+          recurrence: billingCycle as any,
+          dueDay,
+          merchant: merchantName,
+          merchantLogoUrl: tx.merchantLogoUrl || null,
+          notes: [
+            "Auto-detected from bank transaction",
+            `First detected: ${tx.date}`,
+            `Next billing: ${nextBillingDate}`,
+            `Source: auto_detected`,
+            `DetectedFromTransactionId: ${tx.id}`,
+          ].join(" | "),
+          isPaused: "false",
+          linkedPlaidAccountId: tx.plaidAccountId || null,
+        } as any);
+
+        subscriptionsCreated++;
+        console.log(
+          `[AutoReconciler] Auto-created subscription: "${merchantName}" $${txAmount} ${billingCycle} (next: ${nextBillingDate})`
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[AutoReconciler] Failed to process subscription for tx ${tx.id} merchant "${merchantName}":`,
+        err
+      );
+    }
+  }
+
   console.log(
     `[AutoReconciler] Done for user ${userId}: ` +
       `${incomeCreated} income auto-created, ${billMatches} bill matches, ` +
-      `${expenseMatches} expense matches, ${autoCreated} expense auto-created`
+      `${expenseMatches} expense matches, ${autoCreated} expense auto-created, ` +
+      `${subscriptionsCreated} subscriptions created, ${subscriptionsUpdated} subscriptions updated`
   );
 
-  return { billMatches, expenseMatches, autoCreated, incomeCreated };
+  return { billMatches, expenseMatches, autoCreated, incomeCreated, subscriptionsCreated, subscriptionsUpdated };
 }
 
 // ─── Category mapping ────────────────────────────────────────────────────────

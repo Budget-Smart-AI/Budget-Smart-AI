@@ -7617,6 +7617,124 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
+  // GET /api/subscriptions — list all user subscriptions (bills with category="Subscriptions")
+  app.get("/api/subscriptions", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const bills = await storage.getBills(userId);
+      const subscriptions = bills.filter((b: any) => b.category === "Subscriptions");
+      res.json(subscriptions);
+    } catch (error) {
+      console.error("GET /api/subscriptions error:", error);
+      res.status(500).json({ error: "Failed to fetch subscriptions" });
+    }
+  });
+
+  // GET /api/subscriptions/summary — monthly total, count, upcoming renewals
+  app.get("/api/subscriptions/summary", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const bills = await storage.getBills(userId);
+      const subscriptions = bills.filter((b: any) => b.category === "Subscriptions");
+      const active = subscriptions.filter((b: any) => b.isPaused !== "true");
+
+      const monthlyTotal = active.reduce((sum: number, sub: any) => {
+        const amount = parseFloat(sub.amount);
+        switch (sub.recurrence) {
+          case "weekly":   return sum + (amount * 52 / 12);
+          case "biweekly": return sum + (amount * 26 / 12);
+          case "monthly":  return sum + amount;
+          case "yearly":   return sum + (amount / 12);
+          default:         return sum + amount;
+        }
+      }, 0);
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const in7Days = new Date(today);
+      in7Days.setDate(in7Days.getDate() + 7);
+
+      const upcomingRenewals = active
+        .map((sub: any) => {
+          const dueDay = sub.dueDay || 1;
+          const d = new Date(today);
+          d.setDate(dueDay);
+          if (d < today) d.setMonth(d.getMonth() + 1);
+          return {
+            id: sub.id,
+            name: sub.name,
+            amount: sub.amount,
+            nextBillingDate: d.toISOString().split("T")[0],
+          };
+        })
+        .filter((s: any) => {
+          const nd = new Date(s.nextBillingDate);
+          return nd >= today && nd <= in7Days;
+        });
+
+      res.json({
+        monthlyTotal: Math.round(monthlyTotal * 100) / 100,
+        yearlyTotal: Math.round(monthlyTotal * 12 * 100) / 100,
+        activeCount: active.length,
+        totalCount: subscriptions.length,
+        pausedCount: subscriptions.length - active.length,
+        autoDetectedCount: subscriptions.filter((b: any) => b.notes && b.notes.includes("auto_detected")).length,
+        upcomingRenewals,
+      });
+    } catch (error) {
+      console.error("GET /api/subscriptions/summary error:", error);
+      res.status(500).json({ error: "Failed to fetch subscription summary" });
+    }
+  });
+
+  // POST /api/subscriptions — create a subscription (bill with category="Subscriptions")
+  app.post("/api/subscriptions", requireAuth, requireWriteAccess, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const bill = await storage.createBill({
+        ...req.body,
+        userId,
+        category: "Subscriptions",
+      });
+      res.status(201).json(bill);
+    } catch (error) {
+      console.error("POST /api/subscriptions error:", error);
+      res.status(500).json({ error: "Failed to create subscription" });
+    }
+  });
+
+  // PATCH /api/subscriptions/:id — update a subscription
+  app.patch("/api/subscriptions/:id", requireAuth, requireWriteAccess, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const bill = await storage.getBill(req.params.id as string);
+      if (!bill || bill.userId !== userId) {
+        return res.status(404).json({ error: "Subscription not found" });
+      }
+      const updated = await storage.updateBill(req.params.id as string, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("PATCH /api/subscriptions/:id error:", error);
+      res.status(500).json({ error: "Failed to update subscription" });
+    }
+  });
+
+  // DELETE /api/subscriptions/:id — cancel/delete a subscription
+  app.delete("/api/subscriptions/:id", requireAuth, requireWriteAccess, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const bill = await storage.getBill(req.params.id as string);
+      if (!bill || bill.userId !== userId) {
+        return res.status(404).json({ error: "Subscription not found" });
+      }
+      await storage.deleteBill(req.params.id as string);
+      res.status(204).send();
+    } catch (error) {
+      console.error("DELETE /api/subscriptions/:id error:", error);
+      res.status(500).json({ error: "Failed to delete subscription" });
+    }
+  });
+
   // FEATURE: CATEGORIES_MANAGEMENT | tier: free | limit: 20 categories
   // ============ CUSTOM CATEGORIES ============
 

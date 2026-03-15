@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, CreditCard, Calendar, Trash2, RefreshCw, Sparkles, Loader2, Check } from "lucide-react";
+import { Plus, CreditCard, Calendar, Trash2, RefreshCw, Sparkles, Loader2, Check, Bell, BellOff, TrendingDown, AlertCircle } from "lucide-react";
 import { RECURRENCE_OPTIONS, type Bill } from "@shared/schema";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format, addDays, addWeeks, addMonths, parseISO, setDate, setDay, isBefore } from "date-fns";
@@ -63,6 +63,18 @@ function getBillNextDueDate(dueDay: number, recurrence: string, customDates?: st
     }
   }
   return nextDue;
+}
+
+/** Returns true if the bill's notes contain the auto-detected marker */
+function isAutoDetected(bill: Bill): boolean {
+  return !!(bill.notes && bill.notes.includes("auto_detected"));
+}
+
+/** Extract cancel-reminder date from notes if set */
+function getCancelReminderDate(bill: Bill): string | null {
+  if (!bill.notes) return null;
+  const match = bill.notes.match(/CancelReminder:(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
 }
 
 function AddSubscriptionDialog({ onSuccess }: { onSuccess: () => void }) {
@@ -414,6 +426,122 @@ function DetectSubscriptionsDialog({
   );
 }
 
+/** Dialog to set or clear a cancellation reminder on a subscription */
+function CancelReminderDialog({
+  bill,
+  onSuccess,
+}: {
+  bill: Bill;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const existingReminder = getCancelReminderDate(bill);
+  const nextDue = getBillNextDueDate(bill.dueDay, bill.recurrence, bill.customDates);
+  // Default reminder: 3 days before next billing date
+  const defaultReminderDate = format(addDays(nextDue, -3), "yyyy-MM-dd");
+  const [reminderDate, setReminderDate] = useState(existingReminder || defaultReminderDate);
+
+  const updateMutation = useMutation({
+    mutationFn: async (date: string | null) => {
+      // Inject or remove CancelReminder tag in notes
+      let notes = (bill.notes || "").replace(/\s*\|\s*CancelReminder:\d{4}-\d{2}-\d{2}/g, "").trim();
+      if (date) {
+        notes = notes ? `${notes} | CancelReminder:${date}` : `CancelReminder:${date}`;
+      }
+      await apiRequest("PATCH", `/api/bills/${bill.id}`, { notes });
+    },
+    onSuccess: (_, date) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      toast({
+        title: date
+          ? `Cancel reminder set for ${format(parseISO(date as string), "MMM d, yyyy")}`
+          : "Cancel reminder removed",
+      });
+      setOpen(false);
+      onSuccess();
+    },
+    onError: () => {
+      toast({ title: "Failed to update reminder", variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          title={existingReminder ? `Cancel reminder: ${existingReminder}` : "Set cancel reminder"}
+        >
+          {existingReminder ? (
+            <Bell className="w-4 h-4 text-amber-500" />
+          ) : (
+            <BellOff className="w-4 h-4 text-muted-foreground" />
+          )}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Cancellation Reminder</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Set a reminder to cancel <strong>{bill.name}</strong> before the next charge on{" "}
+            <strong>{format(nextDue, "MMM d, yyyy")}</strong>.
+          </p>
+
+          {existingReminder && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm">
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span className="text-amber-700 dark:text-amber-400">
+                Reminder set: Cancel by <strong>{format(parseISO(existingReminder), "MMM d, yyyy")}</strong> to avoid next charge
+              </span>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="reminder-date">Remind me on</Label>
+            <Input
+              id="reminder-date"
+              type="date"
+              value={reminderDate}
+              onChange={(e) => setReminderDate(e.target.value)}
+            />
+          </div>
+
+          <div className="flex gap-2">
+            {existingReminder && (
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => updateMutation.mutate(null)}
+                disabled={updateMutation.isPending}
+              >
+                <BellOff className="w-4 h-4 mr-2" />
+                Remove
+              </Button>
+            )}
+            <Button
+              className="flex-1"
+              onClick={() => updateMutation.mutate(reminderDate)}
+              disabled={updateMutation.isPending || !reminderDate}
+            >
+              {updateMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Bell className="w-4 h-4 mr-2" />
+              )}
+              {existingReminder ? "Update Reminder" : "Set Reminder"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Subscriptions() {
   const { toast } = useToast();
 
@@ -456,6 +584,9 @@ export default function Subscriptions() {
   const activeSubscriptions = subscriptions.filter(sub => sub.isPaused !== "true");
   const pausedSubscriptions = subscriptions.filter(sub => sub.isPaused === "true");
 
+  // Auto-detected count
+  const autoDetectedCount = subscriptions.filter(isAutoDetected).length;
+
   // Calculate totals from active subscriptions only
   const monthlyTotal = activeSubscriptions.reduce((sum, sub) => {
     const amount = parseFloat(sub.amount);
@@ -469,6 +600,15 @@ export default function Subscriptions() {
   }, 0);
 
   const yearlyTotal = monthlyTotal * 12;
+
+  // Upcoming renewals in next 7 days
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const in7Days = addDays(today, 7);
+  const upcomingRenewals = activeSubscriptions.filter(sub => {
+    const nextDue = getBillNextDueDate(sub.dueDay, sub.recurrence, sub.customDates);
+    return nextDue >= today && nextDue <= in7Days;
+  });
 
   if (isLoading) {
     return (
@@ -486,7 +626,7 @@ export default function Subscriptions() {
             <h1 className="text-xl sm:text-2xl font-bold" data-testid="text-page-title">Subscriptions</h1>
             <HelpTooltip
               title="About Subscriptions"
-              content="Track recurring subscription services like streaming, software, and gym memberships. Subscriptions are bills with category 'Subscriptions' that you can pause without deleting. They're included in your Monthly Bills total on the dashboard."
+              content="Track recurring subscription services like streaming, software, and gym memberships. Subscriptions are bills with category 'Subscriptions' that you can pause without deleting. They're included in your Monthly Bills total on the dashboard. Subscriptions flagged 'Auto-detected' were automatically created from your bank transactions."
             />
           </div>
           <p className="text-sm sm:text-base text-muted-foreground">Track your recurring subscriptions and memberships</p>
@@ -497,6 +637,42 @@ export default function Subscriptions() {
         </div>
       </div>
 
+      {/* ── Summary Banner ─────────────────────────────────────────────────── */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center gap-3 flex-1">
+              <div className="p-2 rounded-full bg-primary/10">
+                <TrendingDown className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">You're spending</p>
+                <p className="text-2xl font-bold text-primary" data-testid="text-monthly-summary">
+                  {formatCurrency(monthlyTotal)}<span className="text-base font-normal text-muted-foreground">/month</span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  on {activeSubscriptions.length} active subscription{activeSubscriptions.length !== 1 ? "s" : ""}
+                  {autoDetectedCount > 0 && (
+                    <span className="ml-1">
+                      · <span className="text-blue-600 dark:text-blue-400">{autoDetectedCount} auto-detected</span>
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            {upcomingRenewals.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span className="text-amber-700 dark:text-amber-400">
+                  <strong>{upcomingRenewals.length}</strong> renewal{upcomingRenewals.length !== 1 ? "s" : ""} in the next 7 days
+                </span>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Stats Cards ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Card>
           <CardHeader className="p-3 sm:pb-2 sm:p-6">
@@ -518,6 +694,7 @@ export default function Subscriptions() {
         </Card>
       </div>
 
+      {/* ── Active Subscriptions ───────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -535,16 +712,31 @@ export default function Subscriptions() {
             <div className="space-y-3">
               {activeSubscriptions.map((sub) => {
                 const nextDue = getBillNextDueDate(sub.dueDay, sub.recurrence, sub.customDates);
+                const autoDetected = isAutoDetected(sub);
+                const cancelReminder = getCancelReminderDate(sub);
+                const isDueSoon = nextDue >= today && nextDue <= in7Days;
+
                 return (
                   <div
                     key={sub.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 border rounded-lg hover-elevate gap-2 sm:gap-4"
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 border rounded-lg hover-elevate gap-2 sm:gap-4 ${isDueSoon ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-950/10" : ""}`}
                     data-testid={`subscription-item-${sub.id}`}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm sm:text-base">{sub.name}</span>
                         <Badge variant="secondary" className="text-xs">{sub.recurrence}</Badge>
+                        {autoDetected && (
+                          <Badge variant="outline" className="text-xs border-blue-300 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30">
+                            <Sparkles className="w-3 h-3 mr-1" />
+                            Auto-detected
+                          </Badge>
+                        )}
+                        {isDueSoon && (
+                          <Badge variant="outline" className="text-xs border-amber-300 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30">
+                            Due soon
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 sm:gap-4 mt-1 text-xs sm:text-sm text-muted-foreground flex-wrap">
                         <span className="flex items-center gap-1">
@@ -552,11 +744,18 @@ export default function Subscriptions() {
                           {format(nextDue, "MMM d")}
                         </span>
                         {sub.merchant && <span className="hidden sm:inline">{sub.merchant}</span>}
+                        {cancelReminder && (
+                          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                            <Bell className="w-3 h-3" />
+                            Cancel by {format(parseISO(cancelReminder), "MMM d")}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
                       <span className="text-base sm:text-lg font-bold">{formatCurrency(sub.amount)}</span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <CancelReminderDialog bill={sub} onSuccess={() => {}} />
                         <Switch
                           checked={true}
                           onCheckedChange={() => togglePauseMutation.mutate({ id: sub.id, isPaused: true })}
@@ -581,6 +780,7 @@ export default function Subscriptions() {
         </CardContent>
       </Card>
 
+      {/* ── Paused Subscriptions ───────────────────────────────────────────── */}
       {pausedSubscriptions.length > 0 && (
         <Card>
           <CardHeader>
@@ -594,40 +794,49 @@ export default function Subscriptions() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {pausedSubscriptions.map((sub) => (
-                <div
-                  key={sub.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 border rounded-lg opacity-60 gap-2 sm:gap-4"
-                  data-testid={`subscription-paused-${sub.id}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm sm:text-base">{sub.name}</span>
-                      <Badge variant="secondary" className="text-xs">{sub.recurrence}</Badge>
+              {pausedSubscriptions.map((sub) => {
+                const autoDetected = isAutoDetected(sub);
+                return (
+                  <div
+                    key={sub.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 border rounded-lg opacity-60 gap-2 sm:gap-4"
+                    data-testid={`subscription-paused-${sub.id}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm sm:text-base">{sub.name}</span>
+                        <Badge variant="secondary" className="text-xs">{sub.recurrence}</Badge>
+                        {autoDetected && (
+                          <Badge variant="outline" className="text-xs border-blue-300 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30">
+                            <Sparkles className="w-3 h-3 mr-1" />
+                            Auto-detected
+                          </Badge>
+                        )}
+                      </div>
+                      {sub.merchant && (
+                        <p className="text-xs sm:text-sm text-muted-foreground mt-1 hidden sm:block">{sub.merchant}</p>
+                      )}
                     </div>
-                    {sub.merchant && (
-                      <p className="text-xs sm:text-sm text-muted-foreground mt-1 hidden sm:block">{sub.merchant}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
-                    <span className="text-base sm:text-lg">{formatCurrency(sub.amount)}</span>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={false}
-                        onCheckedChange={() => togglePauseMutation.mutate({ id: sub.id, isPaused: false })}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 sm:h-10 sm:w-10"
-                        onClick={() => deleteMutation.mutate(sub.id)}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                    <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-4">
+                      <span className="text-base sm:text-lg">{formatCurrency(sub.amount)}</span>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={false}
+                          onCheckedChange={() => togglePauseMutation.mutate({ id: sub.id, isPaused: false })}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 sm:h-10 sm:w-10"
+                          onClick={() => deleteMutation.mutate(sub.id)}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
