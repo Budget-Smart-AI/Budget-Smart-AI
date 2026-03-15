@@ -4929,16 +4929,14 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       console.log("[Plaid] Creating link token for user:", userId);
       console.log("[Plaid] Country codes:", PLAID_COUNTRY_CODES);
 
-      // Per Plaid docs: Request liabilities as primary product
-      // transactions and auth can be fetched after Item connection
-      const primaryProducts = [Products.Liabilities];
-      const additionalProducts = [Products.Transactions, Products.Auth];
-      
+      // Per Plaid docs: Transactions, Auth, and Liabilities should all be in primary products
+      const primaryProducts = [Products.Transactions, Products.Auth, Products.Liabilities];
+      const additionalProducts: any[] = [];
+
       console.log("[Plaid] Primary products:", primaryProducts);
       console.log("[Plaid] Additional products:", additionalProducts);
 
       try {
-        // Try with liabilities as primary, transactions/auth as additional
         const response = await plaidClient.linkTokenCreate({
           user: { client_user_id: String(userId) },
           client_name: "Budget Smart AI",
@@ -4946,6 +4944,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           additional_consented_products: additionalProducts,
           country_codes: PLAID_COUNTRY_CODES,
           language: PLAID_LANGUAGE,
+          webhook: process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`,
           transactions: {
             days_requested: 730,  // Request up to 2 years of transaction history
           },
@@ -5216,16 +5215,78 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           if (isInitialSync) {
             console.log(`Initial sync for ${item.institutionName} - using transactionsGet for full history`);
 
-            // First trigger a refresh to ensure Plaid fetches latest from bank
-            try {
-              await plaidClient.transactionsRefresh({
-                access_token: item.accessToken,
-              });
-              console.log(`  Triggered refresh for ${item.institutionName}`);
-              // Give Plaid a moment to start fetching
-              await new Promise(resolve => setTimeout(resolve, 2000));
-            } catch (refreshError: any) {
-              console.log(`  Refresh note: ${refreshError?.response?.data?.error_message || 'continuing'}`);
+            // Per Plaid docs: Poll transactions_update_status before fetching
+            // Status must be INITIAL_UPDATE_COMPLETE or HISTORICAL_UPDATE_COMPLETE
+            const MAX_POLL_ATTEMPTS = 30; // 30 attempts * 5 seconds = 2.5 minutes max wait
+            const POLL_INTERVAL_MS = 5000;
+            let transactionsReady = false;
+            
+            for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
+              try {
+                const itemResponse = await plaidClient.itemGet({
+                  access_token: item.accessToken,
+                });
+                
+                const txStatus = (itemResponse.data as any).status?.transactions?.last_successful_update;
+                const updateStatus = (itemResponse.data as any).item?.status || null;
+                
+                // Check if transactions product is in billed_products (properly initialized)
+                const billedProducts = itemResponse.data.item.billed_products || [];
+                const hasTransactions = billedProducts.includes('transactions' as any);
+                
+                // Log status for debugging
+                console.log(`  [Attempt ${attempt}/${MAX_POLL_ATTEMPTS}] Checking transaction status...`);
+                console.log(`    Billed products: ${billedProducts.join(', ')}`);
+                console.log(`    Last successful update: ${txStatus || 'none'}`);
+                
+                if (!hasTransactions) {
+                  console.log(`    WARNING: transactions not in billed_products - may need to reconnect bank`);
+                  // Still try to fetch - Plaid may have data even if not in billed_products yet
+                }
+                
+                // If we have a last_successful_update timestamp, transactions are ready
+                if (txStatus) {
+                  console.log(`    Transactions ready! Last update: ${txStatus}`);
+                  transactionsReady = true;
+                  break;
+                }
+                
+                // Also trigger a refresh on first attempt to speed things up
+                if (attempt === 1) {
+                  try {
+                    await plaidClient.transactionsRefresh({
+                      access_token: item.accessToken,
+                    });
+                    console.log(`    Triggered refresh for ${item.institutionName}`);
+                  } catch (refreshError: any) {
+                    const errMsg = refreshError?.response?.data?.error_message || 'continuing';
+                    // PRODUCT_NOT_READY is expected for new Items - keep polling
+                    if (refreshError?.response?.data?.error_code === 'PRODUCT_NOT_READY') {
+                      console.log(`    Refresh: PRODUCT_NOT_READY (expected for new Item, will keep polling)`);
+                    } else {
+                      console.log(`    Refresh note: ${errMsg}`);
+                    }
+                  }
+                }
+                
+                // Wait before next poll
+                console.log(`    Waiting ${POLL_INTERVAL_MS/1000}s before next check...`);
+                await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+                
+              } catch (pollError: any) {
+                console.log(`    Poll error: ${pollError?.response?.data?.error_message || pollError.message}`);
+                // If item is in error state, don't keep polling
+                if (pollError?.response?.data?.error_code === 'ITEM_LOGIN_REQUIRED') {
+                  console.log(`    Item requires re-authentication - skipping`);
+                  break;
+                }
+                await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+              }
+            }
+            
+            if (!transactionsReady) {
+              console.log(`  Transactions not ready after ${MAX_POLL_ATTEMPTS} attempts for ${item.institutionName}`);
+              console.log(`  Will still attempt fetch - Plaid may return partial data`);
             }
 
             // Calculate date range - 2 years back

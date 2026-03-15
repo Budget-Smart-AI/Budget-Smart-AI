@@ -21,6 +21,7 @@ import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 import { cn } from "@/lib/utils";
 
 const FEATURE_LINKS = [
+  { label: "Dashboard", href: "/dashboard" },
   { label: "AI Assistant", href: "/ai-assistant" },
   { label: "Reports", href: "/reports" },
   { label: "Receipt Scanner", href: "/receipts" },
@@ -145,7 +146,8 @@ export function TopNavBar() {
           </Button>
         )}
 
-        <Button
+        {/* TODO: Re-enable after AppSumo launch */}
+        {/* <Button
           variant="outline"
           size="sm"
           className="rounded-full border-[#7C3AED] text-[#7C3AED] hover:bg-[#7C3AED]/10 hover:text-[#8B5CF6] hidden sm:inline-flex"
@@ -155,7 +157,7 @@ export function TopNavBar() {
             <DollarSign className="h-4 w-4 mr-1.5" />
             Earn 30%
           </Link>
-        </Button>
+        </Button> */}
 
         <ThemeQuickSwitcher />
         <NotificationsDropdown />
