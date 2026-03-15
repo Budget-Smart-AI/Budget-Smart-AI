@@ -11,12 +11,96 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Loader2, Lock, User, Mail, Brain, Zap, ArrowRight
+  Loader2, Lock, Mail, ArrowRight, CheckCircle2, Circle
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { BudgetSmartLogo } from "@/components/logo";
+import { useState, useCallback } from "react";
 
 import { COUNTRIES } from "@shared/schema";
+
+// ─── Province / State data ────────────────────────────────────────────────────
+
+const CANADIAN_PROVINCES = [
+  { code: "AB", name: "Alberta" },
+  { code: "BC", name: "British Columbia" },
+  { code: "MB", name: "Manitoba" },
+  { code: "NB", name: "New Brunswick" },
+  { code: "NL", name: "Newfoundland and Labrador" },
+  { code: "NS", name: "Nova Scotia" },
+  { code: "NT", name: "Northwest Territories" },
+  { code: "NU", name: "Nunavut" },
+  { code: "ON", name: "Ontario" },
+  { code: "PE", name: "Prince Edward Island" },
+  { code: "QC", name: "Quebec" },
+  { code: "SK", name: "Saskatchewan" },
+  { code: "YT", name: "Yukon" },
+];
+
+const US_STATES = [
+  { code: "AL", name: "Alabama" }, { code: "AK", name: "Alaska" },
+  { code: "AZ", name: "Arizona" }, { code: "AR", name: "Arkansas" },
+  { code: "CA", name: "California" }, { code: "CO", name: "Colorado" },
+  { code: "CT", name: "Connecticut" }, { code: "DE", name: "Delaware" },
+  { code: "FL", name: "Florida" }, { code: "GA", name: "Georgia" },
+  { code: "HI", name: "Hawaii" }, { code: "ID", name: "Idaho" },
+  { code: "IL", name: "Illinois" }, { code: "IN", name: "Indiana" },
+  { code: "IA", name: "Iowa" }, { code: "KS", name: "Kansas" },
+  { code: "KY", name: "Kentucky" }, { code: "LA", name: "Louisiana" },
+  { code: "ME", name: "Maine" }, { code: "MD", name: "Maryland" },
+  { code: "MA", name: "Massachusetts" }, { code: "MI", name: "Michigan" },
+  { code: "MN", name: "Minnesota" }, { code: "MS", name: "Mississippi" },
+  { code: "MO", name: "Missouri" }, { code: "MT", name: "Montana" },
+  { code: "NE", name: "Nebraska" }, { code: "NV", name: "Nevada" },
+  { code: "NH", name: "New Hampshire" }, { code: "NJ", name: "New Jersey" },
+  { code: "NM", name: "New Mexico" }, { code: "NY", name: "New York" },
+  { code: "NC", name: "North Carolina" }, { code: "ND", name: "North Dakota" },
+  { code: "OH", name: "Ohio" }, { code: "OK", name: "Oklahoma" },
+  { code: "OR", name: "Oregon" }, { code: "PA", name: "Pennsylvania" },
+  { code: "RI", name: "Rhode Island" }, { code: "SC", name: "South Carolina" },
+  { code: "SD", name: "South Dakota" }, { code: "TN", name: "Tennessee" },
+  { code: "TX", name: "Texas" }, { code: "UT", name: "Utah" },
+  { code: "VT", name: "Vermont" }, { code: "VA", name: "Virginia" },
+  { code: "WA", name: "Washington" }, { code: "WV", name: "West Virginia" },
+  { code: "WI", name: "Wisconsin" }, { code: "WY", name: "Wyoming" },
+];
+
+// ─── Password requirements checklist ─────────────────────────────────────────
+
+interface PasswordRequirement {
+  label: string;
+  test: (pw: string) => boolean;
+}
+
+const PASSWORD_REQUIREMENTS: PasswordRequirement[] = [
+  { label: "At least 8 characters",           test: (pw) => pw.length >= 8 },
+  { label: "One uppercase letter",             test: (pw) => /[A-Z]/.test(pw) },
+  { label: "One lowercase letter",             test: (pw) => /[a-z]/.test(pw) },
+  { label: "One number",                       test: (pw) => /[0-9]/.test(pw) },
+  { label: "One special character (!@#$%^&*)", test: (pw) => /[^A-Za-z0-9]/.test(pw) },
+];
+
+function PasswordChecklist({ password }: { password: string }) {
+  if (!password) return null;
+  return (
+    <ul className="mt-2 space-y-1">
+      {PASSWORD_REQUIREMENTS.map((req) => {
+        const met = req.test(password);
+        return (
+          <li key={req.label} className={`flex items-center gap-1.5 text-xs ${met ? "text-emerald-400" : "text-slate-400"}`}>
+            {met
+              ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              : <Circle className="w-3.5 h-3.5 shrink-0" />
+            }
+            {req.label}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// ─── Form schema ──────────────────────────────────────────────────────────────
 
 const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -25,8 +109,8 @@ const registerSchema = z.object({
   username: z.string().email("Valid email is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
-  country: z.string().default("US"),
-  stateProvince: z.string().min(1, "State/Province is required"),
+  country: z.string().default("CA"),
+  stateProvince: z.string().min(1, "Province/State is required"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -34,9 +118,12 @@ const registerSchema = z.object({
 
 type RegisterFormData = z.infer<typeof registerSchema>;
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function SignupPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const [passwordValue, setPasswordValue] = useState("");
 
   // Fetch available auth providers
   const { data: providers } = useQuery({
@@ -55,10 +142,22 @@ export default function SignupPage() {
       username: "",
       password: "",
       confirmPassword: "",
-      country: "US",
+      country: "CA",       // Default to Canada
       stateProvince: "",
     },
   });
+
+  // Watch country to show correct province/state list
+  const selectedCountry = registerForm.watch("country");
+
+  const getRegionOptions = useCallback((countryCode: string) => {
+    if (countryCode === "CA") return CANADIAN_PROVINCES;
+    if (countryCode === "US") return US_STATES;
+    return [];
+  }, []);
+
+  const regionOptions = getRegionOptions(selectedCountry);
+  const regionLabel = selectedCountry === "CA" ? "Province" : selectedCountry === "US" ? "State" : "Province / State";
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterFormData) => {
@@ -205,7 +304,14 @@ export default function SignupPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Country</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={(val) => {
+                            field.onChange(val);
+                            // Reset province/state when country changes
+                            registerForm.setValue("stateProvince", "");
+                          }}
+                          defaultValue={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger data-testid="select-country">
                               <SelectValue placeholder="Select your country" />
@@ -229,10 +335,27 @@ export default function SignupPage() {
                     name="stateProvince"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>State / Province</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="State or Province" autoComplete="address-level1" />
-                        </FormControl>
+                        <FormLabel>{regionLabel}</FormLabel>
+                        {regionOptions.length > 0 ? (
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-province">
+                                <SelectValue placeholder={`Select your ${regionLabel.toLowerCase()}`} />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {regionOptions.map((region) => (
+                                <SelectItem key={region.code} value={region.code}>
+                                  {region.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <FormControl>
+                            <Input {...field} placeholder="Province / State" autoComplete="address-level1" />
+                          </FormControl>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -273,11 +396,16 @@ export default function SignupPage() {
                             <Input
                               {...field}
                               type="password"
-                              placeholder="Create a password (min 8 characters)"
+                              placeholder="Create a strong password"
                               className="pl-10"
+                              onChange={(e) => {
+                                field.onChange(e);
+                                setPasswordValue(e.target.value);
+                              }}
                             />
                           </div>
                         </FormControl>
+                        <PasswordChecklist password={passwordValue} />
                         <FormMessage />
                       </FormItem>
                     )}

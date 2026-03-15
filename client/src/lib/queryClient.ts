@@ -41,10 +41,62 @@ function publish402(payload: GatePayload) {
 const MIN_CUSTOM_MESSAGE_LENGTH = 10;
 
 /**
- * Maps HTTP status codes to user-friendly error messages
+ * Extracts the error message string from a raw response body (JSON or plain text).
+ */
+function extractRawMessage(text: string): string {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.error === "string") return parsed.error;
+    if (parsed && typeof parsed.message === "string") return parsed.message;
+  } catch {
+    // not JSON — use as-is
+  }
+  return text;
+}
+
+/**
+ * Maps HTTP status codes to user-friendly error messages.
+ * For 400 responses from auth endpoints, passes through the specific
+ * server validation message so users see actionable guidance.
  */
 function getUserFriendlyErrorMessage(status: number, originalMessage: string): string {
-  if (status === 400) return "Something looks off with that request.";
+  // ── Auth / validation keyword pass-through (checked before generic buckets) ──
+  // These patterns match the exact messages returned by the server's registerSchema
+  // and registration endpoint so users see specific, actionable guidance.
+  if (status === 400) {
+    const raw = originalMessage.toLowerCase();
+
+    if (raw.includes("special character"))
+      return "Password must include at least one special character (!@#$%^&*)";
+    if (raw.includes("uppercase"))
+      return "Password must include at least one uppercase letter";
+    if (raw.includes("lowercase"))
+      return "Password must include at least one lowercase letter";
+    if (raw.includes("number") || raw.includes("digit"))
+      return "Password must include at least one number";
+    if (raw.includes("8 characters") || raw.includes("too short"))
+      return "Password must be at least 8 characters long";
+    if (raw.includes("match"))
+      return "Passwords do not match";
+    if (raw.includes("already exists") || raw.includes("duplicate") || raw.includes("already registered"))
+      return "An account with this email already exists. Try signing in instead.";
+    if (raw.includes("invalid email") || raw.includes("valid email"))
+      return "Please enter a valid email address";
+    if (raw.includes("username already taken"))
+      return "That username is already taken. Please choose another.";
+    if (raw.includes("first name"))
+      return "First name is required";
+    if (raw.includes("last name"))
+      return "Last name is required";
+
+    // For any other 400 with a meaningful server message, pass it through
+    if (originalMessage && originalMessage.length > MIN_CUSTOM_MESSAGE_LENGTH) {
+      return originalMessage;
+    }
+
+    return "Something looks off with that request.";
+  }
+
   if (status === 401) return "Please log in to continue.";
   if (status === 403) return "You don't have permission to do that.";
   if (status === 404) return "That resource doesn't exist.";
@@ -54,14 +106,13 @@ function getUserFriendlyErrorMessage(status: number, originalMessage: string): s
   if (status >= 500) {
     return "Something went wrong on our end. Try again shortly. If this persists, please contact support.";
   }
-  
+
   // For other statuses, use the original message if it looks like a custom message
-  // (not just a generic status code message)
   const statusCodePattern = new RegExp(`\\b${status}\\b`);
   if (originalMessage && !statusCodePattern.test(originalMessage) && originalMessage.length > MIN_CUSTOM_MESSAGE_LENGTH) {
     return originalMessage;
   }
-  
+
   return "An unexpected error occurred.";
 }
 
@@ -93,8 +144,9 @@ async function throwIfResNotOk(res: Response) {
       if (payload) publish402(payload);
     }
     
-    const text = (await res.text()) || res.statusText;
-    const userFriendlyMessage = getUserFriendlyErrorMessage(res.status, text);
+    const rawText = (await res.text()) || res.statusText;
+    const extracted = extractRawMessage(rawText);
+    const userFriendlyMessage = getUserFriendlyErrorMessage(res.status, extracted);
     
     throw new Error(userFriendlyMessage);
   }

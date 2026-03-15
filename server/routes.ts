@@ -2388,9 +2388,33 @@ Return JSON: { "income": [...] }`;
         email: email,
         message: "Please check your email to verify your account."
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Registration error:", error);
-      res.status(500).json({ error: "Registration failed" });
+
+      // PostgreSQL error code 42703 — column does not exist (schema mismatch)
+      if (error?.code === "42703") {
+        console.error("SCHEMA MISMATCH during registration:", error.message);
+        return res.status(500).json({
+          error: "Registration temporarily unavailable. Please try again in a moment."
+        });
+      }
+
+      // PostgreSQL error code 23505 — unique constraint violation (duplicate email/username)
+      if (error?.code === "23505") {
+        return res.status(400).json({
+          error: "An account with this email already exists."
+        });
+      }
+
+      // PostgreSQL error code 23502 — not-null constraint violation
+      if (error?.code === "23502") {
+        return res.status(400).json({
+          error: "Please fill in all required fields."
+        });
+      }
+
+      // Generic fallback — never expose raw DB errors to the client
+      res.status(500).json({ error: "Registration failed. Please try again." });
     }
   });
 

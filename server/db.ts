@@ -352,6 +352,13 @@ export async function ensureProfileColumns(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
 }
 
+export async function ensureOnboardingProgressColumn(): Promise<void> {
+  // onboarding_progress column — added during onboarding wizard feature
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_progress TEXT DEFAULT '{}'`
+  );
+}
+
 export async function ensureHouseholdColumns(): Promise<void> {
   // Household / address columns on users table
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS household_name VARCHAR(200)`);
