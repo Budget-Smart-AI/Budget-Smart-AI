@@ -21,6 +21,7 @@ import { Settings as SettingsIcon } from "lucide-react";
 import { useLogout } from "@/hooks/use-logout";
 import Dashboard from "@/pages/dashboard";
 import Bills from "@/pages/bills";
+import ExpensesPage from "@/pages/expenses";
 import Income from "@/pages/income";
 import Budgets from "@/pages/budgets";
 import SavingsGoals from "@/pages/savings-goals";
@@ -90,7 +91,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/accounts" component={BankAccounts} />
       {/* Backwards compatibility redirects */}
       <Route path="/bank-accounts"><Redirect to="/accounts" /></Route>
-      <Route path="/expenses"><Redirect to="/accounts" /></Route>
+      <Route path="/expenses" component={ExpensesPage} />
       <Route path="/other-expenses"><Redirect to="/accounts" /></Route>
       <Route path="/subscriptions" component={Subscriptions} />
       <Route path="/categories" component={Categories} />

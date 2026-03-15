@@ -1,22 +1,22 @@
-// FEATURE: EXPENSE_TRACKING | tier: free | limit: 100 expenses/month
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { HelpTooltip } from "@/components/help-tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -51,59 +51,131 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, CreditCard, ChevronLeft, ChevronRight, Upload, Download, FileSpreadsheet, Search, Filter, ArrowUpDown } from "lucide-react";
-import { format, startOfMonth, endOfMonth, addMonths, subMonths, parseISO } from "date-fns";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Receipt,
+  Plus,
+  Pencil,
+  Trash2,
+  Search,
+  ArrowUpDown,
+  Zap,
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  Tag,
+  Briefcase,
+  CheckSquare,
+  RefreshCw,
+} from "lucide-react";
+import { format, parseISO, startOfMonth, endOfMonth, startOfMonth as startOfLastMonth, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Expense } from "@shared/schema";
 
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function formatCurrency(amount: string | number) {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+}
+
+function getMonthRange(date: Date) {
+  return { start: startOfMonth(date), end: endOfMonth(date) };
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  "Groceries": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  "Restaurant & Bars": "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  "Transportation": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  "Entertainment": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  "Shopping": "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300",
+  "Healthcare": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  "Education": "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+  "Fitness": "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
+  "Gas": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  "Travel": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300",
+  "Coffee Shops": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  "Other": "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
+};
+
+function getCategoryColor(category: string) {
+  return CATEGORY_COLORS[category] ?? "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
+}
+
+// ─── form schema ────────────────────────────────────────────────────────────
+
 const expenseFormSchema = z.object({
-  merchant: z.string().min(1, "Merchant is required"),
+  merchant: z.string().min(1, "Merchant name is required"),
   amount: z.string().min(1, "Amount is required"),
   date: z.string().min(1, "Date is required"),
   category: z.enum(EXPENSE_CATEGORIES),
   notes: z.string().optional(),
+  taxDeductible: z.boolean().optional().default(false),
+  isBusinessExpense: z.boolean().optional().default(false),
+  taxCategory: z.string().optional(),
 });
 
 type ExpenseFormValues = z.infer<typeof expenseFormSchema>;
 
-type SortConfig = {
-  key: keyof Expense;
-  direction: "asc" | "desc";
-};
+// ─── sort config ────────────────────────────────────────────────────────────
 
-function formatCurrency(amount: string | number) {
-  const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(num);
+type SortKey = "merchant" | "date" | "category" | "amount";
+type SortConfig = { key: SortKey; direction: "asc" | "desc" };
+
+// ─── date range options ─────────────────────────────────────────────────────
+
+type DateRange = "this_month" | "last_month" | "last_3_months" | "all_time";
+
+function getDateRangeLabel(range: DateRange) {
+  switch (range) {
+    case "this_month": return "This Month";
+    case "last_month": return "Last Month";
+    case "last_3_months": return "Last 3 Months";
+    case "all_time": return "All Time";
+  }
 }
 
-function ExpenseForm({
-  expense,
-  onClose,
-}: {
-  expense?: Expense;
-  onClose: () => void;
-}) {
+// ─── status filter ──────────────────────────────────────────────────────────
+
+type StatusFilter = "all" | "manual" | "tax_deductible" | "business";
+
+// ─── ExpenseForm component ──────────────────────────────────────────────────
+
+function ExpenseForm({ expense, onClose }: { expense?: Expense; onClose: () => void }) {
   const { toast } = useToast();
   const isEditing = !!expense;
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
-      merchant: expense?.merchant || "",
-      amount: expense?.amount || "",
-      date: expense?.date || format(new Date(), "yyyy-MM-dd"),
-      category: (expense?.category as typeof EXPENSE_CATEGORIES[number]) || "Other",
-      notes: expense?.notes || "",
+      merchant: expense?.merchant ?? "",
+      amount: expense?.amount ?? "",
+      date: expense?.date ?? format(new Date(), "yyyy-MM-dd"),
+      category: (expense?.category as typeof EXPENSE_CATEGORIES[number]) ?? "Other",
+      notes: expense?.notes ?? "",
+      taxDeductible: expense?.taxDeductible === "true",
+      isBusinessExpense: expense?.isBusinessExpense === "true",
+      taxCategory: expense?.taxCategory ?? "",
     },
   });
 
+  const taxDeductible = form.watch("taxDeductible");
+
   const createMutation = useMutation({
     mutationFn: async (values: ExpenseFormValues) => {
-      return apiRequest("POST", "/api/expenses", values);
+      return apiRequest("POST", "/api/expenses", {
+        ...values,
+        taxDeductible: values.taxDeductible ? "true" : "false",
+        isBusinessExpense: values.isBusinessExpense ? "true" : "false",
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
@@ -117,7 +189,11 @@ function ExpenseForm({
 
   const updateMutation = useMutation({
     mutationFn: async (values: ExpenseFormValues) => {
-      return apiRequest("PATCH", `/api/expenses/${expense?.id}`, values);
+      return apiRequest("PATCH", `/api/expenses/${expense?.id}`, {
+        ...values,
+        taxDeductible: values.taxDeductible ? "true" : "false",
+        isBusinessExpense: values.isBusinessExpense ? "true" : "false",
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
@@ -147,13 +223,9 @@ function ExpenseForm({
           name="merchant"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Merchant</FormLabel>
+              <FormLabel>Merchant Name</FormLabel>
               <FormControl>
-                <Input
-                  placeholder="e.g., Amazon, Whole Foods"
-                  {...field}
-                  data-testid="input-expense-merchant"
-                />
+                <Input placeholder="e.g., Whole Foods Market" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -168,13 +240,7 @@ function ExpenseForm({
               <FormItem>
                 <FormLabel>Amount ($)</FormLabel>
                 <FormControl>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    {...field}
-                    data-testid="input-expense-amount"
-                  />
+                  <Input type="number" step="0.01" placeholder="0.00" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -188,11 +254,7 @@ function ExpenseForm({
               <FormItem>
                 <FormLabel>Date</FormLabel>
                 <FormControl>
-                  <Input
-                    type="date"
-                    {...field}
-                    data-testid="input-expense-date"
-                  />
+                  <Input type="date" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -208,15 +270,13 @@ function ExpenseForm({
               <FormLabel>Category</FormLabel>
               <Select onValueChange={field.onChange} defaultValue={field.value}>
                 <FormControl>
-                  <SelectTrigger data-testid="select-expense-category">
+                  <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {EXPENSE_CATEGORIES.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
+                  {EXPENSE_CATEGORIES.map((cat) => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -232,23 +292,64 @@ function ExpenseForm({
             <FormItem>
               <FormLabel>Notes (optional)</FormLabel>
               <FormControl>
-                <Textarea
-                  placeholder="Any additional notes..."
-                  className="resize-none"
-                  {...field}
-                  data-testid="input-expense-notes"
-                />
+                <Textarea placeholder="Any additional notes..." className="resize-none" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancel-expense">
+        <div className="space-y-3 rounded-lg border p-4">
+          <p className="text-sm font-medium">Tax & Business</p>
+
+          <FormField
+            control={form.control}
+            name="taxDeductible"
+            render={({ field }) => (
+              <FormItem className="flex items-center justify-between">
+                <FormLabel className="cursor-pointer">Tax Deductible</FormLabel>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="isBusinessExpense"
+            render={({ field }) => (
+              <FormItem className="flex items-center justify-between">
+                <FormLabel className="cursor-pointer">Business Expense</FormLabel>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          {taxDeductible && (
+            <FormField
+              control={form.control}
+              name="taxCategory"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tax Category</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., Home Office, Business Travel" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isPending} data-testid="button-save-expense">
+          <Button type="submit" disabled={isPending} className="bg-green-600 hover:bg-green-700 text-white">
             {isPending ? "Saving..." : isEditing ? "Update Expense" : "Add Expense"}
           </Button>
         </div>
@@ -257,148 +358,227 @@ function ExpenseForm({
   );
 }
 
-function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+// ─── main page ───────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 25;
+
+export default function ExpensesPage() {
   const { toast } = useToast();
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ imported: number; total: number; errors: string[] } | null>(null);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const csvData = event.target?.result as string;
-      setImporting(true);
-      setImportResult(null);
-      
-      try {
-        const response = await apiRequest("POST", "/api/expenses/import", { csvData });
-        const result = await response.json();
-        setImportResult(result);
-        queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
-        if (result.imported > 0) {
-          toast({ title: `Successfully imported ${result.imported} expenses` });
-        }
-      } catch (error) {
-        toast({ title: "Failed to import expenses", variant: "destructive" });
-      } finally {
-        setImporting(false);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  };
-
-  const downloadTemplate = async () => {
-    try {
-      const response = await fetch("/api/expenses/template");
-      if (!response.ok) throw new Error("Failed to download template");
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "expenses_template.csv";
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      toast({ title: "Failed to download template", variant: "destructive" });
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5" />
-            Import Expenses from CSV
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="bg-muted p-4 rounded-lg space-y-3">
-            <p className="text-sm">
-              Download the CSV template, fill in your expenses, then upload the file to import them all at once.
-            </p>
-            <Button variant="outline" onClick={downloadTemplate} className="w-full" data-testid="button-download-expenses-template">
-              <Download className="h-4 w-4 mr-2" />
-              Download CSV Template
-            </Button>
-          </div>
-          
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Upload your CSV file:</p>
-            <div className="flex items-center gap-2">
-              <Input
-                type="file"
-                accept=".csv"
-                onChange={handleFileUpload}
-                disabled={importing}
-                className="flex-1"
-                data-testid="input-expenses-csv-upload"
-              />
-            </div>
-            {importing && (
-              <p className="text-sm text-muted-foreground">Importing...</p>
-            )}
-          </div>
-          
-          {importResult && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">
-                Import Results: {importResult.imported} of {importResult.total} expenses imported
-              </p>
-              {importResult.errors.length > 0 && (
-                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 max-h-32 overflow-auto">
-                  <p className="text-sm font-medium text-destructive mb-1">Errors:</p>
-                  {importResult.errors.map((error, i) => (
-                    <p key={i} className="text-xs text-destructive">{error}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          
-          <div className="text-xs text-muted-foreground space-y-1">
-            <p><strong>Categories:</strong> Groceries, Dining, Transportation, Entertainment, Shopping, Healthcare, Education, Other</p>
-            <p><strong>Date format:</strong> YYYY-MM-DD (e.g., 2025-01-22)</p>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export default function Expenses() {
+  // modal state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | undefined>();
   const [deletingExpense, setDeletingExpense] = useState<Expense | undefined>();
-  const [selectedMonth, setSelectedMonth] = useState(new Date());
+
+  // filters
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: "date", direction: "desc" });
-  const { toast } = useToast();
+  const [dateRange, setDateRange] = useState<DateRange>("this_month");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
+  // sort
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: "date", direction: "desc" });
+
+  // pagination
+  const [page, setPage] = useState(1);
+
+  // bulk select
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // fetch
   const { data: expenses = [], isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
   });
 
+  // ── mutations ──────────────────────────────────────────────────────────────
+
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/expenses/${id}`);
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/expenses/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      toast({ title: "Expense deleted" });
+      setDeletingExpense(undefined);
+    },
+    onError: () => toast({ title: "Failed to delete expense", variant: "destructive" }),
+  });
+
+  const bulkPatchMutation = useMutation({
+    mutationFn: async ({ ids, patch }: { ids: string[]; patch: Record<string, string> }) => {
+      await Promise.all(ids.map((id) => apiRequest("PATCH", `/api/expenses/${id}`, patch)));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
-      toast({ title: "Expense deleted successfully" });
-      setDeletingExpense(undefined);
+      setSelectedIds(new Set());
+      toast({ title: "Expenses updated" });
     },
-    onError: () => {
-      toast({ title: "Failed to delete expense", variant: "destructive" });
-    },
+    onError: () => toast({ title: "Failed to update expenses", variant: "destructive" }),
   });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map((id) => apiRequest("DELETE", `/api/expenses/${id}`)));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      setSelectedIds(new Set());
+      toast({ title: "Expenses deleted" });
+    },
+    onError: () => toast({ title: "Failed to delete expenses", variant: "destructive" }),
+  });
+
+  const autoReconcileMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/transactions/auto-reconcile"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      toast({ title: "Auto-reconcile complete", description: "Transactions have been matched to expenses." });
+    },
+    onError: () => toast({ title: "Auto-reconcile failed", variant: "destructive" }),
+  });
+
+  // ── computed stats ─────────────────────────────────────────────────────────
+
+  const now = new Date();
+  const thisMonthRange = getMonthRange(now);
+  const lastMonthRange = getMonthRange(subMonths(now, 1));
+
+  const thisMonthExpenses = useMemo(
+    () =>
+      expenses.filter((e) => {
+        const d = parseISO(e.date);
+        return d >= thisMonthRange.start && d <= thisMonthRange.end;
+      }),
+    [expenses, thisMonthRange.start, thisMonthRange.end]
+  );
+
+  const lastMonthExpenses = useMemo(
+    () =>
+      expenses.filter((e) => {
+        const d = parseISO(e.date);
+        return d >= lastMonthRange.start && d <= lastMonthRange.end;
+      }),
+    [expenses, lastMonthRange.start, lastMonthRange.end]
+  );
+
+  const totalThisMonth = useMemo(
+    () => thisMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
+    [thisMonthExpenses]
+  );
+
+  const totalLastMonth = useMemo(
+    () => lastMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
+    [lastMonthExpenses]
+  );
+
+  const largestExpense = useMemo(
+    () =>
+      thisMonthExpenses.length > 0
+        ? thisMonthExpenses.reduce((max, e) =>
+            parseFloat(e.amount) > parseFloat(max.amount) ? e : max
+          )
+        : null,
+    [thisMonthExpenses]
+  );
+
+  const topCategory = useMemo(() => {
+    const totals: Record<string, number> = {};
+    thisMonthExpenses.forEach((e) => {
+      totals[e.category] = (totals[e.category] ?? 0) + parseFloat(e.amount);
+    });
+    const entries = Object.entries(totals);
+    if (entries.length === 0) return null;
+    const [cat, total] = entries.reduce((max, cur) => (cur[1] > max[1] ? cur : max));
+    return { category: cat, total };
+  }, [thisMonthExpenses]);
+
+  // ── filtering & sorting ────────────────────────────────────────────────────
+
+  const filteredExpenses = useMemo(() => {
+    let result = [...expenses];
+
+    // date range
+    if (dateRange !== "all_time") {
+      const cutoff =
+        dateRange === "this_month"
+          ? thisMonthRange.start
+          : dateRange === "last_month"
+          ? lastMonthRange.start
+          : subMonths(now, 3);
+      const end =
+        dateRange === "this_month"
+          ? thisMonthRange.end
+          : dateRange === "last_month"
+          ? lastMonthRange.end
+          : now;
+      result = result.filter((e) => {
+        const d = parseISO(e.date);
+        return d >= cutoff && d <= end;
+      });
+    }
+
+    // search
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter((e) => e.merchant.toLowerCase().includes(q));
+    }
+
+    // category
+    if (categoryFilter !== "all") {
+      result = result.filter((e) => e.category === categoryFilter);
+    }
+
+    // status
+    if (statusFilter === "manual") {
+      // expenses without a plaid/mx source are manual — all expenses in this table are manual
+      // (auto-imported ones live in plaidTransactions / mxTransactions)
+      // We keep all for "manual" since this table is manual-only
+    } else if (statusFilter === "tax_deductible") {
+      result = result.filter((e) => e.taxDeductible === "true");
+    } else if (statusFilter === "business") {
+      result = result.filter((e) => e.isBusinessExpense === "true");
+    }
+
+    // sort
+    result.sort((a, b) => {
+      let valA: string | number = a[sortConfig.key];
+      let valB: string | number = b[sortConfig.key];
+
+      if (sortConfig.key === "amount") {
+        valA = parseFloat(a.amount);
+        valB = parseFloat(b.amount);
+      } else if (sortConfig.key === "date") {
+        valA = a.date;
+        valB = b.date;
+      }
+
+      if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [expenses, search, categoryFilter, dateRange, statusFilter, sortConfig, thisMonthRange, lastMonthRange, now]);
+
+  // ── pagination ─────────────────────────────────────────────────────────────
+
+  const totalPages = Math.max(1, Math.ceil(filteredExpenses.length / PAGE_SIZE));
+  const pagedExpenses = filteredExpenses.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // ── unique categories from data ────────────────────────────────────────────
+
+  const uniqueCategories = useMemo(
+    () => Array.from(new Set(expenses.map((e) => e.category))).sort(),
+    [expenses]
+  );
+
+  // ── handlers ───────────────────────────────────────────────────────────────
+
+  const handleSort = (key: SortKey) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+    setPage(1);
+  };
 
   const handleEdit = (expense: Expense) => {
     setEditingExpense(expense);
@@ -410,50 +590,30 @@ export default function Expenses() {
     setEditingExpense(undefined);
   };
 
-  const handleSort = (key: SortConfig["key"]) => {
-    setSortConfig((prev) => ({
-      key,
-      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
-    }));
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  // Filter expenses by selected month, search, and category
-  const monthStart = startOfMonth(selectedMonth);
-  const monthEnd = endOfMonth(selectedMonth);
+  const toggleSelectAll = () => {
+    if (selectedIds.size === pagedExpenses.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pagedExpenses.map((e) => e.id)));
+    }
+  };
 
-  const filteredExpenses = expenses
-    .filter((expense) => {
-      const expenseDate = parseISO(expense.date);
-      const isInMonth = expenseDate >= monthStart && expenseDate <= monthEnd;
-      const matchesSearch = expense.merchant.toLowerCase().includes(search.toLowerCase());
-      const matchesCategory = categoryFilter === "all" || expense.category === categoryFilter;
-      return isInMonth && matchesSearch && matchesCategory;
-    })
-    .sort((a, b) => {
-      let valA: any = a[sortConfig.key];
-      let valB: any = b[sortConfig.key];
+  const selectedArray = Array.from(selectedIds);
 
-      if (sortConfig.key === "amount") {
-        valA = parseFloat(valA);
-        valB = parseFloat(valB);
-      } else if (sortConfig.key === "date") {
-        valA = new Date(valA).getTime();
-        valB = new Date(valB).getTime();
-      }
+  // ── sort header helper ─────────────────────────────────────────────────────
 
-      if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
-      if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
-      return 0;
-    });
-
-  const monthTotal = filteredExpenses.reduce(
-    (sum, expense) => sum + parseFloat(expense.amount),
-    0
-  );
-
-  const SortHeader = ({ label, sortKey }: { label: string; sortKey: SortConfig["key"] }) => (
-    <TableHead 
-      className="cursor-pointer hover:text-primary transition-colors"
+  const SortHeader = ({ label, sortKey }: { label: string; sortKey: SortKey }) => (
+    <TableHead
+      className="cursor-pointer hover:text-primary transition-colors select-none"
       onClick={() => handleSort(sortKey)}
     >
       <div className="flex items-center gap-1">
@@ -463,200 +623,455 @@ export default function Expenses() {
     </TableHead>
   );
 
+  // ── render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
+      {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight" data-testid="text-expenses-title">Manual Expenses</h1>
-            <HelpTooltip
-              title="About Manual Expenses"
-              content="Log your day-to-day spending manually. Track one-time purchases with merchant details, amounts, and categories. Use this alongside bank-imported transactions for a complete picture of your spending."
-            />
+            <Receipt className="h-7 w-7 text-primary" />
+            <h1 className="text-3xl font-bold tracking-tight">Expenses</h1>
           </div>
-          <p className="text-muted-foreground">
-            Track your one-time purchases and spending
-          </p>
+          <p className="text-muted-foreground mt-1">Track your spending across all categories</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={() => setIsImportDialogOpen(true)} data-testid="button-import-expenses">
-            <Upload className="h-4 w-4 mr-2" />
-            Import CSV
+          <Button
+            variant="outline"
+            className="border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950"
+            onClick={() => autoReconcileMutation.mutate()}
+            disabled={autoReconcileMutation.isPending}
+          >
+            <Zap className="h-4 w-4 mr-2" />
+            {autoReconcileMutation.isPending ? "Reconciling..." : "Auto-Reconcile"}
           </Button>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => setEditingExpense(undefined)} data-testid="button-add-expense">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Expense
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingExpense ? "Edit Expense" : "Add New Expense"}
-                </DialogTitle>
-              </DialogHeader>
-              <ExpenseForm expense={editingExpense} onClose={handleCloseDialog} />
-            </DialogContent>
-          </Dialog>
+          <Button
+            className="bg-green-600 hover:bg-green-700 text-white"
+            onClick={() => { setEditingExpense(undefined); setIsDialogOpen(true); }}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Expense
+          </Button>
         </div>
       </div>
 
-      <ImportDialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen} />
+      {/* ── Summary Cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1 – Total This Month */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-red-500">{formatCurrency(totalThisMonth)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{thisMonthExpenses.length} transactions</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
+        {/* Card 2 – Total Last Month */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Last Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-muted-foreground">{formatCurrency(totalLastMonth)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{lastMonthExpenses.length} transactions</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Card 3 – Largest Expense */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Largest Expense</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : largestExpense ? (
+              <>
+                <p className="text-2xl font-bold text-orange-500">{formatCurrency(largestExpense.amount)}</p>
+                <p className="text-xs text-muted-foreground mt-1 truncate">{largestExpense.merchant}</p>
+              </>
+            ) : (
+              <p className="text-2xl font-bold text-muted-foreground">—</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Card 4 – Top Category */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Top Category</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : topCategory ? (
+              <>
+                <p className="text-2xl font-bold">{formatCurrency(topCategory.total)}</p>
+                <p className="text-xs text-muted-foreground mt-1 truncate">{topCategory.category}</p>
+              </>
+            ) : (
+              <p className="text-2xl font-bold text-muted-foreground">—</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Main Table Card ── */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <CardTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5" />
-              Expenses
+              <Receipt className="h-5 w-5" />
+              All Expenses
             </CardTitle>
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="relative w-64">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search expenses..."
-                  className="pl-9"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  data-testid="input-expense-search"
-                />
-              </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <div className="flex items-center gap-2">
-                    <Filter className="h-4 w-4" />
-                    <SelectValue placeholder="Category" />
-                  </div>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {EXPENSE_CATEGORIES.map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="flex items-center gap-2 border rounded-md p-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setSelectedMonth(subMonths(selectedMonth, 1))}
-                  data-testid="button-prev-month"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="font-medium min-w-[140px] text-center text-sm" data-testid="text-selected-month">
-                  {format(selectedMonth, "MMMM yyyy")}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
-                  data-testid="button-next-month"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+          </div>
+
+          {/* ── Filters Bar ── */}
+          <div className="flex flex-wrap gap-3 pt-2">
+            {/* Search */}
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by merchant..."
+                className="pl-9"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              />
             </div>
+
+            {/* Category */}
+            <Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {uniqueCategories.map((cat) => (
+                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Date Range */}
+            <Select value={dateRange} onValueChange={(v) => { setDateRange(v as DateRange); setPage(1); }}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["this_month", "last_month", "last_3_months", "all_time"] as DateRange[]).map((r) => (
+                  <SelectItem key={r} value={r}>{getDateRangeLabel(r)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Status */}
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as StatusFilter); setPage(1); }}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="All" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="tax_deductible">Tax Deductible</SelectItem>
+                <SelectItem value="business">Business</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="text-2xl font-bold text-primary" data-testid="text-month-total">
-            {formatCurrency(monthTotal)}
-            <span className="text-sm font-normal text-muted-foreground ml-2">
-              total for {format(selectedMonth, "MMMM")}
-            </span>
-          </div>
+
+          {/* ── Bulk Actions ── */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2 flex-wrap pt-2 p-3 bg-muted/50 rounded-lg border">
+              <span className="text-sm font-medium">{selectedIds.size} selected</span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  bulkPatchMutation.mutate({ ids: selectedArray, patch: { taxDeductible: "true" } })
+                }
+                disabled={bulkPatchMutation.isPending}
+              >
+                <Tag className="h-3.5 w-3.5 mr-1" />
+                Mark Tax Deductible
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  bulkPatchMutation.mutate({ ids: selectedArray, patch: { isBusinessExpense: "true" } })
+                }
+                disabled={bulkPatchMutation.isPending}
+              >
+                <Briefcase className="h-3.5 w-3.5 mr-1" />
+                Mark Business
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => autoReconcileMutation.mutate()}
+                disabled={autoReconcileMutation.isPending}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                Reconcile Selected
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => bulkDeleteMutation.mutate(selectedArray)}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                Delete Selected
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
         </CardHeader>
+
         <CardContent>
           {isLoading ? (
             <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-16 w-full" />
+              {[1, 2, 3, 4, 5].map((i) => (
+                <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
+          ) : expenses.length === 0 ? (
+            /* ── Empty State ── */
+            <div className="text-center py-16 text-muted-foreground">
+              <Receipt className="h-16 w-16 mx-auto mb-4 opacity-30" />
+              <h3 className="text-lg font-semibold mb-2">No expenses yet</h3>
+              <p className="text-sm max-w-sm mx-auto mb-6">
+                Connect a bank account to automatically import your transactions as expenses, or add one manually.
+              </p>
+              <div className="flex items-center justify-center gap-3 flex-wrap">
+                <Button variant="outline" asChild>
+                  <Link href="/accounts">
+                    <Building2 className="h-4 w-4 mr-2" />
+                    Connect Bank
+                  </Link>
+                </Button>
+                <Button
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => { setEditingExpense(undefined); setIsDialogOpen(true); }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Manually
+                </Button>
+              </div>
+            </div>
           ) : filteredExpenses.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground" data-testid="text-no-expenses">
-              <CreditCard className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-4">No expenses for {format(selectedMonth, "MMMM yyyy")}</p>
-              <Button onClick={() => setIsDialogOpen(true)} data-testid="button-add-first-expense">
-                <Plus className="h-4 w-4 mr-2" />
-                Add an Expense
-              </Button>
+            <div className="text-center py-12 text-muted-foreground">
+              <Search className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No expenses match your filters</p>
+              <p className="text-sm mt-1">Try adjusting your search or filter criteria</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortHeader label="Merchant" sortKey="merchant" />
-                  <SortHeader label="Category" sortKey="category" />
-                  <SortHeader label="Date" sortKey="date" />
-                  <SortHeader label="Amount" sortKey="amount" />
-                  <TableHead className="w-[100px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredExpenses.map((expense) => (
-                  <TableRow key={expense.id} data-testid={`row-expense-${expense.id}`}>
-                    <TableCell className="font-medium">
-                      <div>
-                        {expense.merchant}
-                        {expense.notes && (
-                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {expense.notes}
-                          </p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{expense.category}</Badge>
-                    </TableCell>
-                    <TableCell>{format(parseISO(expense.date), "MMM d, yyyy")}</TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {formatCurrency(expense.amount)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleEdit(expense)}
-                          data-testid={`button-edit-expense-${expense.id}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setDeletingExpense(expense)}
-                          data-testid={`button-delete-expense-${expense.id}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={
+                          pagedExpenses.length > 0 &&
+                          pagedExpenses.every((e) => selectedIds.has(e.id))
+                        }
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Select all"
+                      />
+                    </TableHead>
+                    <SortHeader label="Merchant" sortKey="merchant" />
+                    <SortHeader label="Date" sortKey="date" />
+                    <SortHeader label="Category" sortKey="category" />
+                    <SortHeader label="Amount" sortKey="amount" />
+                    <TableHead>Source</TableHead>
+                    <TableHead>Tax</TableHead>
+                    <TableHead className="w-[80px]">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {pagedExpenses.map((expense) => (
+                    <TableRow
+                      key={expense.id}
+                      className={selectedIds.has(expense.id) ? "bg-muted/40" : ""}
+                    >
+                      {/* Checkbox */}
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(expense.id)}
+                          onCheckedChange={() => toggleSelect(expense.id)}
+                          aria-label={`Select ${expense.merchant}`}
+                        />
+                      </TableCell>
+
+                      {/* Merchant */}
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 uppercase">
+                            {expense.merchant.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-medium leading-tight">{expense.merchant}</p>
+                            {expense.notes && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                {expense.notes}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+
+                      {/* Date */}
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        {format(parseISO(expense.date), "MMM d, yyyy")}
+                      </TableCell>
+
+                      {/* Category */}
+                      <TableCell>
+                        <Badge className={`text-xs font-medium ${getCategoryColor(expense.category)}`} variant="secondary">
+                          {expense.category}
+                        </Badge>
+                      </TableCell>
+
+                      {/* Amount */}
+                      <TableCell className="font-semibold text-red-500 whitespace-nowrap">
+                        {formatCurrency(expense.amount)}
+                      </TableCell>
+
+                      {/* Source */}
+                      <TableCell>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Pencil className="h-3.5 w-3.5" />
+                          <span>Manual</span>
+                        </div>
+                      </TableCell>
+
+                      {/* Tax */}
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          {expense.taxDeductible === "true" && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-green-500 text-green-600 w-fit">
+                              Tax
+                            </Badge>
+                          )}
+                          {expense.isBusinessExpense === "true" && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500 text-blue-600 w-fit">
+                              Biz
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleEdit(expense)}
+                            aria-label="Edit expense"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setDeletingExpense(expense)}
+                            aria-label="Delete expense"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {/* ── Pagination ── */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredExpenses.length)} of{" "}
+                    {filteredExpenses.length} expenses
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm font-medium">
+                      {page} / {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
 
+      {/* ── Add / Edit Modal ── */}
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!open) handleCloseDialog(); }}>
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingExpense ? "Edit Expense" : "Add New Expense"}</DialogTitle>
+          </DialogHeader>
+          <ExpenseForm expense={editingExpense} onClose={handleCloseDialog} />
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Confirm ── */}
       <AlertDialog open={!!deletingExpense} onOpenChange={() => setDeletingExpense(undefined)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Expense</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the expense from "{deletingExpense?.merchant}"? This action cannot be undone.
+              Are you sure you want to delete the expense from "{deletingExpense?.merchant}" for{" "}
+              {deletingExpense ? formatCurrency(deletingExpense.amount) : ""}? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete-expense">Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deletingExpense && deleteMutation.mutate(deletingExpense.id)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              data-testid="button-confirm-delete-expense"
             >
               Delete
             </AlertDialogAction>
