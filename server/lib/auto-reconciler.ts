@@ -12,14 +12,160 @@
  *  3. Auto-create Expense records for unmatched spending transactions
  *  4. (reserved)
  *  5. Auto-detect subscriptions from transactions flagged isSubscription=true
+ *
+ * Currency handling:
+ *  - Transactions with isoCurrencyCode !== 'CAD' are flagged as foreign currency
+ *  - Exchange rates are fetched from frankfurter.app (free, no API key required)
+ *  - Rates are cached in the exchange_rates table for 24 hours
+ *  - cadEquivalent is stored on auto-created expenses for correct CAD totals
  */
 
 import { storage } from "../storage";
 import { db } from "../db";
-import { billPayments, bills as billsTable, spendingAlerts, notifications, users } from "../../shared/schema";
-import { eq, and, ilike } from "drizzle-orm";
+import { billPayments, bills as billsTable, spendingAlerts, notifications, users, exchangeRates } from "../../shared/schema";
+import { eq, and, ilike, desc } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 import { sendSpendingAlertEmail } from "../email";
+
+// ─── Currency flag emoji map ──────────────────────────────────────────────────
+
+const CURRENCY_FLAG: Record<string, string> = {
+  USD: "🇺🇸",
+  GBP: "🇬🇧",
+  EUR: "🇪🇺",
+  AUD: "🇦🇺",
+  MXN: "🇲🇽",
+  JPY: "🇯🇵",
+  CHF: "🇨🇭",
+  HKD: "🇭🇰",
+  SGD: "🇸🇬",
+  NZD: "🇳🇿",
+  SEK: "🇸🇪",
+  NOK: "🇳🇴",
+  DKK: "🇩🇰",
+  INR: "🇮🇳",
+  BRL: "🇧🇷",
+  ZAR: "🇿🇦",
+};
+
+// ─── In-memory exchange rate cache (TTL: 24 hours) ───────────────────────────
+
+interface CachedRate {
+  rate: number;
+  fetchedAt: number; // epoch ms
+}
+
+const rateCache = new Map<string, CachedRate>();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Fetch the CAD exchange rate for a given currency from frankfurter.app.
+ * Results are cached in-memory AND persisted to the exchange_rates table.
+ * Falls back to 1.0 if the API is unreachable (safe no-op for CAD).
+ */
+async function getExchangeRate(fromCurrency: string): Promise<number> {
+  if (fromCurrency === "CAD") return 1.0;
+
+  const cacheKey = `${fromCurrency}->CAD`;
+  const cached = rateCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.rate;
+  }
+
+  // Check DB cache first (avoids hitting API on every server restart)
+  try {
+    const dbRow = await db
+      .select()
+      .from(exchangeRates)
+      .where(
+        and(
+          eq(exchangeRates.fromCurrency, fromCurrency),
+          eq(exchangeRates.toCurrency, "CAD")
+        )
+      )
+      .orderBy(desc(exchangeRates.fetchedAt))
+      .limit(1);
+
+    if (dbRow.length > 0) {
+      const row = dbRow[0];
+      const ageMs = Date.now() - new Date(row.fetchedAt).getTime();
+      if (ageMs < CACHE_TTL_MS) {
+        const rate = parseFloat(row.rate as string);
+        rateCache.set(cacheKey, { rate, fetchedAt: Date.now() });
+        return rate;
+      }
+    }
+  } catch (dbErr) {
+    console.warn(`[AutoReconciler] DB rate cache lookup failed for ${fromCurrency}:`, dbErr);
+  }
+
+  // Fetch fresh rate from frankfurter.app
+  try {
+    const res = await fetch(
+      `https://api.frankfurter.app/latest?from=${fromCurrency}&to=CAD`
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const rate: number = data.rates?.CAD;
+    if (!rate || typeof rate !== "number") throw new Error("No CAD rate in response");
+
+    // Persist to DB
+    try {
+      await db.insert(exchangeRates).values({
+        fromCurrency,
+        toCurrency: "CAD",
+        rate: String(rate),
+      });
+    } catch (insertErr) {
+      console.warn(`[AutoReconciler] Could not persist exchange rate for ${fromCurrency}:`, insertErr);
+    }
+
+    // Update in-memory cache
+    rateCache.set(cacheKey, { rate, fetchedAt: Date.now() });
+    console.log(`[AutoReconciler] Fetched exchange rate: 1 ${fromCurrency} = ${rate} CAD`);
+    return rate;
+  } catch (err) {
+    console.error(`[AutoReconciler] Failed to fetch exchange rate for ${fromCurrency}:`, err);
+    // Return last known DB rate as fallback, or 1.0
+    try {
+      const fallback = await db
+        .select()
+        .from(exchangeRates)
+        .where(
+          and(
+            eq(exchangeRates.fromCurrency, fromCurrency),
+            eq(exchangeRates.toCurrency, "CAD")
+          )
+        )
+        .orderBy(desc(exchangeRates.fetchedAt))
+        .limit(1);
+      if (fallback.length > 0) {
+        return parseFloat(fallback[0].rate as string);
+      }
+    } catch (_) { /* ignore */ }
+    return 1.0; // safe fallback — amounts will be stored as-is
+  }
+}
+
+/**
+ * Refresh exchange rates for a list of currencies and persist to DB.
+ * Called by the daily cron scheduler.
+ */
+export async function refreshExchangeRates(
+  currencies: string[] = ["USD", "GBP", "EUR", "AUD", "MXN"]
+): Promise<void> {
+  console.log(`[AutoReconciler] Refreshing exchange rates for: ${currencies.join(", ")}`);
+  for (const currency of currencies) {
+    // Clear in-memory cache to force a fresh fetch
+    rateCache.delete(`${currency}->CAD`);
+    try {
+      const rate = await getExchangeRate(currency);
+      console.log(`[AutoReconciler] Rate refreshed: 1 ${currency} = ${rate} CAD`);
+    } catch (err) {
+      console.error(`[AutoReconciler] Failed to refresh rate for ${currency}:`, err);
+    }
+  }
+}
 
 // ─── Known Subscriptions Lookup ──────────────────────────────────────────────
 
@@ -199,13 +345,26 @@ function getAlertPeriodStart(period: string | null): Date {
   return new Date(now.getFullYear(), now.getMonth(), 1);
 }
 
+/**
+ * Returns the effective CAD amount for an expense.
+ * Uses cadEquivalent if present, otherwise falls back to amount.
+ */
+function effectiveAmount(e: Expense): number {
+  const cadEquiv = (e as any).cadEquivalent;
+  if (cadEquiv !== null && cadEquiv !== undefined) {
+    const parsed = parseFloat(cadEquiv);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return parseFloat(e.amount as string);
+}
+
 async function getCategorySpend(userId: string, category: string | null, periodStart: Date): Promise<number> {
   if (!category) return 0;
   const periodStartStr = periodStart.toISOString().substring(0, 10);
   const exps = await storage.getExpenses(userId);
   return exps
     .filter((e: Expense) => e.date >= periodStartStr && (e.category || "").toLowerCase() === category.toLowerCase())
-    .reduce((sum: number, e: Expense) => sum + parseFloat(e.amount as string), 0);
+    .reduce((sum: number, e: Expense) => sum + effectiveAmount(e), 0);
 }
 
 async function getTotalSpend(userId: string, periodStart: Date): Promise<number> {
@@ -213,7 +372,7 @@ async function getTotalSpend(userId: string, periodStart: Date): Promise<number>
   const exps = await storage.getExpenses(userId);
   return exps
     .filter((e: Expense) => e.date >= periodStartStr)
-    .reduce((sum: number, e: Expense) => sum + parseFloat(e.amount as string), 0);
+    .reduce((sum: number, e: Expense) => sum + effectiveAmount(e), 0);
 }
 
 async function getMerchantSpend(userId: string, merchantName: string | null, periodStart: Date): Promise<number> {
@@ -222,7 +381,7 @@ async function getMerchantSpend(userId: string, merchantName: string | null, per
   const exps = await storage.getExpenses(userId);
   return exps
     .filter((e: Expense) => e.date >= periodStartStr && (e.merchant || "").toLowerCase().includes(merchantName.toLowerCase()))
-    .reduce((sum: number, e: Expense) => sum + parseFloat(e.amount as string), 0);
+    .reduce((sum: number, e: Expense) => sum + effectiveAmount(e), 0);
 }
 
 async function fireSpendingAlert(userId: string, alert: any, currentSpend: number): Promise<void> {
@@ -524,18 +683,52 @@ export async function autoReconcile(userId: string): Promise<{
     // Map Plaid/personal category to a valid expense category, defaulting to "Other"
     const category = mapToExpenseCategory(tx.personalCategory || tx.category);
 
+    // ── Currency detection & CAD conversion ─────────────────────────────
+    const isoCurrency = (tx.isoCurrencyCode || "CAD").toUpperCase();
+    const isForeignCurrency = isoCurrency !== "CAD";
+    let cadEquivalent: number | null = null;
+    let exchangeRate: number | null = null;
+    let currencyNotes = "";
+
+    if (isForeignCurrency) {
+      try {
+        exchangeRate = await getExchangeRate(isoCurrency);
+        cadEquivalent = parseFloat((txAmount * exchangeRate).toFixed(2));
+        const flag = CURRENCY_FLAG[isoCurrency] || "🌐";
+        currencyNotes = `${flag} Original: $${txAmount.toFixed(2)} ${isoCurrency} | CAD equivalent: $${cadEquivalent.toFixed(2)} | Rate: 1 ${isoCurrency} = ${exchangeRate.toFixed(6)} CAD`;
+        console.log(
+          `[AutoReconciler] Foreign currency tx: ${txAmount} ${isoCurrency} → ${cadEquivalent} CAD (rate: ${exchangeRate})`
+        );
+      } catch (fxErr) {
+        console.error(`[AutoReconciler] Currency conversion failed for tx ${tx.id}:`, fxErr);
+      }
+    }
+
+    // Build notes: prepend currency info if foreign, then append auto-import note
+    const baseNote = "Auto-imported from bank transaction";
+    const notes = isForeignCurrency && currencyNotes
+      ? `${currencyNotes} | ${baseNote}`
+      : baseNote;
+
     try {
       const newExpense = await storage.createExpense({
         userId,
         merchant,
+        // Store original amount; cadEquivalent is in notes and cadEquivalent field
         amount: String(txAmount),
         date: tx.date,
         category,
-        notes: "Auto-imported from bank transaction",
+        notes,
         taxDeductible: "false",
         taxCategory: null,
         isBusinessExpense: "false",
-      });
+        // Pass through foreign currency metadata if the storage layer supports it
+        ...(isForeignCurrency && cadEquivalent !== null ? {
+          isoCurrencyCode: isoCurrency,
+          cadEquivalent: String(cadEquivalent),
+          exchangeRate: exchangeRate !== null ? String(exchangeRate) : null,
+        } : {}),
+      } as any);
 
       await storage.updatePlaidTransaction(tx.id, {
         matchType: "expense",
@@ -546,7 +739,7 @@ export async function autoReconcile(userId: string): Promise<{
       tx.reconciled = "true";
       autoCreated++;
       console.log(
-        `[AutoReconciler] Auto-created expense: "${merchant}" $${txAmount} on ${tx.date}`
+        `[AutoReconciler] Auto-created expense: "${merchant}" $${txAmount}${isForeignCurrency ? ` ${isoCurrency} (~$${cadEquivalent} CAD)` : ""} on ${tx.date}`
       );
     } catch (err) {
       console.error(

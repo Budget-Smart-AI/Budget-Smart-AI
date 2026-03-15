@@ -157,6 +157,21 @@ export async function initializeSyncScheduler(): Promise<void> {
       );
     }).catch(err => console.error('[Sync] Failed to import merchant-enricher for cleanup:', err));
   }, ONE_WEEK_MS);
+
+  // Refresh exchange rates daily at 06:00 (runs once at startup then every 24h)
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const scheduleExchangeRateRefresh = () => {
+    import('./lib/auto-reconciler').then(({ refreshExchangeRates }) => {
+      refreshExchangeRates(['USD', 'GBP', 'EUR', 'AUD', 'MXN']).catch(err =>
+        console.error('[Sync] Exchange rate refresh failed:', err)
+      );
+    }).catch(err => console.error('[Sync] Failed to import auto-reconciler for FX refresh:', err));
+  };
+
+  // Run immediately on startup, then every 24 hours
+  scheduleExchangeRateRefresh();
+  setInterval(scheduleExchangeRateRefresh, ONE_DAY_MS);
+  console.log('[Sync] Exchange rate daily refresh scheduled (every 24h)');
 }
 
 export function updateSyncScheduleTimer(schedule: SyncSchedule): void {

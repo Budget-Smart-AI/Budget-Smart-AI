@@ -92,7 +92,37 @@ import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+  return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(num);
+}
+
+/**
+ * Returns the effective CAD amount for an expense.
+ * If the expense has a cadEquivalent field (set by auto-reconciler for foreign
+ * currency transactions), use that. Otherwise fall back to amount.
+ */
+function effectiveCadAmount(expense: Expense): number {
+  const cadEquiv = (expense as any).cadEquivalent;
+  if (cadEquiv !== null && cadEquiv !== undefined && cadEquiv !== "") {
+    const parsed = parseFloat(cadEquiv);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return parseFloat(expense.amount as string);
+}
+
+/** Returns true if this expense was originally in a foreign currency. */
+function isForeignCurrency(expense: Expense): boolean {
+  const iso = (expense as any).isoCurrencyCode;
+  return iso && iso !== "CAD";
+}
+
+const CURRENCY_FLAG: Record<string, string> = {
+  USD: "🇺🇸", GBP: "🇬🇧", EUR: "🇪🇺", AUD: "🇦🇺", MXN: "🇲🇽",
+  JPY: "🇯🇵", CHF: "🇨🇭", HKD: "🇭🇰", SGD: "🇸🇬", NZD: "🇳🇿",
+  SEK: "🇸🇪", NOK: "🇳🇴", DKK: "🇩🇰", INR: "🇮🇳", BRL: "🇧🇷", ZAR: "🇿🇦",
+};
+
+function getCurrencyFlag(isoCurrency: string): string {
+  return CURRENCY_FLAG[isoCurrency.toUpperCase()] ?? "🌐";
 }
 
 function getMonthRange(date: Date) {
@@ -665,13 +695,15 @@ export default function ExpensesPage() {
     [expenses, lastMonthRange.start, lastMonthRange.end]
   );
 
+  // Part 2: All financial totals use effectiveCadAmount so foreign currency
+  // transactions are converted to CAD before summing.
   const totalThisMonth = useMemo(
-    () => thisMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
+    () => thisMonthExpenses.reduce((sum, e) => sum + effectiveCadAmount(e), 0),
     [thisMonthExpenses]
   );
 
   const totalLastMonth = useMemo(
-    () => lastMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
+    () => lastMonthExpenses.reduce((sum, e) => sum + effectiveCadAmount(e), 0),
     [lastMonthExpenses]
   );
 
@@ -679,7 +711,7 @@ export default function ExpensesPage() {
     () =>
       thisMonthExpenses.length > 0
         ? thisMonthExpenses.reduce((max, e) =>
-            parseFloat(e.amount) > parseFloat(max.amount) ? e : max
+            effectiveCadAmount(e) > effectiveCadAmount(max) ? e : max
           )
         : null,
     [thisMonthExpenses]
@@ -688,7 +720,7 @@ export default function ExpensesPage() {
   const topCategory = useMemo(() => {
     const totals: Record<string, number> = {};
     thisMonthExpenses.forEach((e) => {
-      totals[e.category] = (totals[e.category] ?? 0) + parseFloat(e.amount);
+      totals[e.category] = (totals[e.category] ?? 0) + effectiveCadAmount(e);
     });
     const entries = Object.entries(totals);
     if (entries.length === 0) return null;
@@ -1215,9 +1247,21 @@ export default function ExpensesPage() {
                           </Badge>
                         </TableCell>
 
-                        {/* Amount */}
+                        {/* Amount — Part 3: show foreign currency info */}
                         <TableCell className="font-semibold text-red-500 whitespace-nowrap">
-                          {formatCurrency(expense.amount)}
+                          {isForeignCurrency(expense) ? (
+                            <div>
+                              <div className="flex items-center gap-1">
+                                <span>{getCurrencyFlag((expense as any).isoCurrencyCode)}</span>
+                                <span>{parseFloat(expense.amount as string).toFixed(2)} {(expense as any).isoCurrencyCode}</span>
+                              </div>
+                              <div className="text-xs text-muted-foreground font-normal">
+                                ~{formatCurrency(effectiveCadAmount(expense))} CAD
+                              </div>
+                            </div>
+                          ) : (
+                            formatCurrency(expense.amount)
+                          )}
                         </TableCell>
 
                         {/* Source */}

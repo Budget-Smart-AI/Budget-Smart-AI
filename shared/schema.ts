@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, numeric, real, boolean, timestamp, date, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, numeric, real, boolean, timestamp, date, uuid, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2039,3 +2039,21 @@ export const insertBillPaymentSchema = createInsertSchema(billPayments).omit({ i
 
 export type BillPayment = typeof billPayments.$inferSelect;
 export type InsertBillPayment = z.infer<typeof insertBillPaymentSchema>;
+
+// ============ EXCHANGE RATES TABLE ============
+
+// Exchange rates cache - stores fetched rates from frankfurter.app (refreshed daily)
+export const exchangeRates = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  fromCurrency: text("from_currency").notNull(),
+  toCurrency: text("to_currency").notNull().default("CAD"),
+  rate: numeric("rate", { precision: 10, scale: 6 }).notNull(),
+  fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
+});
+
+export const insertExchangeRateSchema = createInsertSchema(exchangeRates).omit({ id: true, fetchedAt: true }).extend({
+  rate: z.string().or(z.number()).transform((val) => String(val)),
+});
+
+export type ExchangeRate = typeof exchangeRates.$inferSelect;
+export type InsertExchangeRate = z.infer<typeof insertExchangeRateSchema>;
