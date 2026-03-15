@@ -78,7 +78,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, BILL_CATEGORIES, MANUAL_ACCOUNT_TYPES, MX_SUPPORTED_COUNTRIES, type PlaidTransaction, type ManualAccount, type ManualTransaction } from "@shared/schema";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditCardIcon, TrendingUp } from "lucide-react";
+import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditCardIcon, TrendingUp, ScanLine } from "lucide-react";
 import { TransactionDrilldown } from "@/components/transaction-drilldown";
 import { BankProviderSelectionDialog } from "@/components/bank-provider-selection";
 import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
@@ -2177,6 +2177,14 @@ export default function BankAccounts() {
                                 <Badge variant="secondary" className="text-xs gap-1">
                                   <AlertCircle className="h-3 w-3" />
                                   Unmatched
+                                </Badge>
+                              ) : tx.matchType === "receipt" ? (
+                                <Badge
+                                  className="text-xs gap-1 bg-blue-100 text-blue-800 hover:bg-blue-100"
+                                  title="Matched to scanned receipt"
+                                >
+                                  <ScanLine className="h-3 w-3" />
+                                  Receipt
                                 </Badge>
                               ) : tx.reconciled === "true" ? (
                                 <Badge className="text-xs gap-1 bg-green-100 text-green-800 hover:bg-green-100">

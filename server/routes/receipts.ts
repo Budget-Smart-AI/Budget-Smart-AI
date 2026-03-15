@@ -7,6 +7,202 @@ import { requireAuth as authenticate } from "../auth";
 import { storage } from "../storage";
 import { EXPENSE_CATEGORIES } from "@shared/schema";
 import { checkAndConsume } from "../lib/featureGate";
+import { db } from "../db";
+import { plaidTransactions, mxTransactions } from "@shared/schema";
+import { eq, and, gte, lte, or, ne } from "drizzle-orm";
+
+/**
+ * Attempt to match a saved receipt to an existing Plaid or MX transaction.
+ *
+ * Matching criteria:
+ *  - amount within $2.00 tolerance
+ *  - date within 3 days
+ *  - merchantCleanName or name/description contains receipt.merchant (case-insensitive, partial)
+ *  - not already reconciled
+ *
+ * On match: marks the transaction as reconciled with matchType = 'receipt'.
+ * On no match: auto-creates an expense from the receipt data.
+ */
+async function matchReceiptToTransaction(
+  userId: string,
+  receiptId: string,
+  receipt: { merchant: string; amount: number; date: string },
+): Promise<{ matched: boolean; transactionId?: string; source?: "plaid" | "mx" }> {
+  const AMOUNT_TOLERANCE = 2.0;
+  const DATE_TOLERANCE_DAYS = 3;
+
+  // Build date window
+  const receiptDate = new Date(receipt.date);
+  const dateFrom = new Date(receiptDate);
+  dateFrom.setDate(dateFrom.getDate() - DATE_TOLERANCE_DAYS);
+  const dateTo = new Date(receiptDate);
+  dateTo.setDate(dateTo.getDate() + DATE_TOLERANCE_DAYS);
+  const dateFromStr = dateFrom.toISOString().slice(0, 10);
+  const dateToStr = dateTo.toISOString().slice(0, 10);
+
+  const merchantLower = (receipt.merchant || "").toLowerCase().trim();
+
+  // ── 1. Search Plaid transactions ──────────────────────────────────────────
+  try {
+    // Get all plaid account IDs for this user
+    const plaidAccounts = await storage.getAllPlaidAccounts(userId);
+    const plaidAccountIds = plaidAccounts.map((a) => a.id);
+
+    if (plaidAccountIds.length > 0) {
+      const { inArray } = await import("drizzle-orm");
+      const candidates = await db
+        .select()
+        .from(plaidTransactions)
+        .where(
+          and(
+            inArray(plaidTransactions.plaidAccountId, plaidAccountIds),
+            gte(plaidTransactions.date, dateFromStr),
+            lte(plaidTransactions.date, dateToStr),
+            ne(plaidTransactions.reconciled, "true"),
+            eq(plaidTransactions.isActive, "true"),
+          ),
+        );
+
+      for (const tx of candidates) {
+        const txAmount = Math.abs(parseFloat(tx.amount));
+        if (Math.abs(txAmount - receipt.amount) > AMOUNT_TOLERANCE) continue;
+
+        const cleanName = (tx.merchantCleanName || "").toLowerCase();
+        const rawName = (tx.name || "").toLowerCase();
+        const merchantName = (tx.merchantName || "").toLowerCase();
+
+        const nameMatch =
+          merchantLower.length > 0 &&
+          (cleanName.includes(merchantLower) ||
+            merchantLower.includes(cleanName) ||
+            rawName.includes(merchantLower) ||
+            merchantLower.includes(rawName) ||
+            merchantName.includes(merchantLower) ||
+            merchantLower.includes(merchantName));
+
+        if (!nameMatch) continue;
+
+        // Match found — mark transaction as reconciled with receipt
+        await db
+          .update(plaidTransactions)
+          .set({
+            matchType: "receipt",
+            reconciled: "true",
+            matchedExpenseId: receiptId,
+          })
+          .where(eq(plaidTransactions.id, tx.id));
+
+        // Update receipt matchStatus
+        await storage.updateReceipt(receiptId, {
+          matchedTransactionId: tx.id,
+          matchStatus: "auto-matched",
+        });
+
+        console.log(`[ReceiptMatch] Plaid tx ${tx.id} matched receipt ${receiptId}`);
+        return { matched: true, transactionId: tx.id, source: "plaid" };
+      }
+    }
+  } catch (err) {
+    console.error("[ReceiptMatch] Plaid search error:", err);
+  }
+
+  // ── 2. Search MX transactions ─────────────────────────────────────────────
+  try {
+    const mxAccounts = await storage.getMxAccountsByUserId(userId);
+    const mxAccountIds = mxAccounts.map((a) => a.id);
+
+    if (mxAccountIds.length > 0) {
+      const { inArray } = await import("drizzle-orm");
+      const candidates = await db
+        .select()
+        .from(mxTransactions)
+        .where(
+          and(
+            inArray(mxTransactions.mxAccountId, mxAccountIds),
+            gte(mxTransactions.date, dateFromStr),
+            lte(mxTransactions.date, dateToStr),
+            ne(mxTransactions.reconciled, "true"),
+          ),
+        );
+
+      for (const tx of candidates) {
+        const txAmount = Math.abs(parseFloat(tx.amount));
+        if (Math.abs(txAmount - receipt.amount) > AMOUNT_TOLERANCE) continue;
+
+        const cleanName = (tx.merchantCleanName || "").toLowerCase();
+        const description = (tx.description || "").toLowerCase();
+        const originalDesc = (tx.originalDescription || "").toLowerCase();
+
+        const nameMatch =
+          merchantLower.length > 0 &&
+          (cleanName.includes(merchantLower) ||
+            merchantLower.includes(cleanName) ||
+            description.includes(merchantLower) ||
+            merchantLower.includes(description) ||
+            originalDesc.includes(merchantLower) ||
+            merchantLower.includes(originalDesc));
+
+        if (!nameMatch) continue;
+
+        // Match found — mark transaction as reconciled with receipt
+        await db
+          .update(mxTransactions)
+          .set({
+            matchType: "receipt",
+            reconciled: "true",
+            matchedExpenseId: receiptId,
+          })
+          .where(eq(mxTransactions.id, tx.id));
+
+        // Update receipt matchStatus
+        await storage.updateReceipt(receiptId, {
+          matchedTransactionId: tx.id,
+          matchStatus: "auto-matched",
+        });
+
+        console.log(`[ReceiptMatch] MX tx ${tx.id} matched receipt ${receiptId}`);
+        return { matched: true, transactionId: tx.id, source: "mx" };
+      }
+    }
+  } catch (err) {
+    console.error("[ReceiptMatch] MX search error:", err);
+  }
+
+  // ── 3. No match — auto-create an expense from receipt data ────────────────
+  try {
+    const resolvedCategory = EXPENSE_CATEGORIES.includes(receipt as any)
+      ? (receipt as any)
+      : "Other";
+
+    // Fetch the full receipt to get category
+    const fullReceipt = await storage.getReceipt(receiptId);
+    const expenseCategory = fullReceipt?.category &&
+      EXPENSE_CATEGORIES.includes(fullReceipt.category as any)
+      ? (fullReceipt.category as typeof EXPENSE_CATEGORIES[number])
+      : "Other";
+
+    const expense = await storage.createExpense({
+      userId,
+      merchant: receipt.merchant || "Unknown",
+      amount: String(receipt.amount),
+      date: receipt.date,
+      category: expenseCategory,
+      notes: `Auto-created from scanned receipt`,
+    });
+
+    // Link receipt to the new expense
+    await storage.updateReceipt(receiptId, {
+      matchedTransactionId: String(expense.id),
+      matchStatus: "auto-matched",
+    });
+
+    console.log(`[ReceiptMatch] No tx match for receipt ${receiptId} — created expense ${expense.id}`);
+  } catch (err) {
+    console.error("[ReceiptMatch] Auto-create expense error:", err);
+  }
+
+  return { matched: false };
+}
 
 const router = express.Router();
 
@@ -88,6 +284,15 @@ router.post('/upload', authenticate, upload.single('receipt'), async (req, res) 
       createdAt: new Date().toISOString(),
     });
 
+    // Attempt to match receipt to a Plaid/MX transaction (fire-and-forget, non-blocking)
+    if (!result.ocrError && result.receiptData.amount > 0) {
+      matchReceiptToTransaction(userId, saved.id, {
+        merchant: result.receiptData.merchant,
+        amount: result.receiptData.amount,
+        date: result.receiptData.date,
+      }).catch((err) => console.error('[ReceiptMatch] Single upload match error:', err));
+    }
+
     res.json({
       success: true,
       message: result.ocrError ? 'Receipt stored but OCR extraction failed' : 'Receipt processed successfully',
@@ -156,6 +361,15 @@ router.post('/upload-multiple', authenticate, upload.array('receipts', 10), asyn
           matchStatus: topMatch?.status === 'auto-matched' ? 'auto-matched' : 'unmatched',
           createdAt: new Date().toISOString(),
         });
+
+        // Attempt to match receipt to a Plaid/MX transaction (fire-and-forget)
+        if (!result.ocrError && result.receiptData.amount > 0) {
+          matchReceiptToTransaction(userId, saved.id, {
+            merchant: result.receiptData.merchant,
+            amount: result.receiptData.amount,
+            date: result.receiptData.date,
+          }).catch((err) => console.error('[ReceiptMatch] Multi upload match error:', err));
+        }
 
         results.push({
           filename: file.originalname,
