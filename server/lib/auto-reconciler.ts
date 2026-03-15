@@ -5,6 +5,7 @@
  * and auto-creates expense records for unmatched spending transactions.
  *
  * Steps:
+ *  0. Auto-detect income: create Income records for INCOME/Salary transactions (negative amounts)
  *  1. Match transactions → Bills (name similarity + amount within 10% + date within 5 days of dueDay)
  *  2. Match transactions → Expenses (merchant fuzzy match + exact amount + date within 3 days)
  *  3. Auto-create Expense records for unmatched spending transactions
@@ -79,6 +80,7 @@ export async function autoReconcile(userId: string): Promise<{
   billMatches: number;
   expenseMatches: number;
   autoCreated: number;
+  incomeCreated: number;
 }> {
   console.log(`[AutoReconciler] Starting reconciliation for user ${userId}`);
 
@@ -91,7 +93,7 @@ export async function autoReconcile(userId: string): Promise<{
 
   if (plaidAccounts.length === 0) {
     console.log(`[AutoReconciler] No Plaid accounts for user ${userId}, skipping.`);
-    return { billMatches: 0, expenseMatches: 0, autoCreated: 0 };
+    return { billMatches: 0, expenseMatches: 0, autoCreated: 0, incomeCreated: 0 };
   }
 
   const accountIds = plaidAccounts.map((a) => a.id);
@@ -103,7 +105,7 @@ export async function autoReconcile(userId: string): Promise<{
 
   if (unmatched.length === 0) {
     console.log(`[AutoReconciler] No unmatched transactions for user ${userId}.`);
-    return { billMatches: 0, expenseMatches: 0, autoCreated: 0 };
+    return { billMatches: 0, expenseMatches: 0, autoCreated: 0, incomeCreated: 0 };
   }
 
   console.log(
@@ -113,9 +115,58 @@ export async function autoReconcile(userId: string): Promise<{
   let billMatches = 0;
   let expenseMatches = 0;
   let autoCreated = 0;
+  let incomeCreated = 0;
 
   // Work through a mutable copy so we can mark items as handled
   const pending: PlaidTransaction[] = [...unmatched];
+
+  // ── STEP 0: Auto-detect Income ───────────────────────────────────────────
+  for (const tx of pending) {
+    if (tx.reconciled === "true") continue;
+
+    const txAmount = parseFloat(tx.amount as string);
+    const cat = (tx.category || "").toUpperCase();
+    const personalCat = (tx.personalCategory || "").toLowerCase();
+
+    // Income transactions: category === 'INCOME' OR personalCategory === 'Salary'
+    // AND amount is NEGATIVE (Plaid uses negative for money coming IN on checking accounts)
+    const isIncomeCategory = cat === "INCOME" || personalCat === "salary";
+    if (!isIncomeCategory) continue;
+    if (txAmount >= 0) continue; // must be negative (money in)
+
+    const source = tx.merchantCleanName || tx.name || "Unknown";
+    const absAmount = Math.abs(txAmount);
+    const incomeCategory = personalCat === "salary" ? "Employment" : "Other";
+
+    try {
+      const newIncome = await storage.createIncome({
+        userId,
+        source,
+        amount: String(absAmount),
+        date: tx.date,
+        category: incomeCategory,
+        isRecurring: "false",
+        notes: "Auto-imported from bank transaction",
+      });
+
+      await storage.updatePlaidTransaction(tx.id, {
+        matchType: "income",
+        matchedIncomeId: newIncome.id,
+        reconciled: "true",
+      });
+
+      tx.reconciled = "true";
+      incomeCreated++;
+      console.log(
+        `[AutoReconciler] Auto-created income: "${source}" $${absAmount} on ${tx.date} (${incomeCategory})`
+      );
+    } catch (err) {
+      console.error(
+        `[AutoReconciler] Failed to auto-create income for tx ${tx.id}:`,
+        err
+      );
+    }
+  }
 
   // ── STEP 1: Match to Bills ───────────────────────────────────────────────
   for (const tx of pending) {
@@ -248,10 +299,11 @@ export async function autoReconcile(userId: string): Promise<{
 
   console.log(
     `[AutoReconciler] Done for user ${userId}: ` +
-      `${billMatches} bill matches, ${expenseMatches} expense matches, ${autoCreated} auto-created`
+      `${incomeCreated} income auto-created, ${billMatches} bill matches, ` +
+      `${expenseMatches} expense matches, ${autoCreated} expense auto-created`
   );
 
-  return { billMatches, expenseMatches, autoCreated };
+  return { billMatches, expenseMatches, autoCreated, incomeCreated };
 }
 
 // ─── Category mapping ────────────────────────────────────────────────────────
