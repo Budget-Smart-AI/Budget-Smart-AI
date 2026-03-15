@@ -74,6 +74,14 @@ import {
   Briefcase,
   CheckSquare,
   RefreshCw,
+  Check,
+  Link2,
+  FileText,
+  AlertTriangle,
+  Circle,
+  Loader2,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 import { format, parseISO, startOfMonth, endOfMonth, startOfMonth as startOfLastMonth, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -108,6 +116,151 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 function getCategoryColor(category: string) {
   return CATEGORY_COLORS[category] ?? "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
+}
+
+// ─── Status icon component ───────────────────────────────────────────────────
+
+type ExpenseStatus = "reconciled" | "matched_bill" | "matched_receipt" | "needs_review" | "unmatched";
+
+function getExpenseStatus(expense: Expense): ExpenseStatus {
+  if ((expense as any).needsReview === true || (expense as any).needsReview === "true") {
+    return "needs_review";
+  }
+  if ((expense as any).reconciled === "true") {
+    return "reconciled";
+  }
+  if ((expense as any).matchType === "bill" || (expense as any).matchedBillId) {
+    return "matched_bill";
+  }
+  if ((expense as any).matchType === "receipt" || (expense as any).matchedReceiptId) {
+    return "matched_receipt";
+  }
+  return "unmatched";
+}
+
+function StatusIcon({ expense }: { expense: Expense }) {
+  const status = getExpenseStatus(expense);
+
+  switch (status) {
+    case "reconciled":
+      return (
+        <span title="Reconciled" className="inline-flex items-center justify-center">
+          <Check className="h-4 w-4 text-green-500" />
+        </span>
+      );
+    case "matched_bill":
+      return (
+        <span title="Matched to bill" className="inline-flex items-center justify-center">
+          <Link2 className="h-4 w-4 text-blue-500" />
+        </span>
+      );
+    case "matched_receipt":
+      return (
+        <span title="Matched to receipt" className="inline-flex items-center justify-center">
+          <FileText className="h-4 w-4 text-purple-500" />
+        </span>
+      );
+    case "needs_review":
+      return (
+        <span title="Needs review" className="inline-flex items-center justify-center">
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
+        </span>
+      );
+    default:
+      return (
+        <span title="Unmatched" className="inline-flex items-center justify-center">
+          <Circle className="h-4 w-4 text-muted-foreground/40" />
+        </span>
+      );
+  }
+}
+
+function isAlreadyMatched(expense: Expense): boolean {
+  const status = getExpenseStatus(expense);
+  return status === "reconciled" || status === "matched_bill" || status === "matched_receipt";
+}
+
+// ─── Read-only summary modal ─────────────────────────────────────────────────
+
+function ExpenseSummary({ expense, onClose }: { expense: Expense; onClose: () => void }) {
+  const status = getExpenseStatus(expense);
+
+  const statusLabel: Record<ExpenseStatus, string> = {
+    reconciled: "Reconciled",
+    matched_bill: "Matched to Bill",
+    matched_receipt: "Matched to Receipt",
+    needs_review: "Needs Review",
+    unmatched: "Unmatched",
+  };
+
+  const statusColor: Record<ExpenseStatus, string> = {
+    reconciled: "text-green-600 bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800",
+    matched_bill: "text-blue-600 bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800",
+    matched_receipt: "text-purple-600 bg-purple-50 border-purple-200 dark:bg-purple-950/30 dark:border-purple-800",
+    needs_review: "text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800",
+    unmatched: "text-muted-foreground bg-muted border-border",
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Status banner */}
+      <div className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium ${statusColor[status]}`}>
+        <StatusIcon expense={expense} />
+        <span>{statusLabel[status]}</span>
+      </div>
+
+      {/* Details grid */}
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        <div>
+          <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Merchant</p>
+          <p className="font-medium">{expense.merchant}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Amount</p>
+          <p className="font-semibold text-red-500">{formatCurrency(expense.amount)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Date</p>
+          <p className="font-medium">{format(parseISO(expense.date), "MMMM d, yyyy")}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Category</p>
+          <Badge className={`text-xs font-medium ${getCategoryColor(expense.category)}`} variant="secondary">
+            {expense.category}
+          </Badge>
+        </div>
+        {expense.notes && (
+          <div className="col-span-2">
+            <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Notes</p>
+            <p className="font-medium">{expense.notes}</p>
+          </div>
+        )}
+        {(expense.taxDeductible === "true" || expense.isBusinessExpense === "true") && (
+          <div className="col-span-2 flex gap-2">
+            {expense.taxDeductible === "true" && (
+              <Badge variant="outline" className="border-green-500 text-green-600">Tax Deductible</Badge>
+            )}
+            {expense.isBusinessExpense === "true" && (
+              <Badge variant="outline" className="border-blue-500 text-blue-600">Business Expense</Badge>
+            )}
+          </div>
+        )}
+        {expense.taxCategory && (
+          <div className="col-span-2">
+            <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Tax Category</p>
+            <p className="font-medium">{expense.taxCategory}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end pt-2">
+        <Button variant="outline" onClick={onClose}>
+          <X className="h-4 w-4 mr-2" />
+          Close
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 // ─── form schema ────────────────────────────────────────────────────────────
@@ -370,6 +523,10 @@ export default function ExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<Expense | undefined>();
   const [deletingExpense, setDeletingExpense] = useState<Expense | undefined>();
 
+  // read-only summary modal
+  const [summaryExpense, setSummaryExpense] = useState<Expense | undefined>();
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+
   // filters
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -426,13 +583,44 @@ export default function ExpensesPage() {
     onError: () => toast({ title: "Failed to delete expenses", variant: "destructive" }),
   });
 
+  // Addition 1: Auto-Reconcile All — calls POST /api/transactions/auto-reconcile
+  // and shows "X transactions reconciled automatically" toast
   const autoReconcileMutation = useMutation({
-    mutationFn: async () => apiRequest("POST", "/api/transactions/auto-reconcile"),
-    onSuccess: () => {
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/transactions/auto-reconcile");
+      return res.json();
+    },
+    onSuccess: (data: { billMatches?: number; expenseMatches?: number; autoCreated?: number }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
-      toast({ title: "Auto-reconcile complete", description: "Transactions have been matched to expenses." });
+      const total = (data.billMatches ?? 0) + (data.expenseMatches ?? 0) + (data.autoCreated ?? 0);
+      toast({
+        title: `${total} transaction${total !== 1 ? "s" : ""} reconciled automatically`,
+        description: [
+          data.billMatches ? `${data.billMatches} matched to bills` : null,
+          data.expenseMatches ? `${data.expenseMatches} matched to expenses` : null,
+          data.autoCreated ? `${data.autoCreated} auto-created` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "No new matches found",
+      });
     },
     onError: () => toast({ title: "Auto-reconcile failed", variant: "destructive" }),
+  });
+
+  // Addition 2: Bulk reconcile by category — marks all filtered expenses in the
+  // selected category as reconciled
+  const bulkReconcileCategoryMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map((id) => apiRequest("PATCH", `/api/expenses/${id}`, { reconciled: "true" })));
+    },
+    onSuccess: (_, ids) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      toast({
+        title: `${ids.length} expense${ids.length !== 1 ? "s" : ""} reconciled`,
+        description: categoryFilter !== "all" ? `All "${categoryFilter}" expenses marked as reconciled` : undefined,
+      });
+    },
+    onError: () => toast({ title: "Failed to reconcile expenses", variant: "destructive" }),
   });
 
   // ── computed stats ─────────────────────────────────────────────────────────
@@ -529,8 +717,6 @@ export default function ExpensesPage() {
     // status
     if (statusFilter === "manual") {
       // expenses without a plaid/mx source are manual — all expenses in this table are manual
-      // (auto-imported ones live in plaidTransactions / mxTransactions)
-      // We keep all for "manual" since this table is manual-only
     } else if (statusFilter === "tax_deductible") {
       result = result.filter((e) => e.taxDeductible === "true");
     } else if (statusFilter === "business") {
@@ -570,6 +756,13 @@ export default function ExpensesPage() {
     [expenses]
   );
 
+  // ── IDs of filtered expenses for bulk category reconcile ──────────────────
+
+  const filteredCategoryIds = useMemo(
+    () => filteredExpenses.map((e) => e.id),
+    [filteredExpenses]
+  );
+
   // ── handlers ───────────────────────────────────────────────────────────────
 
   const handleSort = (key: SortKey) => {
@@ -585,9 +778,24 @@ export default function ExpensesPage() {
     setIsDialogOpen(true);
   };
 
+  const handleRowClick = (expense: Expense) => {
+    if (isAlreadyMatched(expense)) {
+      // Addition 4: show read-only summary for already-matched transactions
+      setSummaryExpense(expense);
+      setIsSummaryOpen(true);
+    } else {
+      handleEdit(expense);
+    }
+  };
+
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
     setEditingExpense(undefined);
+  };
+
+  const handleCloseSummary = () => {
+    setIsSummaryOpen(false);
+    setSummaryExpense(undefined);
   };
 
   const toggleSelect = (id: string) => {
@@ -637,13 +845,18 @@ export default function ExpensesPage() {
           <p className="text-muted-foreground mt-1">Track your spending across all categories</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Addition 1: Auto-Reconcile All button */}
           <Button
             variant="outline"
             className="border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950"
             onClick={() => autoReconcileMutation.mutate()}
             disabled={autoReconcileMutation.isPending}
           >
-            <Zap className="h-4 w-4 mr-2" />
+            {autoReconcileMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Zap className="h-4 w-4 mr-2" />
+            )}
             {autoReconcileMutation.isPending ? "Reconciling..." : "Auto-Reconcile"}
           </Button>
           <Button
@@ -754,7 +967,7 @@ export default function ExpensesPage() {
               />
             </div>
 
-            {/* Category */}
+            {/* Addition 2: Category filter dropdown */}
             <Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1); }}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="All Categories" />
@@ -791,6 +1004,23 @@ export default function ExpensesPage() {
                 <SelectItem value="business">Business</SelectItem>
               </SelectContent>
             </Select>
+
+            {/* Addition 2: "Reconcile All [Category]" button — appears when a category is selected */}
+            {categoryFilter !== "all" && filteredCategoryIds.length > 0 && (
+              <Button
+                variant="outline"
+                className="border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950 whitespace-nowrap"
+                onClick={() => bulkReconcileCategoryMutation.mutate(filteredCategoryIds)}
+                disabled={bulkReconcileCategoryMutation.isPending}
+              >
+                {bulkReconcileCategoryMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                )}
+                Reconcile All {categoryFilter}
+              </Button>
+            )}
           </div>
 
           {/* ── Bulk Actions ── */}
@@ -822,8 +1052,10 @@ export default function ExpensesPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => autoReconcileMutation.mutate()}
-                disabled={autoReconcileMutation.isPending}
+                onClick={() =>
+                  bulkPatchMutation.mutate({ ids: selectedArray, patch: { reconciled: "true" } })
+                }
+                disabled={bulkPatchMutation.isPending}
               >
                 <RefreshCw className="h-3.5 w-3.5 mr-1" />
                 Reconcile Selected
@@ -900,6 +1132,10 @@ export default function ExpensesPage() {
                         aria-label="Select all"
                       />
                     </TableHead>
+                    {/* Addition 3: Status column header */}
+                    <TableHead className="w-10">
+                      <span className="sr-only">Status</span>
+                    </TableHead>
                     <SortHeader label="Merchant" sortKey="merchant" />
                     <SortHeader label="Date" sortKey="date" />
                     <SortHeader label="Category" sortKey="category" />
@@ -910,103 +1146,112 @@ export default function ExpensesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pagedExpenses.map((expense) => (
-                    <TableRow
-                      key={expense.id}
-                      className={selectedIds.has(expense.id) ? "bg-muted/40" : ""}
-                    >
-                      {/* Checkbox */}
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedIds.has(expense.id)}
-                          onCheckedChange={() => toggleSelect(expense.id)}
-                          aria-label={`Select ${expense.merchant}`}
-                        />
-                      </TableCell>
+                  {pagedExpenses.map((expense) => {
+                    const matched = isAlreadyMatched(expense);
+                    return (
+                      <TableRow
+                        key={expense.id}
+                        className={`${selectedIds.has(expense.id) ? "bg-muted/40" : ""} ${matched ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                        onClick={matched ? () => handleRowClick(expense) : undefined}
+                      >
+                        {/* Checkbox */}
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedIds.has(expense.id)}
+                            onCheckedChange={() => toggleSelect(expense.id)}
+                            aria-label={`Select ${expense.merchant}`}
+                          />
+                        </TableCell>
 
-                      {/* Merchant */}
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 uppercase">
-                            {expense.merchant.charAt(0)}
+                        {/* Addition 3: Status icon column */}
+                        <TableCell>
+                          <StatusIcon expense={expense} />
+                        </TableCell>
+
+                        {/* Merchant */}
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 uppercase">
+                              {expense.merchant.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-medium leading-tight">{expense.merchant}</p>
+                              {expense.notes && (
+                                <p className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                  {expense.notes}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium leading-tight">{expense.merchant}</p>
-                            {expense.notes && (
-                              <p className="text-xs text-muted-foreground truncate max-w-[180px]">
-                                {expense.notes}
-                              </p>
+                        </TableCell>
+
+                        {/* Date */}
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                          {format(parseISO(expense.date), "MMM d, yyyy")}
+                        </TableCell>
+
+                        {/* Category */}
+                        <TableCell>
+                          <Badge className={`text-xs font-medium ${getCategoryColor(expense.category)}`} variant="secondary">
+                            {expense.category}
+                          </Badge>
+                        </TableCell>
+
+                        {/* Amount */}
+                        <TableCell className="font-semibold text-red-500 whitespace-nowrap">
+                          {formatCurrency(expense.amount)}
+                        </TableCell>
+
+                        {/* Source */}
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Pencil className="h-3.5 w-3.5" />
+                            <span>Manual</span>
+                          </div>
+                        </TableCell>
+
+                        {/* Tax */}
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {expense.taxDeductible === "true" && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-green-500 text-green-600 w-fit">
+                                Tax
+                              </Badge>
+                            )}
+                            {expense.isBusinessExpense === "true" && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500 text-blue-600 w-fit">
+                                Biz
+                              </Badge>
                             )}
                           </div>
-                        </div>
-                      </TableCell>
+                        </TableCell>
 
-                      {/* Date */}
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                        {format(parseISO(expense.date), "MMM d, yyyy")}
-                      </TableCell>
-
-                      {/* Category */}
-                      <TableCell>
-                        <Badge className={`text-xs font-medium ${getCategoryColor(expense.category)}`} variant="secondary">
-                          {expense.category}
-                        </Badge>
-                      </TableCell>
-
-                      {/* Amount */}
-                      <TableCell className="font-semibold text-red-500 whitespace-nowrap">
-                        {formatCurrency(expense.amount)}
-                      </TableCell>
-
-                      {/* Source */}
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Pencil className="h-3.5 w-3.5" />
-                          <span>Manual</span>
-                        </div>
-                      </TableCell>
-
-                      {/* Tax */}
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          {expense.taxDeductible === "true" && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-green-500 text-green-600 w-fit">
-                              Tax
-                            </Badge>
-                          )}
-                          {expense.isBusinessExpense === "true" && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-500 text-blue-600 w-fit">
-                              Biz
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-
-                      {/* Actions */}
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleEdit(expense)}
-                            aria-label="Edit expense"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => setDeletingExpense(expense)}
-                            aria-label="Delete expense"
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        {/* Actions */}
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleEdit(expense)}
+                              aria-label="Edit expense"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => setDeletingExpense(expense)}
+                              aria-label="Delete expense"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
 
@@ -1054,6 +1299,21 @@ export default function ExpensesPage() {
             <DialogTitle>{editingExpense ? "Edit Expense" : "Add New Expense"}</DialogTitle>
           </DialogHeader>
           <ExpenseForm expense={editingExpense} onClose={handleCloseDialog} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Addition 4: Read-only summary modal for already-matched/reconciled transactions */}
+      <Dialog open={isSummaryOpen} onOpenChange={(open) => { if (!open) handleCloseSummary(); }}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              Transaction Summary
+            </DialogTitle>
+          </DialogHeader>
+          {summaryExpense && (
+            <ExpenseSummary expense={summaryExpense} onClose={handleCloseSummary} />
+          )}
         </DialogContent>
       </Dialog>
 
