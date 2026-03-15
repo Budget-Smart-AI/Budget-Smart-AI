@@ -504,8 +504,17 @@ export async function autoReconcile(userId: string): Promise<{
 
     // Income transactions: category === 'INCOME' OR personalCategory === 'Salary'
     // AND amount is NEGATIVE (Plaid uses negative for money coming IN on checking accounts)
-    const isIncomeCategory = cat === "INCOME" || personalCat === "salary";
-    if (!isIncomeCategory) continue;
+        // Expanded income detection: catch all common income/payroll categories
+        const isIncomeCategory =
+          cat === "INCOME" ||
+          cat === "PAYROLL" ||
+          cat === "DIRECT_DEPOSIT" ||
+          personalCat === "salary" ||
+          personalCat === "payroll" ||
+          personalCat === "income" ||
+          personalCat === "direct_deposit" ||
+          personalCat === "wages";
+        if (!isIncomeCategory) continue;
     if (txAmount >= 0) continue; // must be negative (money in)
 
     const source = tx.merchantCleanName || tx.name || "Unknown";

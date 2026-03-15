@@ -691,12 +691,18 @@ export default function Dashboard() {
   const plannedSavings = budgetedIncome - budgetedSpending;
 
   // Monthly bills total (for plan section)
+  // Annualized-then-divided approach for accuracy:
+  //   weekly:    amount × 52 / 12  ≈ 4.333 payments/month
+  //   biweekly:  amount × 26 / 12  ≈ 2.167 payments/month
+  //   monthly:   amount × 1
+  //   yearly:    amount / 12
   const monthlyBillsPlanned = bills
     .filter((bill) => bill.isPaused !== "true")
     .reduce((sum, bill) => {
       const amount = parseFloat(bill.amount);
       if (bill.recurrence === "monthly") return sum + amount;
-      if (bill.recurrence === "biweekly") return sum + amount * 2;
+      if (bill.recurrence === "weekly") return sum + (amount * 52) / 12;
+      if (bill.recurrence === "biweekly") return sum + (amount * 26) / 12;
       if (bill.recurrence === "yearly") return sum + amount / 12;
       return sum;
     }, 0);
