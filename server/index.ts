@@ -415,6 +415,8 @@ app.use((req, res, next) => {
 
   const port = parseInt(process.env.PORT || "5000", 10);
 
+  console.log('[Plaid] Webhook URL:', process.env.PLAID_WEBHOOK_URL);
+
   if (process.env.NODE_ENV === "development") {
     httpServer.listen(port, "127.0.0.1", () => {
       log(`serving on port ${port}`);

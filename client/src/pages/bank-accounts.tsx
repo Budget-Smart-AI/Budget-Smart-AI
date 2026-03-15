@@ -183,8 +183,18 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const [privacyChecked, setPrivacyChecked] = useState(false);
   const [limitError, setLimitError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isPendingWebhook, setIsPendingWebhook] = useState(false);
   const autoOpenConsentShown = useRef(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollAttemptsRef = useRef(0);
   const { toast } = useToast();
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
 
   // Fetch link token
   useEffect(() => {
@@ -210,78 +220,75 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
     fetchLinkToken();
   }, []);
 
+  const startPollingForTransactions = useCallback(() => {
+    pollAttemptsRef.current = 0;
+    const MAX_POLLS = 5;
+
+    pollIntervalRef.current = setInterval(async () => {
+      pollAttemptsRef.current += 1;
+      try {
+        const res = await apiRequest("GET", "/api/plaid/accounts");
+        const accounts: PlaidAccountGroup[] = await res.json();
+        // Check if any account has been synced (lastSynced is set)
+        const hasSyncedAccount = accounts.some(group =>
+          group.accounts.some(acc => acc.lastSynced != null)
+        );
+        if (hasSyncedAccount) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          setIsPendingWebhook(false);
+          setIsSyncing(false);
+          toast({ title: "🎉 Your transactions are ready!" });
+          queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+          onSuccess();
+          return;
+        }
+      } catch (err) {
+        console.error("[Plaid Poll] Error polling accounts:", err);
+      }
+
+      if (pollAttemptsRef.current >= MAX_POLLS) {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        setIsPendingWebhook(false);
+        setIsSyncing(false);
+        // Still call onSuccess so the UI refreshes even if no transactions yet
+        queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+        onSuccess();
+      }
+    }, 10000);
+  }, [onSuccess, toast]);
+
   const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
     setIsSyncing(true);
     try {
-      // Step 1: Exchange token and create account
-      await apiRequest("POST", "/api/plaid/exchange-token", {
+      // Exchange token — server now returns transactionStatus: "pending_webhook"
+      const res = await apiRequest("POST", "/api/plaid/exchange-token", {
         public_token: publicToken,
         metadata: {
           institution: metadata.institution,
         },
       });
-      toast({ title: "Bank account connected! Syncing transactions..." });
+      const data = await res.json();
 
-      // Step 2: Trigger initial transaction sync to fetch up to 2 years of history
-      // Use fetch-historical for initial connection to get full available history
-      let attempts = 0;
-      const maxAttempts = 5;
-      let syncSuccess = false;
-
-      while (attempts < maxAttempts && !syncSuccess) {
-        attempts++;
-        try {
-          const syncRes = await apiRequest("POST", "/api/plaid/transactions/fetch-historical");
-          const syncData = await syncRes.json();
-
-          // Sync is successful if we get a response (even with 0 transactions for new accounts)
-          syncSuccess = true;
-          const count = syncData.added || 0;
-          
-          if (count > 0) {
-            // Show date range if available
-            let dateInfo = '';
-            if (syncData.dateRange?.oldest && syncData.dateRange?.newest) {
-              const oldestFormatted = format(new Date(syncData.dateRange.oldest), 'MMM d, yyyy');
-              const newestFormatted = format(new Date(syncData.dateRange.newest), 'MMM d, yyyy');
-              dateInfo = ` (${oldestFormatted} to ${newestFormatted})`;
-            }
-            
-            toast({ 
-              title: "Sync complete!", 
-              description: `${count} transaction${count !== 1 ? 's' : ''} synced${dateInfo}` 
-            });
-          } else {
-            toast({ 
-              title: "Account connected!", 
-              description: "No transactions found - new transactions will sync automatically" 
-            });
-          }
-        } catch (syncError) {
-          console.error("Sync attempt failed:", syncError);
-          if (attempts < maxAttempts) {
-            // Wait 3 seconds before retrying
-            await new Promise(resolve => setTimeout(resolve, 3000));
-          }
-        }
-      }
-
-      // If sync didn't succeed after all retries, show a warning
-      if (!syncSuccess) {
-        toast({ 
-          title: "Account connected with sync issues", 
-          description: "Initial sync encountered errors. Transactions will sync in the background.",
-          variant: "default"
+      if (data.transactionStatus === "pending_webhook") {
+        toast({
+          title: "Bank account connected!",
+          description: data.message || "Your transactions will appear within 1-2 minutes.",
         });
+        setIsPendingWebhook(true);
+        // Start polling for transactions in the background
+        startPollingForTransactions();
+      } else {
+        // Fallback: no pending_webhook status — just call onSuccess immediately
+        setIsSyncing(false);
+        queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+        onSuccess();
       }
-
-      onSuccess();
     } catch (error) {
       toast({ title: "Failed to connect bank account", variant: "destructive" });
-    } finally {
       setIsSyncing(false);
     }
-  }, [onSuccess, toast]);
+  }, [onSuccess, toast, startPollingForTransactions]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
@@ -320,11 +327,19 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
     <>
       <Button 
         onClick={() => setShowConsent(true)} 
-        disabled={!ready || !linkToken || isSyncing} 
+        disabled={!ready || !linkToken || isSyncing || isPendingWebhook} 
         className="gap-2"
       >
-        <Link2 className="h-4 w-4" />
-        {isSyncing ? "Syncing Transactions..." : "Connect Bank Account"}
+        {isPendingWebhook ? (
+          <RefreshCw className="h-4 w-4 animate-spin" />
+        ) : (
+          <Link2 className="h-4 w-4" />
+        )}
+        {isPendingWebhook
+          ? "Waiting for transactions..."
+          : isSyncing
+            ? "Connecting..."
+            : "Connect Bank Account"}
       </Button>
       <AlertDialog open={showConsent} onOpenChange={handleConsentDialogChange}>
         <AlertDialogContent>

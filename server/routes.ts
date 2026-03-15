@@ -4887,6 +4887,126 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // ==================== PLAID WEBHOOK (no auth required) ====================
+
+  // POST /api/plaid/webhook — receives Plaid webhook events
+  // No authentication required — Plaid calls this directly
+  app.post("/api/plaid/webhook", async (req, res) => {
+    // Respond 200 immediately so Plaid doesn't retry
+    res.status(200).json({ received: true });
+
+    // Process asynchronously
+    setImmediate(async () => {
+      try {
+        const { webhook_type, webhook_code, item_id, error } = req.body;
+        console.log(`[Plaid Webhook] type=${webhook_type} code=${webhook_code} item_id=${item_id}`);
+
+        if (webhook_type === "TRANSACTIONS") {
+          // Find the plaid item by Plaid's item_id
+          const { rows } = await pool.query(
+            `SELECT id, user_id, access_token FROM plaid_items WHERE item_id = $1`,
+            [item_id]
+          );
+          if (rows.length === 0) {
+            console.warn(`[Plaid Webhook] No plaid_item found for item_id=${item_id}`);
+            return;
+          }
+          const item = rows[0];
+          const { syncTransactions } = await import("./plaid");
+
+          if (
+            webhook_code === "SYNC_UPDATES_AVAILABLE" ||
+            webhook_code === "INITIAL_UPDATE" ||
+            webhook_code === "HISTORICAL_UPDATE" ||
+            webhook_code === "DEFAULT_UPDATE"
+          ) {
+            console.log(`[Plaid Webhook] Syncing transactions for item ${item.id} (user ${item.user_id})`);
+            const result = await syncTransactions(item.access_token, item.id, item.user_id);
+            console.log(`[Plaid Webhook] Sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
+
+            // Run enrichment in background if new transactions were added
+            if (result.added > 0) {
+              const { enrichPendingTransactions } = await import("./merchant-enricher");
+              enrichPendingTransactions(item.user_id, 100).catch((err: any) =>
+                console.error("[Enricher] Background enrichment failed:", err)
+              );
+            }
+          }
+        } else if (webhook_type === "ITEM") {
+          if (webhook_code === "ERROR") {
+            const errorCode = error?.error_code || "UNKNOWN";
+            console.warn(`[Plaid Webhook] ITEM ERROR for item_id=${item_id}: ${errorCode}`);
+            await pool.query(
+              `UPDATE plaid_items SET status = 'error' WHERE item_id = $1`,
+              [item_id]
+            );
+          } else if (webhook_code === "PENDING_EXPIRATION") {
+            console.warn(`[Plaid Webhook] ITEM PENDING_EXPIRATION for item_id=${item_id}`);
+            await pool.query(
+              `UPDATE plaid_items SET status = 'pending_expiration' WHERE item_id = $1`,
+              [item_id]
+            );
+          } else if (webhook_code === "USER_PERMISSION_REVOKED") {
+            console.warn(`[Plaid Webhook] USER_PERMISSION_REVOKED for item_id=${item_id}`);
+            await pool.query(
+              `UPDATE plaid_items SET status = 'revoked' WHERE item_id = $1`,
+              [item_id]
+            );
+          }
+        }
+      } catch (err) {
+        console.error("[Plaid Webhook] Error processing webhook:", err);
+      }
+    });
+  });
+
+  // POST /api/admin/plaid/register-webhooks — update webhook URL for all Plaid items
+  app.post("/api/admin/plaid/register-webhooks", requireAdmin, async (req, res) => {
+    try {
+      const webhookUrl = process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`;
+      if (!webhookUrl) {
+        return res.status(400).json({ error: "PLAID_WEBHOOK_URL or APP_URL environment variable is not set" });
+      }
+
+      const { plaidClient } = await import("./plaid");
+      const { rows } = await pool.query(
+        `SELECT id, access_token, item_id, institution_name FROM plaid_items WHERE status != 'error' ORDER BY created_at DESC`
+      );
+
+      let updated = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      for (const item of rows) {
+        try {
+          await plaidClient.itemWebhookUpdate({
+            access_token: item.access_token,
+            webhook: webhookUrl,
+          });
+          updated++;
+          console.log(`[Plaid] Registered webhook for item ${item.id} (${item.institution_name})`);
+        } catch (err: any) {
+          failed++;
+          const msg = err?.response?.data?.error_message || err?.message || "Unknown error";
+          errors.push(`${item.institution_name || item.id}: ${msg}`);
+          console.error(`[Plaid] Failed to register webhook for item ${item.id}:`, msg);
+        }
+      }
+
+      res.json({
+        success: true,
+        webhookUrl,
+        totalItems: rows.length,
+        updated,
+        failed,
+        errors: errors.length > 0 ? errors : undefined,
+      });
+    } catch (error: any) {
+      console.error("Error registering Plaid webhooks:", error);
+      res.status(500).json({ error: error.message || "Failed to register webhooks" });
+    }
+  });
+
   // FEATURE: PLAID_BANK_CONNECTIONS | tier: free | limit: 1 connection
   // ==================== PLAID ROUTES ====================
 
@@ -5082,7 +5202,12 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         outcome: "success",
         metadata: { itemId: plaidItem.id, institutionName: plaidItem.institutionName },
       });
-      res.json({ success: true, item: { id: plaidItem.id, institutionName: plaidItem.institutionName } });
+      res.json({
+        success: true,
+        item: { id: plaidItem.id, institutionName: plaidItem.institutionName },
+        transactionStatus: "pending_webhook",
+        message: "Your accounts are connected. Transactions will appear within 1-2 minutes once your bank sends them.",
+      });
     } catch (error: any) {
       console.error("Error exchanging token:", error?.response?.data || error);
       res.status(500).json({ error: "Failed to connect bank account" });
