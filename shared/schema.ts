@@ -391,7 +391,8 @@ export const plaidItems = pgTable("plaid_items", {
   itemId: text("item_id").notNull().unique(),
   institutionId: text("institution_id"),
   institutionName: text("institution_name"),
-  cursor: text("cursor"), // Transaction sync cursor for incremental sync
+  cursor: text("cursor"), // Transaction sync cursor for incremental sync (legacy)
+  syncCursor: text("sync_cursor"), // Cursor for /transactions/sync endpoint
   status: text("status").default("active"), // active, error, expired
   createdAt: text("created_at"),
   accessTokenEnc: text("access_token_enc"), // AES-256-GCM encrypted access token
@@ -450,6 +451,8 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
   needsReview: boolean("needs_review").default(false),
+  // Soft-delete flag for /transactions/sync REMOVED events
+  isActive: text("is_active").default("true"),
 });
 
 // ============ MANUAL ACCOUNTS (Transaction-Centric Architecture) ============

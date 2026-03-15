@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -363,6 +363,10 @@ app.use((req, res, next) => {
 
   await ensureUserAICostsTable().catch(err =>
     console.error("Failed to ensure user_ai_costs table — admin AI cost analytics will not work:", err)
+  );
+
+  await ensureSyncCursorColumn().catch(err =>
+    console.error("Failed to ensure sync_cursor/is_active columns — Plaid /transactions/sync will not work:", err)
   );
 
   // Note: ensureUserFeatureUsageTable() and ensurePlanFeatureLimitsTable() are now

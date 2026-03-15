@@ -5183,287 +5183,26 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
-  // Sync transactions
+  // Sync transactions — uses /transactions/sync (cursor-based, never returns PRODUCT_NOT_READY)
   app.post("/api/plaid/transactions/sync", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { plaidClient } = await import("./plaid");
-      const { reconcileTransaction, mapPlaidCategory } = await import("./reconciliation");
+      const { syncTransactions } = await import("./plaid");
       const items = await storage.getPlaidItems(userId);
-      const bills = await storage.getBills(userId);
-      const expensesList = await storage.getExpenses(userId);
-      const incomes = await storage.getIncomes(userId);
-
-      // Check user preference for needs_review flag
-      const currentUser = await storage.getUser(userId);
-      const flagNeedsReview = currentUser?.prefNeedsReview !== false;
 
       let totalAdded = 0;
       let totalModified = 0;
       let totalRemoved = 0;
 
-      // Helper to format date for Plaid API
-      const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
       for (const item of items) {
         try {
-          let cursor = item.cursor || undefined;
-          const isInitialSync = !cursor;
-
-          // For initial sync (no cursor), use transactionsGet with explicit date range
-          // This ensures we get full historical data, not just what Plaid has cached
-          if (isInitialSync) {
-            console.log(`Initial sync for ${item.institutionName} - using transactionsGet for full history`);
-
-            // Per Plaid docs: Poll transactions_update_status before fetching
-            // Status must be INITIAL_UPDATE_COMPLETE or HISTORICAL_UPDATE_COMPLETE
-            const MAX_POLL_ATTEMPTS = 30; // 30 attempts * 5 seconds = 2.5 minutes max wait
-            const POLL_INTERVAL_MS = 5000;
-            let transactionsReady = false;
-            
-            for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
-              try {
-                const itemResponse = await plaidClient.itemGet({
-                  access_token: item.accessToken,
-                });
-                
-                const txStatus = (itemResponse.data as any).status?.transactions?.last_successful_update;
-                const updateStatus = (itemResponse.data as any).item?.status || null;
-                
-                // Check if transactions product is in billed_products (properly initialized)
-                const billedProducts = itemResponse.data.item.billed_products || [];
-                const hasTransactions = billedProducts.includes('transactions' as any);
-                
-                // Log status for debugging
-                console.log(`  [Attempt ${attempt}/${MAX_POLL_ATTEMPTS}] Checking transaction status...`);
-                console.log(`    Billed products: ${billedProducts.join(', ')}`);
-                console.log(`    Last successful update: ${txStatus || 'none'}`);
-                
-                if (!hasTransactions) {
-                  console.log(`    WARNING: transactions not in billed_products - may need to reconnect bank`);
-                  // Still try to fetch - Plaid may have data even if not in billed_products yet
-                }
-                
-                // If we have a last_successful_update timestamp, transactions are ready
-                if (txStatus) {
-                  console.log(`    Transactions ready! Last update: ${txStatus}`);
-                  transactionsReady = true;
-                  break;
-                }
-                
-                // Also trigger a refresh on first attempt to speed things up
-                if (attempt === 1) {
-                  try {
-                    await plaidClient.transactionsRefresh({
-                      access_token: item.accessToken,
-                    });
-                    console.log(`    Triggered refresh for ${item.institutionName}`);
-                  } catch (refreshError: any) {
-                    const errMsg = refreshError?.response?.data?.error_message || 'continuing';
-                    // PRODUCT_NOT_READY is expected for new Items - keep polling
-                    if (refreshError?.response?.data?.error_code === 'PRODUCT_NOT_READY') {
-                      console.log(`    Refresh: PRODUCT_NOT_READY (expected for new Item, will keep polling)`);
-                    } else {
-                      console.log(`    Refresh note: ${errMsg}`);
-                    }
-                  }
-                }
-                
-                // Wait before next poll
-                console.log(`    Waiting ${POLL_INTERVAL_MS/1000}s before next check...`);
-                await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-                
-              } catch (pollError: any) {
-                console.log(`    Poll error: ${pollError?.response?.data?.error_message || pollError.message}`);
-                // If item is in error state, don't keep polling
-                if (pollError?.response?.data?.error_code === 'ITEM_LOGIN_REQUIRED') {
-                  console.log(`    Item requires re-authentication - skipping`);
-                  break;
-                }
-                await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-              }
-            }
-            
-            if (!transactionsReady) {
-              console.log(`  Transactions not ready after ${MAX_POLL_ATTEMPTS} attempts for ${item.institutionName}`);
-              console.log(`  Will still attempt fetch - Plaid may return partial data`);
-            }
-
-            // Calculate date range - 2 years back
-            const endDate = new Date();
-            const startDate = new Date();
-            startDate.setFullYear(startDate.getFullYear() - 2);
-
-            // Get accounts for this item
-            const accounts = await storage.getPlaidAccounts(item.id);
-            const accountIds = accounts.map(a => a.accountId);
-
-            if (accountIds.length === 0) {
-              console.log(`  No accounts for item ${item.id}`);
-              continue;
-            }
-
-            let offset = 0;
-            const count = 500;
-            let hasMore = true;
-
-            while (hasMore) {
-              const response = await plaidClient.transactionsGet({
-                access_token: item.accessToken,
-                start_date: formatDate(startDate),
-                end_date: formatDate(endDate),
-                options: {
-                  count,
-                  offset,
-                  account_ids: accountIds,
-                },
-              });
-
-              const transactions = response.data.transactions;
-              const totalForItem = response.data.total_transactions;
-
-              console.log(`  Batch: offset ${offset}, got ${transactions.length} of ${totalForItem} total`);
-
-              for (const tx of transactions) {
-                // Check if transaction already exists
-                const existing = await storage.getPlaidTransactionByTransactionId(tx.transaction_id);
-                if (existing) continue;
-
-                const account = await storage.getPlaidAccountByAccountId(tx.account_id);
-                if (!account) continue;
-
-                const plaidCategory = tx.personal_finance_category?.primary || null;
-                // Get logo URL - check counterparties first, then top level
-                const logoUrl = (tx as any).counterparties?.[0]?.logo_url || (tx as any).logo_url || null;
-                const txData = {
-                  amount: tx.amount.toString(),
-                  date: tx.date,
-                  name: tx.name,
-                  merchantName: tx.merchant_name || null,
-                  category: plaidCategory,
-                };
-
-                const matchResult = reconcileTransaction(txData, bills, expensesList, incomes);
-
-                await storage.createPlaidTransaction({
-                  plaidAccountId: account.id,
-                  transactionId: tx.transaction_id,
-                  amount: tx.amount.toString(),
-                  date: tx.date,
-                  name: tx.name,
-                  merchantName: tx.merchant_name || null,
-                  logoUrl: logoUrl,
-                  category: plaidCategory,
-                  personalCategory: matchResult.personalCategory,
-                  pending: tx.pending ? "true" : "false",
-                  matchType: matchResult.matchType,
-                  matchedBillId: matchResult.matchType === "bill" ? matchResult.matchedId || null : null,
-                  matchedExpenseId: matchResult.matchType === "expense" ? matchResult.matchedId || null : null,
-                  matchedIncomeId: matchResult.matchType === "income" ? matchResult.matchedId || null : null,
-                  reconciled: matchResult.confidence === "high" ? "true" : "false",
-                  needsReview: flagNeedsReview && (!plaidCategory || plaidCategory === "Uncategorized") ? true : false,
-                });
-                totalAdded++;
-              }
-
-              offset += transactions.length;
-              hasMore = offset < totalForItem;
-            }
-
-            // After initial historical fetch, do one sync call to establish cursor for future delta syncs
-            const syncResponse = await plaidClient.transactionsSync({
-              access_token: item.accessToken,
-              options: {
-                days_requested: 730,
-              },
-            });
-            // Just get the cursor, we already have the transactions
-            cursor = syncResponse.data.next_cursor;
-
-            console.log(`  Initial sync complete for ${item.institutionName}: ${totalAdded} transactions`);
-          } else {
-            // Subsequent sync - use transactionsSync for delta updates
-            let hasMore = true;
-
-            while (hasMore) {
-              const response = await plaidClient.transactionsSync({
-                access_token: item.accessToken,
-                cursor: cursor,
-                options: {
-                  days_requested: 730,
-                },
-              });
-
-              const { added, modified, removed, next_cursor, has_more } = response.data;
-
-              // Process added transactions
-              for (const tx of added) {
-                const account = await storage.getPlaidAccountByAccountId(tx.account_id);
-                if (!account) continue;
-
-                const plaidCategory = tx.personal_finance_category?.primary || null;
-                // Get logo URL - check counterparties first, then top level
-                const logoUrl = (tx as any).counterparties?.[0]?.logo_url || (tx as any).logo_url || null;
-                const txData = {
-                  amount: tx.amount.toString(),
-                  date: tx.date,
-                  name: tx.name,
-                  merchantName: tx.merchant_name || null,
-                  category: plaidCategory,
-                };
-
-                const matchResult = reconcileTransaction(txData, bills, expensesList, incomes);
-
-                await storage.createPlaidTransaction({
-                  plaidAccountId: account.id,
-                  transactionId: tx.transaction_id,
-                  amount: tx.amount.toString(),
-                  date: tx.date,
-                  name: tx.name,
-                  merchantName: tx.merchant_name || null,
-                  logoUrl: logoUrl,
-                  category: plaidCategory,
-                  personalCategory: matchResult.personalCategory,
-                  pending: tx.pending ? "true" : "false",
-                  matchType: matchResult.matchType,
-                  matchedBillId: matchResult.matchType === "bill" ? matchResult.matchedId || null : null,
-                  matchedExpenseId: matchResult.matchType === "expense" ? matchResult.matchedId || null : null,
-                  matchedIncomeId: matchResult.matchType === "income" ? matchResult.matchedId || null : null,
-                  reconciled: matchResult.confidence === "high" ? "true" : "false",
-                  needsReview: flagNeedsReview && (!plaidCategory || plaidCategory === "Uncategorized") ? true : false,
-                });
-                totalAdded++;
-              }
-
-              // Process modified transactions
-              for (const tx of modified) {
-                const existing = await storage.getPlaidTransactionByTransactionId(tx.transaction_id);
-                if (existing) {
-                  await storage.updatePlaidTransaction(existing.id, {
-                    amount: tx.amount.toString(),
-                    date: tx.date,
-                    name: tx.name,
-                    merchantName: tx.merchant_name || null,
-                    pending: tx.pending ? "true" : "false",
-                  });
-                  totalModified++;
-                }
-              }
-
-              // Process removed transactions
-              if (removed.length > 0) {
-                const removedIds = removed.map(r => r.transaction_id);
-                await storage.deleteRemovedTransactions(removedIds);
-                totalRemoved += removed.length;
-              }
-
-              cursor = next_cursor;
-              hasMore = has_more;
-            }
-          }
-
-          // Update cursor
-          await storage.updatePlaidItem(item.id, { cursor: cursor, status: "active" });
+          console.log(`Syncing transactions for ${item.institutionName} (item ${item.id})...`);
+          const result = await syncTransactions(item.accessToken, item.id, userId);
+          totalAdded += result.added;
+          totalModified += result.modified;
+          totalRemoved += result.removed;
+          await storage.updatePlaidItem(item.id, { status: "active" });
+          console.log(`  Done: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
         } catch (itemError: any) {
           console.error(`Error syncing transactions for item ${item.id}:`, itemError?.response?.data || itemError);
           await storage.updatePlaidItem(item.id, { status: "error" });
@@ -5482,7 +5221,6 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             .map(a => a.id);
 
           if (accountIds.length > 0) {
-            // Get recent transactions for anomaly detection
             const recentTransactions = await storage.getPlaidTransactions(accountIds, {
               startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             });
@@ -5490,15 +5228,13 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           }
         } catch (anomalyError) {
           console.error("Error running anomaly detection:", anomalyError);
-          // Don't fail the sync if anomaly detection fails
         }
       }
 
       // Trigger enrichment for newly added transactions in the background
       if (totalAdded > 0) {
         const { enrichPendingTransactions } = await import("./merchant-enricher");
-        // Run in background without blocking the response
-        enrichPendingTransactions(userId, 100).catch(err => 
+        enrichPendingTransactions(userId, 100).catch(err =>
           console.error('[Enricher] Background enrichment failed:', err)
         );
       }
@@ -5511,140 +5247,29 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   });
 
   // Fetch historical transactions (up to 2 years)
-  // Uses /transactions/get with explicit date ranges to request older data
+  // Uses /transactions/sync (cursor-based) — never returns PRODUCT_NOT_READY
   app.post("/api/plaid/transactions/fetch-historical", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { plaidClient } = await import("./plaid");
-      const { reconcileTransaction } = await import("./reconciliation");
+      const { syncTransactions } = await import("./plaid");
       const items = await storage.getPlaidItems(userId);
-      const bills = await storage.getBills(userId);
-      const expensesList = await storage.getExpenses(userId);
-      const incomes = await storage.getIncomes(userId);
-
-      // Check user preference for needs_review flag
-      const currentUser = await storage.getUser(userId);
-      const flagNeedsReview = currentUser?.prefNeedsReview !== false;
-
-      // Calculate date range - 2 years back
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setFullYear(startDate.getFullYear() - 2);
-      
-      const formatDate = (date: Date) => date.toISOString().split('T')[0];
 
       let totalAdded = 0;
-      let totalSkipped = 0;
-      let errors: string[] = [];
-      let oldestDate: string | null = null;
-      let newestDate: string | null = null;
+      let totalModified = 0;
+      let totalRemoved = 0;
+      const errors: string[] = [];
 
       for (const item of items) {
         try {
           console.log(`Fetching historical transactions for item ${item.id} (${item.institutionName})...`);
-          console.log(`  Date range: ${formatDate(startDate)} to ${formatDate(endDate)}`);
-
-          // First, call transactions/refresh to trigger Plaid to fetch latest from bank
-          try {
-            await plaidClient.transactionsRefresh({
-              access_token: item.accessToken,
-            });
-            console.log(`  Triggered refresh for ${item.institutionName}`);
-          } catch (refreshError: any) {
-            console.log(`  Refresh skipped: ${refreshError?.response?.data?.error_message || 'already refreshing'}`);
-          }
-
-          // Get accounts for this item
-          const accounts = await storage.getPlaidAccounts(item.id);
-          const accountIds = accounts.map(a => a.accountId);
-
-          if (accountIds.length === 0) {
-            console.log(`  No accounts for item ${item.id}`);
-            continue;
-          }
-
-          let offset = 0;
-          const count = 500;
-          let hasMore = true;
-          let itemAdded = 0;
-          let totalForItem = 0;
-
-          while (hasMore) {
-            const response = await plaidClient.transactionsGet({
-              access_token: item.accessToken,
-              start_date: formatDate(startDate),
-              end_date: formatDate(endDate),
-              options: {
-                count,
-                offset,
-                account_ids: accountIds,
-              },
-            });
-
-            const transactions = response.data.transactions;
-            totalForItem = response.data.total_transactions;
-            
-            console.log(`  Batch: offset ${offset}, got ${transactions.length} of ${totalForItem} total`);
-
-            for (const tx of transactions) {
-              // Track date range
-              if (!oldestDate || tx.date < oldestDate) oldestDate = tx.date;
-              if (!newestDate || tx.date > newestDate) newestDate = tx.date;
-
-              // Check if transaction already exists
-              const existing = await storage.getPlaidTransactionByTransactionId(tx.transaction_id);
-              if (existing) {
-                totalSkipped++;
-                continue;
-              }
-
-              const account = await storage.getPlaidAccountByAccountId(tx.account_id);
-              if (!account) continue;
-
-              const plaidCategory = tx.personal_finance_category?.primary || null;
-              // Get logo URL - check counterparties first, then top level
-              const logoUrl = (tx as any).counterparties?.[0]?.logo_url || (tx as any).logo_url || null;
-              const txData = {
-                amount: tx.amount.toString(),
-                date: tx.date,
-                name: tx.name,
-                merchantName: tx.merchant_name || null,
-                category: plaidCategory,
-              };
-
-              const matchResult = reconcileTransaction(txData, bills, expensesList, incomes);
-
-              await storage.createPlaidTransaction({
-                plaidAccountId: account.id,
-                transactionId: tx.transaction_id,
-                amount: tx.amount.toString(),
-                date: tx.date,
-                name: tx.name,
-                merchantName: tx.merchant_name || null,
-                logoUrl: logoUrl,
-                category: plaidCategory,
-                personalCategory: matchResult.personalCategory,
-                pending: tx.pending ? "true" : "false",
-                matchType: matchResult.matchType,
-                matchedBillId: matchResult.matchType === "bill" ? matchResult.matchedId || null : null,
-                matchedExpenseId: matchResult.matchType === "expense" ? matchResult.matchedId || null : null,
-                matchedIncomeId: matchResult.matchType === "income" ? matchResult.matchedId || null : null,
-                reconciled: matchResult.confidence === "high" ? "true" : "false",
-                needsReview: flagNeedsReview && (!plaidCategory || plaidCategory === "Uncategorized") ? true : false,
-              });
-              totalAdded++;
-              itemAdded++;
-            }
-
-            offset += transactions.length;
-            hasMore = offset < totalForItem;
-          }
-
-          console.log(`  Completed ${item.institutionName}: ${itemAdded} new of ${totalForItem} total`);
+          const result = await syncTransactions(item.accessToken, item.id, userId);
+          totalAdded += result.added;
+          totalModified += result.modified;
+          totalRemoved += result.removed;
+          console.log(`  Completed ${item.institutionName}: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
         } catch (itemError: any) {
           const errorMsg = itemError?.response?.data?.error_message || itemError?.message || "Unknown error";
-          const errorCode = itemError?.response?.data?.error_code;
-          console.error(`Error fetching historical for item ${item.id}:`, errorCode, errorMsg);
+          console.error(`Error fetching historical for item ${item.id}:`, errorMsg);
           errors.push(`${item.institutionName}: ${errorMsg}`);
         }
       }
@@ -5652,19 +5277,18 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       // Trigger enrichment for newly added transactions in the background
       if (totalAdded > 0) {
         const { enrichPendingTransactions } = await import("./merchant-enricher");
-        // Run in background without blocking the response
-        enrichPendingTransactions(userId, 100).catch(err => 
+        enrichPendingTransactions(userId, 100).catch(err =>
           console.error('[Enricher] Background enrichment failed:', err)
         );
       }
 
-      res.json({ 
-        success: true, 
-        added: totalAdded, 
-        skipped: totalSkipped,
-        dateRange: oldestDate && newestDate ? { oldest: oldestDate, newest: newestDate } : null,
+      res.json({
+        success: true,
+        added: totalAdded,
+        modified: totalModified,
+        removed: totalRemoved,
         errors: errors.length > 0 ? errors : undefined,
-        message: `Fetched ${totalAdded} new transactions (${totalSkipped} already existed). Data range: ${oldestDate || 'N/A'} to ${newestDate || 'N/A'}`
+        message: `Synced ${totalAdded} new transactions via /transactions/sync.`
       });
     } catch (error: any) {
       console.error("Error fetching historical transactions:", error);

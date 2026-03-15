@@ -638,6 +638,23 @@ export async function ensureUserFeatureUsageTable(): Promise<void> {
  * Seeds / upserts all FEATURE_LIMITS values on every startup so Railway
  * redeploys always keep the table in sync with features.ts.
  */
+/**
+ * Ensure the sync_cursor column on plaid_items and is_active column on
+ * plaid_transactions exist for the /transactions/sync endpoint migration.
+ * Uses ADD COLUMN IF NOT EXISTS so it is safe to call on every startup.
+ *
+ * sync_cursor  — stores the Plaid cursor for incremental /transactions/sync calls
+ * is_active    — soft-delete flag set to 'false' for REMOVED transactions
+ */
+export async function ensureSyncCursorColumn(): Promise<void> {
+  await pool.query(
+    `ALTER TABLE plaid_items ADD COLUMN IF NOT EXISTS sync_cursor TEXT`
+  );
+  await pool.query(
+    `ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS is_active TEXT DEFAULT 'true'`
+  );
+}
+
 export async function ensurePlanFeatureLimitsTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS plan_feature_limits (
