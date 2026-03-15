@@ -1933,6 +1933,20 @@ export const grantFinancialAccessSchema = z.object({
 });
 export type GrantFinancialAccessInput = z.infer<typeof grantFinancialAccessSchema>;
 
+// Bill reminders sent — deduplication table to prevent duplicate reminder emails
+// on every deploy. The unique constraint on (bill_id, reminder_date) is the
+// DB-level safety net; the application checks this table before sending.
+export const billRemindersSent = pgTable("bill_reminders_sent", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  billId: varchar("bill_id", { length: 255 }).notNull(),
+  reminderDate: text("reminder_date").notNull(), // yyyy-MM-dd — the calendar date the reminder was sent
+  sentAt: text("sent_at").notNull(), // ISO timestamp
+});
+
+export type BillReminderSent = typeof billRemindersSent.$inferSelect;
+export type InsertBillReminderSent = typeof billRemindersSent.$inferInsert;
+
 // Cumulative per-user AI cost tracking (populated from ai_usage_log rollup)
 export const userAiCosts = pgTable("user_ai_costs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

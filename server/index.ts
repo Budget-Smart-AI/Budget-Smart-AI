@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureBillRemindersSentTable } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -367,6 +367,10 @@ app.use((req, res, next) => {
 
   await ensureSyncCursorColumn().catch(err =>
     console.error("Failed to ensure sync_cursor/is_active columns — Plaid /transactions/sync will not work:", err)
+  );
+
+  await ensureBillRemindersSentTable().catch(err =>
+    console.error("Failed to ensure bill_reminders_sent table — bill reminder deduplication will not work (duplicate emails may be sent on deploy):", err)
   );
 
   // Note: ensureUserFeatureUsageTable() and ensurePlanFeatureLimitsTable() are now

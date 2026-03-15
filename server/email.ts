@@ -7,6 +7,44 @@ import { checkVaultExpiryNotifications } from "./routes/vault";
 import { db, pool } from "./db";
 import { auditLog } from "./audit-logger";
 
+/**
+ * Check whether a bill reminder has already been sent for the given
+ * (billId, reminderDate) pair today.  Uses a direct pool query so it works
+ * even before the Drizzle ORM schema is fully initialised.
+ */
+async function isBillReminderAlreadySent(billId: string, reminderDate: string): Promise<boolean> {
+  try {
+    const result = await pool.query(
+      `SELECT 1 FROM bill_reminders_sent WHERE bill_id = $1 AND reminder_date = $2 LIMIT 1`,
+      [billId, reminderDate]
+    );
+    return result.rowCount !== null && result.rowCount > 0;
+  } catch {
+    // If the table doesn't exist yet (first deploy), fall through and let the
+    // legacy lastNotifiedCycle guard handle it.  The table will be created on
+    // the next startup via ensureBillRemindersSentTable().
+    return false;
+  }
+}
+
+/**
+ * Record that a bill reminder was sent for (billId, reminderDate).
+ * Uses INSERT … ON CONFLICT DO NOTHING so a duplicate call is a no-op.
+ */
+async function recordBillReminderSent(userId: string, billId: string, reminderDate: string): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO bill_reminders_sent (user_id, bill_id, reminder_date, sent_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT ON CONSTRAINT uq_bill_reminder_date DO NOTHING`,
+      [userId, billId, reminderDate]
+    );
+  } catch (err) {
+    // Non-fatal: log but don't block the caller.
+    console.error(`[BillReminder] Failed to record reminder sent for bill ${billId}:`, err);
+  }
+}
+
 // Lazy Postmark HTTP client – avoids crashes when POSTMARK_USERNAME is absent.
 // Uses the HTTP API instead of SMTP so it works on Railway (which blocks SMTP).
 let _postmarkClient: ServerClient | null = null;
@@ -214,7 +252,16 @@ export async function checkAndSendReminders(): Promise<void> {
 
     // Check if today is the reminder day (1 day before due date)
     if (format(reminderDate, "yyyy-MM-dd") === todayStr) {
-      // Check if we've already sent a notification for this billing cycle
+      // ── Deduplication layer 1: DB-level check (survives deploys/restarts) ──
+      // Check bill_reminders_sent table first — this is the primary guard that
+      // prevents duplicate emails on every deploy.
+      const alreadySentToday = await isBillReminderAlreadySent(bill.id, todayStr);
+      if (alreadySentToday) {
+        console.log(`[BillReminder] Already sent reminder for bill: ${bill.name} on ${todayStr} (DB record found), skipping.`);
+        continue;
+      }
+
+      // ── Deduplication layer 2: legacy lastNotifiedCycle check ──
       // Use full date for weekly/biweekly/custom/one_time, "yyyy-MM" for monthly/yearly
       const cycleKey = (bill.recurrence === "biweekly" || bill.recurrence === "weekly" || bill.recurrence === "custom" || bill.recurrence === "one_time")
         ? format(nextDue, "yyyy-MM-dd")
@@ -226,6 +273,9 @@ export async function checkAndSendReminders(): Promise<void> {
         const sent = await sendBillReminder(bill, nextDue);
 
         if (sent) {
+          // Write deduplication record BEFORE updating the bill row so that
+          // even if the bill update fails, the DB guard prevents a re-send.
+          await recordBillReminderSent(bill.userId, bill.id, todayStr);
           await storage.updateBillNotifiedCycle(bill.id, cycleKey);
           auditLog({
             eventType: "billing.bill_reminder_sent",

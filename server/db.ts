@@ -655,6 +655,38 @@ export async function ensureSyncCursorColumn(): Promise<void> {
   );
 }
 
+/**
+ * Ensure the bill_reminders_sent table exists for deduplication of bill
+ * reminder emails. Prevents duplicate emails on every deploy by recording
+ * each (billId, reminderDate) pair that has already been sent.
+ *
+ * The UNIQUE constraint on (bill_id, reminder_date) acts as a DB-level safety
+ * net — a duplicate INSERT will be rejected even if the application-level
+ * check is bypassed by a race condition or concurrent process.
+ *
+ * Safe to call on every startup (uses CREATE TABLE IF NOT EXISTS).
+ */
+export async function ensureBillRemindersSentTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_reminders_sent (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id     VARCHAR(255) NOT NULL,
+      bill_id     VARCHAR(255) NOT NULL,
+      reminder_date DATE NOT NULL,
+      sent_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT uq_bill_reminder_date UNIQUE (bill_id, reminder_date)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_bill_reminders_bill_date
+      ON bill_reminders_sent (bill_id, reminder_date)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_bill_reminders_user
+      ON bill_reminders_sent (user_id)
+  `);
+}
+
 export async function ensurePlanFeatureLimitsTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS plan_feature_limits (
