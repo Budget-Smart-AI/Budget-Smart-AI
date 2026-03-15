@@ -212,6 +212,8 @@ export async function getConnectWidgetUrl(userGuid: string, currentMemberGuid?: 
         ui_message_version: 4,
         include_transactions: true,
         wait_for_full_aggregation: false,
+        webhook_url: process.env.MX_WEBHOOK_URL ||
+          `${process.env.APP_URL}/api/mx/webhook`,
       },
     };
 

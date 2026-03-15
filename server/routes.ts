@@ -6058,7 +6058,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
-  // MX member connected - sync accounts
+  // MX member connected - save member & accounts, then wait for webhook to deliver transactions
   app.post("/api/mx/members/:memberGuid/sync", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -6120,7 +6120,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         });
       }
 
-      // Fetch and sync accounts
+      // Fetch and save accounts (no transaction sync — webhook will deliver transactions)
       const mxAccounts = await listAccounts(user.mxUserGuid, memberGuid);
       const syncedAccounts = [];
 
@@ -6156,14 +6156,61 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         }
       }
 
-      res.json({ 
-        member: existingMember, 
-        accounts: syncedAccounts,
-        message: `Synced ${syncedAccounts.length} accounts`
+      // Return webhook-pending response — transactions will arrive via MX webhook
+      res.json({
+        success: true,
+        member: {
+          guid: existingMember.memberGuid,
+          institutionName: existingMember.institutionName,
+        },
+        syncStatus: "pending_webhook",
+        message: "Your accounts are connected. Transactions will appear within 2-3 minutes automatically.",
       });
     } catch (error: any) {
       console.error("Error syncing MX member:", error);
       res.status(500).json({ error: error.message || "Failed to sync member" });
+    }
+  });
+
+  // MX manual sync fallback — use when webhook doesn't fire
+  app.post('/api/mx/members/:memberGuid/sync-transactions', requireAuth, async (req, res) => {
+    try {
+      const { memberGuid } = req.params;
+      const userId = req.session.userId!;
+
+      const { and, eq } = await import("drizzle-orm");
+      const { mxMembers: mxMembersTable } = await import("@shared/schema");
+
+      const member = await db.query.mxMembers.findFirst({
+        where: and(
+          eq(mxMembersTable.memberGuid, memberGuid),
+          eq(mxMembersTable.userId, userId)
+        )
+      });
+
+      if (!member) {
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
+      const { syncMXTransactions } = await import("./mx");
+      const result = await syncMXTransactions(
+        userId,
+        memberGuid,
+        member.id
+      );
+
+      res.json({
+        success: true,
+        ...result,
+        message: `Synced ${result.added} transactions`
+      });
+
+    } catch (error: any) {
+      console.error('[MX Manual Sync] Error:', error);
+      res.status(500).json({
+        error: 'Sync failed',
+        details: error?.message
+      });
     }
   });
 
