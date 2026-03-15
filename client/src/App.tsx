@@ -50,6 +50,8 @@ import InvitationPage from "@/pages/invitation";
 import VerifyEmailPendingPage from "@/pages/verify-email-pending";
 import VerifyEmailPage from "@/pages/verify-email";
 import SetupMfaPage from "@/pages/setup-mfa";
+import ForgotPasswordPage from "@/pages/forgot-password";
+import ResetPasswordPage from "@/pages/reset-password";
 import DebtPayoff from "@/pages/debt-payoff";
 import Debts from "@/pages/debts";
 import Investments from "@/pages/investments";
@@ -385,6 +387,8 @@ function AppContent() {
       <Route path="/verify-email-pending" component={VerifyEmailPendingPage} />
       <Route path="/verify-email/:token" component={VerifyEmailPage} />
       <Route path="/setup-mfa" component={SetupMfaPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+      <Route path="/reset-password/:token" component={ResetPasswordPage} />
       <Route path="/demo" component={DemoPage} />
       {/* Root and authenticated routes */}
       <Route>

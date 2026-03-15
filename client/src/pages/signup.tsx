@@ -109,7 +109,7 @@ const registerSchema = z.object({
   username: z.string().email("Valid email is required"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
-  country: z.string().default("CA"),
+  country: z.string().default("US"),
   stateProvince: z.string().min(1, "Province/State is required"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -142,7 +142,7 @@ export default function SignupPage() {
       username: "",
       password: "",
       confirmPassword: "",
-      country: "CA",       // Default to Canada
+      country: "US",       // Default to United States
       stateProvince: "",
     },
   });

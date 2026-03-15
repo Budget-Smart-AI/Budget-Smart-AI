@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Lock, User, Shield } from "lucide-react";
+import { Loader2, Lock, User, Shield, KeyRound, AlertTriangle } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BudgetSmartLogo } from "@/components/logo";
@@ -20,7 +20,7 @@ const loginSchema = z.object({
 });
 
 const mfaSchema = z.object({
-  mfaCode: z.string().length(6, "MFA code must be 6 digits"),
+  mfaCode: z.string().min(1, "Code is required"),
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
@@ -34,6 +34,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [showMfa, setShowMfa] = useState(false);
+  const [useBackupCode, setUseBackupCode] = useState(false);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -43,6 +44,15 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         title: "Google Sign-In Failed",
         description: "Unable to sign in with Google. Please try again.",
         variant: "destructive",
+      });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    // Show success message after password reset
+    const msg = urlParams.get("msg");
+    if (msg === "password_reset") {
+      toast({
+        title: "Password Reset Successful",
+        description: "Your password has been updated. Please sign in.",
       });
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -82,7 +92,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         navigate("/setup-mfa");
       } else if (data.mfaRequired) {
         setShowMfa(true);
-        toast({ title: "Enter MFA Code", description: "Please enter your authenticator code" });
+        setUseBackupCode(false);
+        toast({ title: "Enter Verification Code", description: "Please enter your authenticator code to continue" });
       } else {
         toast({ title: "Welcome back!", description: "You have been logged in successfully" });
         onLoginSuccess();
@@ -102,6 +113,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           title: "Account Pending Approval",
           description: "Your account is awaiting admin approval. Please try again later.",
         });
+      } else if (error.message.toLowerCase().includes("locked")) {
+        toast({
+          title: "Account Temporarily Locked",
+          description: error.message,
+          variant: "destructive",
+        });
       } else {
         toast({ title: "Login Failed", description: error.message, variant: "destructive" });
       }
@@ -110,16 +127,30 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
   const mfaMutation = useMutation({
     mutationFn: async (data: MfaFormData) => {
-      const response = await apiRequest("POST", "/api/auth/verify-mfa", data);
+      const endpoint = useBackupCode
+        ? "/api/auth/verify-backup-code"
+        : "/api/auth/verify-mfa";
+      const response = await apiRequest("POST", endpoint, { code: data.mfaCode });
       return response.json();
     },
-    onSuccess: () => {
-      toast({ title: "Welcome back!", description: "MFA verified successfully" });
+    onSuccess: (data) => {
+      if (data.backupCodeUsed) {
+        toast({
+          title: "Backup Code Used",
+          description: `You have ${data.remainingCodes} backup code(s) remaining. Please set up a new authenticator app soon.`,
+        });
+      } else {
+        toast({ title: "Welcome back!", description: "Verification successful" });
+      }
       onLoginSuccess();
       navigate("/");
     },
     onError: (error: Error) => {
-      toast({ title: "MFA Failed", description: error.message, variant: "destructive" });
+      toast({
+        title: useBackupCode ? "Invalid Backup Code" : "Verification Failed",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -130,31 +161,58 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           <Card className="w-full max-w-md bg-slate-900/50 border-slate-800">
             <CardHeader className="text-center">
               <div className="mx-auto mb-4 w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center">
-                <Shield className="w-8 h-8 text-emerald-400" />
+                {useBackupCode ? (
+                  <KeyRound className="w-8 h-8 text-emerald-400" />
+                ) : (
+                  <Shield className="w-8 h-8 text-emerald-400" />
+                )}
               </div>
-              <CardTitle className="text-2xl font-bold text-white">Two-Factor Authentication</CardTitle>
-              <CardDescription className="text-slate-400">Enter your authenticator code</CardDescription>
+              <CardTitle className="text-2xl font-bold text-white">
+                {useBackupCode ? "Use Backup Code" : "Two-Factor Authentication"}
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                {useBackupCode
+                  ? "Enter one of your saved backup codes"
+                  : "Enter the 6-digit code from your authenticator app"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Form {...mfaForm}>
-                <form onSubmit={mfaForm.handleSubmit((data) => mfaMutation.mutate(data))} className="space-y-4" aria-label="Two-factor authentication form">
+                <form
+                  onSubmit={mfaForm.handleSubmit((data) => mfaMutation.mutate(data))}
+                  className="space-y-4"
+                  aria-label="Two-factor authentication form"
+                >
                   <FormField
                     control={mfaForm.control}
                     name="mfaCode"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Authenticator Code</FormLabel>
+                        <FormLabel>
+                          {useBackupCode ? "Backup Code" : "Authenticator Code"}
+                        </FormLabel>
                         <FormControl>
                           <div className="relative">
-                            <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+                            {useBackupCode ? (
+                              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+                            ) : (
+                              <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
+                            )}
                             <Input
                               {...field}
-                              placeholder="Enter 6-digit code"
-                              maxLength={6}
-                              inputMode="numeric"
-                              pattern="[0-9]*"
-                              className="pl-10 text-center text-lg tracking-widest"
+                              placeholder={useBackupCode ? "Enter backup code (e.g. A1B2C3D4)" : "Enter 6-digit code"}
+                              maxLength={useBackupCode ? 8 : 6}
+                              inputMode={useBackupCode ? "text" : "numeric"}
+                              pattern={useBackupCode ? undefined : "[0-9]*"}
+                              className={`pl-10 text-center text-lg tracking-widest ${useBackupCode ? "uppercase" : ""}`}
+                              autoComplete="one-time-code"
                               data-testid="input-mfa-code"
+                              onChange={(e) => {
+                                const val = useBackupCode
+                                  ? e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")
+                                  : e.target.value.replace(/\D/g, "");
+                                field.onChange(val);
+                              }}
                             />
                           </div>
                         </FormControl>
@@ -162,19 +220,71 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" className="w-full" disabled={mfaMutation.isPending} data-testid="button-verify-mfa">
+
+                  {useBackupCode && (
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-xs text-amber-300">
+                      <AlertTriangle className="w-3 h-3 inline mr-1" />
+                      Each backup code can only be used once. After signing in, please set up a new authenticator app.
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    className="w-full bg-emerald-600 hover:bg-emerald-500"
+                    disabled={mfaMutation.isPending}
+                    data-testid="button-verify-mfa"
+                  >
                     {mfaMutation.isPending ? (
                       <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Verifying...</>
-                    ) : "Verify Code"}
+                    ) : (
+                      useBackupCode ? "Use Backup Code" : "Verify Code"
+                    )}
                   </Button>
-                  <Button type="button" variant="ghost" className="w-full" onClick={() => setShowMfa(false)} data-testid="button-back-to-login">
-                    Back to Login
+
+                  {/* Toggle between TOTP and backup code */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full text-slate-400 hover:text-white text-sm"
+                    onClick={() => {
+                      setUseBackupCode(!useBackupCode);
+                      mfaForm.reset();
+                    }}
+                  >
+                    {useBackupCode
+                      ? "← Use authenticator app instead"
+                      : "Lost access to your authenticator? Use a backup code"}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full text-slate-500 hover:text-slate-300 text-sm"
+                    onClick={() => {
+                      setShowMfa(false);
+                      setUseBackupCode(false);
+                      mfaForm.reset();
+                    }}
+                    data-testid="button-back-to-login"
+                  >
+                    ← Back to Sign In
                   </Button>
                 </form>
               </Form>
+
+              {/* Lost all access help */}
+              <div className="mt-4 pt-4 border-t border-slate-800 text-center">
+                <p className="text-xs text-slate-500">
+                  Lost all access to your 2FA?{" "}
+                  <Link href="/support" className="text-emerald-400 hover:text-emerald-300">
+                    Contact support
+                  </Link>
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>
+        <PageFooter />
       </div>
     );
   }
@@ -246,7 +356,16 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                     name="password"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Password</FormLabel>
+                        <div className="flex items-center justify-between">
+                          <FormLabel>Password</FormLabel>
+                          <Link
+                            href="/forgot-password"
+                            className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+                            data-testid="link-forgot-password"
+                          >
+                            Forgot password?
+                          </Link>
+                        </div>
                         <FormControl>
                           <div className="relative">
                             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
@@ -257,7 +376,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" className="w-full" disabled={loginMutation.isPending} data-testid="button-login">
+                  <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500" disabled={loginMutation.isPending} data-testid="button-login">
                     {loginMutation.isPending ? (
                       <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Signing in...</>
                     ) : "Sign In"}
@@ -280,26 +399,32 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         </Card>
       </div>
 
-      <footer className="border-t border-slate-800 bg-slate-950/50 py-4">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-wrap justify-center gap-4 text-sm text-slate-400">
-            <Link href="/privacy" className="hover:text-white transition-colors" data-testid="link-privacy">Privacy Policy</Link>
-            <span className="text-slate-600" aria-hidden="true">|</span>
-            <Link href="/terms" className="hover:text-white transition-colors" data-testid="link-terms">Terms of Service</Link>
-            <span className="text-slate-600" aria-hidden="true">|</span>
-            <Link href="/security" className="hover:text-white transition-colors" data-testid="link-security">Security</Link>
-            <span className="text-slate-600" aria-hidden="true">|</span>
-            <Link href="/trust" className="hover:text-white transition-colors" data-testid="link-trust">Trust Center</Link>
-            <span className="text-slate-600" aria-hidden="true">|</span>
-            <Link href="/contact" className="hover:text-white transition-colors" data-testid="link-contact">Contact</Link>
-            <span className="text-slate-600" aria-hidden="true">|</span>
-            <Link href="/data-retention" className="hover:text-white transition-colors" data-testid="link-data-retention">Data Retention Policy</Link>
-          </div>
-          <p className="text-center text-xs text-slate-500 mt-2">
-            &copy; {new Date().getFullYear()} Budget Smart AI. All rights reserved.
-          </p>
-        </div>
-      </footer>
+      <PageFooter />
     </div>
+  );
+}
+
+function PageFooter() {
+  return (
+    <footer className="border-t border-slate-800 bg-slate-950/50 py-4">
+      <div className="container mx-auto px-4">
+        <div className="flex flex-wrap justify-center gap-4 text-sm text-slate-400">
+          <Link href="/privacy" className="hover:text-white transition-colors" data-testid="link-privacy">Privacy Policy</Link>
+          <span className="text-slate-600" aria-hidden="true">|</span>
+          <Link href="/terms" className="hover:text-white transition-colors" data-testid="link-terms">Terms of Service</Link>
+          <span className="text-slate-600" aria-hidden="true">|</span>
+          <Link href="/security" className="hover:text-white transition-colors" data-testid="link-security">Security</Link>
+          <span className="text-slate-600" aria-hidden="true">|</span>
+          <Link href="/trust" className="hover:text-white transition-colors" data-testid="link-trust">Trust Center</Link>
+          <span className="text-slate-600" aria-hidden="true">|</span>
+          <Link href="/contact" className="hover:text-white transition-colors" data-testid="link-contact">Contact</Link>
+          <span className="text-slate-600" aria-hidden="true">|</span>
+          <Link href="/data-retention" className="hover:text-white transition-colors" data-testid="link-data-retention">Data Retention Policy</Link>
+        </div>
+        <p className="text-center text-xs text-slate-500 mt-2">
+          &copy; {new Date().getFullYear()} Budget Smart AI. All rights reserved.
+        </p>
+      </div>
+    </footer>
   );
 }

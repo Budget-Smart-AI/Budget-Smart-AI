@@ -39,6 +39,7 @@ import { eq, and } from "drizzle-orm";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
+import { registerPasswordResetRoutes } from "./routes/auth-password-reset";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
@@ -118,6 +119,7 @@ export async function registerRoutes(
   
   // Admin plan-feature management routes (protected with requireAdmin)
   app.use("/api/admin/plans", adminPlansRouter);
+  registerPasswordResetRoutes(app);
 
   // Field encryption status endpoint (admin only)
   app.get("/api/encryption/status", requireAuth, requireAdmin, (_req, res) => {
