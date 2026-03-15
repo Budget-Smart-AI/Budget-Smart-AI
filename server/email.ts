@@ -1230,6 +1230,47 @@ The Budget Smart AI Team`;
  * and send notification emails if not already sent this month.
  * Runs daily from the email scheduler.
  */
+/**
+ * Send a spending alert email when a user's spending threshold is exceeded.
+ */
+export async function sendSpendingAlertEmail(user: any, alert: any, currentSpend: number): Promise<boolean> {
+  if (!process.env.POSTMARK_USERNAME) return false;
+  const fromEmail = process.env.ALERT_EMAIL_FROM;
+  if (!fromEmail || !user?.email) return false;
+
+  const label = alert.category || alert.merchantName || "total spending";
+  const periodLabel = alert.period === "weekly" ? "week" : "month";
+  const subject = `⚠️ Spending Alert: ${label} threshold reached`;
+  const body = `Hi ${user.firstName || user.username || "there"},
+
+You've spent $${currentSpend.toFixed(2)} on ${label} this ${periodLabel}.
+
+Your alert threshold was $${parseFloat(alert.threshold).toFixed(2)}.
+
+Log in to Budget Smart AI to review your spending and adjust your budget.
+
+${process.env.APP_URL || "https://app.budgetsmart.io"}/dashboard
+
+Best regards,
+Budget Smart AI`;
+
+  try {
+    const client = getPostmarkClient();
+    if (!client) return false;
+    await client.sendEmail({
+      From: fromEmail,
+      To: user.email,
+      Subject: subject,
+      TextBody: body,
+    });
+    console.log(`[SpendingAlert] Alert email sent to ${user.email} for ${label}`);
+    return true;
+  } catch (err) {
+    console.error("[SpendingAlert] Failed to send alert email:", err);
+    return false;
+  }
+}
+
 export async function checkAndSendUsageMilestoneEmails(): Promise<void> {
   const client = getPostmarkClient();
   const fromEmail = process.env.ALERT_EMAIL_FROM;

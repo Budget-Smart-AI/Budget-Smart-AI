@@ -12,6 +12,7 @@ import {
   CreditCard,
   Bell,
   Lock,
+  BellRing,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ const SETTINGS_TABS = [
   { title: "Privacy", slug: "privacy", icon: Lock },
   { title: "Billing", slug: "billing", icon: CreditCard },
   { title: "Notifications", slug: "notifications", icon: Bell },
+  { title: "Spending Alerts", slug: "spending-alerts", icon: BellRing },
 ] as const;
 
 interface SettingsLayoutProps {

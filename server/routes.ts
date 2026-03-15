@@ -34,7 +34,8 @@ import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpen
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
-import { salesLeadFormSchema, billPayments } from "@shared/schema";
+import { salesLeadFormSchema, billPayments, spendingAlerts, insertSpendingAlertSchema, updateSpendingAlertSchema } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
@@ -7171,6 +7172,38 @@ Rules:
 
       const { progress } = req.body;
       await storage.updateUserOnboarding(userId, true, progress);
+
+      // Create default spending alerts for new users
+      try {
+        const existingAlerts = await db.query.spendingAlerts.findMany({
+          where: eq(spendingAlerts.userId, userId),
+        });
+        if (existingAlerts.length === 0) {
+          await db.insert(spendingAlerts).values([
+            {
+              userId,
+              alertType: "total_monthly",
+              threshold: "10000",
+              period: "monthly",
+              notifyEmail: true,
+              notifyInApp: true,
+              isActive: true,
+            },
+            {
+              userId,
+              alertType: "single_transaction",
+              threshold: "1000",
+              period: "per_transaction",
+              notifyEmail: true,
+              notifyInApp: true,
+              isActive: true,
+            },
+          ]);
+        }
+      } catch (alertErr) {
+        console.error("[Onboarding] Failed to create default spending alerts (non-fatal):", alertErr);
+      }
+
       res.json({ success: true });
     } catch (error) {
       console.error("Error completing onboarding:", error);
@@ -8007,6 +8040,75 @@ ${JSON.stringify(txSummary)}`;
     } catch (error) {
       console.error("Error deleting notification:", error);
       res.status(500).json({ error: "Failed to delete notification" });
+    }
+  });
+
+  // ============ SPENDING ALERTS ============
+
+  app.get("/api/spending-alerts", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const alerts = await db.query.spendingAlerts.findMany({
+        where: eq(spendingAlerts.userId, userId),
+        orderBy: (t, { desc }) => [desc(t.createdAt)],
+      });
+      res.json(alerts);
+    } catch (error) {
+      console.error("Error fetching spending alerts:", error);
+      res.status(500).json({ error: "Failed to fetch spending alerts" });
+    }
+  });
+
+  app.post("/api/spending-alerts", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const parsed = insertSpendingAlertSchema.safeParse({ ...req.body, userId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid alert data", details: parsed.error });
+      }
+      const [alert] = await db.insert(spendingAlerts).values({
+        ...parsed.data,
+        userId,
+      }).returning();
+      res.status(201).json(alert);
+    } catch (error) {
+      console.error("Error creating spending alert:", error);
+      res.status(500).json({ error: "Failed to create spending alert" });
+    }
+  });
+
+  app.patch("/api/spending-alerts/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const id = req.params.id as string;
+      const parsed = updateSpendingAlertSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid alert data", details: parsed.error });
+      }
+      const [updated] = await db.update(spendingAlerts)
+        .set(parsed.data)
+        .where(and(eq(spendingAlerts.id, id), eq(spendingAlerts.userId, userId)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Alert not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating spending alert:", error);
+      res.status(500).json({ error: "Failed to update spending alert" });
+    }
+  });
+
+  app.delete("/api/spending-alerts/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const id = req.params.id as string;
+      const [deleted] = await db.delete(spendingAlerts)
+        .where(and(eq(spendingAlerts.id, id), eq(spendingAlerts.userId, userId)))
+        .returning();
+      if (!deleted) return res.status(404).json({ error: "Alert not found" });
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting spending alert:", error);
+      res.status(500).json({ error: "Failed to delete spending alert" });
     }
   });
 

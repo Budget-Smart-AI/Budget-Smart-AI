@@ -21,6 +21,7 @@ import {
   Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2,
   AlertTriangle, CreditCard, Calendar, Sparkles, ExternalLink, Copy,
   Download, Check, Camera, Globe, Cake, Eye, EyeOff, Mail, Lock, KeyRound, SlidersHorizontal,
+  BellRing, Pencil, X,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -1189,6 +1190,405 @@ function BillingTab() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── Spending Alerts Tab ──────────────────────────────────────────────────────
+interface SpendingAlert {
+  id: string;
+  alertType: string;
+  category: string | null;
+  merchantName: string | null;
+  threshold: string;
+  period: string;
+  notifyEmail: boolean;
+  notifyInApp: boolean;
+  isActive: boolean;
+  lastTriggeredAt: string | null;
+  createdAt: string | null;
+}
+
+const ALERT_TYPE_LABELS: Record<string, string> = {
+  category_monthly: "Category Monthly Limit",
+  single_transaction: "Single Transaction Limit",
+  total_monthly: "Total Monthly Spending",
+  merchant: "Merchant Spending Limit",
+};
+
+const PERIOD_LABELS: Record<string, string> = {
+  monthly: "Monthly",
+  weekly: "Weekly",
+  per_transaction: "Per Transaction",
+};
+
+const EXPENSE_CATEGORIES = [
+  "Food & Dining", "Groceries", "Restaurants", "Coffee Shops",
+  "Transportation", "Gas & Fuel", "Parking", "Public Transit", "Rideshare",
+  "Shopping", "Clothing", "Electronics", "Home & Garden",
+  "Entertainment", "Movies & Music", "Games", "Sports",
+  "Health & Fitness", "Pharmacy", "Doctor", "Gym",
+  "Travel", "Hotels", "Flights", "Vacation",
+  "Bills & Utilities", "Rent", "Mortgage", "Internet", "Phone", "Electricity", "Water",
+  "Insurance", "Auto Insurance", "Home Insurance", "Life Insurance",
+  "Education", "Subscriptions", "Personal Care", "Gifts & Donations",
+  "Business", "Taxes", "Investments", "Other",
+];
+
+function SpendingAlertsTab() {
+  const { toast } = useToast();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingAlert, setEditingAlert] = useState<SpendingAlert | null>(null);
+
+  // Form state
+  const [alertType, setAlertType] = useState("total_monthly");
+  const [category, setCategory] = useState("");
+  const [merchantName, setMerchantName] = useState("");
+  const [threshold, setThreshold] = useState("");
+  const [period, setPeriod] = useState("monthly");
+  const [notifyEmail, setNotifyEmail] = useState(true);
+  const [notifyInApp, setNotifyInApp] = useState(true);
+
+  const { data: alerts = [], isLoading } = useQuery<SpendingAlert[]>({
+    queryKey: ["/api/spending-alerts"],
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: object) => {
+      const res = await apiRequest("POST", "/api/spending-alerts", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/spending-alerts"] });
+      toast({ title: "Alert created" });
+      setModalOpen(false);
+      resetForm();
+    },
+    onError: (err: Error) => toast({ title: "Failed to create alert", description: err.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: object }) => {
+      const res = await apiRequest("PATCH", `/api/spending-alerts/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/spending-alerts"] });
+      toast({ title: "Alert updated" });
+      setModalOpen(false);
+      setEditingAlert(null);
+      resetForm();
+    },
+    onError: (err: Error) => toast({ title: "Failed to update alert", description: err.message, variant: "destructive" }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/spending-alerts/${id}`, { isActive });
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/spending-alerts"] }),
+    onError: (err: Error) => toast({ title: "Failed to update alert", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/spending-alerts/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/spending-alerts"] });
+      toast({ title: "Alert deleted" });
+    },
+    onError: (err: Error) => toast({ title: "Failed to delete alert", description: err.message, variant: "destructive" }),
+  });
+
+  function resetForm() {
+    setAlertType("total_monthly");
+    setCategory("");
+    setMerchantName("");
+    setThreshold("");
+    setPeriod("monthly");
+    setNotifyEmail(true);
+    setNotifyInApp(true);
+  }
+
+  function openCreate() {
+    setEditingAlert(null);
+    resetForm();
+    setModalOpen(true);
+  }
+
+  function openEdit(alert: SpendingAlert) {
+    setEditingAlert(alert);
+    setAlertType(alert.alertType);
+    setCategory(alert.category || "");
+    setMerchantName(alert.merchantName || "");
+    setThreshold(alert.threshold);
+    setPeriod(alert.period);
+    setNotifyEmail(alert.notifyEmail);
+    setNotifyInApp(alert.notifyInApp);
+    setModalOpen(true);
+  }
+
+  function handleSave() {
+    if (!threshold || isNaN(parseFloat(threshold)) || parseFloat(threshold) <= 0) {
+      toast({ title: "Please enter a valid threshold amount", variant: "destructive" });
+      return;
+    }
+    const payload = {
+      alertType,
+      category: alertType === "category_monthly" ? category || null : null,
+      merchantName: alertType === "merchant" ? merchantName || null : null,
+      threshold: String(parseFloat(threshold).toFixed(2)),
+      period: alertType === "single_transaction" ? "per_transaction" : period,
+      notifyEmail,
+      notifyInApp,
+      isActive: true,
+    };
+    if (editingAlert) {
+      updateMutation.mutate({ id: editingAlert.id, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
+  }
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  function getAlertDescription(alert: SpendingAlert): string {
+    const amt = `$${parseFloat(alert.threshold).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    switch (alert.alertType) {
+      case "category_monthly": return `${alert.category || "Any category"} spending exceeds ${amt}/month`;
+      case "single_transaction": return `Single transaction exceeds ${amt}`;
+      case "total_monthly": return `Total monthly spending exceeds ${amt}`;
+      case "merchant": return `${alert.merchantName || "Any merchant"} spending exceeds ${amt}`;
+      default: return `Threshold: ${amt}`;
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Spending Alerts</h2>
+          <p className="text-sm text-muted-foreground">
+            Get notified when your spending exceeds set thresholds.
+          </p>
+        </div>
+        <Button size="sm" onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Alert
+        </Button>
+      </div>
+
+      {isLoading && (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && alerts.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center space-y-3">
+            <BellRing className="h-10 w-10 mx-auto text-muted-foreground" />
+            <p className="text-muted-foreground">No spending alerts configured yet.</p>
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Your First Alert
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {alerts.map((alert) => (
+        <Card key={alert.id} className={!alert.isActive ? "opacity-60" : ""}>
+          <CardContent className="py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
+                  <BellRing className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium">
+                      {ALERT_TYPE_LABELS[alert.alertType] || alert.alertType}
+                    </p>
+                    <Badge variant={alert.isActive ? "default" : "secondary"} className="text-xs">
+                      {alert.isActive ? "Active" : "Paused"}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {getAlertDescription(alert)}
+                  </p>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                    {alert.period !== "per_transaction" && (
+                      <span>{PERIOD_LABELS[alert.period] || alert.period}</span>
+                    )}
+                    <span className="flex items-center gap-1">
+                      {alert.notifyEmail && <Mail className="h-3 w-3" />}
+                      {alert.notifyInApp && <Bell className="h-3 w-3" />}
+                    </span>
+                    {alert.lastTriggeredAt && (
+                      <span>Last triggered: {new Date(alert.lastTriggeredAt).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => openEdit(alert)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Switch
+                  checked={alert.isActive}
+                  onCheckedChange={(val) => toggleMutation.mutate({ id: alert.id, isActive: val })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                  onClick={() => deleteMutation.mutate(alert.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
+      {/* Add / Edit Alert Modal */}
+      <Dialog open={modalOpen} onOpenChange={(open) => { if (!open) { setModalOpen(false); setEditingAlert(null); resetForm(); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BellRing className="h-5 w-5" />
+              {editingAlert ? "Edit Alert" : "Add Spending Alert"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingAlert ? "Update your spending alert settings." : "Set a threshold to get notified when spending exceeds it."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            {/* Alert Type */}
+            <div className="space-y-1.5">
+              <Label>Alert Type</Label>
+              <Select value={alertType} onValueChange={(v) => { setAlertType(v); if (v === "single_transaction") setPeriod("per_transaction"); else if (period === "per_transaction") setPeriod("monthly"); }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="total_monthly">Total Monthly Spending</SelectItem>
+                  <SelectItem value="category_monthly">Category Monthly Limit</SelectItem>
+                  <SelectItem value="single_transaction">Single Transaction Limit</SelectItem>
+                  <SelectItem value="merchant">Merchant Spending Limit</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Category (conditional) */}
+            {alertType === "category_monthly" && (
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_CATEGORIES.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Merchant Name (conditional) */}
+            {alertType === "merchant" && (
+              <div className="space-y-1.5">
+                <Label>Merchant Name</Label>
+                <Input
+                  placeholder="e.g. Amazon, Starbucks"
+                  value={merchantName}
+                  onChange={(e) => setMerchantName(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Threshold */}
+            <div className="space-y-1.5">
+              <Label>Threshold Amount ($)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="pl-7"
+                  value={threshold}
+                  onChange={(e) => setThreshold(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Period (hidden for single_transaction) */}
+            {alertType !== "single_transaction" && (
+              <div className="space-y-1.5">
+                <Label>Period</Label>
+                <Select value={period} onValueChange={setPeriod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Notification channels */}
+            <div className="space-y-2">
+              <Label>Notify via</Label>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Switch id="alert-notify-email" checked={notifyEmail} onCheckedChange={setNotifyEmail} />
+                  <Label htmlFor="alert-notify-email" className="text-sm font-normal cursor-pointer flex items-center gap-1">
+                    <Mail className="h-3.5 w-3.5" /> Email
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch id="alert-notify-inapp" checked={notifyInApp} onCheckedChange={setNotifyInApp} />
+                  <Label htmlFor="alert-notify-inapp" className="text-sm font-normal cursor-pointer flex items-center gap-1">
+                    <Bell className="h-3.5 w-3.5" /> In-App
+                  </Label>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setModalOpen(false); setEditingAlert(null); resetForm(); }}>
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{editingAlert ? "Saving…" : "Creating…"}</>
+                ) : (
+                  editingAlert ? "Save Changes" : "Create Alert"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2747,6 +3147,9 @@ export default function Settings({ onLogout }: SettingsProps) {
 
       {/* ── Notifications Tab ── */}
       {activeTab === "notifications" && <EmailSettings />}
+
+      {/* ── Spending Alerts Tab ── */}
+      {activeTab === "spending-alerts" && <SpendingAlertsTab />}
 
     </SettingsLayout>
     </>

@@ -16,9 +16,10 @@
 
 import { storage } from "../storage";
 import { db } from "../db";
-import { billPayments, bills as billsTable } from "../../shared/schema";
+import { billPayments, bills as billsTable, spendingAlerts, notifications, users } from "../../shared/schema";
 import { eq, and, ilike } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
+import { sendSpendingAlertEmail } from "../email";
 
 // ─── Known Subscriptions Lookup ──────────────────────────────────────────────
 
@@ -183,6 +184,101 @@ function calcNextDueDate(paidDate: string, recurrence: string, dueDay: number): 
   const mm = String(normalizedMonth + 1).padStart(2, "0");
   const dd = String(clampedDay).padStart(2, "0");
   return `${nextYear}-${mm}-${dd}`;
+}
+
+// ─── Spending Alert Helpers ──────────────────────────────────────────────────
+
+function getAlertPeriodStart(period: string | null): Date {
+  const now = new Date();
+  if (period === "weekly") {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 7);
+    return d;
+  }
+  // monthly (default)
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+async function getCategorySpend(userId: string, category: string | null, periodStart: Date): Promise<number> {
+  if (!category) return 0;
+  const periodStartStr = periodStart.toISOString().substring(0, 10);
+  const exps = await storage.getExpenses(userId);
+  return exps
+    .filter((e: Expense) => e.date >= periodStartStr && (e.category || "").toLowerCase() === category.toLowerCase())
+    .reduce((sum: number, e: Expense) => sum + parseFloat(e.amount as string), 0);
+}
+
+async function getTotalSpend(userId: string, periodStart: Date): Promise<number> {
+  const periodStartStr = periodStart.toISOString().substring(0, 10);
+  const exps = await storage.getExpenses(userId);
+  return exps
+    .filter((e: Expense) => e.date >= periodStartStr)
+    .reduce((sum: number, e: Expense) => sum + parseFloat(e.amount as string), 0);
+}
+
+async function getMerchantSpend(userId: string, merchantName: string | null, periodStart: Date): Promise<number> {
+  if (!merchantName) return 0;
+  const periodStartStr = periodStart.toISOString().substring(0, 10);
+  const exps = await storage.getExpenses(userId);
+  return exps
+    .filter((e: Expense) => e.date >= periodStartStr && (e.merchant || "").toLowerCase().includes(merchantName.toLowerCase()))
+    .reduce((sum: number, e: Expense) => sum + parseFloat(e.amount as string), 0);
+}
+
+async function fireSpendingAlert(userId: string, alert: any, currentSpend: number): Promise<void> {
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  const label = alert.category || alert.merchantName || "total spending";
+  const message = `You've spent $${currentSpend.toFixed(2)} on ${label} this ${alert.period || "month"}. Your alert threshold was $${parseFloat(alert.threshold).toFixed(2)}.`;
+
+  if (alert.notifyInApp) {
+    await db.insert(notifications).values({
+      id: crypto.randomUUID(),
+      userId,
+      type: "spending_alert",
+      title: "⚠️ Spending Alert",
+      message,
+      isRead: "false",
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  if (alert.notifyEmail && user?.email) {
+    await sendSpendingAlertEmail(user, alert, currentSpend);
+  }
+}
+
+async function checkSpendingAlerts(userId: string): Promise<void> {
+  try {
+    const alerts = await db.query.spendingAlerts.findMany({
+      where: and(eq(spendingAlerts.userId, userId), eq(spendingAlerts.isActive, true)),
+    });
+
+    for (const alert of alerts) {
+      let currentSpend = 0;
+      const periodStart = getAlertPeriodStart(alert.period);
+
+      if (alert.alertType === "category_monthly") {
+        currentSpend = await getCategorySpend(userId, alert.category, periodStart);
+      } else if (alert.alertType === "total_monthly") {
+        currentSpend = await getTotalSpend(userId, periodStart);
+      } else if (alert.alertType === "merchant") {
+        currentSpend = await getMerchantSpend(userId, alert.merchantName, periodStart);
+      } else if (alert.alertType === "single_transaction") {
+        continue; // handled per-transaction elsewhere
+      }
+
+      const threshold = parseFloat(alert.threshold as string);
+      if (currentSpend >= threshold) {
+        const alreadyFired = alert.lastTriggeredAt && alert.lastTriggeredAt >= periodStart;
+        if (!alreadyFired) {
+          await fireSpendingAlert(userId, alert, currentSpend);
+          await db.update(spendingAlerts).set({ lastTriggeredAt: new Date() }).where(eq(spendingAlerts.id, alert.id));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[AutoReconciler] checkSpendingAlerts error:", err);
+  }
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
@@ -592,6 +688,9 @@ export async function autoReconcile(userId: string): Promise<{
       `${expenseMatches} expense matches, ${autoCreated} expense auto-created, ` +
       `${subscriptionsCreated} subscriptions created, ${subscriptionsUpdated} subscriptions updated`
   );
+
+  // ── Check spending alerts after reconciliation ───────────────────────────
+  await checkSpendingAlerts(userId);
 
   return { billMatches, expenseMatches, autoCreated, incomeCreated, subscriptionsCreated, subscriptionsUpdated };
 }

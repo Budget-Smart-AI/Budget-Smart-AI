@@ -1976,6 +1976,42 @@ export const planFeatureLimits = pgTable("plan_feature_limits", {
 export type PlanFeatureLimit = typeof planFeatureLimits.$inferSelect;
 export type InsertPlanFeatureLimit = typeof planFeatureLimits.$inferInsert;
 
+// ============ SPENDING ALERTS TABLE ============
+
+export const spendingAlerts = pgTable("spending_alerts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: varchar("user_id").references(() => users.id),
+  alertType: text("alert_type"),
+  // 'category_monthly', 'single_transaction', 'total_monthly', 'merchant'
+  category: text("category"), // nullable
+  merchantName: text("merchant_name"), // nullable
+  threshold: numeric("threshold", { precision: 10, scale: 2 }),
+  period: text("period").default("monthly"),
+  // 'monthly', 'weekly', 'per_transaction'
+  notifyEmail: boolean("notify_email").default(true),
+  notifyInApp: boolean("notify_in_app").default(true),
+  isActive: boolean("is_active").default(true),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSpendingAlertSchema = createInsertSchema(spendingAlerts).omit({ id: true, createdAt: true, lastTriggeredAt: true }).extend({
+  userId: z.string().optional(),
+  alertType: z.enum(["category_monthly", "single_transaction", "total_monthly", "merchant"]),
+  category: z.string().nullable().optional(),
+  merchantName: z.string().nullable().optional(),
+  threshold: z.string().or(z.number()).transform((val) => String(val)),
+  period: z.enum(["monthly", "weekly", "per_transaction"]).optional().default("monthly"),
+  notifyEmail: z.boolean().optional().default(true),
+  notifyInApp: z.boolean().optional().default(true),
+  isActive: z.boolean().optional().default(true),
+});
+
+export const updateSpendingAlertSchema = insertSpendingAlertSchema.partial();
+
+export type SpendingAlert = typeof spendingAlerts.$inferSelect;
+export type InsertSpendingAlert = z.infer<typeof insertSpendingAlertSchema>;
+
 // ============ BILL PAYMENTS TABLE ============
 
 // Bill payments - records each time a bill is paid (auto-matched from Plaid transactions)
