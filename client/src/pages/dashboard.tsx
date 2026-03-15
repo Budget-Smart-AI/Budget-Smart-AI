@@ -525,6 +525,14 @@ export default function Dashboard() {
     queryKey: ["/api/anomalies"],
   });
 
+  const { data: netWorthData, isLoading: netWorthLoading } = useQuery<{
+    netWorth: number;
+    totalAssets: number;
+    totalLiabilities: number;
+  }>({
+    queryKey: ["/api/net-worth"],
+  });
+
   const dismissAnomalyMutation = useMutation({
     mutationFn: (id: string) => apiRequest("PATCH", `/api/anomalies/${id}/dismiss`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/anomalies"] }),
@@ -861,6 +869,61 @@ export default function Dashboard() {
               isLoading={isLoading}
             />
           </div>
+
+          {/* Net Worth Widget */}
+          <Card className="border-orange-200 dark:border-orange-800 mb-4">
+            <CardHeader className="px-4 py-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <CircleDollarSign className="h-4 w-4 text-orange-500" />
+                  Net Worth
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <DataSourceLabel type="bank" />
+                  <Link href="/net-worth">
+                    <Button variant="ghost" size="sm" className="text-xs h-7">
+                      Details <ChevronRight className="h-3 w-3 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+              <CardDescription className="text-xs">Total Assets minus Total Liabilities</CardDescription>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {netWorthLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-8 w-48" />
+                </div>
+              ) : netWorthData ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Total Assets</span>
+                    <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(netWorthData.totalAssets)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Total Liabilities</span>
+                    <span className="text-sm font-semibold text-red-600 dark:text-red-400">
+                      -{formatCurrency(netWorthData.totalLiabilities)}
+                    </span>
+                  </div>
+                  <div className="border-t pt-2 flex items-center justify-between">
+                    <span className="text-sm font-medium">Net Worth</span>
+                    <span className={`text-xl font-bold ${netWorthData.netWorth >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                      {formatCurrency(netWorthData.netWorth)}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  Link a bank account to see your net worth
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Fix My Cashflow CTA */}
           <FixMyCashflowCTA 

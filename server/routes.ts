@@ -11811,16 +11811,30 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       let mortgages = 0;
       let otherLiabilities = 0;
 
-      // Plaid accounts (checking, savings = cash; credit = liability)
+      // Plaid accounts — classify by type per Plaid conventions
+      // ASSETS: depository (checking/savings/cd/money market), investment (brokerage/RRSP/TFSA/401k), other
+      // LIABILITIES: credit (credit card/line of credit/home equity), loan (mortgage/auto/student/personal)
+      // Plaid balanceCurrent is always POSITIVE for both assets and liabilities
       // Only include explicitly active accounts (isActive === "true")
       for (const acc of plaidAccounts.filter(a => a.isActive === "true")) {
         const balance = parseFloat(acc.balanceCurrent || "0");
-        if (acc.type === "depository") {
+        const type = (acc.type || "").toLowerCase();
+        const subtype = (acc.subtype || "").toLowerCase();
+        if (type === "depository") {
           cashAndBank += balance;
-        } else if (acc.type === "credit") {
+        } else if (type === "investment") {
+          investments += balance;
+        } else if (type === "other") {
+          otherAssets += balance;
+        } else if (type === "credit") {
           creditCards += Math.abs(balance);
-        } else if (acc.type === "loan") {
-          loans += Math.abs(balance);
+        } else if (type === "loan") {
+          // Split loan subtypes: mortgage vs other loans
+          if (subtype.includes("mortgage")) {
+            mortgages += Math.abs(balance);
+          } else {
+            loans += Math.abs(balance);
+          }
         }
       }
 
@@ -11917,11 +11931,19 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       let creditCards = 0, loans = 0, mortgages = 0, otherLiabilities = 0;
 
       // Only include explicitly active accounts (isActive === "true")
+      // Classify by Plaid type: depository/investment/other = assets; credit/loan = liabilities
       for (const acc of plaidAccounts.filter(a => a.isActive === "true")) {
         const balance = parseFloat(acc.balanceCurrent || "0");
-        if (acc.type === "depository") cashAndBank += balance;
-        else if (acc.type === "credit") creditCards += Math.abs(balance);
-        else if (acc.type === "loan") loans += Math.abs(balance);
+        const type = (acc.type || "").toLowerCase();
+        const subtype = (acc.subtype || "").toLowerCase();
+        if (type === "depository") cashAndBank += balance;
+        else if (type === "investment") investments += balance;
+        else if (type === "other") otherAssets += balance;
+        else if (type === "credit") creditCards += Math.abs(balance);
+        else if (type === "loan") {
+          if (subtype.includes("mortgage")) mortgages += Math.abs(balance);
+          else loans += Math.abs(balance);
+        }
       }
 
       // Manual accounts (cash, paypal, venmo, other) - all treated as cash/liquid assets
