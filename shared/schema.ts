@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, numeric, real, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, numeric, real, boolean, timestamp, date, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1974,3 +1974,31 @@ export const planFeatureLimits = pgTable("plan_feature_limits", {
 
 export type PlanFeatureLimit = typeof planFeatureLimits.$inferSelect;
 export type InsertPlanFeatureLimit = typeof planFeatureLimits.$inferInsert;
+
+// ============ BILL PAYMENTS TABLE ============
+
+// Bill payments - records each time a bill is paid (auto-matched from Plaid transactions)
+export const billPayments = pgTable("bill_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"),
+  billId: varchar("bill_id"),
+  transactionId: varchar("transaction_id"),
+  amount: numeric("amount", { precision: 10, scale: 2 }),
+  paidDate: text("paid_date"), // yyyy-MM-dd
+  month: text("month"), // 'YYYY-MM' format e.g. '2026-03'
+  status: text("status").default("paid"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBillPaymentSchema = createInsertSchema(billPayments).omit({ id: true, createdAt: true }).extend({
+  userId: z.string().optional(),
+  billId: z.string().optional(),
+  transactionId: z.string().optional().nullable(),
+  amount: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
+  paidDate: z.string().optional().nullable(),
+  month: z.string().optional().nullable(),
+  status: z.string().optional(),
+});
+
+export type BillPayment = typeof billPayments.$inferSelect;
+export type InsertBillPayment = z.infer<typeof insertBillPaymentSchema>;

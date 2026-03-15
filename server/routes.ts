@@ -34,7 +34,7 @@ import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpen
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
-import { salesLeadFormSchema } from "@shared/schema";
+import { salesLeadFormSchema, billPayments } from "@shared/schema";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
@@ -574,6 +574,68 @@ Return JSON: { "bills": [...] }`;
     } catch (error: any) {
       console.error("Bills detect error:", error);
       res.status(500).json({ error: error.message || "Failed to detect bills" });
+    }
+  });
+
+  // GET /api/bills/payment-status — all bills with current month paid/unpaid status
+  // IMPORTANT: This route MUST be before /api/bills/:id to avoid "payment-status" being treated as :id
+  app.get("/api/bills/payment-status", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const now = new Date();
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const bills = await storage.getBills(userId);
+      const { rows: payments } = await pool.query(
+        `SELECT bill_id, amount, paid_date, status FROM bill_payments WHERE user_id = $1 AND month = $2`,
+        [userId, currentMonth]
+      );
+      const paymentMap = new Map<string, { amount: string; paidDate: string; status: string }>();
+      for (const p of payments as any[]) {
+        paymentMap.set(p.bill_id, { amount: p.amount, paidDate: p.paid_date, status: p.status });
+      }
+      const result = bills.map((bill) => {
+        const payment = paymentMap.get(bill.id);
+        return { ...bill, currentMonth, isPaidThisMonth: !!payment, lastPayment: payment || null };
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("GET /api/bills/payment-status error:", error);
+      res.status(500).json({ error: "Failed to fetch bill payment status" });
+    }
+  });
+
+  // GET /api/bills/:id/payments — payment history for a specific bill (last 12 months)
+  app.get("/api/bills/:id/payments", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const billId = req.params.id as string;
+      const bill = await storage.getBill(billId);
+      if (!bill || bill.userId !== userId) {
+        return res.status(404).json({ error: "Bill not found" });
+      }
+      const now = new Date();
+      const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      const startMonth = `${twelveMonthsAgo.getFullYear()}-${String(twelveMonthsAgo.getMonth() + 1).padStart(2, "0")}`;
+      const { rows } = await pool.query(
+        `SELECT id, bill_id, transaction_id, amount, paid_date, month, status, created_at
+         FROM bill_payments
+         WHERE bill_id = $1 AND user_id = $2 AND month >= $3
+         ORDER BY month DESC`,
+        [billId, userId, startMonth]
+      );
+      res.json((rows as any[]).map((r) => ({
+        id: r.id,
+        billId: r.bill_id,
+        transactionId: r.transaction_id,
+        amount: r.amount,
+        paidDate: r.paid_date,
+        month: r.month,
+        status: r.status,
+        createdAt: r.created_at,
+      })));
+    } catch (error) {
+      console.error("GET /api/bills/:id/payments error:", error);
+      res.status(500).json({ error: "Failed to fetch bill payment history" });
     }
   });
 

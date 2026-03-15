@@ -52,9 +52,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Receipt, X, CalendarPlus, Upload, Download, FileSpreadsheet, Search, Filter, ArrowUpDown, FileDown, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Receipt, X, CalendarPlus, Upload, Download, FileSpreadsheet, Search, Filter, ArrowUpDown, FileDown, Sparkles, Loader2, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { format, setDate, addMonths, isBefore, addDays, addWeeks, getDay, setDay, parseISO } from "date-fns";
+import { format, setDate, addMonths, isBefore, addDays, addWeeks, getDay, setDay, parseISO, differenceInDays } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BILL_CATEGORIES, RECURRENCE_OPTIONS, type Bill } from "@shared/schema";
@@ -89,6 +89,25 @@ type BillFormValues = z.infer<typeof billFormSchema>;
 type SortConfig = {
   key: keyof Bill | "nextDue";
   direction: "asc" | "desc";
+};
+
+// Extended bill type with payment status from /api/bills/payment-status
+type BillWithPaymentStatus = Bill & {
+  isPaidThisMonth: boolean;
+  lastPayment: { amount: string; paidDate: string; status: string } | null;
+  currentMonth: string;
+};
+
+// Payment history record from /api/bills/:id/payments
+type BillPaymentRecord = {
+  id: string;
+  billId: string;
+  transactionId: string | null;
+  amount: string;
+  paidDate: string;
+  month: string;
+  status: string;
+  createdAt: string;
 };
 
 function formatCurrency(amount: string | number) {
@@ -220,6 +239,106 @@ function getNextDueDate(dueDay: number, recurrence: string, customDates?: string
   return nextDue;
 }
 
+// Payment status badge component
+function PaymentStatusBadge({
+  bill,
+  nextDue,
+}: {
+  bill: BillWithPaymentStatus;
+  nextDue: Date;
+}) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (bill.isPaidThisMonth && bill.lastPayment) {
+    const paidDate = parseISO(bill.lastPayment.paidDate);
+    return (
+      <div className="flex flex-col gap-0.5">
+        <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800 w-fit">
+          ✓ Paid
+        </Badge>
+        <span className="text-xs text-muted-foreground">
+          {formatCurrency(bill.lastPayment.amount)} on {format(paidDate, "MMM d")}
+        </span>
+      </div>
+    );
+  }
+
+  if (isBefore(nextDue, today)) {
+    return (
+      <Badge variant="destructive" className="w-fit">
+        Overdue
+      </Badge>
+    );
+  }
+
+  const daysUntilDue = differenceInDays(nextDue, today);
+
+  if (daysUntilDue <= 7) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800 w-fit">
+          Due in {daysUntilDue}d
+        </Badge>
+      </div>
+    );
+  }
+
+  return (
+    <Badge variant="secondary" className="w-fit text-muted-foreground">
+      Upcoming
+    </Badge>
+  );
+}
+
+// Payment history sub-row component
+function BillPaymentHistory({ billId }: { billId: string }) {
+  const { data: payments = [], isLoading } = useQuery<BillPaymentRecord[]>({
+    queryKey: [`/api/bills/${billId}/payments`],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="px-4 py-3 bg-muted/30 border-t">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Loading payment history...
+        </div>
+      </div>
+    );
+  }
+
+  const recentPayments = payments.slice(0, 6);
+
+  return (
+    <div className="px-4 py-3 bg-muted/30 border-t">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+        Payment History (Last 6 Months)
+      </p>
+      {recentPayments.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic">No payment records found.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {recentPayments.map((payment) => {
+            const paidDate = parseISO(payment.paidDate);
+            return (
+              <div
+                key={payment.id}
+                className="flex items-center gap-1.5 bg-background border rounded-md px-2.5 py-1.5 text-xs"
+              >
+                <span className="text-green-600 dark:text-green-400 font-medium">✓</span>
+                <span className="font-medium">{format(paidDate, "MMM d, yyyy")}</span>
+                <span className="text-muted-foreground">—</span>
+                <span className="font-semibold">{formatCurrency(payment.amount)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BillForm({
   bill,
   onClose,
@@ -271,6 +390,7 @@ function BillForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
       toast({ title: "Bill created successfully" });
       onClose();
     },
@@ -285,6 +405,7 @@ function BillForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
       toast({ title: "Bill updated successfully" });
       onClose();
     },
@@ -674,6 +795,7 @@ function ImportDialog({
       const result = await response.json();
       setImportResult(result);
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
       if (result.imported > 0) {
         toast({ title: `Successfully imported ${result.imported} bills` });
       }
@@ -798,6 +920,7 @@ export default function Bills() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: "nextDue", direction: "asc" });
+  const [expandedBillId, setExpandedBillId] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Detect bills state
@@ -857,6 +980,7 @@ export default function Bills() {
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
       toast({ title: `Added ${billsToAdd.length} bill${billsToAdd.length > 1 ? "s" : ""}` });
       setIsDetectDialogOpen(false);
       setDetectedBills([]);
@@ -905,8 +1029,9 @@ export default function Bills() {
     }
   };
 
-  const { data: bills = [], isLoading } = useQuery<Bill[]>({
-    queryKey: ["/api/bills"],
+  // Use payment-status endpoint which returns bills enriched with isPaidThisMonth + lastPayment
+  const { data: bills = [], isLoading } = useQuery<BillWithPaymentStatus[]>({
+    queryKey: ["/api/bills/payment-status"],
   });
 
   const deleteMutation = useMutation({
@@ -915,6 +1040,7 @@ export default function Bills() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
       toast({ title: "Bill deleted successfully" });
       setDeletingBill(undefined);
     },
@@ -938,6 +1064,10 @@ export default function Bills() {
       key,
       direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
     }));
+  };
+
+  const toggleExpanded = (billId: string) => {
+    setExpandedBillId(prev => prev === billId ? null : billId);
   };
 
   const filteredBills = bills
@@ -1212,66 +1342,93 @@ export default function Bills() {
                     <SortHeader label="Amount" sortKey="amount" />
                     <SortHeader label="Balance" sortKey="startingBalance" />
                     <SortHeader label="Payments Left" sortKey="paymentsRemaining" />
-                    <TableHead className="w-[100px]">Actions</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="w-[120px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredBills.map((bill) => {
                     const nextDue = getNextDueDate(bill.dueDay, bill.recurrence, bill.customDates, bill.startDate);
+                    const isExpanded = expandedBillId === bill.id;
                     return (
-                      <TableRow key={bill.id} data-testid={`row-bill-${bill.id}`}>
-                        <TableCell className="font-medium">
-                          <div>
-                            {bill.name}
-                            {bill.notes && (
-                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                {bill.notes}
-                              </p>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{bill.category}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {bill.startDate ? format(parseISO(bill.startDate), "MMM d, yyyy") : "-"}
-                        </TableCell>
-                        <TableCell>
-                          <span className={isBefore(nextDue, new Date()) ? "text-destructive font-semibold" : ""}>
-                            {format(nextDue, "MMM d, yyyy")}
-                          </span>
-                        </TableCell>
-                        <TableCell className="capitalize">{bill.recurrence === "one_time" ? "One Time" : bill.recurrence}</TableCell>
-                        <TableCell className="font-semibold">
-                          {formatCurrency(bill.amount)}
-                        </TableCell>
-                        <TableCell>
-                          {bill.startingBalance ? formatCurrency(bill.startingBalance) : "-"}
-                        </TableCell>
-                        <TableCell>
-                          {bill.paymentsRemaining !== null ? bill.paymentsRemaining : "-"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleEdit(bill)}
-                              data-testid={`button-edit-bill-${bill.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setDeletingBill(bill)}
-                              data-testid={`button-delete-bill-${bill.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                      <>
+                        <TableRow key={bill.id} data-testid={`row-bill-${bill.id}`} className="group">
+                          <TableCell className="font-medium">
+                            <div>
+                              {bill.name}
+                              {bill.notes && (
+                                <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                  {bill.notes}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{bill.category}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {bill.startDate ? format(parseISO(bill.startDate), "MMM d, yyyy") : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <span className={isBefore(nextDue, new Date()) && !bill.isPaidThisMonth ? "text-destructive font-semibold" : ""}>
+                              {format(nextDue, "MMM d, yyyy")}
+                            </span>
+                          </TableCell>
+                          <TableCell className="capitalize">{bill.recurrence === "one_time" ? "One Time" : bill.recurrence}</TableCell>
+                          <TableCell className="font-semibold">
+                            {formatCurrency(bill.amount)}
+                          </TableCell>
+                          <TableCell>
+                            {bill.startingBalance ? formatCurrency(bill.startingBalance) : "-"}
+                          </TableCell>
+                          <TableCell>
+                            {bill.paymentsRemaining !== null ? bill.paymentsRemaining : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <PaymentStatusBadge bill={bill} nextDue={nextDue} />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => toggleExpanded(bill.id)}
+                                title={isExpanded ? "Hide payment history" : "Show payment history"}
+                                data-testid={`button-expand-bill-${bill.id}`}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleEdit(bill)}
+                                data-testid={`button-edit-bill-${bill.id}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeletingBill(bill)}
+                                data-testid={`button-delete-bill-${bill.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow key={`${bill.id}-history`} className="hover:bg-transparent">
+                            <TableCell colSpan={10} className="p-0">
+                              <BillPaymentHistory billId={bill.id} />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
                     );
                   })}
                 </TableBody>
