@@ -327,7 +327,14 @@ export function FeatureGate({
         {children}
       </div>
 
-      <div className={`absolute inset-0 ${blurClass} bg-background/35 z-[5]`} aria-hidden="true" />
+      <div
+        className={`absolute inset-0 ${blurClass} bg-background/35 z-[5]`}
+        aria-hidden="true"
+        style={{
+          WebkitBackdropFilter: 'blur(6px)',
+          backdropFilter: 'blur(6px)',
+        }}
+      />
 
       {/* Animated shimmer sweep */}
       <div
@@ -336,6 +343,8 @@ export function FeatureGate({
         style={{
           background: 'linear-gradient(105deg, transparent 40%, rgba(245, 158, 11, 0.08) 50%, transparent 60%)',
           animation: 'shimmer 2.8s ease-in-out infinite',
+          willChange: 'transform',
+          transform: 'translateZ(0)',
         }}
       />
 

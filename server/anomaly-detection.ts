@@ -299,16 +299,28 @@ export async function detectAnomalies(
     const saved = await storage.createTransactionAnomaly(insertData);
     savedAnomalies.push(saved);
 
-    // Create a notification for high severity anomalies
+    // Create a notification for high severity anomalies (deduplicated within 24 hours)
     if (anomaly.severity === "high") {
       try {
-        await storage.createNotification({
-          userId,
-          type: "anomaly_detected",
-          title: "Unusual Transaction Detected",
-          message: anomaly.description,
-          isRead: "false",
-        });
+        const { pool } = await import("./db");
+        const { rows: existing } = await pool.query(
+          `SELECT id FROM notifications
+           WHERE user_id = $1
+             AND type = 'anomaly_detected'
+             AND message = $2
+             AND created_at >= NOW() - INTERVAL '24 hours'
+           LIMIT 1`,
+          [userId, anomaly.description]
+        );
+        if (existing.length === 0) {
+          await storage.createNotification({
+            userId,
+            type: "anomaly_detected",
+            title: "Unusual Transaction Detected",
+            message: anomaly.description,
+            isRead: "false",
+          });
+        }
       } catch (err) {
         console.error("Failed to create anomaly notification:", err);
       }

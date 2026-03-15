@@ -256,7 +256,7 @@ export default function UpgradePage() {
   };
 
   const savingsLabel =
-    billing === "yearly" ? "Save 3–4 months vs paying monthly" : null;
+    billing === "yearly" ? "3–4 Month Annual Savings" : null;
 
   if (isLoading) {
     return (
@@ -294,7 +294,7 @@ export default function UpgradePage() {
           whenever you want more automations and insights.
         </p>
 
-        <div className="flex items-center justify-center gap-4 mb-12">
+        <div className="flex flex-wrap items-center justify-center gap-3 mb-12 overflow-visible">
           <span
             className={`text-sm font-medium cursor-pointer transition-colors ${
               billing === "monthly" ? "text-white" : "text-slate-500"
@@ -325,7 +325,7 @@ export default function UpgradePage() {
             Yearly
           </span>
           {savingsLabel && (
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-bold border border-emerald-500/20">
+            <span className="inline-flex items-center whitespace-nowrap px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-bold border border-emerald-500/20">
               {savingsLabel}
             </span>
           )}
