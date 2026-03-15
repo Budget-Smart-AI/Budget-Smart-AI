@@ -242,7 +242,7 @@ export interface IStorage {
   createOnboardingAnalysis(analysis: InsertOnboardingAnalysis): Promise<OnboardingAnalysis>;
   updateOnboardingAnalysis(userId: string, updates: Partial<OnboardingAnalysis>): Promise<OnboardingAnalysis | undefined>;
   deleteOnboardingAnalysis(userId: string): Promise<boolean>;
-  updateUserOnboarding(userId: string, complete: boolean): Promise<void>;
+  updateUserOnboarding(userId: string, complete: boolean, progress?: Record<string, boolean>): Promise<void>;
 
   // Households
   createHousehold(name: string, ownerId: string): Promise<Household>;
@@ -2203,8 +2203,12 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async updateUserOnboarding(userId: string, complete: boolean): Promise<void> {
-    await db.update(users).set({ onboardingComplete: complete ? "true" : "false" }).where(eq(users.id, userId));
+  async updateUserOnboarding(userId: string, complete: boolean, progress?: Record<string, boolean>): Promise<void> {
+    const updates: Partial<User> = { onboardingComplete: complete ? "true" : "false" };
+    if (progress !== undefined) {
+      updates.onboardingProgress = JSON.stringify(progress);
+    }
+    await db.update(users).set(updates).where(eq(users.id, userId));
   }
 
   // ============ HOUSEHOLD COLLABORATION ============

@@ -557,6 +557,7 @@ export const users = pgTable("users", {
   isAdmin: text("is_admin").default("false"),
   isApproved: text("is_approved").default("false"),
   onboardingComplete: text("onboarding_complete").default("false"),
+  onboardingProgress: text("onboarding_progress").default("{}"),
   googleId: text("google_id").unique(),
   // Stripe subscription fields
   stripeCustomerId: text("stripe_customer_id"),

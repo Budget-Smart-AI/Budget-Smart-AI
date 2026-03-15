@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { usePlaidLink } from "react-plaid-link";
@@ -6,9 +6,6 @@ import { format } from "date-fns";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -20,236 +17,35 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { INCOME_CATEGORIES, BILL_CATEGORIES, RECURRENCE_OPTIONS } from "@shared/schema";
+import { EXPENSE_CATEGORIES } from "@shared/schema";
 import {
   Building2,
-  Sparkles,
   CheckCircle2,
-  Plus,
-  Pencil,
-  Trash2,
   Loader2,
   ArrowRight,
-  ArrowLeft,
-  X,
+  Sparkles,
+  BarChart3,
+  DollarSign,
+  TrendingUp,
+  ShoppingCart,
+  Car,
+  Film,
+  ShoppingBag,
+  Utensils,
+  ChevronRight,
 } from "lucide-react";
 
-interface IncomeSource {
-  source: string;
-  amount: number;
-  category: string;
-  recurrence: string;
-  dueDay: number;
-  confidence: string;
-  selected: boolean;
-}
-
-interface RecurringBill {
-  name: string;
-  amount: number;
-  category: string;
-  recurrence: string;
-  dueDay: number;
-  confidence: string;
-  selected: boolean;
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface OnboardingWizardProps {
   open: boolean;
   onComplete: () => void;
   isDemo?: boolean;
-}
-
-function AnalysisCard({
-  item,
-  type,
-  categories,
-  onToggle,
-  onUpdate,
-  onDelete,
-}: {
-  item: IncomeSource | RecurringBill;
-  type: "income" | "bill";
-  categories: readonly string[];
-  onToggle: () => void;
-  onUpdate: (updates: Partial<IncomeSource & RecurringBill>) => void;
-  onDelete: () => void;
-}) {
-  const [isEditing, setIsEditing] = useState(false);
-  const name = type === "income" ? (item as IncomeSource).source : (item as RecurringBill).name;
-
-  const confidenceColor = item.confidence === "high"
-    ? "default"
-    : item.confidence === "medium"
-    ? "secondary"
-    : "outline";
-
-  if (isEditing) {
-    return (
-      <Card className="border-primary">
-        <CardContent className="p-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              placeholder={type === "income" ? "Source name" : "Bill name"}
-              defaultValue={name}
-              onChange={(e) =>
-                type === "income"
-                  ? onUpdate({ source: e.target.value })
-                  : onUpdate({ name: e.target.value })
-              }
-            />
-            <Input
-              type="number"
-              step="0.01"
-              placeholder="Amount"
-              defaultValue={String(item.amount)}
-              onChange={(e) => onUpdate({ amount: parseFloat(e.target.value) || 0 })}
-            />
-            <Select
-              defaultValue={item.category}
-              onValueChange={(val) => onUpdate({ category: val })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              defaultValue={item.recurrence}
-              onValueChange={(val) => onUpdate({ recurrence: val })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RECURRENCE_OPTIONS.map((r) => (
-                  <SelectItem key={r} value={r}>{r}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Day of month:</span>
-            <Input
-              type="number"
-              min={1}
-              max={31}
-              className="w-16 h-7 text-xs"
-              defaultValue={String(item.dueDay)}
-              onChange={(e) => onUpdate({ dueDay: parseInt(e.target.value) || 1 })}
-            />
-            <div className="flex-1" />
-            <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
-              Done
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className={item.selected ? "border-primary/50" : "opacity-50"}>
-      <CardContent className="p-3">
-        <div className="flex items-center gap-3">
-          <Checkbox checked={item.selected} onCheckedChange={onToggle} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="font-medium text-sm truncate">{name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {item.category} &middot; {item.recurrence} &middot; day {item.dueDay}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="font-medium text-sm">${Number(item.amount).toFixed(2)}</span>
-                <Badge variant={confidenceColor} className="text-xs">
-                  {item.confidence}
-                </Badge>
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-1 shrink-0">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setIsEditing(true)}>
-              <Pencil className="h-3 w-3" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onDelete}>
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle className="text-2xl">Welcome to Budget Smart AI!</DialogTitle>
-        <DialogDescription>
-          Let's set up your budget in a few quick steps.
-        </DialogDescription>
-      </DialogHeader>
-      <div className="space-y-4 py-6">
-        <div className="flex items-start gap-3">
-          <Building2 className="h-5 w-5 mt-0.5 text-primary shrink-0" />
-          <div>
-            <p className="font-medium">Connect your bank</p>
-            <p className="text-sm text-muted-foreground">
-              Securely link your bank account to automatically import transactions.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-start gap-3">
-          <Sparkles className="h-5 w-5 mt-0.5 text-primary shrink-0" />
-          <div>
-            <p className="font-medium">AI-powered analysis</p>
-            <p className="text-sm text-muted-foreground">
-              Our AI will identify your recurring income and bills automatically.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-start gap-3">
-          <CheckCircle2 className="h-5 w-5 mt-0.5 text-primary shrink-0" />
-          <div>
-            <p className="font-medium">Review and customize</p>
-            <p className="text-sm text-muted-foreground">
-              Review what we found, make edits, and add anything we missed.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="flex justify-between">
-        <Button variant="ghost" size="sm" onClick={onSkip}>
-          Skip setup
-        </Button>
-        <Button onClick={onNext} className="gap-2">
-          Get Started <ArrowRight className="h-4 w-4" />
-        </Button>
-      </div>
-    </>
-  );
 }
 
 interface WizardProvider {
@@ -259,11 +55,113 @@ interface WizardProvider {
   isEnabled: boolean;
 }
 
-function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => void; onSkip: () => void; onPlaidOpen?: (isOpen: boolean) => void }) {
+// ─── Progress Indicator ───────────────────────────────────────────────────────
+
+function StepProgress({ current, total }: { current: number; total: number }) {
+  const labels = ["Welcome", "Connect Bank", "Monthly Income", "Budget Goal", "You're Ready!"];
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-muted-foreground">
+          Step {current} of {total} — {labels[current - 1]}
+        </p>
+        <p className="text-xs text-muted-foreground">{Math.round(((current - 1) / total) * 100)}%</p>
+      </div>
+      <div className="flex gap-1.5">
+        {Array.from({ length: total }).map((_, i) => (
+          <div
+            key={i}
+            className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
+              i < current - 1
+                ? "bg-primary"
+                : i === current - 1
+                ? "bg-primary animate-pulse"
+                : "bg-muted"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 1: Welcome ──────────────────────────────────────────────────────────
+
+function WelcomeStep({
+  onNext,
+  firstName,
+}: {
+  onNext: () => void;
+  firstName?: string | null;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="text-center space-y-2">
+        <div className="text-4xl mb-3">🎉</div>
+        <h2 className="text-2xl font-bold tracking-tight">
+          Welcome to BudgetSmart AI{firstName ? `, ${firstName}` : ""}!
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          Let's get your finances set up in under 5 minutes
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {[
+          {
+            icon: <Building2 className="h-5 w-5 text-blue-500" />,
+            title: "Connect your bank — see everything instantly",
+            bg: "bg-blue-50 dark:bg-blue-950/30",
+          },
+          {
+            icon: <Sparkles className="h-5 w-5 text-purple-500" />,
+            title: "AI categorizes every transaction automatically",
+            bg: "bg-purple-50 dark:bg-purple-950/30",
+          },
+          {
+            icon: <BarChart3 className="h-5 w-5 text-green-500" />,
+            title: "Know exactly where your money goes",
+            bg: "bg-green-50 dark:bg-green-950/30",
+          },
+        ].map((item, i) => (
+          <div
+            key={i}
+            className={`flex items-center gap-3 p-3 rounded-lg ${item.bg}`}
+          >
+            <div className="shrink-0">{item.icon}</div>
+            <p className="text-sm font-medium">{item.title}</p>
+          </div>
+        ))}
+      </div>
+
+      <Button onClick={onNext} className="w-full gap-2" size="lg">
+        Let's Go <ArrowRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
+// ─── Step 2: Connect Bank ─────────────────────────────────────────────────────
+
+function ConnectBankStep({
+  onNext,
+  onSkip,
+  onPlaidOpen,
+  onBankConnected,
+}: {
+  onNext: () => void;
+  onSkip: () => void;
+  onPlaidOpen?: (isOpen: boolean) => void;
+  onBankConnected: (connected: boolean, accountCount?: number, txCount?: number) => void;
+}) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [accountCount, setAccountCount] = useState(0);
+  const [txCount, setTxCount] = useState(0);
+  const [autoAdvanceTimer, setAutoAdvanceTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   // MX widget state
   const [mxWidgetUrl, setMxWidgetUrl] = useState<string | null>(null);
   const [showMxWidget, setShowMxWidget] = useState(false);
@@ -275,7 +173,6 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
   const [mxPrivacyChecked, setMxPrivacyChecked] = useState(false);
   const { toast } = useToast();
 
-  // Fetch which providers are enabled in the wizard
   const { data: wizardProviders = [], isLoading: providersLoading } = useQuery<WizardProvider[]>({
     queryKey: ["/api/bank-providers"],
   });
@@ -283,12 +180,10 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
   const wizardEnabledProviders = wizardProviders.filter((p) => p.showInWizard);
   const plaidEnabled = wizardEnabledProviders.some((p) => p.providerId === "plaid");
   const mxEnabled = wizardEnabledProviders.some((p) => p.providerId === "mx");
-  // Use the first enabled provider as preferred
   const preferredProvider = wizardEnabledProviders[0]?.providerId ?? null;
 
   useEffect(() => {
-    if (providersLoading) return;
-    if (!plaidEnabled) return; // Only fetch Plaid token when Plaid is enabled
+    if (providersLoading || !plaidEnabled) return;
     async function fetchLinkToken() {
       try {
         const res = await apiRequest("POST", "/api/plaid/create-link-token");
@@ -296,11 +191,17 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
         setLinkToken(data.link_token);
       } catch (error) {
         console.error("Error fetching link token:", error);
-        toast({ title: "Failed to initialize bank connection", variant: "destructive" });
       }
     }
     fetchLinkToken();
   }, [plaidEnabled, providersLoading]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
+    };
+  }, [autoAdvanceTimer]);
 
   const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
     onPlaidOpen?.(false);
@@ -310,12 +211,11 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
         public_token: publicToken,
         metadata: { institution: metadata.institution },
       });
-      toast({ title: "Bank account connected!" });
       setConnected(true);
-
       setIsSyncing(true);
+      setSyncMessage("🎉 Connected! Finding your transactions...");
 
-      // Poll for transactions with retries - Plaid needs time to prepare data for new connections
+      // Poll for transactions
       let attempts = 0;
       const maxAttempts = 10;
       let syncSuccess = false;
@@ -323,56 +223,48 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
       while (attempts < maxAttempts && !syncSuccess) {
         attempts++;
         try {
-          // Use fetch-historical for initial connection to get up to 2 years of data
-          // This uses transactionsGet with explicit date ranges which is more reliable
           const syncRes = await apiRequest("POST", "/api/plaid/transactions/fetch-historical");
           const syncData = await syncRes.json();
 
-          // Check if we got transactions
           if (syncData.added > 0 || attempts >= maxAttempts) {
             syncSuccess = true;
-            
-            // Show user what date range was retrieved
-            if (syncData.dateRange?.oldest && syncData.dateRange?.newest) {
-              const oldestFormatted = format(new Date(syncData.dateRange.oldest), 'MMM d, yyyy');
-              const newestFormatted = format(new Date(syncData.dateRange.newest), 'MMM d, yyyy');
-              console.log(`[Wizard] Fetched transactions from ${oldestFormatted} to ${newestFormatted}`);
-              
-              if (syncData.added > 0) {
-                toast({ 
-                  title: "Transactions synced!", 
-                  description: `Retrieved ${syncData.added} transactions from ${oldestFormatted} to ${newestFormatted}`
-                });
-              }
-            } else if (syncData.added > 0) {
-              toast({ title: `${syncData.added} transactions synced!` });
+            setTxCount(syncData.added || 0);
+
+            // Get account count
+            try {
+              const acctRes = await apiRequest("GET", "/api/plaid/accounts");
+              const accts = await acctRes.json();
+              const count = Array.isArray(accts)
+                ? accts.reduce((sum: number, item: any) => sum + (item.accounts?.length || 0), 0)
+                : 0;
+              setAccountCount(count);
+              onBankConnected(true, count, syncData.added || 0);
+            } catch {
+              onBankConnected(true, 1, syncData.added || 0);
             }
           } else {
-            // Wait 3 seconds before retrying
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            await new Promise((resolve) => setTimeout(resolve, 3000));
           }
-        } catch (syncError) {
-          console.log("Sync attempt failed, retrying...", syncError);
-          await new Promise(resolve => setTimeout(resolve, 3000));
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       }
-      
-      setIsSyncing(false);
 
+      setIsSyncing(false);
+      setSyncMessage("");
       await apiRequest("POST", "/api/onboarding/save-step", { step: 2 });
-    } catch (error) {
+    } catch {
       toast({ title: "Failed to connect bank account", variant: "destructive" });
       setConnected(false);
     } finally {
       setIsConnecting(false);
     }
-  }, [toast, onPlaidOpen]);
+  }, [toast, onPlaidOpen, onBankConnected]);
 
   const onPlaidExit = useCallback(() => {
     onPlaidOpen?.(false);
   }, [onPlaidOpen]);
 
-  // usePlaidLink must always be called (React hooks rule); token=null is safe when Plaid is disabled
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess: onPlaidSuccess,
@@ -389,12 +281,6 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
     handleOpenPlaid();
   }, [handleOpenPlaid]);
 
-  const handlePlaidConsentDialogChange = useCallback((isOpen: boolean) => {
-    setShowPlaidConsent(isOpen);
-    if (!isOpen) setPlaidPrivacyChecked(false);
-  }, []);
-
-  // MX connect handler
   const handleOpenMX = useCallback(async () => {
     setMxLoading(true);
     try {
@@ -419,11 +305,6 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
     handleOpenMX();
   }, [handleOpenMX]);
 
-  const handleMxConsentDialogChange = useCallback((isOpen: boolean) => {
-    setShowMxConsent(isOpen);
-    if (!isOpen) setMxPrivacyChecked(false);
-  }, []);
-
   const handleMxDialogChange = useCallback((isOpen: boolean) => {
     setShowMxWidget(isOpen);
     if (!isOpen) onPlaidOpen?.(false);
@@ -444,10 +325,10 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
             }
             toast({ title: "Bank account connected!" });
           } catch (err) {
-            console.error("[MX wizard] Sync error (background sync will retry):", err);
-            toast({ title: "Bank account connected!", description: "Initial sync encountered an error — transactions will sync shortly." });
+            console.error("[MX wizard] Sync error:", err);
           }
           setConnected(true);
+          onBankConnected(true, 1, 0);
           setShowMxWidget(false);
           onPlaidOpen?.(false);
           await apiRequest("POST", "/api/onboarding/save-step", { step: 2 });
@@ -456,7 +337,20 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [mxEnabled, toast, onPlaidOpen]);
+  }, [mxEnabled, toast, onPlaidOpen, onBankConnected]);
+
+  // Auto-advance after 30s if syncing
+  useEffect(() => {
+    if (isSyncing) {
+      const timer = setTimeout(() => {
+        setSyncMessage("Your transactions are loading in the background. Let's keep going!");
+        setIsSyncing(false);
+        onBankConnected(true, accountCount, txCount);
+      }, 30000);
+      setAutoAdvanceTimer(timer);
+      return () => clearTimeout(timer);
+    }
+  }, [isSyncing]);
 
   const providerName =
     preferredProvider === "mx" ? "MX" :
@@ -464,163 +358,144 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
     "bank connection";
 
   return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Connect Your Bank Account</DialogTitle>
-        <DialogDescription>
-          Securely connect your bank to import transactions for analysis.
-        </DialogDescription>
-      </DialogHeader>
-      <div className="py-8">
-        {providersLoading ? (
-          <div className="text-center">
-            <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Loading connection options...</p>
-          </div>
-        ) : !connected ? (
-          <div className="text-center">
-            <Building2 className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            {wizardEnabledProviders.length === 0 ? (
-              <p className="text-sm text-muted-foreground mb-4">
-                No automated bank connection is currently available. You can skip and add accounts manually later.
-              </p>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground mb-4">
-                  We use {providerName} to securely connect to your bank. Your credentials are never stored by Budget Smart AI.
-                </p>
-                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-6 text-left">
-                  <p className="text-xs text-amber-800 dark:text-amber-200">
-                    <strong>Shared computer?</strong> If others use this browser with their own accounts, please use a private/incognito window to prevent bank login conflicts.
-                  </p>
-                </div>
-                {/* Show the preferred provider's connect button */}
-                {preferredProvider === "plaid" && (
-                  <Button
-                    onClick={() => setShowPlaidConsent(true)}
-                    disabled={!ready || !linkToken || isConnecting}
-                    className="gap-2"
-                    size="lg"
-                  >
-                    {isConnecting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Building2 className="h-4 w-4" />
-                    )}
-                    Connect Bank Account
-                  </Button>
-                )}
-                {preferredProvider === "mx" && (
-                  <Button
-                    onClick={() => setShowMxConsent(true)}
-                    disabled={mxLoading || isConnecting}
-                    className="gap-2"
-                    size="lg"
-                  >
-                    {mxLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Building2 className="h-4 w-4" />
-                    )}
-                    Connect Bank Account
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        ) : isSyncing ? (
-          <div className="text-center">
-            <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
-            <p className="font-medium">Syncing your transactions...</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Fetching up to 2 years of transaction history. This may take 30-60 seconds.
-            </p>
-          </div>
-        ) : (
-          <div className="text-center">
-            <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-green-500" />
-            <p className="font-medium">Bank account connected!</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Transactions synced. Ready for AI analysis.
-            </p>
-          </div>
-        )}
+    <div className="space-y-6">
+      <div className="text-center space-y-2">
+        <div className="text-3xl mb-2">🏦</div>
+        <h2 className="text-xl font-bold">Connect your bank to unlock the magic</h2>
+        <p className="text-sm text-muted-foreground">
+          Securely link your bank — your credentials are never stored by BudgetSmart
+        </p>
       </div>
 
-      {/* MX Connect Widget — full-screen overlay, mirrors Plaid Link pattern */}
+      {providersLoading ? (
+        <div className="text-center py-8">
+          <Loader2 className="h-8 w-8 mx-auto mb-3 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading connection options...</p>
+        </div>
+      ) : isSyncing ? (
+        <div className="text-center py-8 space-y-3">
+          <Loader2 className="h-12 w-12 mx-auto animate-spin text-primary" />
+          <p className="font-semibold text-lg">🎉 Connected! Finding your transactions...</p>
+          <p className="text-sm text-muted-foreground">
+            Fetching up to 2 years of transaction history. This may take 30–60 seconds.
+          </p>
+          {syncMessage && (
+            <p className="text-xs text-muted-foreground italic">{syncMessage}</p>
+          )}
+        </div>
+      ) : connected ? (
+        <div className="text-center py-6 space-y-3">
+          <CheckCircle2 className="h-14 w-14 mx-auto text-green-500" />
+          <p className="font-semibold text-lg text-green-600 dark:text-green-400">
+            Bank connected successfully!
+          </p>
+          {txCount > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {txCount} transactions imported across {accountCount} account{accountCount !== 1 ? "s" : ""}
+            </p>
+          )}
+          <Button onClick={onNext} className="w-full gap-2 mt-2" size="lg">
+            Continue <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {wizardEnabledProviders.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No automated bank connection is currently available. You can skip and add accounts manually later.
+            </p>
+          ) : (
+            <>
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-left">
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  <strong>Shared computer?</strong> Use a private/incognito window to prevent bank login conflicts.
+                </p>
+              </div>
+
+              {preferredProvider === "plaid" && (
+                <Button
+                  onClick={() => setShowPlaidConsent(true)}
+                  disabled={!ready || !linkToken || isConnecting}
+                  className="w-full gap-2"
+                  size="lg"
+                >
+                  {isConnecting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Building2 className="h-4 w-4" />
+                  )}
+                  Connect Bank Account
+                </Button>
+              )}
+              {preferredProvider === "mx" && (
+                <Button
+                  onClick={() => setShowMxConsent(true)}
+                  disabled={mxLoading || isConnecting}
+                  className="w-full gap-2"
+                  size="lg"
+                >
+                  {mxLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Building2 className="h-4 w-4" />
+                  )}
+                  Connect Bank Account
+                </Button>
+              )}
+            </>
+          )}
+
+          <div className="text-center">
+            <button
+              onClick={onSkip}
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            >
+              Don't want to connect yet? Add transactions manually →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MX Connect Widget overlay */}
       {mxEnabled && showMxWidget && mxWidgetUrl && createPortal(
         <div
-          className="mx-connect-overlay"
           style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 2147483647,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            position: "fixed", inset: 0, zIndex: 2147483647,
+            display: "flex", alignItems: "center", justifyContent: "center",
             backgroundColor: "rgba(0,0,0,0.7)",
           }}
         >
-          <div
-            className="mx-widget-overlay-content bg-background shadow-2xl"
-            style={{
-              position: "relative",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", width: "480px", height: "600px", background: "white", borderRadius: "12px", overflow: "hidden" }}>
             <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
               <span className="font-semibold text-sm">Connect Your Bank</span>
-              <button
-                onClick={() => handleMxDialogChange(false)}
-                className="rounded-full p-1 hover:bg-muted transition-colors"
-                aria-label="Close"
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
+              <button onClick={() => handleMxDialogChange(false)} className="rounded-full p-1 hover:bg-muted transition-colors" aria-label="Close">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4L12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
               </button>
             </div>
-            <iframe
-              src={mxWidgetUrl}
-              style={{ width: "100%", flex: 1, border: "none" }}
-              title="MX Connect"
-              allow="camera; microphone"
-            />
+            <iframe src={mxWidgetUrl} style={{ width: "100%", flex: 1, border: "none" }} title="MX Connect" allow="camera; microphone" />
           </div>
         </div>,
         document.body
       )}
 
-      {/* Plaid Informed Consent Dialog */}
-      <AlertDialog open={showPlaidConsent} onOpenChange={handlePlaidConsentDialogChange}>
+      {/* Plaid Consent Dialog */}
+      <AlertDialog open={showPlaidConsent} onOpenChange={(o) => { setShowPlaidConsent(o); if (!o) setPlaidPrivacyChecked(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Connect Your Bank via Plaid</AlertDialogTitle>
             <AlertDialogDescription className="space-y-3">
-              <span className="block">
-                By connecting your bank account, you consent to BudgetSmart accessing your financial data through Plaid. This includes account balances, transaction history, and account details. Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them.
-              </span>
-              <span className="block bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-amber-800 dark:text-amber-200 text-sm">
-                <strong>Shared computer?</strong> If others use this browser with their own accounts, please use a private/incognito window to prevent bank login conflicts.
-              </span>
+              <span className="block">By connecting your bank account, you consent to BudgetSmart accessing your financial data through Plaid. Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them.</span>
               <span className="block bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-blue-800 dark:text-blue-200 text-sm">
-                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong> next to any connected account to remove access immediately.
+                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong>.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-start gap-3 px-6 pb-2">
-            <Checkbox
-              id="plaid-privacy-consent-wizard"
-              checked={plaidPrivacyChecked}
-              onCheckedChange={(checked) => setPlaidPrivacyChecked(checked === true)}
-            />
-            <label htmlFor="plaid-privacy-consent-wizard" className="text-sm leading-snug cursor-pointer select-none">
-              I have read and agree to BudgetSmart AI's{" "}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">
-                Privacy Policy
-              </a>{" "}
-              and consent to my financial data being accessed through Plaid as described above.
+            <Checkbox id="plaid-consent" checked={plaidPrivacyChecked} onCheckedChange={(c) => setPlaidPrivacyChecked(c === true)} />
+            <label htmlFor="plaid-consent" className="text-sm leading-snug cursor-pointer select-none">
+              I agree to BudgetSmart AI's{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">Privacy Policy</a>{" "}
+              and consent to my financial data being accessed through Plaid.
             </label>
           </div>
           <AlertDialogFooter>
@@ -630,40 +505,24 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* MX Informed Consent Dialog */}
-      <AlertDialog open={showMxConsent} onOpenChange={handleMxConsentDialogChange}>
+      {/* MX Consent Dialog */}
+      <AlertDialog open={showMxConsent} onOpenChange={(o) => { setShowMxConsent(o); if (!o) setMxPrivacyChecked(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Connect Your Bank via MX</AlertDialogTitle>
             <AlertDialogDescription className="space-y-3">
-              <span className="block">
-                By connecting your bank account, you consent to BudgetSmart accessing your financial data through MX Technologies. This includes:
-              </span>
-              <ul className="list-disc list-inside space-y-1 text-sm">
-                <li>Account balances and account details</li>
-                <li>Transaction history</li>
-                <li>Account holder information</li>
-              </ul>
-              <span className="block text-sm">
-                Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them. Your data is used solely to provide budgeting and financial insights within this app.
-              </span>
+              <span className="block">By connecting your bank account, you consent to BudgetSmart accessing your financial data through MX Technologies. Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them.</span>
               <span className="block bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-blue-800 dark:text-blue-200 text-sm">
-                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong> next to any connected account to remove access immediately.
+                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong>.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-start gap-3 px-6 pb-2">
-            <Checkbox
-              id="mx-privacy-consent-wizard"
-              checked={mxPrivacyChecked}
-              onCheckedChange={(checked) => setMxPrivacyChecked(checked === true)}
-            />
-            <label htmlFor="mx-privacy-consent-wizard" className="text-sm leading-snug cursor-pointer select-none">
-              I have read and agree to BudgetSmart AI's{" "}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">
-                Privacy Policy
-              </a>{" "}
-              and consent to my financial data being accessed through MX Technologies as described above.
+            <Checkbox id="mx-consent" checked={mxPrivacyChecked} onCheckedChange={(c) => setMxPrivacyChecked(c === true)} />
+            <label htmlFor="mx-consent" className="text-sm leading-snug cursor-pointer select-none">
+              I agree to BudgetSmart AI's{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">Privacy Policy</a>{" "}
+              and consent to my financial data being accessed through MX Technologies.
             </label>
           </div>
           <AlertDialogFooter>
@@ -672,429 +531,346 @@ function PlaidConnectionStep({ onNext, onSkip, onPlaidOpen }: { onNext: () => vo
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <div className="flex justify-between">
-        <Button variant="ghost" onClick={onSkip}>
-          Skip for now
-        </Button>
-        <Button onClick={onNext} disabled={!connected || isSyncing} className="gap-2">
-          Continue <ArrowRight className="h-4 w-4" />
-        </Button>
-      </div>
-    </>
+    </div>
   );
 }
 
-function AIAnalysisStep({
-  incomeSources,
-  setIncomeSources,
-  recurringBills,
-  setRecurringBills,
+// ─── Step 3: Monthly Income ───────────────────────────────────────────────────
+
+function MonthlyIncomeStep({
   onNext,
-  onBack,
+  onSkip,
+  detectedIncome,
+  detectedEmployer,
 }: {
-  incomeSources: IncomeSource[];
-  setIncomeSources: React.Dispatch<React.SetStateAction<IncomeSource[]>>;
-  recurringBills: RecurringBill[];
-  setRecurringBills: React.Dispatch<React.SetStateAction<RecurringBill[]>>;
-  onNext: () => void;
-  onBack: () => void;
+  onNext: (income: number | null) => void;
+  onSkip: () => void;
+  detectedIncome?: number | null;
+  detectedEmployer?: string | null;
 }) {
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisComplete, setAnalysisComplete] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
+  const [income, setIncome] = useState<string>(detectedIncome ? String(detectedIncome) : "");
+  const [confirmed, setConfirmed] = useState(false);
 
-  const { data: plaidAccounts } = useQuery<any[]>({
-    queryKey: ["/api/plaid/accounts"],
-  });
-
-  const hasConnectedAccounts = Array.isArray(plaidAccounts) && plaidAccounts.length > 0;
-
-  useEffect(() => {
-    if (plaidAccounts === undefined) return; // still loading
-    if (!hasConnectedAccounts) {
-      // Clear any stale cached data from a previously-connected account
-      setIncomeSources([]);
-      setRecurringBills([]);
-      setAnalysisComplete(false);
-      return;
-    }
-    if (incomeSources.length === 0 && recurringBills.length === 0 && !analysisComplete) {
-      runAnalysis();
-    } else if (incomeSources.length > 0 || recurringBills.length > 0) {
-      setAnalysisComplete(true);
-    }
-  }, [plaidAccounts]);
-
-  async function runAnalysis() {
-    setIsAnalyzing(true);
-    setError(null);
-    try {
-      const res = await apiRequest("POST", "/api/analyze-transactions");
-      const data = await res.json();
-
-      setIncomeSources(
-        (data.incomeSources || []).map((s: any) => ({
-          ...s,
-          amount: Number(s.amount) || 0,
-          dueDay: Number(s.dueDay) || 1,
-          selected: s.confidence === "high" || s.confidence === "medium",
-        }))
-      );
-      setRecurringBills(
-        (data.recurringBills || []).map((b: any) => ({
-          ...b,
-          amount: Number(b.amount) || 0,
-          dueDay: Number(b.dueDay) || 1,
-          selected: b.confidence === "high" || b.confidence === "medium",
-        }))
-      );
-      setAnalysisComplete(true);
-    } catch (err: any) {
-      setError(err.message || "Failed to analyze transactions");
-      toast({ title: "Analysis failed", description: "You can retry or skip to manual entry.", variant: "destructive" });
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }
-
-  function toggleIncome(idx: number) {
-    setIncomeSources((prev) =>
-      prev.map((s, i) => (i === idx ? { ...s, selected: !s.selected } : s))
-    );
-  }
-
-  function updateIncome(idx: number, updates: Partial<IncomeSource>) {
-    setIncomeSources((prev) =>
-      prev.map((s, i) => (i === idx ? { ...s, ...updates } : s))
-    );
-  }
-
-  function deleteIncome(idx: number) {
-    setIncomeSources((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function toggleBill(idx: number) {
-    setRecurringBills((prev) =>
-      prev.map((b, i) => (i === idx ? { ...b, selected: !b.selected } : b))
-    );
-  }
-
-  function updateBill(idx: number, updates: Partial<RecurringBill>) {
-    setRecurringBills((prev) =>
-      prev.map((b, i) => (i === idx ? { ...b, ...updates } : b))
-    );
-  }
-
-  function deleteBill(idx: number) {
-    setRecurringBills((prev) => prev.filter((_, i) => i !== idx));
-  }
+  const handleNext = () => {
+    const val = parseFloat(income);
+    onNext(isNaN(val) || val <= 0 ? null : val);
+  };
 
   return (
-    <>
-      <DialogHeader>
-        <DialogTitle>AI Analysis Results</DialogTitle>
-        <DialogDescription>
-          We found these recurring patterns. Select the ones to add to your budget.
-        </DialogDescription>
-      </DialogHeader>
+    <div className="space-y-6">
+      <div className="text-center space-y-2">
+        <div className="text-3xl mb-2">💰</div>
+        <h2 className="text-xl font-bold">What's your monthly take-home income?</h2>
+        <p className="text-sm text-muted-foreground">
+          This helps us calculate how much you can save and spend
+        </p>
+      </div>
 
-      {plaidAccounts === undefined ? (
-        <div className="text-center py-12">
-          <Loader2 className="h-8 w-8 mx-auto mb-4 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Checking bank connection...</p>
-        </div>
-      ) : !hasConnectedAccounts ? (
-        <div className="text-center py-8 space-y-3">
-          <Building2 className="h-12 w-12 mx-auto text-muted-foreground" />
-          <p className="font-medium">No bank account connected</p>
-          <p className="text-sm text-muted-foreground">
-            Connect a bank account first to detect income and bills automatically.
+      {detectedIncome && detectedEmployer && !confirmed && (
+        <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4 space-y-3">
+          <p className="text-sm font-medium text-green-800 dark:text-green-200">
+            ✅ We detected your income as{" "}
+            <strong>${detectedIncome.toLocaleString()}</strong> from{" "}
+            <strong>{detectedEmployer}</strong> — is this correct?
           </p>
-          <Button variant="outline" onClick={onBack} className="gap-2">
-            <ArrowLeft className="h-4 w-4" /> Go Back to Connect
-          </Button>
-        </div>
-      ) : isAnalyzing ? (
-        <div className="text-center py-12">
-          <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
-          <p className="font-medium">Analyzing your transactions...</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            Our AI is identifying income and recurring bills.
-          </p>
-        </div>
-      ) : error ? (
-        <div className="text-center py-8">
-          <p className="text-destructive mb-4">{error}</p>
-          <Button onClick={runAnalysis} variant="outline">
-            Retry Analysis
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-4 py-4 max-h-[50vh] overflow-y-auto">
-          <div>
-            <h3 className="font-medium text-sm mb-2">
-              Income Sources ({incomeSources.filter((s) => s.selected).length} selected)
-            </h3>
-            {incomeSources.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recurring income detected.</p>
-            ) : (
-              <div className="space-y-2">
-                {incomeSources.map((inc, idx) => (
-                  <AnalysisCard
-                    key={idx}
-                    item={inc}
-                    type="income"
-                    categories={INCOME_CATEGORIES}
-                    onToggle={() => toggleIncome(idx)}
-                    onUpdate={(updates) => updateIncome(idx, updates)}
-                    onDelete={() => deleteIncome(idx)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <h3 className="font-medium text-sm mb-2">
-              Recurring Bills ({recurringBills.filter((b) => b.selected).length} selected)
-            </h3>
-            {recurringBills.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recurring bills detected.</p>
-            ) : (
-              <div className="space-y-2">
-                {recurringBills.map((bill, idx) => (
-                  <AnalysisCard
-                    key={idx}
-                    item={bill}
-                    type="bill"
-                    categories={BILL_CATEGORIES}
-                    onToggle={() => toggleBill(idx)}
-                    onUpdate={(updates) => updateBill(idx, updates)}
-                    onDelete={() => deleteBill(idx)}
-                  />
-                ))}
-              </div>
-            )}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1 border-green-300 text-green-700 hover:bg-green-100"
+              onClick={() => {
+                setIncome(String(detectedIncome));
+                setConfirmed(true);
+              }}
+            >
+              ✓ Yes, that's correct
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="flex-1"
+              onClick={() => setConfirmed(true)}
+            >
+              No, I'll adjust
+            </Button>
           </div>
         </div>
       )}
 
-      <div className="flex justify-between pt-2">
-        <Button variant="outline" onClick={onBack} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        {hasConnectedAccounts && (
-          <Button onClick={onNext} disabled={isAnalyzing} className="gap-2">
-            <CheckCircle2 className="h-4 w-4" /> Complete Setup
-          </Button>
-        )}
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Monthly take-home income</label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
+            CAD $
+          </span>
+          <Input
+            type="number"
+            min="0"
+            step="100"
+            placeholder="e.g. 4500"
+            value={income}
+            onChange={(e) => setIncome(e.target.value)}
+            className="pl-16 text-lg h-12"
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Enter your net (after-tax) monthly income
+        </p>
       </div>
-    </>
+
+      <div className="space-y-2">
+        <Button
+          onClick={handleNext}
+          disabled={!income || parseFloat(income) <= 0}
+          className="w-full gap-2"
+          size="lg"
+        >
+          Continue <ArrowRight className="h-4 w-4" />
+        </Button>
+        <button
+          onClick={onSkip}
+          className="w-full text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors py-1"
+        >
+          I'll set this later
+        </button>
+      </div>
+    </div>
   );
 }
 
-function ManualBillStep({
-  incomeSources,
-  recurringBills,
-  manualBills,
-  setManualBills,
-  onComplete,
-  onBack,
+// ─── Step 4: First Budget Goal ────────────────────────────────────────────────
+
+const DEFAULT_CATEGORIES = [
+  { key: "Restaurant & Bars", label: "Food & Dining", icon: <Utensils className="h-5 w-5" />, emoji: "🍕" },
+  { key: "Groceries", label: "Groceries", icon: <ShoppingCart className="h-5 w-5" />, emoji: "🛒" },
+  { key: "Transportation", label: "Transportation", icon: <Car className="h-5 w-5" />, emoji: "🚗" },
+  { key: "Entertainment", label: "Entertainment", icon: <Film className="h-5 w-5" />, emoji: "🎬" },
+  { key: "Shopping", label: "Shopping", icon: <ShoppingBag className="h-5 w-5" />, emoji: "🛍️" },
+];
+
+function BudgetGoalStep({
+  onNext,
+  onSkip,
+  topCategories,
 }: {
-  incomeSources: IncomeSource[];
-  recurringBills: RecurringBill[];
-  manualBills: RecurringBill[];
-  setManualBills: React.Dispatch<React.SetStateAction<RecurringBill[]>>;
-  onComplete: () => void;
-  onBack: () => void;
+  onNext: (category: string, amount: number) => void;
+  onSkip: () => void;
+  topCategories?: Array<{ category: string; total: number }>;
 }) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newAmount, setNewAmount] = useState("");
-  const [newCategory, setNewCategory] = useState("Other");
-  const [newRecurrence, setNewRecurrence] = useState("monthly");
-  const [newDueDay, setNewDueDay] = useState("1");
-  const { toast } = useToast();
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [budgetAmount, setBudgetAmount] = useState<string>("");
 
-  function addManualBill() {
-    if (!newName.trim() || !newAmount) {
-      toast({ title: "Please enter a name and amount", variant: "destructive" });
-      return;
-    }
-    setManualBills((prev) => [
-      ...prev,
-      {
-        name: newName.trim(),
-        amount: parseFloat(newAmount) || 0,
-        category: newCategory,
-        recurrence: newRecurrence,
-        dueDay: parseInt(newDueDay) || 1,
-        confidence: "manual",
-        selected: true,
-      },
-    ]);
-    setNewName("");
-    setNewAmount("");
-    setNewCategory("Other");
-    setNewRecurrence("monthly");
-    setNewDueDay("1");
-  }
+  // Build display categories: use top categories from transactions if available, else defaults
+  const displayCategories = topCategories && topCategories.length > 0
+    ? topCategories.slice(0, 5).map((tc) => {
+        const def = DEFAULT_CATEGORIES.find((d) => d.key === tc.category);
+        return {
+          key: tc.category,
+          label: def?.label || tc.category,
+          emoji: def?.emoji || "📊",
+          suggested: Math.round(tc.total * 1.1 / 50) * 50, // 10% above avg, rounded to $50
+        };
+      })
+    : DEFAULT_CATEGORIES.map((d) => ({ ...d, suggested: 0 }));
 
-  function removeManualBill(idx: number) {
-    setManualBills((prev) => prev.filter((_, i) => i !== idx));
-  }
+  const selectedDef = displayCategories.find((c) => c.key === selectedCategory);
 
-  async function handleFinish() {
-    setIsSubmitting(true);
-    try {
-      const selectedIncome = incomeSources.filter((s) => s.selected);
-      const selectedBills = [
-        ...recurringBills.filter((b) => b.selected),
-        ...manualBills,
-      ];
-
-      if (selectedIncome.length > 0 || selectedBills.length > 0) {
-        await apiRequest("POST", "/api/onboarding/save-selections", {
-          incomeSources: selectedIncome,
-          bills: selectedBills,
-        });
-      }
-
-      await apiRequest("POST", "/api/onboarding/complete");
-
-      queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/onboarding/status"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
-
-      toast({
-        title: "Setup complete!",
-        description: `Added ${selectedIncome.length} income source(s) and ${selectedBills.length} bill(s).`,
-      });
-      onComplete();
-    } catch (error) {
-      toast({ title: "Failed to save", variant: "destructive" });
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  const totalIncome = incomeSources.filter((s) => s.selected).length;
-  const totalBills = recurringBills.filter((b) => b.selected).length + manualBills.length;
+  const handleNext = () => {
+    if (!selectedCategory) return;
+    const val = parseFloat(budgetAmount);
+    if (isNaN(val) || val <= 0) return;
+    onNext(selectedCategory, val);
+  };
 
   return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Add Any Missing Bills</DialogTitle>
-        <DialogDescription>
-          Add any recurring bills that were not detected automatically.
-        </DialogDescription>
-      </DialogHeader>
+    <div className="space-y-5">
+      <div className="text-center space-y-2">
+        <div className="text-3xl mb-2">🎯</div>
+        <h2 className="text-xl font-bold">Pick your #1 spending category to watch</h2>
+        <p className="text-sm text-muted-foreground">
+          We'll create your first budget automatically
+        </p>
+      </div>
 
-      <div className="space-y-4 py-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <Input
-            placeholder="Bill name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-          <Input
-            placeholder="Amount"
-            type="number"
-            step="0.01"
-            value={newAmount}
-            onChange={(e) => setNewAmount(e.target.value)}
-          />
-          <Select value={newCategory} onValueChange={setNewCategory}>
-            <SelectTrigger>
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              {BILL_CATEGORIES.map((cat) => (
-                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={newRecurrence} onValueChange={setNewRecurrence}>
-            <SelectTrigger>
-              <SelectValue placeholder="Recurrence" />
-            </SelectTrigger>
-            <SelectContent>
-              {RECURRENCE_OPTIONS.map((r) => (
-                <SelectItem key={r} value={r}>{r}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Day:</span>
+      <div className="grid grid-cols-1 gap-2">
+        {displayCategories.map((cat) => (
+          <button
+            key={cat.key}
+            onClick={() => {
+              setSelectedCategory(cat.key);
+              if ((cat as any).suggested) {
+                setBudgetAmount(String((cat as any).suggested));
+              }
+            }}
+            className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+              selectedCategory === cat.key
+                ? "border-primary bg-primary/5 ring-1 ring-primary"
+                : "border-border hover:border-primary/50 hover:bg-muted/50"
+            }`}
+          >
+            <span className="text-xl">{cat.emoji}</span>
+            <span className="font-medium text-sm flex-1">{cat.label}</span>
+            {selectedCategory === cat.key && (
+              <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {selectedCategory && (
+        <div className="space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <label className="text-sm font-medium">
+            What's your monthly goal for{" "}
+            <span className="text-primary">{selectedDef?.label || selectedCategory}</span>?
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
+              CAD $
+            </span>
             <Input
               type="number"
-              min={1}
-              max={31}
-              value={newDueDay}
-              onChange={(e) => setNewDueDay(e.target.value)}
-              className="w-20"
+              min="0"
+              step="50"
+              placeholder="e.g. 500"
+              value={budgetAmount}
+              onChange={(e) => setBudgetAmount(e.target.value)}
+              className="pl-16 text-lg h-12"
+              autoFocus
             />
           </div>
-          <Button onClick={addManualBill} className="gap-2">
-            <Plus className="h-4 w-4" /> Add Bill
-          </Button>
         </div>
+      )}
 
-        {manualBills.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium">Manually added bills:</h4>
-            {manualBills.map((bill, idx) => (
-              <div key={idx} className="flex items-center justify-between p-2 border rounded-md">
-                <div>
-                  <span className="text-sm font-medium">{bill.name}</span>
-                  <span className="text-xs text-muted-foreground ml-2">
-                    ${bill.amount.toFixed(2)} / {bill.recurrence}
-                  </span>
-                </div>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeManualBill(idx)}>
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="bg-muted p-3 rounded-lg">
-          <p className="text-sm font-medium">Summary</p>
-          <p className="text-xs text-muted-foreground">
-            {totalIncome} income source(s) and {totalBills} bill(s) will be added to your budget.
-          </p>
-        </div>
-      </div>
-
-      <div className="flex justify-between pt-2">
-        <Button variant="outline" onClick={onBack} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back
+      <div className="space-y-2">
+        <Button
+          onClick={handleNext}
+          disabled={!selectedCategory || !budgetAmount || parseFloat(budgetAmount) <= 0}
+          className="w-full gap-2"
+          size="lg"
+        >
+          Create My Budget <ArrowRight className="h-4 w-4" />
         </Button>
-        <Button onClick={handleFinish} disabled={isSubmitting} className="gap-2">
-          {isSubmitting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <CheckCircle2 className="h-4 w-4" />
-          )}
-          Complete Setup
-        </Button>
+        <button
+          onClick={onSkip}
+          className="w-full text-sm text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors py-1"
+        >
+          I'll set this later
+        </button>
       </div>
-    </>
+    </div>
   );
 }
+
+// ─── Step 5: You're Ready! ────────────────────────────────────────────────────
+
+function ReadyStep({
+  onComplete,
+  onExplore,
+  summary,
+}: {
+  onComplete: () => void;
+  onExplore: () => void;
+  summary: {
+    bankConnected: boolean;
+    accountCount: number;
+    monthlyIncome: number | null;
+    budgetCategory: string | null;
+    budgetAmount: number | null;
+    txCount: number;
+    billsDetected: number;
+  };
+}) {
+  const items = [
+    summary.bankConnected && {
+      label: `Bank connected (${summary.accountCount} account${summary.accountCount !== 1 ? "s" : ""})`,
+      show: true,
+    },
+    summary.monthlyIncome && {
+      label: `Monthly income: $${summary.monthlyIncome.toLocaleString()}`,
+      show: true,
+    },
+    summary.budgetCategory && summary.budgetAmount && {
+      label: `Budget goal: $${summary.budgetAmount.toLocaleString()} for ${summary.budgetCategory}`,
+      show: true,
+    },
+    summary.txCount > 0 && {
+      label: `${summary.txCount.toLocaleString()} transactions imported`,
+      show: true,
+    },
+    summary.billsDetected > 0 && {
+      label: `${summary.billsDetected} recurring bills detected`,
+      show: true,
+    },
+  ].filter(Boolean) as Array<{ label: string; show: boolean }>;
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center space-y-2">
+        <div className="text-5xl mb-3 animate-bounce">🎉</div>
+        <h2 className="text-2xl font-bold">You're all set!</h2>
+        <p className="text-sm text-muted-foreground">
+          Here's what we set up for you:
+        </p>
+      </div>
+
+      {items.length > 0 && (
+        <div className="bg-muted/50 rounded-xl p-4 space-y-2.5">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+            Your Setup Summary
+          </p>
+          {items.map((item, i) => (
+            <div key={i} className="flex items-center gap-2.5">
+              <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+              <span className="text-sm font-medium">{item.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Button onClick={onComplete} className="w-full gap-2" size="lg">
+          Go to My Dashboard <ArrowRight className="h-4 w-4" />
+        </Button>
+        <Button onClick={onExplore} variant="outline" className="w-full gap-2" size="lg">
+          Explore Features <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Wizard ──────────────────────────────────────────────────────────────
 
 export function OnboardingWizard({ open, onComplete, isDemo = false }: OnboardingWizardProps) {
   const [step, setStep] = useState(1);
-  const [incomeSources, setIncomeSources] = useState<IncomeSource[]>([]);
-  const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([]);
-  const [manualBills, setManualBills] = useState<RecurringBill[]>([]);
   const [plaidOpen, setPlaidOpen] = useState(false);
   const { toast } = useToast();
 
+  // Collected data
+  const [bankConnected, setBankConnected] = useState(false);
+  const [accountCount, setAccountCount] = useState(0);
+  const [txCount, setTxCount] = useState(0);
+  const [monthlyIncome, setMonthlyIncome] = useState<number | null>(null);
+  const [budgetCategory, setBudgetCategory] = useState<string | null>(null);
+  const [budgetAmount, setBudgetAmount] = useState<number | null>(null);
+  const [billsDetected, setBillsDetected] = useState(0);
+
+  // Progress tracking
+  const [progress, setProgress] = useState<Record<string, boolean>>({
+    bank: false,
+    income: false,
+    budget: false,
+  });
+
+  // Session data for firstName
+  const { data: session } = useQuery<any>({
+    queryKey: ["/api/auth/session"],
+    enabled: open,
+  });
+
+  const firstName = session?.firstName || null;
+
+  // Onboarding status
   const { data: onboardingStatus } = useQuery<{
     onboardingComplete: boolean;
     currentStep: number;
@@ -1106,49 +882,43 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     enabled: open,
   });
 
+  // Restore state from onboarding status
   useEffect(() => {
-    if (onboardingStatus) {
-      if (onboardingStatus.hasPlaidConnection && step === 1) {
-        setStep(2);
-      }
-      if (onboardingStatus.analysisData) {
-        if (onboardingStatus.analysisData.incomeSources && incomeSources.length === 0) {
-          setIncomeSources(
-            onboardingStatus.analysisData.incomeSources.map((s: any) => ({
-              ...s,
-              amount: Number(s.amount) || 0,
-              dueDay: Number(s.dueDay) || 1,
-              selected: s.confidence === "high" || s.confidence === "medium",
-            }))
-          );
-        }
-        if (onboardingStatus.analysisData.recurringBills && recurringBills.length === 0) {
-          setRecurringBills(
-            onboardingStatus.analysisData.recurringBills.map((b: any) => ({
-              ...b,
-              amount: Number(b.amount) || 0,
-              dueDay: Number(b.dueDay) || 1,
-              selected: b.confidence === "high" || b.confidence === "medium",
-            }))
-          );
-        }
-      }
-      if (onboardingStatus.currentStep > step) {
-        setStep(onboardingStatus.currentStep);
-      }
+    if (!onboardingStatus) return;
+    if (onboardingStatus.hasPlaidConnection && step === 1) {
+      setBankConnected(true);
+      setStep(2);
+    }
+    if (onboardingStatus.analysisData?.recurringBills) {
+      setBillsDetected(onboardingStatus.analysisData.recurringBills.length);
+    }
+    if (onboardingStatus.currentStep > step) {
+      setStep(onboardingStatus.currentStep);
     }
   }, [onboardingStatus]);
 
+  // Detect income from analysis data
+  const detectedIncome = onboardingStatus?.analysisData?.incomeSources?.[0];
+  const detectedIncomeAmount = detectedIncome
+    ? Math.round(parseFloat(detectedIncome.amount || "0"))
+    : null;
+  const detectedEmployer = detectedIncome?.source || null;
+
+  // Top spending categories from analysis
+  const topCategories = onboardingStatus?.analysisData?.recurringBills
+    ? onboardingStatus.analysisData.recurringBills
+        .slice(0, 5)
+        .map((b: any) => ({ category: b.category || "Other", total: parseFloat(b.amount || "0") }))
+    : undefined;
+
   async function handleSkip() {
-    // In demo mode, just close the wizard without making API calls
     if (isDemo) {
-      toast({ title: "Demo mode - setup wizard closed." });
+      toast({ title: "Demo mode — setup wizard closed." });
       onComplete();
       return;
     }
-    
     try {
-      await apiRequest("POST", "/api/onboarding/complete");
+      await apiRequest("POST", "/api/onboarding/complete", { progress });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
       queryClient.invalidateQueries({ queryKey: ["/api/onboarding/status"] });
       toast({ title: "Setup skipped. You can configure your budget anytime." });
@@ -1158,85 +928,139 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     }
   }
 
-  const progressValue = (step / 3) * 100;
-
-  // Handle completing setup from step 3 (previously step 4 handled this)
-  async function handleCompleteFromStep3() {
-    try {
-      // Save selected income and bills
-      const selectedIncome = incomeSources.filter(s => s.selected);
-      const selectedBills = recurringBills.filter(b => b.selected);
-
-      for (const inc of selectedIncome) {
-        await apiRequest("POST", "/api/income", {
-          source: inc.source,
-          amount: String(inc.amount),
-          category: inc.category || "Other",
-          date: new Date().toISOString().split("T")[0],
-          isRecurring: true,
-          recurrence: inc.recurrence || "monthly",
-          dueDay: inc.dueDay || 1,
-        });
-      }
-
-      for (const bill of selectedBills) {
-        await apiRequest("POST", "/api/bills", {
-          name: bill.name,
-          amount: bill.amount,
-          category: bill.category,
-          recurrence: bill.recurrence,
-          dueDay: bill.dueDay,
-        });
-      }
-
-      // Mark onboarding complete
-      await apiRequest("POST", "/api/onboarding/complete");
-      
-      toast({ title: "Setup complete!", description: `Added ${selectedIncome.length} income source(s) and ${selectedBills.length} bill(s).` });
+  async function handleComplete() {
+    if (isDemo) {
       onComplete();
-    } catch (err: any) {
-      toast({ title: "Failed to save", description: err.message, variant: "destructive" });
+      return;
+    }
+    try {
+      await apiRequest("POST", "/api/onboarding/complete", { progress });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/onboarding/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      onComplete();
+    } catch {
+      toast({ title: "Failed to complete setup", variant: "destructive" });
     }
   }
 
+  // Step handlers
+  const handleBankConnected = useCallback((connected: boolean, accts?: number, txs?: number) => {
+    setBankConnected(connected);
+    setAccountCount(accts || 0);
+    setTxCount(txs || 0);
+    setProgress((p) => ({ ...p, bank: connected }));
+  }, []);
+
+  const handleIncomeNext = async (income: number | null) => {
+    setMonthlyIncome(income);
+    setProgress((p) => ({ ...p, income: income !== null }));
+
+    if (income && !isDemo) {
+      try {
+        await apiRequest("POST", "/api/onboarding/save-income-goal", {
+          monthlyIncome: income,
+        });
+      } catch (err) {
+        console.error("Failed to save income:", err);
+      }
+    }
+    await apiRequest("POST", "/api/onboarding/save-step", { step: 4 });
+    setStep(4);
+  };
+
+  const handleBudgetNext = async (category: string, amount: number) => {
+    setBudgetCategory(category);
+    setBudgetAmount(amount);
+    setProgress((p) => ({ ...p, budget: true }));
+
+    if (!isDemo) {
+      try {
+        await apiRequest("POST", "/api/onboarding/save-income-goal", {
+          budgetCategory: category,
+          budgetAmount: amount,
+        });
+      } catch (err) {
+        console.error("Failed to save budget:", err);
+      }
+    }
+    await apiRequest("POST", "/api/onboarding/save-step", { step: 5 });
+    setStep(5);
+  };
+
+  const TOTAL_STEPS = 5;
+
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen && !plaidOpen) handleSkip(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen && !plaidOpen) handleSkip();
+      }}
+    >
       <DialogContent
-        className={`max-w-2xl max-h-[90vh] overflow-y-auto ${plaidOpen ? 'pointer-events-none opacity-50' : ''}`}
+        className={`max-w-md max-h-[90vh] overflow-y-auto ${plaidOpen ? "pointer-events-none opacity-50" : ""}`}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => { if (!plaidOpen) e.preventDefault(); }}
         style={plaidOpen ? { zIndex: 10 } : undefined}
       >
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-xs text-muted-foreground">Step {step} of 3</p>
-            {step > 1 && (
-              <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={handleSkip}>
-                <X className="h-3 w-3" /> Skip
-              </Button>
-            )}
-          </div>
-          <Progress value={progressValue} className="h-2" />
-        </div>
+        <StepProgress current={step} total={TOTAL_STEPS} />
 
         {step === 1 && (
-          <WelcomeStep onNext={() => setStep(2)} onSkip={handleSkip} />
-        )}
-        {step === 2 && (
-          <PlaidConnectionStep
-            onNext={() => setStep(3)}
-            onSkip={handleSkip}
-            onPlaidOpen={setPlaidOpen}
+          <WelcomeStep
+            firstName={firstName}
+            onNext={() => setStep(2)}
           />
         )}
+
+        {step === 2 && (
+          <ConnectBankStep
+            onNext={() => setStep(3)}
+            onSkip={async () => {
+              await apiRequest("POST", "/api/onboarding/save-step", { step: 3 });
+              setStep(3);
+            }}
+            onPlaidOpen={setPlaidOpen}
+            onBankConnected={handleBankConnected}
+          />
+        )}
+
         {step === 3 && (
-          <AIAnalysisStep
-            incomeSources={incomeSources}
-            setIncomeSources={setIncomeSources}
-            recurringBills={recurringBills}
-            setRecurringBills={setRecurringBills}
-            onNext={handleCompleteFromStep3}
-            onBack={() => setStep(2)}
+          <MonthlyIncomeStep
+            onNext={handleIncomeNext}
+            onSkip={async () => {
+              await apiRequest("POST", "/api/onboarding/save-step", { step: 4 });
+              setStep(4);
+            }}
+            detectedIncome={detectedIncomeAmount}
+            detectedEmployer={detectedEmployer}
+          />
+        )}
+
+        {step === 4 && (
+          <BudgetGoalStep
+            onNext={handleBudgetNext}
+            onSkip={async () => {
+              await apiRequest("POST", "/api/onboarding/save-step", { step: 5 });
+              setStep(5);
+            }}
+            topCategories={topCategories}
+          />
+        )}
+
+        {step === 5 && (
+          <ReadyStep
+            onComplete={handleComplete}
+            onExplore={handleComplete}
+            summary={{
+              bankConnected,
+              accountCount,
+              monthlyIncome,
+              budgetCategory,
+              budgetAmount,
+              txCount,
+              billsDetected,
+            }}
           />
         )}
       </DialogContent>

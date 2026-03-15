@@ -7163,17 +7163,62 @@ Rules:
   app.post("/api/onboarding/complete", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      
-      // For demo users, just return success without actually updating
-      if ((req.session as any).isDemo) {
-        return res.json({ success: true, demo: true });
-      }
-      
-      await storage.updateUserOnboarding(userId, true);
+
+        // For demo users, just return success without actually updating
+        if ((req.session as any).isDemo) {
+          return res.json({ success: true, demo: true });
+        }
+
+      const { progress } = req.body;
+      await storage.updateUserOnboarding(userId, true, progress);
       res.json({ success: true });
     } catch (error) {
       console.error("Error completing onboarding:", error);
       res.status(500).json({ error: "Failed to complete onboarding" });
+    }
+  });
+
+  app.post("/api/onboarding/save-income-goal", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      if ((req.session as any).isDemo) return res.json({ success: true, demo: true });
+
+      const { monthlyIncome, budgetCategory, budgetAmount } = req.body;
+      const today = new Date().toISOString().split("T")[0];
+      const month = today.slice(0, 7);
+
+      if (monthlyIncome && parseFloat(String(monthlyIncome)) > 0) {
+        await storage.createIncome({
+          userId,
+          source: "Monthly Income",
+          amount: String(monthlyIncome),
+          date: today,
+          category: "Salary",
+          isRecurring: "true",
+          recurrence: "monthly",
+          dueDay: 1,
+        });
+      }
+
+      if (budgetCategory && budgetAmount && parseFloat(String(budgetAmount)) > 0) {
+        const existing = await storage.getBudgetsByMonth(userId, month);
+        const alreadyExists = existing.find(b => b.category === budgetCategory);
+        if (!alreadyExists) {
+          await storage.createBudget({
+            userId,
+            category: budgetCategory as any,
+            amount: String(budgetAmount),
+            month,
+          });
+        } else {
+          await storage.updateBudget(alreadyExists.id, { amount: String(budgetAmount) });
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error saving income/goal:", error);
+      res.status(500).json({ error: error.message || "Failed to save income and goal" });
     }
   });
 
