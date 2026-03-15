@@ -609,10 +609,17 @@ Return JSON: { "bills": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid bill data", details: parsed.error });
       }
-      const bill = await storage.createBill({ ...parsed.data, userId });
+      const data = parsed.data;
+      const bill = await storage.createBill({
+        ...data,
+        userId,
+        amount: String(parseFloat(String(data.amount))),
+        dueDay: parseInt(String(data.dueDay), 10),
+      });
       res.status(201).json(bill);
     } catch (error) {
-      res.status(500).json({ error: "Failed to create bill" });
+      console.error("POST /api/bills error:", error);
+      res.status(500).json({ error: "Failed to create bill", details: error instanceof Error ? error.message : String(error) });
     }
   });
 

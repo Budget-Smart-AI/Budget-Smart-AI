@@ -1433,15 +1433,19 @@ export class DatabaseStorage implements IStorage {
     const result = await db.insert(bills).values({
       userId: insertBill.userId,
       name: insertBill.name,
-      amount: insertBill.amount,
+      amount: String(parseFloat(String(insertBill.amount))),
       category: insertBill.category,
-      dueDay: insertBill.dueDay,
+      dueDay: parseInt(String(insertBill.dueDay), 10),
       recurrence: insertBill.recurrence,
       customDates: insertBill.customDates || null,
       notes: insertBill.notes || null,
       startingBalance: insertBill.startingBalance || null,
       paymentsRemaining: insertBill.paymentsRemaining || null,
       startDate: insertBill.startDate || null,
+      endDate: insertBill.endDate ?? null,
+      isPaused: insertBill.isPaused || "false",
+      merchant: insertBill.merchant || null,
+      linkedPlaidAccountId: insertBill.linkedPlaidAccountId ?? null,
     }).returning();
     return result[0];
   }
