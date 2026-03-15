@@ -39,6 +39,7 @@ import { eq, and } from "drizzle-orm";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
+import adminCommunicationsRouter from "./routes/admin-communications";
 import { registerPasswordResetRoutes } from "./routes/auth-password-reset";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
@@ -119,6 +120,8 @@ export async function registerRoutes(
   
   // Admin plan-feature management routes (protected with requireAdmin)
   app.use("/api/admin/plans", adminPlansRouter);
+  // Admin communications hub (email log, templates, broadcast, health, system alerts)
+  app.use("/api/admin/communications", adminCommunicationsRouter);
   registerPasswordResetRoutes(app);
 
   // Field encryption status endpoint (admin only)
@@ -2986,10 +2989,13 @@ Return JSON: { "income": [...] }`;
       // 20. Delete budget alerts
       await storage.deleteAllBudgetAlertsByUser(userId);
 
-      // 21. Delete onboarding analysis data
+      // 21. Delete spending alerts
+      await storage.deleteAllSpendingAlertsByUser(userId);
+
+      // 22. Delete onboarding analysis data
       await storage.deleteAllOnboardingAnalysisByUser(userId);
 
-      // 22. Delete referral codes and referrals
+      // 23. Delete referral codes and referrals
       await storage.deleteAllReferralsByUser(userId);
       await storage.deleteAllReferralCodesByUser(userId);
 

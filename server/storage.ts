@@ -65,7 +65,7 @@ import {
   type MxAccount, type InsertMxAccount,
   type MxTransaction, type InsertMxTransaction,
   notificationSettings, customCategories, recurringExpenses,
-  reconciliationRules, syncSchedules, notifications, budgetAlerts,
+  reconciliationRules, syncSchedules, notifications, budgetAlerts, spendingAlerts,
   onboardingAnalysis, households, householdMembers, householdInvitations,
   referralCodes, referrals, manualAccounts, manualTransactions, debtDetails,
   aiInsights, transactionAnomalies, savingsRecommendations,
@@ -332,6 +332,7 @@ export interface IStorage {
   deleteAllBudgetAlertsByUser(userId: string): Promise<void>;
   deleteAllOnboardingAnalysisByUser(userId: string): Promise<void>;
   deleteAllReferralCodesByUser(userId: string): Promise<void>;
+  deleteAllSpendingAlertsByUser(userId: string): Promise<void>;
   deleteAllReferralsByUser(userId: string): Promise<void>;
   deleteAllDebtDetailsByUser(userId: string): Promise<void>;
 
@@ -1047,6 +1048,7 @@ export class MemStorage implements IStorage {
   async deleteAllSyncSchedulesByUser(_userId: string): Promise<void> {}
   async deleteAllBudgetAlertsByUser(_userId: string): Promise<void> {}
   async deleteAllOnboardingAnalysisByUser(_userId: string): Promise<void> {}
+  async deleteAllSpendingAlertsByUser(_userId: string): Promise<void> {}
   async deleteAllReferralCodesByUser(_userId: string): Promise<void> {}
   async deleteAllReferralsByUser(_userId: string): Promise<void> {}
   async deleteAllDebtDetailsByUser(_userId: string): Promise<void> {}
@@ -2748,6 +2750,10 @@ export class DatabaseStorage implements IStorage {
 
   async deleteAllOnboardingAnalysisByUser(userId: string): Promise<void> {
     await db.delete(onboardingAnalysis).where(eq(onboardingAnalysis.userId, userId));
+  }
+
+  async deleteAllSpendingAlertsByUser(userId: string): Promise<void> {
+    await db.delete(spendingAlerts).where(eq(spendingAlerts.userId, userId));
   }
 
   async deleteAllReferralCodesByUser(userId: string): Promise<void> {
