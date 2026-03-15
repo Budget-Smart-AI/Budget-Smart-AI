@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureBillRemindersSentTable } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable } from "./db";
 import { encrypt, decrypt } from "./encryption";
 
 try {
@@ -371,6 +371,10 @@ app.use((req, res, next) => {
 
   await ensureBillRemindersSentTable().catch(err =>
     console.error("Failed to ensure bill_reminders_sent table — bill reminder deduplication will not work (duplicate emails may be sent on deploy):", err)
+  );
+
+  await ensureLandingSettingsTable().catch(err =>
+    console.error("Failed to ensure landing_settings table — landing page and chatbot config will not work:", err)
   );
 
   // Note: ensureUserFeatureUsageTable() and ensurePlanFeatureLimitsTable() are now

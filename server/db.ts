@@ -687,6 +687,27 @@ export async function ensureBillRemindersSentTable(): Promise<void> {
   `);
 }
 
+/**
+ * Ensure the landing_settings table exists. This table stores admin-editable
+ * content for the public landing page (hero title, pricing copy, etc.).
+ * Uses CREATE TABLE IF NOT EXISTS so it is safe to call on every startup.
+ *
+ * Without this table the /api/landing and /api/landing-settings endpoints
+ * throw a "relation does not exist" error which surfaces as a 500 to the
+ * chatbot and landing page.
+ */
+export async function ensureLandingSettingsTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "landing_settings" (
+      "id"         varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "key"        text UNIQUE NOT NULL,
+      "value"      text NOT NULL DEFAULT '',
+      "type"       text NOT NULL DEFAULT 'text',
+      "updated_at" text
+    )
+  `);
+}
+
 export async function ensurePlanFeatureLimitsTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS plan_feature_limits (

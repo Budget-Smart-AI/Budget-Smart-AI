@@ -3206,12 +3206,25 @@ export class DatabaseStorage implements IStorage {
 
   // Landing Page Settings
   async getLandingSettings(): Promise<LandingSetting[]> {
-    return db.select().from(landingSettings);
+    try {
+      return await db.select().from(landingSettings);
+    } catch (err) {
+      // If the table doesn't exist yet (first deploy before migration runs)
+      // or the DB connection fails, return an empty array so the chatbot
+      // and landing page degrade gracefully instead of throwing a 500.
+      console.error("getLandingSettings failed — returning empty defaults:", err);
+      return [];
+    }
   }
 
   async getLandingSetting(key: string): Promise<LandingSetting | undefined> {
-    const result = await db.select().from(landingSettings).where(eq(landingSettings.key, key));
-    return result[0];
+    try {
+      const result = await db.select().from(landingSettings).where(eq(landingSettings.key, key));
+      return result[0];
+    } catch (err) {
+      console.error(`getLandingSetting(${key}) failed — returning undefined:`, err);
+      return undefined;
+    }
   }
 
   async upsertLandingSetting(key: string, value: string, type: string = "text"): Promise<LandingSetting> {
