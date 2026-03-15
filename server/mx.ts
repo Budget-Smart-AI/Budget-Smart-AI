@@ -1,4 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
+import { mxMembers, plaidTransactions, users } from "@shared/schema";
 
 const MX_CLIENT_ID = process.env.MX_CLIENT_ID;
 const MX_API_KEY = process.env.MX_API_KEY;
@@ -476,81 +479,179 @@ export function mapMXAccountType(mxType: string): string {
   return typeMap[mxType.toUpperCase()] || "other";
 }
 
+// ─── MX User GUID helper ────────────────────────────────────────────────────
+
+async function getMXUserGuid(userId: string): Promise<string> {
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+  if (!user?.mxUserGuid) {
+    throw new Error(`[MX] No mxUserGuid found for user ${userId}`);
+  }
+  return user.mxUserGuid;
+}
+
+// ─── Category mapper ─────────────────────────────────────────────────────────
+
 // Map MX categories to our internal categories
-export function mapMXCategory(mxCategory: string, topLevelCategory: string): string {
+export function mapMXCategory(
+  topLevel: string,
+  category: string,
+  isIncome: boolean
+): string {
+  if (isIncome) return 'Salary';
+
   const categoryMap: Record<string, string> = {
-    "Groceries": "Groceries",
-    "Restaurants": "Restaurant & Bars",
-    "Fast Food": "Restaurant & Bars",
-    "Coffee Shops": "Coffee Shops",
-    "Bars & Alcohol": "Restaurant & Bars",
-    "Gas & Fuel": "Gas",
-    "Auto & Transport": "Transportation",
-    "Parking": "Parking & Tolls",
-    "Public Transportation": "Public Transit",
-    "Taxi & Ride Sharing": "Taxi & Ride Share",
-    "Entertainment": "Entertainment",
-    "Movies & DVDs": "Entertainment",
-    "Music": "Entertainment",
-    "Games": "Entertainment",
-    "Shopping": "Shopping",
-    "Clothing": "Clothing",
-    "Electronics & Software": "Shopping",
-    "Health & Fitness": "Fitness",
-    "Gym": "Fitness",
-    "Doctor": "Healthcare",
-    "Pharmacy": "Healthcare",
-    "Health Insurance": "Healthcare",
-    "Travel": "Travel",
-    "Hotels": "Travel",
-    "Air Travel": "Travel",
-    "Vacation": "Travel",
-    "Education": "Education",
-    "Books & Supplies": "Education",
-    "Tuition": "Education",
-    "Bills & Utilities": "Utilities",
-    "Internet": "Communications",
-    "Mobile Phone": "Communications",
-    "Television": "Subscriptions",
-    "Utilities": "Electrical",
-    "Rent": "Mortgage",
-    "Mortgage & Rent": "Mortgage",
-    "Home Improvement": "Maintenance",
-    "Home Services": "Maintenance",
-    "Personal Care": "Personal",
-    "Hair": "Personal",
-    "Spa & Massage": "Personal",
-    "Pets": "Personal",
-    "Gifts & Donations": "Fun Money",
-    "Charity": "Fun Money",
-    "Business Services": "Business Travel & Meals",
-    "Office Supplies": "Business Travel & Meals",
-    "Fees & Charges": "Credit Card",
-    "Bank Fee": "Credit Card",
-    "Interest Paid": "Credit Card",
-    "ATM Fee": "Cash & ATM",
-    "Cash & ATM": "Cash & ATM",
-    "Transfer": "Check",
-    "Check": "Check",
-    "Income": "Other",
-    "Paycheck": "Other",
-    "Investment": "Other",
-    "Returned Purchase": "Other",
-    "Uncategorized": "Other",
+    'Food & Drink': 'Restaurant & Bars',
+    'Groceries': 'Groceries',
+    'Shopping': 'Shopping',
+    'Travel': 'Travel',
+    'Transportation': 'Transportation',
+    'Entertainment': 'Entertainment',
+    'Healthcare': 'Healthcare',
+    'Utilities': 'Utilities',
+    'Rent': 'Housing',
+    'Insurance': 'Insurance',
+    'Loans': 'Loans',
+    'Transfer': 'Other',
+    'Income': 'Salary',
+    'ATM': 'Other',
+    'Fees': 'Other',
   };
 
-  // Try exact match first
-  if (categoryMap[mxCategory]) {
-    return categoryMap[mxCategory];
-  }
+  return categoryMap[topLevel] || categoryMap[category] || 'Other';
+}
 
-  // Try top level category
-  if (categoryMap[topLevelCategory]) {
-    return categoryMap[topLevelCategory];
-  }
+// ─── Upsert a single MX transaction ─────────────────────────────────────────
 
-  // Default
-  return "Other";
+async function upsertMXTransaction(
+  userId: string,
+  memberId: string,
+  tx: any
+): Promise<void> {
+  // MX AMOUNT CONVENTION:
+  // Positive amount = DEBIT (money going OUT)
+  // Negative amount = CREDIT (money coming IN)
+  // This is OPPOSITE to Plaid convention
+  // Store as-is but flag income correctly
+
+  const isIncome = tx.amount < 0 ||
+    tx.top_level_category === 'Income' ||
+    tx.type === 'CREDIT';
+
+  const normalizedAmount = Math.abs(tx.amount).toFixed(2);
+
+  // Map MX category to our personalCategory
+  const personalCategory = mapMXCategory(
+    tx.top_level_category,
+    tx.category,
+    isIncome
+  );
+
+  const transactionData = {
+    plaidAccountId: memberId,
+    amount: isIncome ? `-${normalizedAmount}` : normalizedAmount,
+    date: tx.transacted_at?.split('T')[0] || tx.posted_at?.split('T')[0],
+    name: tx.description,
+    merchantName: tx.merchant_category_code ? String(tx.merchant_category_code) : null,
+    merchantCleanName: tx.description,
+    category: tx.top_level_category || 'OTHER',
+    personalCategory,
+    pending: tx.is_pending ? 'true' : 'false',
+    isoCurrencyCode: 'CAD',
+    matchType: 'unmatched',
+    reconciled: 'false',
+    enrichmentSource: 'mx',
+    enrichmentConfidence: '0.85',
+  };
+
+  // Upsert — insert or update on conflict
+  await db.insert(plaidTransactions)
+    .values({
+      id: crypto.randomUUID(),
+      transactionId: tx.guid,
+      ...transactionData,
+      createdAt: new Date().toISOString(),
+    })
+    .onConflictDoUpdate({
+      target: plaidTransactions.transactionId,
+      set: transactionData,
+    });
+}
+
+// ─── Sync MX transactions (page-based, no cursor) ────────────────────────────
+
+export async function syncMXTransactions(
+  userId: string,
+  memberGuid: string,
+  memberId: string
+): Promise<{ added: number; updated: number; removed: number }> {
+  let addedCount = 0;
+  const updatedCount = 0;
+
+  try {
+    // Get MX user guid for this BudgetSmart user
+    const mxUserGuid = await getMXUserGuid(userId);
+
+    // Get member's last sync date from DB
+    const member = await db.query.mxMembers.findFirst({
+      where: eq(mxMembers.id, memberId),
+    });
+
+    // Fetch 2 years of history on first sync
+    // Incremental after that using lastSyncedAt
+    const fromDate = member?.lastSyncedAt
+      ? new Date(member.lastSyncedAt).toISOString().split('T')[0]
+      : new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const toDate = new Date().toISOString().split('T')[0];
+
+    console.log(`[MX Sync] Fetching transactions from ${fromDate} to ${toDate} for member ${memberGuid}`);
+
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const response = await mxClient.get(
+        `/users/${mxUserGuid}/members/${memberGuid}/transactions`,
+        {
+          params: {
+            from_date: fromDate,
+            to_date: toDate,
+            page,
+            records_per_page: 100,
+          },
+        }
+      );
+
+      const transactions: any[] = response.data.transactions || [];
+      const pagination = response.data.pagination;
+
+      console.log(`[MX Sync] Page ${page}: ${transactions.length} transactions`);
+
+      for (const tx of transactions) {
+        await upsertMXTransaction(userId, memberId, tx);
+        addedCount++;
+      }
+
+      // Check if more pages exist
+      hasMore = pagination?.current_page < pagination?.total_pages;
+      page++;
+    }
+
+    // Update lastSyncedAt on the member
+    await db.update(mxMembers)
+      .set({ lastSyncedAt: new Date() })
+      .where(eq(mxMembers.id, memberId));
+
+    console.log(`[MX Sync] Complete for user ${userId}: processed ${addedCount} transactions`);
+
+    return { added: addedCount, updated: updatedCount, removed: 0 };
+
+  } catch (error) {
+    console.error('[MX Sync] Error:', error);
+    throw error;
+  }
 }
 
 export { mxClient };

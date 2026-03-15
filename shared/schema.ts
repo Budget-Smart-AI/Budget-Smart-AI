@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, numeric, real, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, numeric, real, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -296,6 +296,7 @@ export const mxMembers = pgTable("mx_members", {
   successfullyAggregatedAt: text("successfully_aggregated_at"),
   createdAt: text("created_at"),
   memberGuidEnc: text("member_guid_enc"), // AES-256-GCM encrypted member GUID
+  lastSyncedAt: timestamp("last_synced_at"),
 });
 
 // MX Accounts table - individual bank accounts from MX
