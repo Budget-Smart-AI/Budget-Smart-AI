@@ -54,9 +54,14 @@ const trackingItems = [
     icon: DollarSign,
   },
   {
+    title: "Expenses",
+    url: "/expenses",
+    icon: Receipt,
+  },
+  {
     title: "Bills",
     url: "/bills",
-    icon: Receipt,
+    icon: CreditCard,
   },
   {
     title: "Subscriptions",
