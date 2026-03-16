@@ -263,8 +263,17 @@ export default function DebtsPage() {
         title: `Imported ${imported} debt${imported !== 1 ? "s" : ""}`, 
         description: "Please add APR rates for accurate payoff calculations."
       });
-    } catch (error) {
-      toast({ title: "Import failed", description: "Could not import some accounts. Please try again.", variant: "destructive" });
+    } catch (error: any) {
+      const msg = (error?.message || "").toLowerCase();
+      if (msg.includes("limit") || msg.includes("upgrade") || msg.includes("plan") || msg.includes("402")) {
+        toast({
+          title: "Debt limit reached",
+          description: "You've used all 5 debts on the free plan. Upgrade to Pro for unlimited debt tracking.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Import failed", description: "Could not import some accounts. Please try again.", variant: "destructive" });
+      }
     } finally {
       setIsAutoImporting(false);
     }

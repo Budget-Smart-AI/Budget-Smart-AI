@@ -414,7 +414,7 @@ async function getCumulativeItemCounts(userId: string): Promise<Map<string, numb
       `SELECT 
         (SELECT COUNT(*) FROM bills WHERE user_id = $1) as bills,
         (SELECT COUNT(DISTINCT category) FROM budgets WHERE user_id = $1 AND month = $2) as budgets,
-        (SELECT COUNT(*) FROM debt_details WHERE user_id = $1) as debts,
+        (SELECT COUNT(*) FROM debt_details WHERE user_id = $1 AND is_active = 'true') as debts,
         (SELECT COUNT(*) FROM savings_goals WHERE user_id = $1) as savings_goals,
         (SELECT COUNT(*) FROM assets WHERE user_id = $1) as assets,
         (SELECT COUNT(*) FROM manual_accounts WHERE user_id = $1) as manual_accounts,

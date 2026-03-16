@@ -1430,7 +1430,7 @@ Return JSON: { "income": [...] }`;
           return res.status(402).json({ feature: "debt_tracking", remaining: 0, resetDate: null, upgradeRequired: true });
         }
         const { rows: debtRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(*)::int AS cnt FROM debt_details WHERE user_id = $1",
+          "SELECT COUNT(*)::int AS cnt FROM debt_details WHERE user_id = $1 AND is_active = 'true'",
           [userId]
         );
         if ((debtRows[0]?.cnt ?? 0) >= debtLimit) {
