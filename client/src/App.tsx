@@ -67,6 +67,7 @@ import AdminBankProviders from "@/pages/admin-bank-providers";
 import AdminAuditLog from "@/pages/admin-audit-log";
 import AdminSystemStatus from "@/pages/admin-system-status";
 import AdminPlanFeatures from "@/pages/admin-plan-features";
+import AdminCommunications from "@/pages/admin-communications";
 import AnomaliesPage from "@/pages/anomalies";
 import AffiliatePage from "@/pages/affiliate";
 import AffiliateTerms from "@/pages/affiliate-terms";
@@ -80,6 +81,7 @@ import DemoPage from "@/pages/demo";
 import UpgradePage from "@/pages/upgrade";
 import RedeemPage from "@/pages/redeem";
 import { Loader2 } from "lucide-react";
+import { SystemAlertBanner } from "@/components/system-alert-banner";
 
 function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin: boolean }) {
   return (
@@ -160,6 +162,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
           <Route path="/admin/audit-log" component={AdminAuditLog} />
           <Route path="/admin/system-status" component={AdminSystemStatus} />
           <Route path="/admin/plan-features" component={AdminPlanFeatures} />
+          <Route path="/admin/communications" component={AdminCommunications} />
         </>
       )}
       <Route component={NotFound} />
@@ -212,6 +215,7 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
       <div className="flex h-screen w-full">
         <AppSidebar isAdmin={isAdmin} username={username} onLogout={onLogout} />
         <div className="flex flex-col flex-1 overflow-hidden">
+          <SystemAlertBanner />
           {isDemo && (
             <div className="bg-amber-500/90 text-amber-950 px-4 py-2 text-center text-sm font-medium" data-testid="banner-demo-mode">
               <span className="inline-flex items-center gap-2 flex-wrap justify-center">

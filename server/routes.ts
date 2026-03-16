@@ -2571,7 +2571,17 @@ Return JSON: { "income": [...] }`;
           metadata: { username },
           errorMessage: "Account locked",
         });
-        return res.status(423).json({ error: "Account is temporarily locked. Please try again later." });
+        // FIX 1: Return remaining lockout time
+        const lockoutExpiresAt = new Date(lockRow.locked_until).getTime();
+        const remainingMs = lockoutExpiresAt - Date.now();
+        const remainingMinutes = Math.ceil(remainingMs / 1000 / 60);
+        return res.status(423).json({
+          error: "Account temporarily locked",
+          code: "ACCOUNT_LOCKED",
+          remainingMinutes,
+          remainingSeconds: Math.ceil(remainingMs / 1000),
+          resetPasswordUrl: "/forgot-password",
+        });
       }
 
       const validPassword = await verifyPassword(password, user.password!);
@@ -2591,6 +2601,50 @@ Return JSON: { "income": [...] }`;
             outcome: "blocked",
             metadata: { username, attempts },
           });
+          // FIX 2: Send security notification email on lockout
+          const fromEmail = process.env.ALERT_EMAIL_FROM;
+          if (fromEmail && isEmailConfigured() && user.email) {
+            const clientIpForEmail = getClientIp(req);
+            const lockoutTime = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour12: true });
+            const firstName = user.firstName || user.username;
+            const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
+            sendEmailViaPostmark({
+              from: fromEmail,
+              to: user.email,
+              subject: "Security Alert — BudgetSmart Account Locked",
+              html: `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#1a1a1a">
+  <div style="text-align:center;margin-bottom:24px">
+    <div style="display:inline-block;background:#fef3c7;border-radius:50%;width:64px;height:64px;line-height:64px;font-size:32px;text-align:center">🔒</div>
+  </div>
+  <h2 style="color:#d97706;margin-bottom:8px">Security Alert — Account Locked</h2>
+  <p>Hi ${firstName},</p>
+  <p>We noticed multiple failed login attempts on your BudgetSmart account and have temporarily locked it for your security.</p>
+  <table style="background:#f9fafb;border-radius:8px;padding:16px;width:100%;margin:16px 0;border-collapse:collapse">
+    <tr><td style="padding:4px 0;color:#6b7280;font-size:14px">Account:</td><td style="padding:4px 0;font-size:14px"><strong>${user.email}</strong></td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280;font-size:14px">Time:</td><td style="padding:4px 0;font-size:14px">${lockoutTime} EST</td></tr>
+    <tr><td style="padding:4px 0;color:#6b7280;font-size:14px">Location:</td><td style="padding:4px 0;font-size:14px">${clientIpForEmail || "Unknown"}</td></tr>
+  </table>
+  <p>Your account will automatically unlock in <strong>${LOCKOUT_DURATION_MINUTES} minutes</strong>. If this was you, no action needed.</p>
+  <p>If this wasn't you, reset your password immediately:</p>
+  <div style="text-align:center;margin:24px 0">
+    <a href="${appUrl}/forgot-password" style="background:#d97706;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">Reset Password →</a>
+  </div>
+  <p style="color:#6b7280;font-size:13px">If you need help, contact <a href="mailto:support@budgetsmart.io">support@budgetsmart.io</a></p>
+  <p style="color:#6b7280;font-size:13px">The BudgetSmart Security Team</p>
+</div>`,
+              text: `Security Alert — BudgetSmart Account Locked\n\nHi ${firstName},\n\nWe noticed multiple failed login attempts on your BudgetSmart account and have temporarily locked it for your security.\n\nAccount: ${user.email}\nTime: ${lockoutTime} EST\nLocation: ${clientIpForEmail || "Unknown"}\n\nYour account will automatically unlock in ${LOCKOUT_DURATION_MINUTES} minutes. If this was you, no action needed.\n\nIf this wasn't you, reset your password immediately:\n${appUrl}/forgot-password\n\nIf you need help, contact support@budgetsmart.io\n\nThe BudgetSmart Security Team`,
+            }).catch(err => console.error("[Security Email] Failed to send lockout notification:", err));
+          }
+          // FIX 1: Return lockout response with remaining time
+          const remainingMs = LOCKOUT_DURATION_MINUTES * 60 * 1000;
+          return res.status(423).json({
+            error: "Account temporarily locked",
+            code: "ACCOUNT_LOCKED",
+            remainingMinutes: LOCKOUT_DURATION_MINUTES,
+            remainingSeconds: LOCKOUT_DURATION_MINUTES * 60,
+            resetPasswordUrl: "/forgot-password",
+          });
         } else {
           await pool.query(
             `UPDATE users SET failed_login_attempts = $1 WHERE id = $2`,
@@ -2606,6 +2660,19 @@ Return JSON: { "income": [...] }`;
           metadata: { username },
           errorMessage: "Invalid password",
         });
+        // FIX 4: Progressive attempt warnings
+        const attemptsLeft = MAX_FAILED_LOGIN_ATTEMPTS - attempts;
+        if (attemptsLeft === 2) {
+          return res.status(401).json({
+            error: `Incorrect password. 2 attempts remaining before account is temporarily locked.`,
+            attemptsRemaining: 2,
+          });
+        } else if (attemptsLeft === 1) {
+          return res.status(401).json({
+            error: `Incorrect password. 1 attempt remaining before account is temporarily locked.`,
+            attemptsRemaining: 1,
+          });
+        }
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
@@ -3508,6 +3575,7 @@ Return JSON: { "income": [...] }`;
         subscriptionStatus: user.subscriptionStatus,
         plan: user.plan ?? null,
         stripeSubscriptionId: user.stripeSubscriptionId ?? null,
+        lockedUntil: user.lockedUntil ?? null,
       }));
       auditLogFromRequest(req, {
         eventType: "admin.user_viewed",
@@ -3670,6 +3738,32 @@ Return JSON: { "income": [...] }`;
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
+  // FIX 5: Admin unlock account
+  app.post("/api/admin/users/:userId/unlock", requireAdmin, async (req, res) => {
+    try {
+      const userId = req.params.userId as string;
+      await pool.query(
+        `UPDATE users SET locked_until = NULL, failed_login_attempts = 0 WHERE id = $1`,
+        [userId]
+      );
+      auditLogFromRequest(req, {
+        eventType: "admin.user_unlocked",
+        eventCategory: "admin",
+        actorId: req.session.userId,
+        actorType: "admin",
+        targetType: "user",
+        targetId: userId,
+        action: "admin_unlock_account",
+        outcome: "success",
+        metadata: { unlockedUserId: userId },
+      });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error unlocking user:", error);
+      res.status(500).json({ error: "Failed to unlock account" });
     }
   });
 

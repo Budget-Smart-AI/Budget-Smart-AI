@@ -66,7 +66,7 @@ import {
   Plus, Pencil, Trash2, Users, Shield, ShieldCheck, Check, X, Clock,
   CreditCard, AlertTriangle, Pause, Eye, ChevronDown, ChevronUp,
   HardDrive, Bot, Activity, Landmark, TrendingUp, TrendingDown,
-  BarChart2, DollarSign, Database, Wrench,
+  BarChart2, DollarSign, Database, Wrench, LockOpen,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -99,6 +99,8 @@ interface User {
   plan: string | null;
   /** Stripe subscription ID — present when user has a Stripe subscription */
   stripeSubscriptionId: string | null;
+  /** Lockout expiry — non-null and in the future means account is currently locked */
+  lockedUntil: string | null;
 }
 
 /**
@@ -1329,6 +1331,20 @@ export default function AdminUsers() {
     queryKey: ["/api/admin/landing/pricing"],
   });
 
+  const unlockMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("POST", `/api/admin/users/${id}/unlock`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Account unlocked", description: "The user can now log in." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to unlock account", description: error.message, variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/admin/users/${id}`);
@@ -1445,19 +1461,27 @@ export default function AdminUsers() {
                           : <span className="text-muted-foreground">-</span>}
                       </TableCell>
                       <TableCell className="p-2 sm:p-4">
-                        {user.isApproved ? (
-                          <Badge variant="default" className="bg-green-600 text-[10px] sm:text-xs">
-                            <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
-                            <span className="hidden sm:inline">Approved</span>
-                            <span className="sm:hidden">OK</span>
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="border-amber-500 text-amber-500 text-[10px] sm:text-xs">
-                            <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
-                            <span className="hidden sm:inline">Pending</span>
-                            <span className="sm:hidden">Wait</span>
-                          </Badge>
-                        )}
+                        <div className="flex flex-col gap-1">
+                          {user.isApproved ? (
+                            <Badge variant="default" className="bg-green-600 text-[10px] sm:text-xs w-fit">
+                              <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
+                              <span className="hidden sm:inline">Approved</span>
+                              <span className="sm:hidden">OK</span>
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-amber-500 text-amber-500 text-[10px] sm:text-xs w-fit">
+                              <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
+                              <span className="hidden sm:inline">Pending</span>
+                              <span className="sm:hidden">Wait</span>
+                            </Badge>
+                          )}
+                          {user.lockedUntil && new Date(user.lockedUntil) > new Date() && (
+                            <Badge variant="destructive" className="text-[10px] sm:text-xs w-fit">
+                              <LockOpen className="w-2.5 h-2.5 sm:w-3 sm:h-3 mr-0.5 sm:mr-1" />
+                              Locked
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell p-2 sm:p-4">
                         {user.isAdmin ? (
@@ -1550,6 +1574,19 @@ export default function AdminUsers() {
                               data-testid={`button-approve-${user.id}`}
                             >
                               <Check className="w-3 h-3 sm:w-4 sm:h-4 text-green-600" />
+                            </Button>
+                          )}
+                          {user.lockedUntil && new Date(user.lockedUntil) > new Date() && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 sm:h-9 sm:w-9 p-0"
+                              onClick={() => unlockMutation.mutate(user.id)}
+                              disabled={unlockMutation.isPending}
+                              title="Unlock Account"
+                              data-testid={`button-unlock-${user.id}`}
+                            >
+                              <LockOpen className="w-3 h-3 sm:w-4 sm:h-4 text-amber-500" />
                             </Button>
                           )}
                           <Button

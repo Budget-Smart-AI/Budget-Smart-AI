@@ -1,6 +1,7 @@
 import { ServerClient } from "postmark";
 import { format, setDate, isBefore, addMonths, addDays, addWeeks, setDay, subDays, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subMonths, subWeeks } from "date-fns";
 import { storage } from "./storage";
+import { logEmail } from "./email-logger";
 import type { Bill, Expense, Income, Budget, SavingsGoal } from "@shared/schema";
 import { startAiCoachScheduler } from "./ai-coach";
 import { checkVaultExpiryNotifications } from "./routes/vault";
@@ -209,12 +210,13 @@ This is an automated reminder from Budget Smart AI.`;
   }
 
   try {
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: toEmail,
       Subject: subject,
       TextBody: body,
     });
+    logEmail({ userId: bill.userId, recipientEmail: toEmail, subject, type: "bill_reminder", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Email sent for bill: ${bill.name}`);
     return true;
   } catch (error: any) {
@@ -683,13 +685,13 @@ To manage your email preferences, visit your settings at ${process.env.APP_URL |
       return false;
     }
 
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: email,
       Subject: subject,
       TextBody: body,
     });
-
+    logEmail({ userId, recipientEmail: email, subject, type: "weekly_digest", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Weekly digest sent to: ${email}`);
     return true;
   } catch (error) {
@@ -787,13 +789,13 @@ To manage your email preferences, visit your settings at ${process.env.APP_URL |
       return false;
     }
 
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: email,
       Subject: subject,
       TextBody: body,
     });
-
+    logEmail({ userId, recipientEmail: email, subject, type: "monthly_report", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Monthly report sent to: ${email}`);
     return true;
   } catch (error) {
@@ -926,13 +928,13 @@ To manage your notification preferences, visit your Email Settings page.`;
         details: "POSTMARK_USERNAME environment variable is missing"
       };
     }
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: email,
       Subject: subject,
       TextBody: body,
     });
-
+    logEmail({ userId: null, recipientEmail: email, subject, type: "test", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Test email sent successfully to: ${email}`);
     return {
       success: true,
@@ -1011,12 +1013,13 @@ The Budget Smart AI Team`;
       console.log("[Email] Postmark not configured, skipping invitation email.");
       return false;
     }
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: toEmail,
       Subject: subject,
       TextBody: body,
     });
+    logEmail({ userId: null, recipientEmail: toEmail, subject, type: "household_invitation", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Household invitation email sent to: ${toEmail}`);
     return true;
   } catch (error) {
@@ -1068,12 +1071,13 @@ The Budget Smart AI Team`;
       console.log("[Email] Postmark not configured, skipping verification email.");
       return false;
     }
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: toEmail,
       Subject: subject,
       TextBody: body,
     });
+    logEmail({ userId: null, recipientEmail: toEmail, subject, type: "email_verification", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Email verification sent to: ${toEmail}`);
     return true;
   } catch (error) {
@@ -1161,13 +1165,14 @@ The Budget Smart AI Team`;
       console.log("[Email] Postmark not configured, skipping welcome email.");
       return false;
     }
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: toEmail,
       Subject: subject,
       TextBody: textBody,
       HtmlBody: htmlBody,
     });
+    logEmail({ userId: null, recipientEmail: toEmail, subject, type: "welcome", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Welcome email sent to: ${toEmail}`);
     return true;
   } catch (error) {
@@ -1211,12 +1216,13 @@ The Budget Smart AI Team`;
       console.log("[Email] Postmark not configured, skipping upgrade confirmation email.");
       return false;
     }
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: toEmail,
       Subject: subject,
       TextBody: textBody,
     });
+    logEmail({ userId: null, recipientEmail: toEmail, subject, type: "upgrade_confirmation", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`Upgrade confirmation email sent to: ${toEmail}`);
     return true;
   } catch (error) {
@@ -1257,12 +1263,13 @@ Budget Smart AI`;
   try {
     const client = getPostmarkClient();
     if (!client) return false;
-    await client.sendEmail({
+    const result = await client.sendEmail({
       From: fromEmail,
       To: user.email,
       Subject: subject,
       TextBody: body,
     });
+    logEmail({ userId: user.id ? String(user.id) : null, recipientEmail: user.email, subject, type: "spending_alert", status: "sent", postmarkMessageId: (result as any)?.MessageID ?? null }).catch(() => {});
     console.log(`[SpendingAlert] Alert email sent to ${user.email} for ${label}`);
     return true;
   } catch (err) {

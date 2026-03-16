@@ -190,6 +190,11 @@ const adminMenuItems = [
     url: "/admin/system-status",
     icon: Activity,
   },
+  {
+    title: "Communications",
+    url: "/admin/communications",
+    icon: Mail,
+  },
 ];
 
 interface AppSidebarProps {

@@ -2040,6 +2040,91 @@ export const insertBillPaymentSchema = createInsertSchema(billPayments).omit({ i
 export type BillPayment = typeof billPayments.$inferSelect;
 export type InsertBillPayment = z.infer<typeof insertBillPaymentSchema>;
 
+// ============ COMMUNICATIONS HUB TABLES ============
+
+// Email log - every email ever sent
+export const emailLog = pgTable("email_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"),
+  recipientEmail: text("recipient_email").notNull(),
+  subject: text("subject").notNull(),
+  type: text("type").notNull(), // welcome | bill_reminder | email_verification | weekly_digest | monthly_report | broadcast | household_invitation | upgrade_confirmation | spending_alert | usage_milestone | password_reset | support_reply | test
+  status: text("status").notNull().default("sent"), // sent | failed | bounced | opened
+  postmarkMessageId: text("postmark_message_id"),
+  sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
+  openedAt: timestamp("opened_at", { withTimezone: true }),
+  bouncedAt: timestamp("bounced_at", { withTimezone: true }),
+  metadata: text("metadata"), // JSON blob
+});
+
+export const insertEmailLogSchema = createInsertSchema(emailLog).omit({ id: true, sentAt: true }).extend({
+  userId: z.string().nullable().optional(),
+  postmarkMessageId: z.string().nullable().optional(),
+  metadata: z.string().nullable().optional(),
+  status: z.enum(["sent", "failed", "bounced", "opened"]).optional(),
+});
+export type EmailLog = typeof emailLog.$inferSelect;
+export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
+
+// Email broadcasts - one-off bulk campaigns
+export const emailBroadcasts = pgTable("email_broadcasts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  recipientSegment: text("recipient_segment").notNull().default("all"), // all | free | pro | family | custom
+  sentBy: varchar("sent_by"), // adminId
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  totalRecipients: integer("total_recipients").default(0),
+  successCount: integer("success_count").default(0),
+  failCount: integer("fail_count").default(0),
+  status: text("status").notNull().default("draft"), // draft | scheduled | sending | sent | failed
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const insertEmailBroadcastSchema = createInsertSchema(emailBroadcasts).omit({ id: true, createdAt: true }).extend({
+  sentBy: z.string().nullable().optional(),
+  scheduledFor: z.string().nullable().optional(),
+  recipientSegment: z.enum(["all", "free", "pro", "family"]).optional().default("all"),
+  status: z.enum(["draft", "scheduled", "sending", "sent", "failed"]).optional().default("draft"),
+});
+export type EmailBroadcast = typeof emailBroadcasts.$inferSelect;
+export type InsertEmailBroadcast = z.infer<typeof insertEmailBroadcastSchema>;
+
+// System alerts - in-app push notifications
+export const systemAlerts = pgTable("system_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: text("type").notNull().default("info"), // info | warning | critical | success
+  message: text("message").notNull(),
+  linkUrl: text("link_url"),
+  linkText: text("link_text"),
+  createdBy: varchar("created_by"), // adminId
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+export const insertSystemAlertSchema = createInsertSchema(systemAlerts).omit({ id: true, createdAt: true }).extend({
+  type: z.enum(["info", "warning", "critical", "success"]).optional().default("info"),
+  linkUrl: z.string().nullable().optional(),
+  linkText: z.string().nullable().optional(),
+  createdBy: z.string().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
+});
+export type SystemAlert = typeof systemAlerts.$inferSelect;
+export type InsertSystemAlert = z.infer<typeof insertSystemAlertSchema>;
+
+// System alert dismissals - per-user dismissal tracking
+export const systemAlertDismissals = pgTable("system_alert_dismissals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  alertId: varchar("alert_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }).defaultNow(),
+});
+
+export type SystemAlertDismissal = typeof systemAlertDismissals.$inferSelect;
+
 // ============ EXCHANGE RATES TABLE ============
 
 // Exchange rates cache - stores fetched rates from frankfurter.app (refreshed daily)

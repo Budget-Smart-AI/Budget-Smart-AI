@@ -30,11 +30,35 @@ interface LoginProps {
   onLoginSuccess: () => void;
 }
 
+const LOCKOUT_DURATION_MINUTES = 30;
+
 export default function Login({ onLoginSuccess }: LoginProps) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [showMfa, setShowMfa] = useState(false);
   const [useBackupCode, setUseBackupCode] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  useEffect(() => {
+    if (remainingSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [remainingSeconds > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -101,12 +125,27 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       }
     },
     onError: (error: Error & { emailVerificationRequired?: boolean; email?: string }) => {
+      const anyError = error as any;
+      // FIX 3: Handle account locked response
+      if (anyError.code === "ACCOUNT_LOCKED") {
+        setIsLocked(true);
+        setRemainingSeconds(anyError.remainingSeconds || LOCKOUT_DURATION_MINUTES * 60);
+        return;
+      }
+      // FIX 4: Progressive attempt warnings — show as amber (default) toast
+      if (anyError.attemptsRemaining !== undefined) {
+        toast({
+          title: "Incorrect Password",
+          description: error.message,
+        });
+        return;
+      }
       if (error.message.includes("verify your email")) {
         toast({
           title: "Email Verification Required",
           description: "Please check your email to verify your account before signing in.",
         });
-        const email = (error as any).email || loginForm.getValues("username");
+        const email = anyError.email || loginForm.getValues("username");
         navigate(`/verify-email-pending?email=${encodeURIComponent(email)}`);
       } else if (error.message.includes("pending approval")) {
         toast({
@@ -163,6 +202,54 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       });
     },
   });
+
+  // FIX 3: Lockout UI with countdown timer
+  if (isLocked) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
+        <div className="flex-1 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md bg-slate-900/50 border-slate-800">
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center gap-4 p-6 text-center">
+                <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center">
+                  <Lock className="w-8 h-8 text-amber-500" />
+                </div>
+                <h2 className="text-xl font-bold text-white">Account Temporarily Locked</h2>
+                <p className="text-slate-400 text-sm">
+                  Too many failed sign-in attempts. Your account has been locked for security.
+                </p>
+                <div className="bg-slate-800/60 rounded-xl p-4 w-full text-center border border-slate-700">
+                  <p className="text-xs text-slate-400 mb-1">Automatically unlocks in</p>
+                  <p className="text-3xl font-mono font-bold text-amber-500">
+                    {formatTime(remainingSeconds)}
+                  </p>
+                </div>
+                <Button
+                  className="w-full bg-emerald-600 hover:bg-emerald-500"
+                  onClick={() => navigate("/forgot-password")}
+                >
+                  Reset Password to Unlock Now →
+                </Button>
+                <p className="text-xs text-slate-500">
+                  A security notification has been sent to your email address.
+                </p>
+                {remainingSeconds === 0 && (
+                  <Button
+                    variant="outline"
+                    className="w-full border-slate-700 text-white hover:bg-slate-800"
+                    onClick={() => setIsLocked(false)}
+                  >
+                    Try Again
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        <PageFooter />
+      </div>
+    );
+  }
 
   if (showMfa) {
     return (
