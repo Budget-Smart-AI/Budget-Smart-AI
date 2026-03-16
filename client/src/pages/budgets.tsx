@@ -103,8 +103,15 @@ function BudgetForm({
       toast({ title: "Budget created successfully" });
       onClose();
     },
-    onError: () => {
-      toast({ title: "Failed to create budget", variant: "destructive" });
+    onError: (error: Error) => {
+      const is402 = error.message.includes("reached the limit") || error.message.includes("Upgrade to Pro");
+      toast({
+        title: is402 ? "Budget limit reached" : "Failed to create budget",
+        description: is402
+          ? "You've used all 5 budgets on the free plan. Upgrade to Pro for unlimited budgets."
+          : error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -417,16 +424,7 @@ export default function BudgetsPage() {
         </div>
       </div>
 
-      <FeatureGate
-        feature="budget_creation"
-        displayName="budgets"
-        bullets={[
-          "Create unlimited category budgets",
-          "Track planned vs actual spending in detail",
-          "Adjust quickly as your monthly priorities change",
-        ]}
-      >
-        {budgetsWithSpent.length > 0 && (
+      {budgetsWithSpent.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -530,7 +528,6 @@ export default function BudgetsPage() {
             })
           )}
         </div>
-      </FeatureGate>
 
       <AlertDialog open={!!deletingBudget} onOpenChange={() => setDeletingBudget(undefined)}>
         <AlertDialogContent>

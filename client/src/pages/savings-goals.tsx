@@ -105,8 +105,15 @@ function SavingsGoalForm({
       toast({ title: "Savings goal created successfully" });
       onClose();
     },
-    onError: () => {
-      toast({ title: "Failed to create savings goal", variant: "destructive" });
+    onError: (error: Error) => {
+      const is402 = error.message.includes("reached the limit") || error.message.includes("Upgrade to Pro");
+      toast({
+        title: is402 ? "Savings goal limit reached" : "Failed to create savings goal",
+        description: is402
+          ? "You've used all 3 savings goals on the free plan. Upgrade to Pro for unlimited goals."
+          : error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -452,16 +459,7 @@ export default function SavingsGoalsPage() {
         </div>
       </div>
 
-      <FeatureGate
-        feature="savings_goals"
-        displayName="savings goals"
-        bullets={[
-          "Create unlimited savings goals with milestones",
-          "Track progress in real time with clear visuals",
-          "Use AI guidance to reach goals faster",
-        ]}
-      >
-        {goals.length > 0 && (
+      {goals.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -610,7 +608,6 @@ export default function SavingsGoalsPage() {
             })
           )}
         </div>
-      </FeatureGate>
 
       <AlertDialog open={!!deletingGoal} onOpenChange={() => setDeletingGoal(undefined)}>
         <AlertDialogContent>
