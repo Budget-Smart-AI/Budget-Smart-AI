@@ -1,4 +1,4 @@
-// FEATURE: DEBT_TRACKING | tier: free | limit: 3 debts
+// FEATURE: DEBT_TRACKING | tier: free | limit: 5 debts
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -311,7 +311,7 @@ export default function DebtsPage() {
       if (msg.toLowerCase().includes("limit") || msg.toLowerCase().includes("upgrade") || msg.toLowerCase().includes("plan")) {
         toast({
           title: "Debt limit reached",
-          description: "You've used all 3 debts on the free plan. Upgrade to Pro for unlimited debt tracking.",
+          description: "You've used all 5 debts on the free plan. Upgrade to Pro for unlimited debt tracking.",
           variant: "destructive",
         });
       } else {

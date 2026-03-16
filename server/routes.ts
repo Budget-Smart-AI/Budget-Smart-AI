@@ -1386,7 +1386,7 @@ Return JSON: { "income": [...] }`;
     }
   });
 
-  // FEATURE: DEBT_TRACKING | tier: free | limit: 3 debts
+  // FEATURE: DEBT_TRACKING | tier: free | limit: 5 debts
   // ============ DEBT DETAILS API ============
 
   // Get all debt details for user
