@@ -234,6 +234,60 @@ async function resetStuckSyncs() {
 }
 resetStuckSyncs();
 
+/**
+ * Migrate any plaid_items rows where item_id was accidentally stored as an
+ * AES-256-GCM ciphertext instead of plaintext.  The webhook handler matches
+ * Plaid's real item_id against the item_id column, so it must be plaintext.
+ *
+ * Detection heuristic: a valid Plaid item_id looks like
+ *   "access-sandbox-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  (< 60 chars)
+ * whereas an AES-256-GCM ciphertext is base64-encoded and typically > 80 chars.
+ *
+ * Safe to run on every deploy — rows that are already plaintext are skipped.
+ */
+async function migrateItemIds() {
+  try {
+    const { rows } = await pool.query<{ id: number; item_id: string }>(
+      `SELECT id, item_id FROM plaid_items`
+    );
+
+    let migrated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      // If item_id is longer than 80 chars it is almost certainly a ciphertext.
+      if (row.item_id && row.item_id.length > 80) {
+        try {
+          const plaintext = decrypt(row.item_id);
+          await pool.query(
+            `UPDATE plaid_items SET item_id = $1 WHERE id = $2`,
+            [plaintext, row.id]
+          );
+          console.log(
+            `[Startup] migrateItemIds: decrypted item_id for plaid_item id=${row.id} ` +
+            `(${row.item_id.substring(0, 20)}… → ${plaintext.substring(0, 20)}…)`
+          );
+          migrated++;
+        } catch (decryptErr) {
+          console.warn(
+            `[Startup] migrateItemIds: could not decrypt item_id for plaid_item id=${row.id}:`,
+            decryptErr
+          );
+        }
+      } else {
+        skipped++;
+      }
+    }
+
+    console.log(
+      `[Startup] migrateItemIds complete — migrated=${migrated} skipped=${skipped}`
+    );
+  } catch (err) {
+    console.error("[Startup] migrateItemIds failed (non-fatal):", err);
+  }
+}
+migrateItemIds();
+
 setTimeout(() => {
   checkAllUsersBudgetAlerts().catch(console.error);
 }, 5000);

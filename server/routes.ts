@@ -5307,26 +5307,53 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       try {
         const { webhook_type, webhook_code, item_id, error } = req.body;
 
-        // ── FIX 4: Comprehensive webhook logging ──────────────────────────
         console.log(`[Plaid Webhook] ═══════════════════════════════════════`);
         console.log(`[Plaid Webhook] Received: type=${webhook_type} code=${webhook_code} plaid_item_id=${item_id}`);
 
         if (webhook_type === "TRANSACTIONS") {
-          // ── FIX 2: Look up by item_id (Plaid's external ID), NOT internal UUID ──
-          // item_id in the DB maps to Plaid's item_id field (the external identifier)
-          const { rows } = await pool.query(
-            `SELECT id, user_id, access_token, sync_cursor, is_syncing FROM plaid_items WHERE item_id = $1`,
-            [item_id]
+          // ── FIX 1: item_id in DB is ENCRYPTED — fetch all items and decrypt to find match ──
+          // Plaid sends the REAL item_id (e.g. xqo00P5Y0oF3jXLxKypduZyqmz6gB0CRjAad8)
+          // but the DB stores an ENCRYPTED version. Direct WHERE item_id = $1 finds nothing.
+          // Solution: fetch all items, decrypt each item_id, compare to Plaid's real item_id.
+          const { rows: allRows } = await pool.query(
+            `SELECT id, user_id, access_token, access_token_enc, item_id, sync_cursor, is_syncing FROM plaid_items`
           );
 
-          if (rows.length === 0) {
-            console.warn(`[Plaid Webhook] ⚠️  No plaid_item found for plaid_item_id=${item_id}`);
+          console.log(`[Plaid Webhook] Searching ${allRows.length} DB items for plaid_item_id=${item_id}`);
+
+          let item: any = null;
+          for (const row of allRows) {
+            try {
+              const decryptedItemId = decrypt(row.item_id);
+              if (decryptedItemId === item_id) {
+                item = row;
+                console.log(`[Plaid Webhook] ✅ Matched item: internal_id=${row.id} decrypted_item_id=${decryptedItemId.substring(0, 15)}...`);
+                break;
+              }
+            } catch {
+              // If decrypt fails, try direct comparison (item_id may already be plaintext)
+              if (row.item_id === item_id) {
+                item = row;
+                console.log(`[Plaid Webhook] ✅ Matched item (plaintext): internal_id=${row.id}`);
+                break;
+              }
+            }
+          }
+
+          if (!item) {
+            console.error(`[Plaid Webhook] ❌ Item not found for plaid_item_id=${item_id}`);
+            console.error(`[Plaid Webhook]   DB has ${allRows.length} items. Decrypted item_ids:`);
+            for (const row of allRows) {
+              try {
+                const dec = decrypt(row.item_id);
+                console.error(`[Plaid Webhook]     internal=${row.id} → decrypted=${dec}`);
+              } catch {
+                console.error(`[Plaid Webhook]     internal=${row.id} → raw=${row.item_id} (decrypt failed)`);
+              }
+            }
             return;
           }
 
-          const item = rows[0];
-
-          // ── FIX 4: Log DB item details ────────────────────────────────────
           console.log(`[Plaid Webhook] DB item found:`);
           console.log(`[Plaid Webhook]   internal_id=${item.id}`);
           console.log(`[Plaid Webhook]   user_id=${item.user_id}`);
@@ -5334,22 +5361,37 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           console.log(`[Plaid Webhook]   hasCursor=${item.sync_cursor ? 'YES (has cursor)' : 'NO (null = fresh start)'}`);
           console.log(`[Plaid Webhook]   tokenLength=${item.access_token?.length ?? 0}`);
 
-          // ── FIX 3: Always decrypt token before passing to syncTransactions ──
-          let decryptedToken: string;
-          try {
-            decryptedToken = decrypt(item.access_token);
-            const tokenPreview = decryptedToken.substring(0, 20);
-            console.log(`[Plaid Webhook]   decryptedTokenStart=${tokenPreview}...`);
-            if (!decryptedToken.startsWith("access-")) {
-              console.error(`[Plaid Webhook] ❌ Token does NOT start with "access-" — may still be encrypted!`);
-              console.error(`[Plaid Webhook]    Token preview: ${tokenPreview}`);
-            } else {
-              console.log(`[Plaid Webhook]   ✅ Token correctly decrypted (starts with "access-")`);
+          // ── FIX 2: Resolve access_token from either plaintext or encrypted column ──
+          // The DB stores access_token = "ENCRYPTED" (sentinel) and access_token_enc = AES-256-GCM ciphertext.
+          // Some older rows may have plaintext in access_token directly.
+          // Priority: access_token_enc (decrypt) → access_token (if starts with "access-") → fail
+          let accessToken: string = "";
+
+          if (item.access_token_enc) {
+            // New rows: decrypt from access_token_enc column
+            try {
+              accessToken = decrypt(item.access_token_enc);
+              console.log(`[Plaid Webhook]   Token resolved from access_token_enc (decrypted)`);
+            } catch (decryptErr) {
+              console.error(`[Plaid Webhook] ❌ Failed to decrypt access_token_enc for item ${item.id}:`, decryptErr);
+              return;
             }
-          } catch (decryptErr) {
-            console.error(`[Plaid Webhook] ❌ Failed to decrypt access token for item ${item.id}:`, decryptErr);
+          } else if (item.access_token && item.access_token !== "ENCRYPTED") {
+            // Legacy rows: plaintext in access_token column
+            accessToken = item.access_token;
+            console.log(`[Plaid Webhook]   Token resolved from access_token (plaintext legacy)`);
+          } else {
+            console.error(`[Plaid Webhook] ❌ No valid access token found for item ${item.id} (access_token="${item.access_token}", access_token_enc=${item.access_token_enc ? 'present' : 'null'})`);
             return;
           }
+
+          const tokenPreview = accessToken.substring(0, 20);
+          console.log(`[Plaid Webhook]   tokenStart=${tokenPreview}...`);
+          if (!accessToken.startsWith("access-")) {
+            console.error(`[Plaid Webhook] ❌ Token does NOT start with "access-" — invalid token!`);
+            return;
+          }
+          console.log(`[Plaid Webhook]   ✅ Token valid (starts with "access-")`);
 
           const { syncTransactions } = await import("./plaid");
 
@@ -5361,7 +5403,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             console.log(`[Plaid Webhook] Starting sync for ${webhook_code} — item ${item.id} (user ${item.user_id})`);
             console.log(`[Plaid Webhook]   cursor=${item.sync_cursor ? 'existing (incremental)' : 'null (fresh)'}`);
 
-            const result = await syncTransactions(decryptedToken, item.id, item.user_id);
+            const result = await syncTransactions(accessToken, item.id, item.user_id);
             console.log(`[Plaid Webhook] ✅ Sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
 
             // Run enrichment in background if new transactions were added
@@ -5373,11 +5415,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             }
 
           } else if (webhook_code === "HISTORICAL_UPDATE") {
-            // ── FIX 1: CRITICAL — Reset cursor on HISTORICAL_UPDATE ───────────
             // HISTORICAL_UPDATE means Plaid has prepared the FULL 24-month history.
-            // If we use the cursor saved from INITIAL_UPDATE, Plaid thinks we already
-            // have recent data and only returns the remaining older data — missing months.
-            // We MUST reset the cursor to null so the sync fetches ALL history from scratch.
+            // Reset cursor to null so the sync fetches ALL history from scratch.
             console.log(`[Plaid Webhook] 🔄 HISTORICAL_UPDATE received — resetting cursor for FULL history sync`);
             console.log(`[Plaid Webhook]   Previous cursor: ${item.sync_cursor ? item.sync_cursor.substring(0, 30) + '...' : 'null'}`);
 
@@ -5399,7 +5438,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
 
             // Now sync from the very beginning (null cursor = full history)
             console.log(`[Plaid Webhook] Starting FULL history sync for item ${item.id} (user ${item.user_id})`);
-            const result = await syncTransactions(decryptedToken, item.id, item.user_id);
+            const result = await syncTransactions(accessToken, item.id, item.user_id);
             console.log(`[Plaid Webhook] ✅ HISTORICAL sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
 
             // Run enrichment in background if new transactions were added
@@ -5412,25 +5451,48 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           }
 
         } else if (webhook_type === "ITEM") {
+          // For ITEM webhooks, item_id may also be encrypted in DB — use same decrypt-and-compare approach
+          const { rows: allItemRows } = await pool.query(
+            `SELECT id FROM plaid_items`
+          );
+          let matchedId: string | null = null;
+          for (const row of allItemRows) {
+            const { rows: itemRows } = await pool.query(
+              `SELECT id, item_id FROM plaid_items WHERE id = $1`,
+              [row.id]
+            );
+            if (itemRows.length > 0) {
+              try {
+                const decryptedItemId = decrypt(itemRows[0].item_id);
+                if (decryptedItemId === item_id || itemRows[0].item_id === item_id) {
+                  matchedId = row.id;
+                  break;
+                }
+              } catch {
+                if (itemRows[0].item_id === item_id) {
+                  matchedId = row.id;
+                  break;
+                }
+              }
+            }
+          }
+
           if (webhook_code === "ERROR") {
             const errorCode = error?.error_code || "UNKNOWN";
             console.warn(`[Plaid Webhook] ⚠️  ITEM ERROR for item_id=${item_id}: ${errorCode}`);
-            await pool.query(
-              `UPDATE plaid_items SET status = 'error' WHERE item_id = $1`,
-              [item_id]
-            );
+            if (matchedId) {
+              await pool.query(`UPDATE plaid_items SET status = 'error' WHERE id = $1`, [matchedId]);
+            }
           } else if (webhook_code === "PENDING_EXPIRATION") {
             console.warn(`[Plaid Webhook] ⚠️  ITEM PENDING_EXPIRATION for item_id=${item_id}`);
-            await pool.query(
-              `UPDATE plaid_items SET status = 'pending_expiration' WHERE item_id = $1`,
-              [item_id]
-            );
+            if (matchedId) {
+              await pool.query(`UPDATE plaid_items SET status = 'pending_expiration' WHERE id = $1`, [matchedId]);
+            }
           } else if (webhook_code === "USER_PERMISSION_REVOKED") {
             console.warn(`[Plaid Webhook] ⚠️  USER_PERMISSION_REVOKED for item_id=${item_id}`);
-            await pool.query(
-              `UPDATE plaid_items SET status = 'revoked' WHERE item_id = $1`,
-              [item_id]
-            );
+            if (matchedId) {
+              await pool.query(`UPDATE plaid_items SET status = 'revoked' WHERE id = $1`, [matchedId]);
+            }
           }
         }
 
