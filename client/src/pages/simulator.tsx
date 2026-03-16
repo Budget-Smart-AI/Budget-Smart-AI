@@ -21,11 +21,17 @@ import {
   Sparkles,
   ArrowRight,
   Clock,
-  PiggyBank
+  PiggyBank,
+  Lock,
+  Zap,
+  BarChart3,
+  ShieldCheck,
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { FeatureGate } from "@/components/FeatureGate";
+import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
+import { useLocation } from "wouter";
+import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 
 interface SimulationOption {
   id: string;
@@ -72,6 +78,135 @@ function formatCurrency(amount: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+// ─── What-If Simulator Upgrade Gate ──────────────────────────────────────────
+
+function WhatIfSimulatorGate({ children }: { children: React.ReactNode }) {
+  const { getFeatureState, isLoading } = useFeatureUsage();
+  const [, navigate] = useLocation();
+
+  if (isLoading) return <>{children}</>;
+
+  const state = getFeatureState("what_if_simulator");
+
+  if (!state || state.allowed) return <>{children}</>;
+
+  return (
+    <div className="container mx-auto px-4 py-4 sm:p-6 max-w-4xl">
+      {/* Page header */}
+      <div className="flex items-center gap-3 mb-6">
+        <Calculator className="h-8 w-8 text-primary" />
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold">What-If Simulator</h1>
+          <p className="text-sm text-muted-foreground">Test financial scenarios before making real changes</p>
+        </div>
+      </div>
+
+      {/* Upgrade card */}
+      <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-background via-background to-amber-950/10 shadow-[0_0_60px_rgba(245,158,11,0.08)]">
+        {/* Shimmer sweep */}
+        <div
+          className="absolute inset-0 pointer-events-none z-0"
+          style={{
+            background: 'linear-gradient(105deg, transparent 35%, rgba(245,158,11,0.06) 50%, transparent 65%)',
+            animation: 'shimmer 3s ease-in-out infinite',
+          }}
+        />
+        <style>{`@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
+
+        <div className="relative z-10 px-6 py-10 sm:px-12 sm:py-14 flex flex-col items-center text-center gap-6">
+          {/* Icon */}
+          <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-amber-500/15 border border-amber-500/20">
+            <Lock className="h-10 w-10 text-amber-400" />
+          </div>
+
+          {/* Headline */}
+          <div className="space-y-2 max-w-xl">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              What-If Financial Simulator
+            </h2>
+            <p className="text-base text-muted-foreground leading-relaxed">
+              Stop guessing. Pro users model <span className="text-amber-400 font-semibold">real financial decisions</span> before making them —
+              saving thousands by avoiding costly mistakes.
+            </p>
+          </div>
+
+          {/* Feature bullets — 2-column grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg text-left">
+            {[
+              { icon: Calculator, text: "Simulate cancelling a subscription and see exactly how much you save per year" },
+              { icon: TrendingDown, text: "Model extra debt payments and watch your payoff date shrink in real time" },
+              { icon: Zap, text: "Test a raise or side income and see the 90-day impact on your cash flow" },
+              { icon: BarChart3, text: "Compare multiple scenarios side-by-side before committing to any change" },
+            ].map(({ icon: Icon, text }) => (
+              <div key={text} className="flex items-start gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+                <Icon className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                <span className="text-sm text-muted-foreground leading-snug">{text}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Social proof */}
+          <div className="flex flex-col sm:flex-row items-center gap-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <ShieldCheck className="h-4 w-4 text-green-400" />
+              <span>Based on your <strong className="text-foreground">real bank data</strong> — not generic estimates</span>
+            </div>
+            <span className="hidden sm:inline text-border">·</span>
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="h-4 w-4 text-blue-400" />
+              <span>AI-powered 90-day cash flow projections</span>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+            <Button
+              size="lg"
+              className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-400 hover:to-yellow-400 font-bold text-base shadow-lg shadow-amber-500/20"
+              onClick={() => {
+                trackUpgradeCta("feature_gate");
+                navigate("/upgrade");
+              }}
+            >
+              Unlock What-If Simulator →
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Cancel anytime. One good simulation pays for itself.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Blurred preview */}
+      <div className="mt-6 relative overflow-hidden rounded-xl border border-border/50 opacity-40 pointer-events-none select-none">
+        <div className="absolute inset-0 z-10" style={{ backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }} />
+        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 font-semibold text-sm">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Choose a Scenario
+            </div>
+            <div className="h-8 bg-muted rounded-lg" />
+            <div className="h-8 bg-muted rounded-lg" />
+            <div className="h-10 bg-amber-500/20 rounded-lg" />
+          </div>
+          <div className="border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 font-semibold text-sm">
+              <TrendingUp className="h-4 w-4 text-emerald-500" />
+              Simulation Results
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="h-16 bg-emerald-500/10 rounded-lg" />
+              <div className="h-16 bg-emerald-500/10 rounded-lg" />
+            </div>
+            <div className="h-12 bg-muted rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function SimulatorPage() {
@@ -145,14 +280,7 @@ export default function SimulatorPage() {
   const selectedDebt = options?.debts.find(d => d.id === selectedDebtId);
 
   return (
-    <FeatureGate
-      feature="what_if_simulator"
-      bullets={[
-        "Model how income, debt, and spending changes impact your future",
-        "Compare scenarios before making real-life financial decisions",
-        "Use AI-powered projections to avoid costly mistakes",
-      ]}
-    >
+    <WhatIfSimulatorGate>
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
         <Calculator className="h-8 w-8 text-primary" />
@@ -433,6 +561,6 @@ export default function SimulatorPage() {
         </Card>
       </div>
     </div>
-    </FeatureGate>
+    </WhatIfSimulatorGate>
   );
 }

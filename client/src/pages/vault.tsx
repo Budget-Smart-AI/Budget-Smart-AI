@@ -27,6 +27,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { format, differenceInDays, parseISO } from "date-fns";
 import { FeatureGate } from "@/components/FeatureGate";
+import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
+import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface VaultDocument {
@@ -882,6 +884,139 @@ function DocumentCard({ doc, onClick, onDelete, onToggleFavorite }: {
   );
 }
 
+// ─── Financial Vault Upgrade Gate ────────────────────────────────────────────
+
+function FinancialVaultGate({ children }: { children: React.ReactNode }) {
+  const { getFeatureState, isLoading } = useFeatureUsage();
+  const [, navigate] = useLocation();
+
+  if (isLoading) return <>{children}</>;
+
+  const state = getFeatureState("financial_vault");
+
+  if (!state || state.allowed) return <>{children}</>;
+
+  return (
+    <div className="container mx-auto px-4 py-4 sm:p-6 max-w-4xl">
+      {/* Page header */}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="h-10 w-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+          <Shield className="h-5 w-5 text-amber-400" />
+        </div>
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold">Financial Vault</h1>
+          <p className="text-sm text-muted-foreground">Your secure, AI-powered document storage</p>
+        </div>
+      </div>
+
+      {/* Upgrade card */}
+      <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-background via-background to-amber-950/10 shadow-[0_0_60px_rgba(245,158,11,0.08)]">
+        {/* Shimmer sweep */}
+        <div
+          className="absolute inset-0 pointer-events-none z-0"
+          style={{
+            background: 'linear-gradient(105deg, transparent 35%, rgba(245,158,11,0.06) 50%, transparent 65%)',
+            animation: 'shimmer 3s ease-in-out infinite',
+          }}
+        />
+        <style>{`@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
+
+        <div className="relative z-10 px-6 py-10 sm:px-12 sm:py-14 flex flex-col items-center text-center gap-6">
+          {/* Icon */}
+          <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-amber-500/15 border border-amber-500/20">
+            <Lock className="h-10 w-10 text-amber-400" />
+          </div>
+
+          {/* Headline */}
+          <div className="space-y-2 max-w-xl">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              Your Financial Vault
+            </h2>
+            <p className="text-base text-muted-foreground leading-relaxed">
+              One secure place for every important document you own.
+              Pro users never scramble for a tax form, insurance policy, or warranty again —
+              <span className="text-amber-400 font-semibold"> AI reads and understands it all for you.</span>
+            </p>
+          </div>
+
+          {/* Feature bullets — 2-column grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg text-left">
+            {[
+              { icon: Sparkles, text: "AI automatically reads your documents and answers any question you ask about them" },
+              { icon: Bell, text: "Get email alerts 30 days before insurance policies or warranties expire" },
+              { icon: HardDrive, text: "Store tax returns, mortgage docs, investment statements — unlimited, all in one place" },
+              { icon: Eye, text: "Instant search across all your documents — find anything in seconds, not hours" },
+            ].map(({ icon: Icon, text }) => (
+              <div key={text} className="flex items-start gap-3 rounded-xl border border-border/50 bg-muted/30 px-4 py-3">
+                <Icon className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                <span className="text-sm text-muted-foreground leading-snug">{text}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Social proof */}
+          <div className="flex flex-col sm:flex-row items-center gap-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Shield className="h-4 w-4 text-green-400" />
+              <span>Bank-grade encryption — <strong className="text-foreground">your documents, only yours</strong></span>
+            </div>
+            <span className="hidden sm:inline text-border">·</span>
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="h-4 w-4 text-blue-400" />
+              <span>AI-powered document understanding included</span>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+            <Button
+              size="lg"
+              className="w-full rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-400 hover:to-yellow-400 font-bold text-base shadow-lg shadow-amber-500/20"
+              onClick={() => {
+                trackUpgradeCta("feature_gate");
+                navigate("/upgrade");
+              }}
+            >
+              Unlock Financial Vault →
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Cancel anytime. Your documents are always yours.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Blurred preview */}
+      <div className="mt-6 relative overflow-hidden rounded-xl border border-border/50 opacity-40 pointer-events-none select-none">
+        <div className="absolute inset-0 z-10" style={{ backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }} />
+        <div className="p-5 space-y-3">
+          {[
+            { name: "T4 Tax Return 2024", category: "tax", size: "1.2 MB" },
+            { name: "Home Insurance Policy", category: "insurance", size: "3.4 MB" },
+            { name: "Mortgage Statement", category: "loan", size: "0.8 MB" },
+            { name: "RRSP Investment Statement", category: "investment", size: "2.1 MB" },
+          ].map((doc) => (
+            <div key={doc.name} className="flex items-center justify-between p-3 border rounded-lg bg-muted/20">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">{doc.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{doc.category} · {doc.size}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge className={`text-xs ${CATEGORY_COLORS[doc.category] || CATEGORY_COLORS.other}`}>
+                  {doc.category}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function VaultPage() {
   const { toast } = useToast();
@@ -969,6 +1104,7 @@ export default function VaultPage() {
   };
 
   return (
+    <FinancialVaultGate>
     <div className="space-y-4">
       {/* Tutorial */}
       {showTutorial && <OnboardingTutorial onComplete={() => setShowTutorial(false)} />}
@@ -1206,5 +1342,6 @@ export default function VaultPage() {
         />
       )}
     </div>
+    </FinancialVaultGate>
   );
 }
