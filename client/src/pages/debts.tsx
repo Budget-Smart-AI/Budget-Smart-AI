@@ -543,20 +543,10 @@ export default function DebtsPage() {
               Import from Banks ({unlinkedPlaidAccounts.length})
             </Button>
           )}
-          <FeatureGate
-            feature="debt_tracking"
-            blurIntensity="low"
-            bullets={[
-              "Track all debts in one place with live totals",
-              "Monitor APR, payments, and payoff progress",
-              "Build a faster debt reduction strategy",
-            ]}
-          >
             <Button onClick={handleOpenCreate} data-testid="button-add-debt">
               <Plus className="h-4 w-4 mr-2" />
               Add Debt
             </Button>
-          </FeatureGate>
         </div>
       </div>
 
