@@ -12526,8 +12526,9 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       }
 
       // Debt details (mortgages, etc.)
-      // Only include explicitly active debts (isActive === "true")
-      for (const debt of debtDetails.filter(d => d.isActive === "true")) {
+      // Only include explicitly active debts that are NOT already tracked via a linked Plaid account
+      // (prevents double-counting: Plaid loan accounts are already counted above)
+      for (const debt of debtDetails.filter(d => d.isActive === "true" && !d.plaidAccountId)) {
         const balance = parseFloat(debt.currentBalance || "0");
         if (debt.debtType === "mortgage") {
           mortgages += balance;
@@ -12624,8 +12625,9 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
         else otherAssets += value;
       }
 
-      // Only include explicitly active debts (isActive === "true")
-      for (const debt of debtDetails.filter(d => d.isActive === "true")) {
+      // Only include explicitly active debts that are NOT already tracked via a linked Plaid account
+      // (prevents double-counting: Plaid loan accounts are already counted above)
+      for (const debt of debtDetails.filter(d => d.isActive === "true" && !d.plaidAccountId)) {
         const balance = parseFloat(debt.currentBalance || "0");
         if (debt.debtType === "mortgage") mortgages += balance;
         else if (debt.debtType === "auto_loan") loans += balance;

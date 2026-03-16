@@ -446,6 +446,13 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
                 <span className="text-sm font-medium truncate">{displayName}</span>
                 <span className="text-xs text-muted-foreground">Personal Account</span>
               </div>
+              {isFree && (
+                <Link href="/settings/billing">
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border hover:border-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer">
+                    Free
+                  </span>
+                </Link>
+              )}
             </div>
           </Link>
           <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">

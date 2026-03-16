@@ -21,7 +21,7 @@ import {
   Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2,
   AlertTriangle, CreditCard, Calendar, Sparkles, ExternalLink, Copy,
   Download, Check, Camera, Globe, Cake, Eye, EyeOff, Mail, Lock, KeyRound, SlidersHorizontal,
-  BellRing, Pencil, X,
+  BellRing, Pencil, X, BarChart3, Zap, Bell,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -902,6 +902,113 @@ interface BillingInvoice {
   hostedUrl: string | null;
 }
 
+interface FeatureUsageItem {
+  key: string;
+  displayName: string;
+  used: number;
+  limit: number;
+  remaining: number;
+  resetDate: string | null;
+  percentUsed: number;
+}
+
+interface FeatureUsageData {
+  plan: string;
+  features: FeatureUsageItem[];
+  resetDate: string | null;
+  daysUntilReset: number | null;
+}
+
+function progressColor(pct: number): string {
+  if (pct >= 86) return "#EF4444";
+  if (pct >= 61) return "#F59E0B";
+  return "#22C55E";
+}
+
+function PlanUsageSection() {
+  const [, navigate] = useLocation();
+  const { data, isLoading } = useQuery<FeatureUsageData>({
+    queryKey: ["/api/user/feature-usage"],
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  // Only show for free plan
+  if (!isLoading && (!data || data.plan !== "free")) return null;
+
+  const resetLabel = (() => {
+    if (!data?.resetDate) return null;
+    try {
+      const d = new Date(data.resetDate);
+      const monthLabel = d.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+      return data.daysUntilReset !== null
+        ? `Resets ${monthLabel} (${data.daysUntilReset} day${data.daysUntilReset !== 1 ? "s" : ""})`
+        : `Resets ${monthLabel}`;
+    } catch {
+      return null;
+    }
+  })();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BarChart3 className="w-5 h-5" />
+          Plan Usage
+        </CardTitle>
+        <CardDescription>
+          {resetLabel ? resetLabel : "Your monthly feature usage"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-8 bg-muted rounded animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {(data?.features ?? []).slice(0, 8).map((feature) => (
+                <div key={feature.key} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{feature.displayName}</span>
+                    <span
+                      className="font-medium tabular-nums text-xs"
+                      style={{ color: progressColor(feature.percentUsed) }}
+                    >
+                      {feature.used}/{feature.limit}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${feature.percentUsed}%`,
+                        backgroundColor: progressColor(feature.percentUsed),
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mt-2 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+              onClick={() => navigate("/upgrade")}
+            >
+              <Zap className="h-3 w-3 mr-1.5" />
+              Upgrade to Pro — See Plans →
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function BillingTab() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -938,6 +1045,8 @@ function BillingTab() {
   // No stripe customer or no subscription
   if (!billing || (billing as { noSubscription?: boolean }).noSubscription) {
     return (
+      <div className="space-y-6">
+      <PlanUsageSection />
       <Card>
         <CardContent className="py-10 text-center space-y-4">
           <CreditCard className="w-10 h-10 mx-auto text-muted-foreground" />
@@ -947,12 +1056,13 @@ function BillingTab() {
           </p>
           <Button onClick={() => navigate("/upgrade")} className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600">
             <Sparkles className="w-4 h-4 mr-2" />
-            Start a Plan
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
+Start a Plan
+</Button>
+</CardContent>
+       </Card>
+      </div>
+     );
+   }
 
   const b = billing as BillingSubscription;
 
@@ -1018,6 +1128,7 @@ function BillingTab() {
 
   return (
     <div className="space-y-6">
+      <PlanUsageSection />
       {/* Current Plan */}
       <Card>
         <CardHeader>
