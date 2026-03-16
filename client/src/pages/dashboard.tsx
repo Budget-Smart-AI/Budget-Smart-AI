@@ -681,8 +681,11 @@ export default function Dashboard() {
     0
   );
 
-  // Budgeted Spending (from budgets table)
-  const budgetedSpending = budgets.reduce(
+  // Budgeted Spending (from budgets table — current month only)
+  const currentMonth = format(now, "yyyy-MM");
+  const budgetedSpending = budgets
+    .filter((budget) => budget.month === currentMonth)
+    .reduce(
     (sum, budget) => sum + parseFloat(budget.amount),
     0
   );
