@@ -416,7 +416,7 @@ export const FEATURES: Record<string, Feature> = {
     description: 'Create and manage monthly budgets by category',
     tier: 'free',
     category: 'planning',
-    monthlyLimit: 2,
+    monthlyLimit: 5,
     limitUnit: 'budgets',
   },
   SAVINGS_GOALS: {
@@ -425,7 +425,7 @@ export const FEATURES: Record<string, Feature> = {
     description: 'Set and track savings goals with progress visualization',
     tier: 'free',
     category: 'planning',
-    monthlyLimit: 1,
+    monthlyLimit: 3,
     limitUnit: 'goals',
   },
   DEBT_TRACKING: {
@@ -434,7 +434,7 @@ export const FEATURES: Record<string, Feature> = {
     description: 'Track credit cards, loans, and other debts',
     tier: 'free',
     category: 'planning',
-    monthlyLimit: 3,
+    monthlyLimit: 5,
     limitUnit: 'debts',
   },
   DEBT_PAYOFF_PLANNER: {

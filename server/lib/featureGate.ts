@@ -398,6 +398,9 @@ async function getCumulativeItemCounts(userId: string): Promise<Map<string, numb
 
   try {
     // Single query with multiple COUNT subqueries for better performance
+    // Use current month for budget count (budgets are per-month, limit applies to current month)
+    const currentMonthStr = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+
     const result = await pool.query<{
       bills: string;
       budgets: string;
@@ -410,14 +413,14 @@ async function getCumulativeItemCounts(userId: string): Promise<Map<string, numb
     }>(
       `SELECT 
         (SELECT COUNT(*) FROM bills WHERE user_id = $1) as bills,
-        (SELECT COUNT(DISTINCT category) FROM budgets WHERE user_id = $1) as budgets,
+        (SELECT COUNT(DISTINCT category) FROM budgets WHERE user_id = $1 AND month = $2) as budgets,
         (SELECT COUNT(*) FROM debt_details WHERE user_id = $1) as debts,
         (SELECT COUNT(*) FROM savings_goals WHERE user_id = $1) as savings_goals,
         (SELECT COUNT(*) FROM assets WHERE user_id = $1) as assets,
         (SELECT COUNT(*) FROM manual_accounts WHERE user_id = $1) as manual_accounts,
         (SELECT COUNT(*) FROM vault_documents WHERE user_id = $1) as vault_documents,
         (SELECT COUNT(*) FROM custom_categories WHERE user_id = $1) as custom_categories`,
-      [userId]
+      [userId, currentMonthStr]
     );
 
     if (result.rows.length > 0) {
