@@ -221,22 +221,20 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 
   const startPollingForTransactions = useCallback(() => {
     pollAttemptsRef.current = 0;
-    const MAX_POLLS = 5;
+    const MAX_POLLS = 6;
 
     pollIntervalRef.current = setInterval(async () => {
       pollAttemptsRef.current += 1;
       try {
         const res = await apiRequest("GET", "/api/plaid/accounts");
         const accounts: PlaidAccountGroup[] = await res.json();
-        // Check if any account has been synced (lastSynced is set)
-        const hasSyncedAccount = accounts.some(group =>
-          group.accounts.some(acc => acc.lastSynced != null)
-        );
-        if (hasSyncedAccount) {
+        // Stop as soon as any accounts are present (connection confirmed)
+        const hasAccounts = accounts.length > 0 && accounts.some(group => group.accounts.length > 0);
+        if (hasAccounts) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           setIsPendingWebhook(false);
           setIsSyncing(false);
-          toast({ title: "🎉 Your transactions are ready!" });
+          toast({ title: "🎉 Your bank account is connected!" });
           queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
           queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
           onSuccess();
@@ -250,7 +248,7 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
         if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
         setIsPendingWebhook(false);
         setIsSyncing(false);
-        // Still call onSuccess so the UI refreshes even if no transactions yet
+        // Still call onSuccess so the UI refreshes even if no accounts yet
         queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
         onSuccess();
       }

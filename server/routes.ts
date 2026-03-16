@@ -41,7 +41,7 @@ import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
 import adminCommunicationsRouter from "./routes/admin-communications";
 import { registerPasswordResetRoutes } from "./routes/auth-password-reset";
-import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
+import { encrypt as fieldEncrypt, decrypt as fieldDecrypt, decrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
 import { getEffectivePlan } from "./lib/planResolver";
@@ -406,7 +406,7 @@ export async function registerRoutes(
           if (accountIds.length === 0) continue;
 
           const response = await plaidClient.transactionsRecurringGet({
-            access_token: item.accessToken,
+            access_token: decrypt(item.accessToken),
             account_ids: accountIds,
           });
 
@@ -966,7 +966,7 @@ Return JSON: { "bills": [...] }`;
           if (accountIds.length === 0) continue;
 
           const response = await plaidClient.transactionsRecurringGet({
-            access_token: item.accessToken,
+            access_token: decrypt(item.accessToken),
             account_ids: accountIds,
           });
 
@@ -3139,7 +3139,7 @@ Return JSON: { "income": [...] }`;
         const { plaidClient } = await import("./plaid");
         for (const item of plaidItems) {
           try {
-            await plaidClient.itemRemove({ access_token: item.accessToken });
+            await plaidClient.itemRemove({ access_token: decrypt(item.accessToken) });
           } catch {
             // non-critical
           }
@@ -5328,7 +5328,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             webhook_code === "DEFAULT_UPDATE"
           ) {
             console.log(`[Plaid Webhook] Syncing transactions for item ${item.id} (user ${item.user_id})`);
-            const result = await syncTransactions(item.access_token, item.id, item.user_id);
+            const result = await syncTransactions(decrypt(item.access_token), item.id, item.user_id);
             console.log(`[Plaid Webhook] Sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
 
             // Run enrichment in background if new transactions were added
@@ -5387,7 +5387,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       for (const item of rows) {
         try {
           await plaidClient.itemWebhookUpdate({
-            access_token: item.access_token,
+            access_token: decrypt(item.access_token),
             webhook: webhookUrl,
           });
           updated++;
@@ -5712,11 +5712,11 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
 
       for (const item of items) {
         try {
-          const response = await plaidClient.accountsBalanceGet({
-            access_token: item.accessToken,
-          });
+        const response = await plaidClient.accountsBalanceGet({
+          access_token: decrypt(item.accessToken),
+        });
 
-          for (const account of response.data.accounts) {
+        for (const account of response.data.accounts) {
             const existing = await storage.getPlaidAccountByAccountId(account.account_id);
             if (existing) {
               await storage.updatePlaidAccount(existing.id, {
@@ -5754,9 +5754,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
 
       for (const item of items) {
         try {
-          console.log(`Syncing transactions for ${item.institutionName} (item ${item.id})...`);
-          const result = await syncTransactions(item.accessToken, item.id, userId);
-          totalAdded += result.added;
+        console.log(`Syncing transactions for ${item.institutionName} (item ${item.id})...`);
+        const result = await syncTransactions(decrypt(item.accessToken), item.id, userId);
+        totalAdded += result.added;
           totalModified += result.modified;
           totalRemoved += result.removed;
           await storage.updatePlaidItem(item.id, { status: "active" });
@@ -5820,7 +5820,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       for (const item of items) {
         try {
           console.log(`Fetching historical transactions for item ${item.id} (${item.institutionName})...`);
-          const result = await syncTransactions(item.accessToken, item.id, userId);
+          const result = await syncTransactions(decrypt(item.accessToken), item.id, userId);
           totalAdded += result.added;
           totalModified += result.modified;
           totalRemoved += result.removed;
@@ -5864,10 +5864,10 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       let refreshed = 0;
       for (const item of items) {
         try {
-          await plaidClient.transactionsRefresh({
-            access_token: item.accessToken,
-          });
-          refreshed++;
+        await plaidClient.transactionsRefresh({
+          access_token: decrypt(item.accessToken),
+        });
+        refreshed++;
           console.log(`Triggered transaction refresh for item ${item.id}`);
         } catch (itemError: any) {
           console.error(`Error refreshing item ${item.id}:`, itemError?.response?.data || itemError);
@@ -5899,7 +5899,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           if (accountIds.length === 0) continue;
 
           const response = await plaidClient.transactionsRecurringGet({
-            access_token: item.accessToken,
+            access_token: decrypt(item.accessToken),
             account_ids: accountIds,
           });
 
@@ -6251,12 +6251,12 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       await storage.deletePlaidItem(id);
 
       // Optionally remove from Plaid (best effort)
-      try {
-        const { plaidClient } = await import("./plaid");
-        await plaidClient.itemRemove({ access_token: item.accessToken });
-      } catch (e) {
-        // Non-critical - item is already removed locally
-      }
+        try {
+          const { plaidClient } = await import("./plaid");
+          await plaidClient.itemRemove({ access_token: decrypt(item.accessToken) });
+        } catch (e) {
+          // Non-critical - item is already removed locally
+        }
 
       auditLogFromRequest(req, {
         eventType: "data.bank_disconnected",
