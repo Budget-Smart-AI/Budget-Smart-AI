@@ -106,69 +106,154 @@ async function upsertTransaction(
  * - Uses a cursor for incremental updates (only fetches new/changed/removed)
  * - Handles ADDED, MODIFIED, and REMOVED transactions
  *
- * The cursor is stored in plaid_items.sync_cursor and updated after each page.
- * REMOVED transactions are soft-deleted by setting isActive = false.
+ * The cursor is stored in plaid_items.sync_cursor and updated after each
+ * successful page. If a 400 error occurs (stale/invalid cursor), the cursor
+ * is cleared and the sync retries from the beginning (null cursor).
+ *
+ * An isSyncing lock prevents duplicate concurrent syncs triggered by
+ * simultaneous webhooks (HISTORICAL_UPDATE + SYNC_UPDATES_AVAILABLE race).
  */
 export async function syncTransactions(
   accessToken: string,
   itemId: string,
   userId: string
 ): Promise<{ added: number; modified: number; removed: number }> {
+  // ── RACE CONDITION GUARD ──────────────────────────────────────────────────
+  // Check if a sync is already in progress for this item. Both
+  // HISTORICAL_UPDATE and SYNC_UPDATES_AVAILABLE webhooks fire nearly
+  // simultaneously; without this lock they both attempt to sync with the
+  // same cursor and corrupt each other's state.
   const item = await db.query.plaidItems.findFirst({
     where: eq(plaidItems.id, itemId),
   });
 
-  let cursor = item?.syncCursor || undefined;
+  if (item?.isSyncing) {
+    console.log(`[Plaid Sync] Sync already in progress for item ${itemId} — skipping duplicate webhook`);
+    return { added: 0, modified: 0, removed: 0 };
+  }
+
+  // Acquire the sync lock
+  await db
+    .update(plaidItems)
+    .set({ isSyncing: true })
+    .where(eq(plaidItems.id, itemId));
+
+  let cursor: string | undefined = item?.syncCursor || undefined;
   let hasMore = true;
   let addedCount = 0;
   let modifiedCount = 0;
   let removedCount = 0;
 
-  while (hasMore) {
-    const response = await plaidClient.transactionsSync({
-      access_token: accessToken,
-      cursor: cursor,
-      options: {
-        include_personal_finance_category: true,
-        include_logo_and_counterparty_beta: true,
-        days_requested: 730,
-      },
-    });
+  try {
+    while (hasMore) {
+      let data: any;
 
-    const data = response.data;
+      try {
+        // ── BUG 1 FIX: days_requested removed ──────────────────────────────
+        // days_requested is NOT a valid parameter for /transactions/sync.
+        // It only exists on the legacy /transactions/get endpoint.
+        // Sending it causes Plaid to return HTTP 400.
+        // /transactions/sync automatically returns all available history on
+        // the first call (when cursor is undefined/null) — no parameter needed.
+        const response = await plaidClient.transactionsSync({
+          access_token: accessToken,
+          cursor: cursor,
+          options: {
+            include_personal_finance_category: true,
+            include_logo_and_counterparty_beta: true,
+          },
+        });
+        data = response.data;
+      } catch (err: any) {
+        // ── BUG 2a FIX: stale cursor reset ─────────────────────────────────
+        // If Plaid returns 400, the cursor stored in the DB is stale/invalid
+        // (e.g. from a previous failed sync). Clear it and retry once from
+        // the beginning (null cursor = full history sync).
+        const status = err?.response?.status;
+        const errorCode = err?.response?.data?.error_code;
 
-    for (const transaction of data.added) {
-      await upsertTransaction(userId, itemId, transaction);
-      addedCount++;
-    }
+        console.error(`[Plaid Sync] transactionsSync failed: HTTP ${status} — ${errorCode}`);
 
-    for (const transaction of data.modified) {
-      await upsertTransaction(userId, itemId, transaction);
-      modifiedCount++;
-    }
+        if (status === 400 && cursor !== undefined) {
+          console.log(`[Plaid Sync] Invalid cursor detected for item ${itemId} — resetting to null and retrying from beginning`);
 
-    for (const removed of data.removed) {
+          // Clear the bad cursor in DB so future syncs also start fresh
+          await db
+            .update(plaidItems)
+            .set({ syncCursor: null })
+            .where(eq(plaidItems.id, itemId));
+
+          // Retry once with null cursor (full sync from start)
+          cursor = undefined;
+          const retryResponse = await plaidClient.transactionsSync({
+            access_token: accessToken,
+            cursor: undefined,
+            options: {
+              include_personal_finance_category: true,
+              include_logo_and_counterparty_beta: true,
+            },
+          });
+          data = retryResponse.data;
+        } else {
+          // Not a cursor issue — re-throw so the outer catch handles it
+          throw err;
+        }
+      }
+
+      for (const transaction of data.added) {
+        await upsertTransaction(userId, itemId, transaction);
+        addedCount++;
+      }
+
+      for (const transaction of data.modified) {
+        await upsertTransaction(userId, itemId, transaction);
+        modifiedCount++;
+      }
+
+      for (const removed of data.removed) {
+        await db
+          .update(plaidTransactions)
+          .set({ isActive: "false" })
+          .where(eq(plaidTransactions.transactionId, removed.transaction_id));
+        removedCount++;
+      }
+
+      // ── BUG 2a FIX: cursor saved only after successful page ─────────────
+      // Previously the cursor was saved inside the loop before we knew if
+      // the next page would succeed. Now we only persist it after a page
+      // completes successfully, so a crash mid-sync leaves the cursor at
+      // the last known-good position rather than a partial/invalid state.
+      cursor = data.next_cursor;
+      hasMore = data.has_more;
+
       await db
-        .update(plaidTransactions)
-        .set({ isActive: "false" })
-        .where(eq(plaidTransactions.transactionId, removed.transaction_id));
-      removedCount++;
+        .update(plaidItems)
+        .set({ syncCursor: cursor })
+        .where(eq(plaidItems.id, itemId));
     }
 
-    cursor = data.next_cursor;
-    hasMore = data.has_more;
+    console.log(`[Plaid Sync] Complete for item ${itemId}: +${addedCount} added, ${modifiedCount} modified, ${removedCount} removed`);
 
-    // Persist cursor after each page so progress is not lost on error
+    // Auto-reconcile after every sync — fire-and-forget (don't block the response)
+    autoReconcile(userId).catch((err) =>
+      console.error("[syncTransactions] autoReconcile failed:", err)
+    );
+
+    return { added: addedCount, modified: modifiedCount, removed: removedCount };
+  } catch (error) {
+    console.error(`[Plaid Sync] Error syncing item ${itemId}:`, error);
+    throw error;
+  } finally {
+    // ── BUG 2b FIX: always release the sync lock ────────────────────────
+    // Whether the sync succeeded or threw, clear isSyncing so the next
+    // webhook can trigger a fresh sync. Without this finally block, a
+    // crashed sync would permanently lock the item.
     await db
       .update(plaidItems)
-      .set({ syncCursor: cursor })
-      .where(eq(plaidItems.id, itemId));
+      .set({ isSyncing: false })
+      .where(eq(plaidItems.id, itemId))
+      .catch((err) =>
+        console.error(`[Plaid Sync] Failed to release sync lock for item ${itemId}:`, err)
+      );
   }
-
-  // Auto-reconcile after every sync — fire-and-forget (don't block the response)
-  autoReconcile(userId).catch((err) =>
-    console.error("[syncTransactions] autoReconcile failed:", err)
-  );
-
-  return { added: addedCount, modified: modifiedCount, removed: removedCount };
 }

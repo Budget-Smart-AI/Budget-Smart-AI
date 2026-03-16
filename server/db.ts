@@ -663,6 +663,18 @@ export async function ensureSyncCursorColumn(): Promise<void> {
 }
 
 /**
+ * Ensure the is_syncing column on plaid_items exists.
+ * This boolean flag acts as a distributed lock to prevent concurrent syncs
+ * triggered by simultaneous webhooks (HISTORICAL_UPDATE + SYNC_UPDATES_AVAILABLE
+ * race condition). Safe to call on every startup (uses ADD COLUMN IF NOT EXISTS).
+ */
+export async function ensureIsSyncingColumn(): Promise<void> {
+  await pool.query(
+    `ALTER TABLE plaid_items ADD COLUMN IF NOT EXISTS is_syncing BOOLEAN DEFAULT false`
+  );
+}
+
+/**
  * Ensure the bill_reminders_sent table exists for deduplication of bill
  * reminder emails. Prevents duplicate emails on every deploy by recording
  * each (billId, reminderDate) pair that has already been sent.

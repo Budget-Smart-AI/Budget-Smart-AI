@@ -398,6 +398,7 @@ export const plaidItems = pgTable("plaid_items", {
   createdAt: text("created_at"),
   accessTokenEnc: text("access_token_enc"), // AES-256-GCM encrypted access token
   itemIdEnc: text("item_id_enc"),           // AES-256-GCM encrypted item id
+  isSyncing: boolean("is_syncing").default(false), // Lock flag to prevent concurrent syncs (race condition guard)
 });
 
 // Plaid Accounts table - individual bank accounts

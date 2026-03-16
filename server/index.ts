@@ -19,8 +19,10 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureIsSyncingColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn } from "./db";
 import { encrypt, decrypt } from "./encryption";
+import { db } from "./db";
+import { plaidItems } from "@shared/schema";
 
 try {
   const test = encrypt("health-check");
@@ -218,6 +220,20 @@ app.use(express.urlencoded({ extended: false }));
 initializeUser().catch(console.error);
 initializeSyncScheduler().catch(console.error);
 
+/**
+ * Reset any plaid_items rows that were left with isSyncing=true from a
+ * previous crashed or interrupted sync. Safe to run on every deploy.
+ */
+async function resetStuckSyncs() {
+  try {
+    await db.update(plaidItems).set({ isSyncing: false });
+    console.log("[Startup] Reset any stuck Plaid sync flags (isSyncing → false)");
+  } catch (err) {
+    console.error("[Startup] Could not reset stuck sync flags:", err);
+  }
+}
+resetStuckSyncs();
+
 setTimeout(() => {
   checkAllUsersBudgetAlerts().catch(console.error);
 }, 5000);
@@ -367,6 +383,10 @@ app.use((req, res, next) => {
 
   await ensureSyncCursorColumn().catch(err =>
     console.error("Failed to ensure sync_cursor/is_active columns — Plaid /transactions/sync will not work:", err)
+  );
+
+  await ensureIsSyncingColumn().catch(err =>
+    console.error("Failed to ensure is_syncing column — Plaid sync race condition guard will not work:", err)
   );
 
   await ensureBillRemindersSentTable().catch(err =>
