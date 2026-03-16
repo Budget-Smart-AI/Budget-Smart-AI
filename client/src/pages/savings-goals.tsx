@@ -425,22 +425,21 @@ export default function SavingsGoalsPage() {
             <Sparkles className="h-4 w-4 mr-2" />
             AI Advisor
           </Button>
+          <FeatureGate
+            feature="savings_goals"
+            blurIntensity="low"
+            bullets={[
+              "Create unlimited savings goals with milestones",
+              "Track progress in real time with clear visuals",
+              "Use AI guidance to reach goals faster",
+            ]}
+          >
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <FeatureGate
-                feature="savings_goals"
-                blurIntensity="low"
-                bullets={[
-                  "Create unlimited savings goals with milestones",
-                  "Track progress in real time with clear visuals",
-                  "Use AI guidance to reach goals faster",
-                ]}
-              >
               <Button onClick={() => setEditingGoal(undefined)}>
                 <Plus className="h-4 w-4 mr-2" />
                 New Goal
               </Button>
-              </FeatureGate>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
@@ -449,6 +448,7 @@ export default function SavingsGoalsPage() {
               <SavingsGoalForm goal={editingGoal} onClose={handleCloseDialog} />
             </DialogContent>
           </Dialog>
+          </FeatureGate>
         </div>
       </div>
 

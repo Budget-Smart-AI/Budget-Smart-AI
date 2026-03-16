@@ -371,35 +371,35 @@ export default function BudgetsPage() {
             )}
             {aiSuggestMutation.isPending ? "Analyzing..." : "AI Suggest"}
           </Button>
+          <FeatureGate
+            feature="budget_creation"
+            blurIntensity="low"
+            bullets={[
+              "Create unlimited category budgets",
+              "Track planned vs actual spending in detail",
+              "Adjust quickly as your monthly priorities change",
+            ]}
+          >
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <FeatureGate
-                feature="budget_creation"
-                blurIntensity="low"
-                bullets={[
-                  "Create unlimited category budgets",
-                  "Track planned vs actual spending in detail",
-                  "Adjust quickly as your monthly priorities change",
-                ]}
-              >
               <Button onClick={() => setEditingBudget(undefined)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Set Budget
               </Button>
-              </FeatureGate>
             </DialogTrigger>
-          <DialogContent className="sm:max-w-[400px]">
-            <DialogHeader>
-              <DialogTitle>{editingBudget ? "Edit Budget" : "Set Category Budget"}</DialogTitle>
-            </DialogHeader>
-            <BudgetForm
-              budget={editingBudget}
-              onClose={handleCloseDialog}
-              currentMonth={monthStr}
-              existingCategories={existingCategories}
-            />
-          </DialogContent>
-        </Dialog>
+            <DialogContent className="sm:max-w-[400px]">
+              <DialogHeader>
+                <DialogTitle>{editingBudget ? "Edit Budget" : "Set Category Budget"}</DialogTitle>
+              </DialogHeader>
+              <BudgetForm
+                budget={editingBudget}
+                onClose={handleCloseDialog}
+                currentMonth={monthStr}
+                existingCategories={existingCategories}
+              />
+            </DialogContent>
+          </Dialog>
+          </FeatureGate>
         </div>
       </div>
 
