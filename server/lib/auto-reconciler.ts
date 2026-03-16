@@ -22,39 +22,39 @@
 
 import { storage } from "../storage";
 import { db } from "../db";
-import { billPayments, bills as billsTable, spendingAlerts, notifications, users, exchangeRates, expenses, plaidTransactions } from "../../shared/schema";
-import { eq, and, ilike, desc, sql, isNull } from "drizzle-orm";
+import { billPayments, bills as billsTable, spendingAlerts, notifications, users, exchangeRates, expenses, plaidTransactions, mxTransactions } from "../../shared/schema";
+import { eq, and, ilike, desc, sql, isNull, ne } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 import { sendSpendingAlertEmail } from "../email";
 
-// ─── Fix 5: Startup migration — backfill plaidTransactionId on existing expenses ─
+// ─── Fix 5: Startup migration — backfill externalTransactionId on existing expenses ─
 
 /**
- * Backfills plaid_transaction_id on existing auto-imported expenses that were
+ * Backfills external_transaction_id on existing auto-imported expenses that were
  * created before this column existed. Runs once at startup, non-blocking.
- * Matches by amount + date + userId across plaid_transactions.
+ * Matches via matchedExpenseId on plaid_transactions.
  */
 export async function backfillExpensePlaidIds(): Promise<void> {
   try {
-    // Find expenses without plaidTransactionId (only auto-imported ones)
+    // Find expenses without externalTransactionId (only auto-imported ones)
     const expensesWithoutId = await db.query.expenses.findMany({
       where: and(
-        isNull(expenses.plaidTransactionId),
+        isNull(expenses.externalTransactionId),
         sql`${expenses.notes} LIKE '%Auto-imported from bank transaction%'`
       ),
     });
 
     if (expensesWithoutId.length === 0) {
-      console.log("[AutoReconciler] Backfill: no expenses need plaidTransactionId backfill.");
+      console.log("[AutoReconciler] Backfill: no expenses need externalTransactionId backfill.");
       return;
     }
 
-    console.log(`[AutoReconciler] Backfill: attempting to link ${expensesWithoutId.length} expenses to Plaid transaction IDs...`);
+    console.log(`[AutoReconciler] Backfill: attempting to link ${expensesWithoutId.length} expenses to external transaction IDs...`);
     let linked = 0;
 
     for (const expense of expensesWithoutId) {
       try {
-        // Find matching plaid transaction by amount + date + userId
+        // Find matching plaid transaction by matchedExpenseId
         const matchingTx = await db.query.plaidTransactions.findFirst({
           where: and(
             eq(plaidTransactions.amount, expense.amount as string),
@@ -65,7 +65,7 @@ export async function backfillExpensePlaidIds(): Promise<void> {
 
         if (matchingTx?.transactionId) {
           await db.update(expenses)
-            .set({ plaidTransactionId: matchingTx.transactionId })
+            .set({ externalTransactionId: matchingTx.transactionId })
             .where(eq(expenses.id, expense.id))
             .catch(() => {
               // Ignore unique constraint violations (another expense already has this ID)
@@ -77,7 +77,7 @@ export async function backfillExpensePlaidIds(): Promise<void> {
       }
     }
 
-    console.log(`[AutoReconciler] Backfill complete: linked ${linked}/${expensesWithoutId.length} expenses to Plaid transaction IDs.`);
+    console.log(`[AutoReconciler] Backfill complete: linked ${linked}/${expensesWithoutId.length} expenses to external transaction IDs.`);
   } catch (err) {
     console.error("[AutoReconciler] Backfill migration failed (non-fatal):", err);
   }
@@ -277,8 +277,10 @@ function lookupKnownCycle(merchantName: string): string | null {
   return null;
 }
 
-// Categories that should NOT auto-create expenses or subscriptions
-const SKIP_CATEGORIES = [
+// ─── Fix 7: Provider-agnostic skip categories ────────────────────────────────
+
+// Plaid categories that should NOT auto-create expenses
+const SKIP_CATEGORIES_PLAID = [
   'TRANSFER_IN',
   'TRANSFER_OUT',
   'TRANSFER',
@@ -288,6 +290,21 @@ const SKIP_CATEGORIES = [
   'PAYROLL',
   'DIRECT_DEPOSIT',
   'BANK_FEES',
+];
+
+// MX top-level categories that should NOT auto-create expenses
+const SKIP_CATEGORIES_MX = [
+  'TRANSFER',
+  'INCOME',
+  'LOAN_PAYMENTS',
+  'FEE_CHARGE',
+  'CREDIT',
+  'PAYMENT',
+];
+
+// Combined skip list used by both Plaid and MX reconcilers
+const SKIP_CATEGORIES = [
+  ...new Set([...SKIP_CATEGORIES_PLAID, ...SKIP_CATEGORIES_MX]),
 ];
 
 const SKIP_MERCHANT_KEYWORDS = [
@@ -817,20 +834,20 @@ export async function autoReconcile(userId: string): Promise<{
 
     const merchant = tx.merchantCleanName || tx.name || "Unknown";
 
-    // ── Fix 3: PRIMARY CHECK — by Plaid transaction ID (strongest dedup) ─
+    // ── Fix 3: PRIMARY CHECK — by external transaction ID (strongest dedup) ─
     if (tx.transactionId) {
       try {
-        const existsByPlaidId = await db.query.expenses.findFirst({
+        const existsByExtId = await db.query.expenses.findFirst({
           where: and(
             eq(expenses.userId, userId),
-            eq(expenses.plaidTransactionId, tx.transactionId)
+            eq(expenses.externalTransactionId, tx.transactionId)
           )
         });
 
-        if (existsByPlaidId) {
+        if (existsByExtId) {
           console.log(`[AutoReconciler] Expense already exists for Plaid txn ${tx.transactionId} — linking and skipping creation`);
           await storage.updatePlaidTransaction(tx.id, {
-            matchedExpenseId: existsByPlaidId.id,
+            matchedExpenseId: existsByExtId.id,
             matchType: 'expense',
             reconciled: 'true',
           });
@@ -838,7 +855,7 @@ export async function autoReconcile(userId: string): Promise<{
           continue;
         }
       } catch (pidErr) {
-        console.warn(`[AutoReconciler] plaidTransactionId check failed for tx ${tx.id}:`, pidErr);
+        console.warn(`[AutoReconciler] externalTransactionId check failed for tx ${tx.id}:`, pidErr);
       }
     }
 
@@ -855,10 +872,10 @@ export async function autoReconcile(userId: string): Promise<{
 
       if (existsByMatch) {
         console.log(`[AutoReconciler] Matching expense found by amount/date/merchant — linking, not creating: ${tx.name} ${tx.date}`);
-        // Backfill plaidTransactionId on the existing expense if not set
-        if (!existsByMatch.plaidTransactionId && tx.transactionId) {
+        // Backfill externalTransactionId on the existing expense if not set
+        if (!existsByMatch.externalTransactionId && tx.transactionId) {
           await db.update(expenses)
-            .set({ plaidTransactionId: tx.transactionId })
+            .set({ externalTransactionId: tx.transactionId })
             .where(eq(expenses.id, existsByMatch.id))
             .catch(() => { /* ignore unique constraint violations */ });
         }
@@ -916,8 +933,8 @@ export async function autoReconcile(userId: string): Promise<{
         taxDeductible: "false",
         taxCategory: null,
         isBusinessExpense: "false",
-        // Store Plaid's stable transaction ID for reconnection dedup protection
-        plaidTransactionId: tx.transactionId || null,
+        // Store stable external transaction ID for reconnection dedup protection
+        externalTransactionId: tx.transactionId || null,
         // Pass through foreign currency metadata if the storage layer supports it
         ...(isForeignCurrency && cadEquivalent !== null ? {
           isoCurrencyCode: isoCurrency,
@@ -1119,4 +1136,194 @@ function mapToExpenseCategory(rawCategory: string | null | undefined): string {
   if (cat.includes("FURNITURE") || cat.includes("HOUSEWARE")) return "Furniture & Houseware";
 
   return "Other";
+}
+
+// ─── Fix 8: MX Auto-Reconcile ────────────────────────────────────────────────
+
+/**
+ * Auto-reconcile MX transactions for a given user.
+ * Creates expense records for unmatched DEBIT transactions using the same
+ * three-layer dedup protection as the Plaid reconciler:
+ *   1. Skip if matchedExpenseId already set (reconnection protection)
+ *   2. PRIMARY CHECK: by MX transaction GUID (externalTransactionId)
+ *   3. SECONDARY CHECK: by amount + date + merchant
+ *
+ * MX GUIDs are stable across reconnections, so this prevents duplicates
+ * even when a user disconnects and reconnects the same bank.
+ */
+export async function autoReconcileMX(userId: string): Promise<{
+  autoCreated: number;
+  skipped: number;
+}> {
+  console.log(`[AutoReconciler-MX] Starting MX reconciliation for user ${userId}`);
+
+  let autoCreated = 0;
+  let skipped = 0;
+
+  try {
+    // Fetch unmatched MX DEBIT transactions for this user
+    const { pool } = await import("../db");
+    const { rows: txRows } = await pool.query<{
+      id: string;
+      transaction_guid: string;
+      amount: string;
+      date: string;
+      description: string;
+      merchant_clean_name: string | null;
+      top_level_category: string | null;
+      category: string | null;
+      transaction_type: string | null;
+      is_income: string | null;
+      is_bill_pay: string | null;
+      is_fee: string | null;
+      matched_expense_id: string | null;
+      reconciled: string | null;
+    }>(`
+      SELECT mt.id, mt.transaction_guid, mt.amount, mt.date,
+             mt.description, mt.merchant_clean_name,
+             mt.top_level_category, mt.category,
+             mt.transaction_type, mt.is_income, mt.is_bill_pay, mt.is_fee,
+             mt.matched_expense_id, mt.reconciled
+      FROM mx_transactions mt
+      JOIN mx_accounts ma ON ma.id = mt.mx_account_id
+      JOIN mx_members mm ON mm.id = ma.mx_member_id
+      WHERE mm.user_id = $1
+        AND (mt.reconciled IS NULL OR mt.reconciled = 'false')
+        AND mt.matched_expense_id IS NULL
+        AND mt.status = 'POSTED'
+    `, [userId]);
+
+    if (txRows.length === 0) {
+      console.log(`[AutoReconciler-MX] No unmatched MX transactions for user ${userId}.`);
+      return { autoCreated: 0, skipped: 0 };
+    }
+
+    console.log(`[AutoReconciler-MX] Processing ${txRows.length} unmatched MX transactions for user ${userId}`);
+
+    for (const tx of txRows) {
+      // Skip if already matched (reconnection protection)
+      if (tx.matched_expense_id) {
+        skipped++;
+        continue;
+      }
+
+      const txAmount = parseFloat(tx.amount);
+
+      // MX: positive amount = DEBIT (money leaving), negative = CREDIT (money in)
+      // Skip credits, income, transfers, fees, bill pays
+      if (txAmount <= 0) { skipped++; continue; }
+
+      const topCat = (tx.top_level_category || '').toUpperCase();
+      const cat = (tx.category || '').toUpperCase();
+      const txType = (tx.transaction_type || '').toUpperCase();
+
+      // Skip by MX category
+      const skipByCategory =
+        SKIP_CATEGORIES.some(s => topCat.includes(s) || cat.includes(s)) ||
+        topCat.includes('TRANSFER') || cat.includes('TRANSFER') ||
+        topCat.includes('INCOME') || cat.includes('INCOME') ||
+        tx.is_income === 'true' ||
+        tx.is_bill_pay === 'true' ||
+        tx.is_fee === 'true' ||
+        txType === 'CREDIT';
+
+      const merchantName = (tx.merchant_clean_name || tx.description || '').toLowerCase();
+      const skipByMerchant = SKIP_MERCHANT_KEYWORDS.some(kw => merchantName.includes(kw));
+
+      if (skipByCategory || skipByMerchant) {
+        console.log(`[AutoReconciler-MX] Skipping: ${tx.description} $${tx.amount} reason: ${skipByCategory ? 'category' : 'merchant'}`);
+        skipped++;
+        continue;
+      }
+
+      const merchant = tx.merchant_clean_name || tx.description || 'Unknown';
+      const mxGuid = tx.transaction_guid; // MX GUIDs are stable across reconnections
+
+      // ── PRIMARY CHECK: by MX transaction GUID ───────────────────────────
+      try {
+        const existsByGuid = await db.query.expenses.findFirst({
+          where: and(
+            eq(expenses.userId, userId),
+            eq(expenses.externalTransactionId, mxGuid)
+          )
+        });
+
+        if (existsByGuid) {
+          console.log(`[AutoReconciler-MX] Expense already exists for MX GUID ${mxGuid} — linking`);
+          await pool.query(
+            `UPDATE mx_transactions SET matched_expense_id = $1, match_type = 'expense', reconciled = 'true' WHERE id = $2`,
+            [existsByGuid.id, tx.id]
+          );
+          skipped++;
+          continue;
+        }
+      } catch (err) {
+        console.warn(`[AutoReconciler-MX] GUID check failed for tx ${tx.id}:`, err);
+      }
+
+      // ── SECONDARY CHECK: by amount + date + merchant ─────────────────────
+      try {
+        const existsByMatch = await db.query.expenses.findFirst({
+          where: and(
+            eq(expenses.userId, userId),
+            eq(expenses.amount, tx.amount),
+            eq(expenses.date, tx.date),
+            sql`LOWER(${expenses.merchant}) = LOWER(${merchant})`
+          )
+        });
+
+        if (existsByMatch) {
+          console.log(`[AutoReconciler-MX] Matching expense found by amount/date/merchant — linking: ${tx.description} ${tx.date}`);
+          if (!existsByMatch.externalTransactionId) {
+            await db.update(expenses)
+              .set({ externalTransactionId: mxGuid })
+              .where(eq(expenses.id, existsByMatch.id))
+              .catch(() => {});
+          }
+          await pool.query(
+            `UPDATE mx_transactions SET matched_expense_id = $1, match_type = 'expense', reconciled = 'true' WHERE id = $2`,
+            [existsByMatch.id, tx.id]
+          );
+          skipped++;
+          continue;
+        }
+      } catch (err) {
+        console.warn(`[AutoReconciler-MX] Secondary check failed for tx ${tx.id}:`, err);
+      }
+
+      // ── CREATE new expense ───────────────────────────────────────────────
+      const expenseCategory = mapToExpenseCategory(tx.top_level_category || tx.category);
+
+      try {
+        const newExpense = await storage.createExpense({
+          userId,
+          merchant,
+          amount: String(txAmount),
+          date: tx.date,
+          category: expenseCategory,
+          notes: 'Auto-imported from bank transaction',
+          taxDeductible: 'false',
+          taxCategory: null,
+          isBusinessExpense: 'false',
+          // Store MX GUID as externalTransactionId — stable across reconnections
+          externalTransactionId: mxGuid,
+        } as any);
+
+        await pool.query(
+          `UPDATE mx_transactions SET matched_expense_id = $1, match_type = 'expense', reconciled = 'true' WHERE id = $2`,
+          [newExpense.id, tx.id]
+        );
+
+        autoCreated++;
+        console.log(`[AutoReconciler-MX] Auto-created expense: "${merchant}" $${txAmount} on ${tx.date}`);
+      } catch (err) {
+        console.error(`[AutoReconciler-MX] Failed to create expense for MX tx ${tx.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error(`[AutoReconciler-MX] Fatal error for user ${userId}:`, err);
+  }
+
+  console.log(`[AutoReconciler-MX] Done for user ${userId}: ${autoCreated} created, ${skipped} skipped`);
+  return { autoCreated, skipped };
 }

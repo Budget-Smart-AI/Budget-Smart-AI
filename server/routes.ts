@@ -6536,6 +6536,24 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           isOauth: mxMember.is_oauth ? "true" : "false",
           aggregatedAt: mxMember.aggregated_at || null,
         });
+
+        // Fix 9: Deactivate old MX members for same institution on reconnection
+        const mxInstitutionCode = mxMember.institution_code;
+        if (mxInstitutionCode && existingMember?.id) {
+          try {
+            const { mxMembers: mxMembersTable } = await import("../shared/schema");
+            await db.update(mxMembersTable)
+              .set({ connectionStatus: 'INACTIVE' })
+              .where(and(
+                eq(mxMembersTable.userId, userId),
+                eq(mxMembersTable.institutionCode, mxInstitutionCode),
+                ne(mxMembersTable.id, existingMember.id)
+              ));
+            console.log(`[MX Sync] Deactivated old members for institution ${mxInstitutionCode}`);
+          } catch (deactivateErr) {
+            console.warn(`[MX Sync] Could not deactivate old members:`, deactivateErr);
+          }
+        }
       } else {
         await storage.updateMxMember(existingMember.id, {
           connectionStatus: mxMember.connection_status,

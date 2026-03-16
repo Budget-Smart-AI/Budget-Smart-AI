@@ -143,13 +143,14 @@ export const expenses = pgTable("expenses", {
   taxDeductible: text("tax_deductible").default("false"),
   taxCategory: text("tax_category"),
   isBusinessExpense: text("is_business_expense").default("false"),
-  // Plaid deduplication — stores Plaid's stable transaction_id string.
+  // Provider-agnostic deduplication — stores the stable external transaction ID.
+  // For Plaid: transaction.transactionId  |  For MX: transaction.guid
   // Unique per user so the DB rejects duplicate auto-imports on reconnection.
-  plaidTransactionId: text("plaid_transaction_id"),
+  externalTransactionId: text("external_transaction_id"),
 }, (table) => ({
-  uniqueUserPlaidTransaction: uniqueIndex(
-    "expenses_user_plaid_transaction_unique"
-  ).on(table.userId, table.plaidTransactionId),
+  uniqueUserExternalTransaction: uniqueIndex(
+    "expenses_user_external_transaction_unique"
+  ).on(table.userId, table.externalTransactionId),
 }));
 
 // Insert schemas
