@@ -5708,6 +5708,13 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
 
       const { access_token, item_id } = exchangeResponse.data;
 
+      console.log(
+        `[Token Exchange] Saving new item:`,
+        `item_id: ${item_id.substring(0, 15)}...`,
+        `item_id_length: ${item_id.length}`,
+        `token: ${access_token.substring(0, 20)}...`
+      );
+
       // Store the Plaid item
       const plaidItem = await storage.createPlaidItem({
         userId: req.session.userId!,

@@ -23,6 +23,7 @@ import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensu
 import { encrypt, decrypt } from "./encryption";
 import { db } from "./db";
 import { plaidItems } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 try {
   const test = encrypt("health-check");
@@ -239,43 +240,58 @@ resetStuckSyncs();
  * AES-256-GCM ciphertext instead of plaintext.  The webhook handler matches
  * Plaid's real item_id against the item_id column, so it must be plaintext.
  *
- * Detection heuristic: a valid Plaid item_id looks like
- *   "access-sandbox-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  (< 60 chars)
- * whereas an AES-256-GCM ciphertext is base64-encoded and typically > 80 chars.
+ * Tries to decrypt every item_id unconditionally — if decryption succeeds and
+ * the result looks like a real Plaid ID (alphanumeric only, no + / = padding
+ * chars), the row is updated.  This avoids the previous false-positive where
+ * short base64 ciphertexts (37 chars) passed the old length-based heuristic
+ * and were incorrectly skipped.
  *
- * Safe to run on every deploy — rows that are already plaintext are skipped.
+ * Safe to run on every deploy — rows that are already plaintext will either
+ * fail to decrypt (caught) or produce an unchanged value (skipped).
  */
 async function migrateItemIds() {
   try {
-    const { rows } = await pool.query<{ id: number; item_id: string }>(
-      `SELECT id, item_id FROM plaid_items`
-    );
-
+    const items = await db.query.plaidItems.findMany();
     let migrated = 0;
     let skipped = 0;
 
-    for (const row of rows) {
-      // If item_id is longer than 80 chars it is almost certainly a ciphertext.
-      if (row.item_id && row.item_id.length > 80) {
-        try {
-          const plaintext = decrypt(row.item_id);
-          await pool.query(
-            `UPDATE plaid_items SET item_id = $1 WHERE id = $2`,
-            [plaintext, row.id]
-          );
-          console.log(
-            `[Startup] migrateItemIds: decrypted item_id for plaid_item id=${row.id} ` +
-            `(${row.item_id.substring(0, 20)}… → ${plaintext.substring(0, 20)}…)`
-          );
+    for (const item of items) {
+      if (!item.itemId) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        const decrypted = decrypt(item.itemId);
+
+        // Only update if decryption actually changed the value
+        // AND the result looks like a real Plaid ID.
+        // Real Plaid IDs are purely alphanumeric — they never contain + / = chars.
+        const changedValue = decrypted !== item.itemId;
+        const looksLikePlaidId = /^[a-zA-Z0-9]{20,60}$/.test(decrypted);
+
+        if (changedValue && looksLikePlaidId) {
+          await db.update(plaidItems)
+            .set({ itemId: decrypted })
+            .where(eq(plaidItems.id, item.id));
           migrated++;
-        } catch (decryptErr) {
-          console.warn(
-            `[Startup] migrateItemIds: could not decrypt item_id for plaid_item id=${row.id}:`,
-            decryptErr
+          console.log(
+            `[Migration] ✅ Decrypted item_id: ${item.institutionName} ` +
+            `was: ${item.itemId.substring(0, 15)}... ` +
+            `now: ${decrypted.substring(0, 15)}... ` +
+            `length: ${decrypted.length}`
+          );
+        } else {
+          skipped++;
+          console.log(
+            `[Migration] Skipped ${item.institutionName}: ` +
+            `changed=${changedValue} looksValid=${looksLikePlaidId} ` +
+            `preview=${decrypted.substring(0, 15)}...`
           );
         }
-      } else {
+      } catch (err) {
         skipped++;
+        console.error(`[Migration] Error for ${item.institutionName}:`, err);
       }
     }
 
@@ -283,7 +299,7 @@ async function migrateItemIds() {
       `[Startup] migrateItemIds complete — migrated=${migrated} skipped=${skipped}`
     );
   } catch (err) {
-    console.error("[Startup] migrateItemIds failed (non-fatal):", err);
+    console.error('[Migration] Failed:', err);
   }
 }
 migrateItemIds();
