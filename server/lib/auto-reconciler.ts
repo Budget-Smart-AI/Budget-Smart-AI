@@ -22,8 +22,8 @@
 
 import { storage } from "../storage";
 import { db } from "../db";
-import { billPayments, bills as billsTable, spendingAlerts, notifications, users, exchangeRates } from "../../shared/schema";
-import { eq, and, ilike, desc } from "drizzle-orm";
+import { billPayments, bills as billsTable, spendingAlerts, notifications, users, exchangeRates, expenses, plaidTransactions } from "../../shared/schema";
+import { eq, and, ilike, desc, sql } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 import { sendSpendingAlertEmail } from "../email";
 
@@ -215,12 +215,46 @@ function lookupKnownCycle(merchantName: string): string | null {
 }
 
 // Categories that should NOT auto-create expenses or subscriptions
-const SKIP_CATEGORIES = new Set([
-  "TRANSFER_IN",
-  "TRANSFER_OUT",
-  "INCOME",
-  "BANK_FEES",
-]);
+const SKIP_CATEGORIES = [
+  'TRANSFER_IN',
+  'TRANSFER_OUT',
+  'TRANSFER',
+  'LOAN_PAYMENTS',
+  'LOAN_DISBURSEMENTS',
+  'INCOME',
+  'PAYROLL',
+  'DIRECT_DEPOSIT',
+  'BANK_FEES',
+];
+
+const SKIP_MERCHANT_KEYWORDS = [
+  'customer transfer',
+  'bank transfer',
+  'mb transfer',
+  'interac e-transfer',
+  'interac etransfer',
+  'e-transfer deposit',
+  'credit card payment',
+  'visa payment',
+  'mastercard payment',
+  'loc payment',
+  'line of credit',
+  'mortgage payment',
+  'mortgage trans',
+  'loan payment',
+  'loan payment transfer',
+  'scotiabank transit',
+  'atm withdrawal',
+  'abm withdrawal',
+  'cash advance',
+  'bank fee',
+  'overdraft',
+  'nsf fee',
+  'service charge',
+  'monthly fees',
+  'interest charges',
+  'overlimit fee',
+];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -472,7 +506,10 @@ export async function autoReconcile(userId: string): Promise<{
 
   // Fetch ALL transactions for this user (not just unmatched) so we can
   // re-evaluate any that may have been missed on a previous run.
-  // We use getUnmatchedTransactions which already filters reconciled=false.
+  // We use getUnmatchedTransactions which already filters reconciled=false
+  // AND matchedExpenseId IS NULL AND matchType = 'unmatched' to prevent
+  // re-creating expenses for transactions already processed in a previous
+  // bank connection session (reconnection protection).
   const unmatched = await storage.getUnmatchedTransactions(accountIds);
 
   if (unmatched.length === 0) {
@@ -672,25 +709,79 @@ export async function autoReconcile(userId: string): Promise<{
   for (const tx of pending) {
     if (tx.reconciled === "true") continue;
 
-    // Skip transfers, income, bank fees
-    const cat = (tx.personalCategory || tx.category || "").toUpperCase();
-    if (
-      SKIP_CATEGORIES.has(cat) ||
-      cat.includes("TRANSFER") ||
-      cat.includes("INCOME") ||
-      cat.includes("BANK_FEE")
-    ) {
+    // Skip if already matched to an expense (reconnection protection)
+    if (tx.matchedExpenseId) {
+      console.log(`[AutoReconciler] Skipping already-matched tx: ${tx.name} (matchedExpenseId: ${tx.matchedExpenseId})`);
+      continue;
+    }
+
+    // ── Fix 1: Comprehensive skip checks ────────────────────────────────
+    const category = tx.category || '';
+    const personalCat = tx.personalCategory || '';
+    const merchantName = (
+      tx.merchantCleanName ||
+      tx.name || ''
+    ).toLowerCase();
+
+    const skipByCategory =
+      SKIP_CATEGORIES.includes(category) ||
+      SKIP_CATEGORIES.includes(personalCat) ||
+      SKIP_CATEGORIES.includes(category.toUpperCase()) ||
+      SKIP_CATEGORIES.includes(personalCat.toUpperCase()) ||
+      category.toUpperCase().includes('TRANSFER') ||
+      personalCat.toUpperCase().includes('TRANSFER') ||
+      category.toUpperCase().includes('INCOME') ||
+      personalCat.toUpperCase().includes('INCOME') ||
+      category.toUpperCase().includes('BANK_FEE') ||
+      personalCat.toUpperCase().includes('BANK_FEE');
+
+    const skipByMerchant =
+      SKIP_MERCHANT_KEYWORDS.some(keyword =>
+        merchantName.includes(keyword)
+      );
+
+    // Negative amounts = income/credits, skip
+    const txAmount = parseFloat(tx.amount as string);
+    const skipByAmount = txAmount < 0;
+
+    if (skipByCategory || skipByMerchant || skipByAmount) {
+      console.log(`[AutoReconciler] Skipping non-expense: ${tx.name} $${tx.amount} reason: ${skipByCategory ? 'category' : skipByMerchant ? 'merchant' : 'amount'}`);
       continue;
     }
 
     // Only process spending (positive amount in Plaid = money leaving account)
-    const txAmount = parseFloat(tx.amount as string);
     if (txAmount <= 0) continue;
 
     const merchant = tx.merchantCleanName || tx.name || "Unknown";
 
+    // ── Fix 2: Prevent duplicate expenses ───────────────────────────────
+    try {
+      const existing = await db.query.expenses.findFirst({
+        where: and(
+          eq(expenses.userId, userId),
+          eq(expenses.amount, tx.amount.toString()),
+          eq(expenses.date, tx.date),
+          sql`LOWER(${expenses.merchant}) = LOWER(${tx.merchantCleanName || tx.name || ''})`
+        )
+      });
+
+      if (existing) {
+        console.log(`[AutoReconciler] Duplicate expense skipped: ${tx.name} ${tx.date}`);
+        // Still link the transaction to the existing expense
+        await storage.updatePlaidTransaction(tx.id, {
+          matchedExpenseId: existing.id,
+          matchType: 'expense',
+          reconciled: 'true',
+        });
+        tx.reconciled = 'true';
+        continue;
+      }
+    } catch (dupErr) {
+      console.warn(`[AutoReconciler] Duplicate check failed for tx ${tx.id}:`, dupErr);
+    }
+
     // Map Plaid/personal category to a valid expense category, defaulting to "Other"
-    const category = mapToExpenseCategory(tx.personalCategory || tx.category);
+    const expenseCategory = mapToExpenseCategory(tx.personalCategory || tx.category);
 
     // ── Currency detection & CAD conversion ─────────────────────────────
     const isoCurrency = (tx.isoCurrencyCode || "CAD").toUpperCase();
@@ -726,7 +817,7 @@ export async function autoReconcile(userId: string): Promise<{
         // Store original amount; cadEquivalent is in notes and cadEquivalent field
         amount: String(txAmount),
         date: tx.date,
-        category,
+        category: expenseCategory,
         notes,
         taxDeductible: "false",
         taxCategory: null,
@@ -773,7 +864,7 @@ export async function autoReconcile(userId: string): Promise<{
     // Skip transfers and income categories
     const cat = (tx.personalCategory || tx.category || "").toUpperCase();
     if (
-      SKIP_CATEGORIES.has(cat) ||
+      SKIP_CATEGORIES.includes(cat) ||
       cat.includes("TRANSFER") ||
       cat.includes("INCOME")
     ) {
