@@ -28,13 +28,14 @@ import { UpgradeModal, type UpgradeModalFeature } from "@/components/UpgradeModa
 import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 import { cn } from "@/lib/utils";
 
-/** Nav items that are gated on paid plans (feature key from featureGate) */
+/** Nav items that are gated on paid plans (feature key from featureGate).
+ * Only include features that use the sidebar UpgradeModal popup.
+ * Features with full-page shimmer gates (What-If Simulator, Debt Payoff,
+ * Split Expenses, Financial Vault) are intentionally excluded so sidebar
+ * clicks navigate directly to the page where the page-level gate handles
+ * access control. */
 const GATED_NAV_FEATURE: Record<string, string> = {
   "AI Assistant": "ai_assistant",
-  "What-If Simulator": "what_if_simulator",
-  "Debt Payoff": "debt_payoff_planner",
-  "Split Expenses": "split_expenses",
-  "Financial Vault": "financial_vault",
 };
 
 const overviewItems = [
