@@ -289,7 +289,16 @@ export default function ReceiptScanner() {
         throw new Error(data.error || 'Upload failed');
       }
     } catch (error: any) {
-      toast({ title: 'Upload failed', description: error.message || 'Please try again', variant: 'destructive' });
+      const msg = error.message || '';
+      if (msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('upgrade') || msg.toLowerCase().includes('plan')) {
+        toast({
+          title: 'Receipt scan limit reached',
+          description: 'You\'ve used all your free receipt scans this month. Upgrade to Pro for unlimited scanning.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({ title: 'Upload failed', description: msg || 'Please try again', variant: 'destructive' });
+      }
     } finally {
       setIsUploading(false);
       setUploadProgress(0);

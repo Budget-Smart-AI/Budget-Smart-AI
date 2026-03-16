@@ -5,7 +5,6 @@ import ReceiptScanner from '../components/receipt-scanner';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Camera, Upload, CheckCircle, Zap, BarChart3, Smartphone } from 'lucide-react';
-import { FeatureGate } from '@/components/FeatureGate';
 
 export default function ReceiptsPage() {
   const scannerRef = useRef<HTMLDivElement>(null);
@@ -106,17 +105,7 @@ export default function ReceiptsPage() {
 
       {/* Scanner Component */}
       <div ref={scannerRef} className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 scroll-mt-4">
-        <FeatureGate
-          feature="receipt_scanning"
-          displayName="receipt scans"
-          bullets={[
-            "Scan and store unlimited receipts with OCR extraction",
-            "Auto-categorize transactions from receipt details",
-            "Keep tax-ready receipt records in one place",
-          ]}
-        >
-          <ReceiptScanner />
-        </FeatureGate>
+        <ReceiptScanner />
       </div>
 
       {/* Benefits */}

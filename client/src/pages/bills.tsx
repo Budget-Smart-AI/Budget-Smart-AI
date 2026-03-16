@@ -58,7 +58,6 @@ import { format, setDate, addMonths, isBefore, addDays, addWeeks, getDay, setDay
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BILL_CATEGORIES, RECURRENCE_OPTIONS, type Bill } from "@shared/schema";
-import { FeatureGate } from "@/components/FeatureGate";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { AlertTriangle, Crown } from "lucide-react";
 

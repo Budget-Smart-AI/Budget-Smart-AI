@@ -73,7 +73,6 @@ import { useToast } from "@/hooks/use-toast";
 import { HelpTooltip } from "@/components/help-tooltip";
 import type { DebtDetails, PlaidAccount } from "@shared/schema";
 import { Link } from "wouter";
-import { FeatureGate } from "@/components/FeatureGate";
 
 const DEBT_TYPES = [
   "Credit Card",
@@ -193,7 +192,7 @@ export default function DebtsPage() {
   const plaidCreditLoanAccounts = useMemo(() => {
     return plaidAccounts.filter(a => 
       ["credit", "loan"].includes(a.type) && 
-      a.isActive !== "false" // Include accounts that are active or have default/null isActive
+      a.isActive !== "false"
     );
   }, [plaidAccounts]);
 
@@ -222,7 +221,6 @@ export default function DebtsPage() {
         const balance = Math.abs(parseFloat(account.balanceCurrent || "0"));
         if (balance === 0) continue;
 
-        // Determine debt type based on Plaid subtype
         let debtType = "Other";
         if (account.type === "credit") {
           debtType = "Credit Card";
@@ -237,11 +235,9 @@ export default function DebtsPage() {
           else debtType = account.type === "loan" ? "Personal Loan" : "Credit Card";
         }
 
-        // Estimate minimum payment (2% for credit cards, 1% for loans)
         const minPaymentRate = account.type === "credit" ? 0.02 : 0.01;
         const estimatedMinPayment = Math.max(25, balance * minPaymentRate);
 
-        // Get credit limit for credit cards
         const creditLimit = account.type === "credit" && account.balanceLimit
           ? account.balanceLimit
           : null;
@@ -250,7 +246,7 @@ export default function DebtsPage() {
           name: account.name,
           debtType,
           currentBalance: balance.toFixed(2),
-          apr: "0", // User needs to fill in APR
+          apr: "0",
           minimumPayment: estimatedMinPayment.toFixed(2),
           creditLimit: creditLimit || "",
           linkedPlaidAccountId: account.id,
@@ -310,8 +306,17 @@ export default function DebtsPage() {
       setIsDialogOpen(false);
       form.reset();
     },
-    onError: () => {
-      toast({ title: "Failed to add debt", variant: "destructive" });
+    onError: (error: Error) => {
+      const msg = error.message || "";
+      if (msg.toLowerCase().includes("limit") || msg.toLowerCase().includes("upgrade") || msg.toLowerCase().includes("plan")) {
+        toast({
+          title: "Debt limit reached",
+          description: "You've used all 3 debts on the free plan. Upgrade to Pro for unlimited debt tracking.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Failed to add debt", variant: "destructive" });
+      }
     },
   });
 
@@ -403,22 +408,15 @@ export default function DebtsPage() {
     }
   };
 
-  // Convert payment amount to monthly equivalent based on frequency
   const toMonthlyPayment = (amount: number, frequency: string | null | undefined): number => {
     switch (frequency) {
-      case "Weekly":
-        return amount * 52 / 12; // 52 weeks per year
-      case "Biweekly":
-        return amount * 26 / 12; // 26 biweekly payments per year
-      case "Semi-monthly":
-        return amount * 2; // 2 payments per month
-      case "Quarterly":
-        return amount / 3; // 4 payments per year
-      case "Annually":
-        return amount / 12; // 1 payment per year
+      case "Weekly": return amount * 52 / 12;
+      case "Biweekly": return amount * 26 / 12;
+      case "Semi-monthly": return amount * 2;
+      case "Quarterly": return amount / 3;
+      case "Annually": return amount / 12;
       case "Monthly":
-      default:
-        return amount;
+      default: return amount;
     }
   };
 
@@ -443,27 +441,20 @@ export default function DebtsPage() {
   const isRevolvingCredit = ["Credit Card", "Line of Credit", "HELOC"].includes(selectedDebtType);
   const watchedLinkedAccountId = form.watch("linkedPlaidAccountId");
 
-  // Auto-populate fields when a linked Plaid account is selected
   const handleAccountLinkChange = (accountId: string) => {
     form.setValue("linkedPlaidAccountId", accountId);
-    
     if (accountId && accountId !== "none") {
       const account = plaidAccounts.find(a => a.id === accountId);
       if (account) {
-        // Update balance from Plaid
         if (account.balanceCurrent) {
-          const balance = Math.abs(parseFloat(account.balanceCurrent)).toFixed(2);
-          form.setValue("currentBalance", balance);
+          form.setValue("currentBalance", Math.abs(parseFloat(account.balanceCurrent)).toFixed(2));
         }
-        // Update credit limit if available
         if (account.balanceLimit) {
           form.setValue("creditLimit", parseFloat(account.balanceLimit).toFixed(2));
         }
-        // Update account mask
         if (account.mask) {
           form.setValue("accountNumber", account.mask);
         }
-        // Update name if blank
         if (!form.getValues("name") && account.name) {
           form.setValue("name", account.name);
         }
@@ -475,14 +466,12 @@ export default function DebtsPage() {
     }
   };
 
-  // Sync balance from linked account
   const syncBalanceFromLinkedAccount = () => {
     const accountId = form.getValues("linkedPlaidAccountId");
     if (accountId && accountId !== "none") {
       const account = plaidAccounts.find(a => a.id === accountId);
       if (account?.balanceCurrent) {
-        const balance = Math.abs(parseFloat(account.balanceCurrent)).toFixed(2);
-        form.setValue("currentBalance", balance);
+        form.setValue("currentBalance", Math.abs(parseFloat(account.balanceCurrent)).toFixed(2));
         if (account.balanceLimit) {
           form.setValue("creditLimit", parseFloat(account.balanceLimit).toFixed(2));
         }
@@ -543,10 +532,10 @@ export default function DebtsPage() {
               Import from Banks ({unlinkedPlaidAccounts.length})
             </Button>
           )}
-            <Button onClick={handleOpenCreate} data-testid="button-add-debt">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Debt
-            </Button>
+          <Button onClick={handleOpenCreate} data-testid="button-add-debt">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Debt
+          </Button>
         </div>
       </div>
 
@@ -575,57 +564,49 @@ export default function DebtsPage() {
         </Card>
       )}
 
-      <FeatureGate
-        feature="debt_tracking"
-        displayName="debts"
-        bullets={[
-          "Track all debts in one place with live totals",
-          "Monitor APR, payments, and payoff progress",
-          "Build a faster debt reduction strategy",
-        ]}
-      >
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-sm font-medium">Total Debt</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-destructive" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-destructive" data-testid="text-total-debt">
-                {formatCurrency(totalDebt)}
-              </div>
-              <p className="text-xs text-muted-foreground">{debts.length} active debts</p>
-            </CardContent>
-          </Card>
+      {/* Stats cards — always visible, no FeatureGate */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Total Debt</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-destructive" data-testid="text-total-debt">
+              {formatCurrency(totalDebt)}
+            </div>
+            <p className="text-xs text-muted-foreground">{debts.length} active debts</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-sm font-medium">Monthly Payments</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-total-payments">
-                {formatCurrency(totalMinPayments)}
-              </div>
-              <p className="text-xs text-muted-foreground">Minimum payments due</p>
-            </CardContent>
-          </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Monthly Payments</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-total-payments">
+              {formatCurrency(totalMinPayments)}
+            </div>
+            <p className="text-xs text-muted-foreground">Minimum payments due</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
-              <CardTitle className="text-sm font-medium">Average APR</CardTitle>
-              <Percent className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-avg-apr">
-                {formatPercent(avgApr)}
-              </div>
-              <p className="text-xs text-muted-foreground">Across all debts</p>
-            </CardContent>
-          </Card>
-        </div>
-      </FeatureGate>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 gap-2">
+            <CardTitle className="text-sm font-medium">Average APR</CardTitle>
+            <Percent className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-avg-apr">
+              {formatPercent(avgApr)}
+            </div>
+            <p className="text-xs text-muted-foreground">Across all debts</p>
+          </CardContent>
+        </Card>
+      </div>
 
+      {/* Debt table — always visible, no FeatureGate */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -637,107 +618,97 @@ export default function DebtsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <FeatureGate
-            feature="debt_tracking"
-            displayName="debts"
-            bullets={[
-              "Track all debts in one place with live totals",
-              "Monitor APR, payments, and payoff progress",
-              "Build a faster debt reduction strategy",
-            ]}
-          >
-            {debts.length === 0 ? (
-              <div className="text-center py-12">
-                <CreditCard className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium mb-2">No debts added yet</h3>
-                <p className="text-muted-foreground mb-4">
-                  Add your credit cards, loans, and other debts to track them and plan your payoff strategy.
-                </p>
-                <Button onClick={handleOpenCreate} data-testid="button-add-first-debt">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Your First Debt
-                </Button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Balance</TableHead>
-                      <TableHead className="text-right">APR</TableHead>
-                      <TableHead className="text-right">Min. Payment</TableHead>
-                      <TableHead className="text-right">Term</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {debts.map((debt) => (
-                      <TableRow key={debt.id} data-testid={`row-debt-${debt.id}`}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {debt.linkedPlaidAccountId && (
-                              <Link2 className="h-3 w-3 text-primary" />
-                            )}
-                            <div>
-                              <div className="font-medium">{debt.name}</div>
-                              {debt.lender && (
-                                <div className="text-xs text-muted-foreground">{debt.lender}</div>
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={getDebtTypeColor(debt.debtType)}>
-                            {getDebtTypeIcon(debt.debtType)}
-                            <span className="ml-1">{debt.debtType}</span>
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatCurrency(debt.currentBalance)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className={parseFloat(debt.apr) > 20 ? "text-destructive font-medium" : ""}>
-                            {formatPercent(debt.apr)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div>{formatCurrency(debt.minimumPayment)}</div>
-                          {debt.paymentFrequency && debt.paymentFrequency !== "Monthly" && (
-                            <div className="text-xs text-muted-foreground">{debt.paymentFrequency}</div>
+          {debts.length === 0 ? (
+            <div className="text-center py-12">
+              <CreditCard className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+              <h3 className="text-lg font-medium mb-2">No debts added yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Add your credit cards, loans, and other debts to track them and plan your payoff strategy.
+              </p>
+              <Button onClick={handleOpenCreate} data-testid="button-add-first-debt">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Your First Debt
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead className="text-right">APR</TableHead>
+                    <TableHead className="text-right">Min. Payment</TableHead>
+                    <TableHead className="text-right">Term</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {debts.map((debt) => (
+                    <TableRow key={debt.id} data-testid={`row-debt-${debt.id}`}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {debt.linkedPlaidAccountId && (
+                            <Link2 className="h-3 w-3 text-primary" />
                           )}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {debt.termMonths ? `${debt.termMonths} mo` : "—"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1 justify-end">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenEdit(debt)}
-                              data-testid={`button-edit-debt-${debt.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setDeletingDebtId(debt.id)}
-                              data-testid={`button-delete-debt-${debt.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                          <div>
+                            <div className="font-medium">{debt.name}</div>
+                            {debt.lender && (
+                              <div className="text-xs text-muted-foreground">{debt.lender}</div>
+                            )}
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </FeatureGate>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={getDebtTypeColor(debt.debtType)}>
+                          {getDebtTypeIcon(debt.debtType)}
+                          <span className="ml-1">{debt.debtType}</span>
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(debt.currentBalance)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className={parseFloat(debt.apr) > 20 ? "text-destructive font-medium" : ""}>
+                          {formatPercent(debt.apr)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div>{formatCurrency(debt.minimumPayment)}</div>
+                        {debt.paymentFrequency && debt.paymentFrequency !== "Monthly" && (
+                          <div className="text-xs text-muted-foreground">{debt.paymentFrequency}</div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {debt.termMonths ? `${debt.termMonths} mo` : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenEdit(debt)}
+                            data-testid={`button-edit-debt-${debt.id}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeletingDebtId(debt.id)}
+                            data-testid={`button-delete-debt-${debt.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -761,11 +732,7 @@ export default function DebtsPage() {
                     <FormItem>
                       <FormLabel>Name *</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="e.g., Chase Sapphire"
-                          {...field}
-                          data-testid="input-debt-name"
-                        />
+                        <Input placeholder="e.g., Chase Sapphire" {...field} data-testid="input-debt-name" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -786,9 +753,7 @@ export default function DebtsPage() {
                         </FormControl>
                         <SelectContent>
                           {DEBT_TYPES.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {type}
-                            </SelectItem>
+                            <SelectItem key={type} value={type}>{type}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -806,14 +771,7 @@ export default function DebtsPage() {
                       <FormControl>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            className="pl-7"
-                            placeholder="0.00"
-                            {...field}
-                            data-testid="input-debt-balance"
-                          />
+                          <Input type="number" step="0.01" className="pl-7" placeholder="0.00" {...field} data-testid="input-debt-balance" />
                         </div>
                       </FormControl>
                       <FormMessage />
@@ -829,14 +787,7 @@ export default function DebtsPage() {
                       <FormLabel>APR (Annual Percentage Rate) *</FormLabel>
                       <FormControl>
                         <div className="relative">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            className="pr-7"
-                            placeholder="19.99"
-                            {...field}
-                            data-testid="input-debt-apr"
-                          />
+                          <Input type="number" step="0.01" className="pr-7" placeholder="19.99" {...field} data-testid="input-debt-apr" />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
                         </div>
                       </FormControl>
@@ -855,14 +806,7 @@ export default function DebtsPage() {
                       <FormControl>
                         <div className="relative">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            className="pl-7"
-                            placeholder="0.00"
-                            {...field}
-                            data-testid="input-debt-min-payment"
-                          />
+                          <Input type="number" step="0.01" className="pl-7" placeholder="0.00" {...field} data-testid="input-debt-min-payment" />
                         </div>
                       </FormControl>
                       <FormDescription>Minimum payment amount per payment period</FormDescription>
@@ -885,9 +829,7 @@ export default function DebtsPage() {
                         </FormControl>
                         <SelectContent>
                           {PAYMENT_FREQUENCIES.map((freq) => (
-                            <SelectItem key={freq} value={freq}>
-                              {freq}
-                            </SelectItem>
+                            <SelectItem key={freq} value={freq}>{freq}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -904,11 +846,7 @@ export default function DebtsPage() {
                     <FormItem>
                       <FormLabel>Lender/Bank</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="e.g., Chase, Bank of America"
-                          {...field}
-                          data-testid="input-debt-lender"
-                        />
+                        <Input placeholder="e.g., Chase, Bank of America" {...field} data-testid="input-debt-lender" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -926,14 +864,7 @@ export default function DebtsPage() {
                           <FormControl>
                             <div className="relative">
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                className="pl-7"
-                                placeholder="0.00"
-                                {...field}
-                                data-testid="input-debt-principal"
-                              />
+                              <Input type="number" step="0.01" className="pl-7" placeholder="0.00" {...field} data-testid="input-debt-principal" />
                             </div>
                           </FormControl>
                           <FormDescription>Initial amount borrowed</FormDescription>
@@ -949,12 +880,7 @@ export default function DebtsPage() {
                         <FormItem>
                           <FormLabel>Loan Term (Months)</FormLabel>
                           <FormControl>
-                            <Input
-                              type="number"
-                              placeholder="60"
-                              {...field}
-                              data-testid="input-debt-term"
-                            />
+                            <Input type="number" placeholder="60" {...field} data-testid="input-debt-term" />
                           </FormControl>
                           <FormDescription>Duration of the loan agreement</FormDescription>
                           <FormMessage />
@@ -974,14 +900,7 @@ export default function DebtsPage() {
                         <FormControl>
                           <div className="relative">
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              className="pl-7"
-                              placeholder="0.00"
-                              {...field}
-                              data-testid="input-debt-limit"
-                            />
+                            <Input type="number" step="0.01" className="pl-7" placeholder="0.00" {...field} data-testid="input-debt-limit" />
                           </div>
                         </FormControl>
                         <FormDescription>Maximum credit available</FormDescription>
@@ -998,14 +917,7 @@ export default function DebtsPage() {
                     <FormItem>
                       <FormLabel>Due Day</FormLabel>
                       <FormControl>
-                        <Input
-                          type="number"
-                          min="1"
-                          max="31"
-                          placeholder="15"
-                          {...field}
-                          data-testid="input-debt-due-day"
-                        />
+                        <Input type="number" min="1" max="31" placeholder="15" {...field} data-testid="input-debt-due-day" />
                       </FormControl>
                       <FormDescription>Day of month payment is due</FormDescription>
                       <FormMessage />
@@ -1020,12 +932,7 @@ export default function DebtsPage() {
                     <FormItem>
                       <FormLabel>Account Number (Last 4)</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="1234"
-                          maxLength={4}
-                          {...field}
-                          data-testid="input-debt-account"
-                        />
+                        <Input placeholder="1234" maxLength={4} {...field} data-testid="input-debt-account" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1097,11 +1004,7 @@ export default function DebtsPage() {
                       <FormItem>
                         <FormLabel>Start Date</FormLabel>
                         <FormControl>
-                          <Input
-                            type="date"
-                            {...field}
-                            data-testid="input-debt-start-date"
-                          />
+                          <Input type="date" {...field} data-testid="input-debt-start-date" />
                         </FormControl>
                         <FormDescription>When the loan was originated</FormDescription>
                         <FormMessage />
@@ -1117,11 +1020,7 @@ export default function DebtsPage() {
                     <FormItem className="md:col-span-2">
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="Any additional notes..."
-                          {...field}
-                          data-testid="input-debt-notes"
-                        />
+                        <Input placeholder="Any additional notes..." {...field} data-testid="input-debt-notes" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1130,19 +1029,10 @@ export default function DebtsPage() {
               </div>
 
               <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsDialogOpen(false)}
-                  data-testid="button-cancel-debt"
-                >
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} data-testid="button-cancel-debt">
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                  data-testid="button-save-debt"
-                >
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-save-debt">
                   {createMutation.isPending || updateMutation.isPending
                     ? "Saving..."
                     : editingDebt
