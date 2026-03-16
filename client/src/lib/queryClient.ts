@@ -146,16 +146,28 @@ async function tryParseGatePayload(res: Response): Promise<GatePayload | null> {
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
+    // Read the body once as text (body can only be read once)
+    const rawText = (await res.text()) || res.statusText;
+
     // Intercept 402 responses and publish to the feature-gate bus
     if (res.status === 402) {
-      const payload = await tryParseGatePayload(res);
-      if (payload) publish402(payload);
+      try {
+        const body = JSON.parse(rawText);
+        if (body && typeof body.feature === "string") {
+          publish402({
+            feature: body.feature,
+            remaining: typeof body.remaining === "number" ? body.remaining : 0,
+            resetDate: body.resetDate ? new Date(body.resetDate) : null,
+          });
+        }
+      } catch {
+        // not JSON — ignore
+      }
     }
-    
-    const rawText = (await res.text()) || res.statusText;
+
     const extracted = extractRawMessage(rawText);
     const userFriendlyMessage = getUserFriendlyErrorMessage(res.status, extracted);
-    
+
     throw new Error(userFriendlyMessage);
   }
 }

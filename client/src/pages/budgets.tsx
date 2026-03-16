@@ -49,7 +49,6 @@ import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Budget, type Expense } from "@shared/schema";
-import { FeatureGate } from "@/components/FeatureGate";
 
 const budgetFormSchema = z.object({
   category: z.enum(EXPENSE_CATEGORIES),
@@ -378,15 +377,6 @@ export default function BudgetsPage() {
             )}
             {aiSuggestMutation.isPending ? "Analyzing..." : "AI Suggest"}
           </Button>
-          <FeatureGate
-            feature="budget_creation"
-            blurIntensity="low"
-            bullets={[
-              "Create unlimited category budgets",
-              "Track planned vs actual spending in detail",
-              "Adjust quickly as your monthly priorities change",
-            ]}
-          >
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => setEditingBudget(undefined)}>
@@ -406,7 +396,6 @@ export default function BudgetsPage() {
               />
             </DialogContent>
           </Dialog>
-          </FeatureGate>
         </div>
       </div>
 

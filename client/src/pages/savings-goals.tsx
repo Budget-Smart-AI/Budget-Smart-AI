@@ -42,7 +42,6 @@ import { format, differenceInDays, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { type SavingsGoal } from "@shared/schema";
-import { FeatureGate } from "@/components/FeatureGate";
 
 const GOAL_COLORS = [
   { value: "#3b82f6", label: "Blue" },
@@ -432,15 +431,6 @@ export default function SavingsGoalsPage() {
             <Sparkles className="h-4 w-4 mr-2" />
             AI Advisor
           </Button>
-          <FeatureGate
-            feature="savings_goals"
-            blurIntensity="low"
-            bullets={[
-              "Create unlimited savings goals with milestones",
-              "Track progress in real time with clear visuals",
-              "Use AI guidance to reach goals faster",
-            ]}
-          >
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => setEditingGoal(undefined)}>
@@ -455,7 +445,6 @@ export default function SavingsGoalsPage() {
               <SavingsGoalForm goal={editingGoal} onClose={handleCloseDialog} />
             </DialogContent>
           </Dialog>
-          </FeatureGate>
         </div>
       </div>
 
