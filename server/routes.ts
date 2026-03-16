@@ -1248,10 +1248,11 @@ Return JSON: { "income": [...] }`;
         if (budgetLimit === 0) {
           return res.status(402).json({ feature: "budget_creation", remaining: 0, resetDate: null, upgradeRequired: true });
         }
-        const currentMonthStr = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+        // Use the month from the request body so limits apply per-month, not just current month
+        const targetMonthStr = (req.body.month as string) || new Date().toISOString().slice(0, 7);
         const { rows: budgetRows } = await pool.query<{ cnt: number }>(
           "SELECT COUNT(DISTINCT category)::int AS cnt FROM budgets WHERE user_id = $1 AND month = $2",
-          [userId, currentMonthStr]
+          [userId, targetMonthStr]
         );
         if ((budgetRows[0]?.cnt ?? 0) >= budgetLimit) {
           return res.status(402).json({ feature: "budget_creation", remaining: 0, resetDate: null });

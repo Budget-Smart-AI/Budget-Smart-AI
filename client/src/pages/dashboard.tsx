@@ -487,12 +487,19 @@ function MismatchAlert({
   }
 
   // Check if real spending exceeds budgeted spending by >20%
+  // Only show this warning when budgetedSpending is meaningful (covers most spending)
+  // and the overage is reasonable (< 500%) to avoid misleading percentages when
+  // budgets only cover a subset of total spending categories.
   if (budgetSpending > 0 && realSpending > budgetSpending * 1.2) {
     const overagePercent = Math.round(((realSpending - budgetSpending) / budgetSpending) * 100);
-    alerts.push({
-      type: "warning",
-      message: `Your actual spending is ${overagePercent}% higher than your budgeted spending this month.`,
-    });
+    // Only show if the overage is within a believable range (< 500%)
+    // A huge % usually means budgets only cover a few categories vs all bank spending
+    if (overagePercent < 500) {
+      alerts.push({
+        type: "warning",
+        message: `Your actual spending is ${overagePercent}% higher than your budgeted spending this month.`,
+      });
+    }
   }
 
   if (alerts.length === 0) return null;
