@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, numeric, real, boolean, timestamp, date, uuid, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, numeric, real, boolean, timestamp, date, uuid, serial, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -143,7 +143,14 @@ export const expenses = pgTable("expenses", {
   taxDeductible: text("tax_deductible").default("false"),
   taxCategory: text("tax_category"),
   isBusinessExpense: text("is_business_expense").default("false"),
-});
+  // Plaid deduplication — stores Plaid's stable transaction_id string.
+  // Unique per user so the DB rejects duplicate auto-imports on reconnection.
+  plaidTransactionId: text("plaid_transaction_id"),
+}, (table) => ({
+  uniqueUserPlaidTransaction: uniqueIndex(
+    "expenses_user_plaid_transaction_unique"
+  ).on(table.userId, table.plaidTransactionId),
+}));
 
 // Insert schemas
 export const insertBillSchema = createInsertSchema(bills).omit({ id: true, lastNotifiedCycle: true, userId: true }).extend({

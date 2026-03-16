@@ -34,8 +34,8 @@ import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpen
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
-import { salesLeadFormSchema, billPayments, spendingAlerts, insertSpendingAlertSchema, updateSpendingAlertSchema } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { salesLeadFormSchema, billPayments, spendingAlerts, insertSpendingAlertSchema, updateSpendingAlertSchema, plaidItems, expenses, plaidTransactions } from "@shared/schema";
+import { eq, and, ne, isNull } from "drizzle-orm";
 import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
@@ -5725,6 +5725,26 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         institutionId: metadata?.institution?.institution_id || null,
         institutionName: metadata?.institution?.name || null,
       });
+
+      // Fix 4: Deactivate old items for the same institution so they don't
+      // show in the UI or get counted in net worth after reconnection.
+      const institutionId = metadata?.institution?.institution_id;
+      if (institutionId) {
+        try {
+          await db.update(plaidItems)
+            .set({
+              status: 'inactive',
+            })
+            .where(and(
+              eq(plaidItems.userId, userId),
+              eq(plaidItems.institutionId, institutionId),
+              ne(plaidItems.id, plaidItem.id)
+            ));
+          console.log(`[Token Exchange] Deactivated old items for institution ${institutionId}`);
+        } catch (deactivateErr) {
+          console.warn(`[Token Exchange] Could not deactivate old items:`, deactivateErr);
+        }
+      }
 
       // Fetch and store accounts
       const accountsResponse = await plaidClient.accountsGet({

@@ -23,9 +23,72 @@
 import { storage } from "../storage";
 import { db } from "../db";
 import { billPayments, bills as billsTable, spendingAlerts, notifications, users, exchangeRates, expenses, plaidTransactions } from "../../shared/schema";
-import { eq, and, ilike, desc, sql } from "drizzle-orm";
+import { eq, and, ilike, desc, sql, isNull } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 import { sendSpendingAlertEmail } from "../email";
+
+// ─── Fix 5: Startup migration — backfill plaidTransactionId on existing expenses ─
+
+/**
+ * Backfills plaid_transaction_id on existing auto-imported expenses that were
+ * created before this column existed. Runs once at startup, non-blocking.
+ * Matches by amount + date + userId across plaid_transactions.
+ */
+export async function backfillExpensePlaidIds(): Promise<void> {
+  try {
+    // Find expenses without plaidTransactionId (only auto-imported ones)
+    const expensesWithoutId = await db.query.expenses.findMany({
+      where: and(
+        isNull(expenses.plaidTransactionId),
+        sql`${expenses.notes} LIKE '%Auto-imported from bank transaction%'`
+      ),
+    });
+
+    if (expensesWithoutId.length === 0) {
+      console.log("[AutoReconciler] Backfill: no expenses need plaidTransactionId backfill.");
+      return;
+    }
+
+    console.log(`[AutoReconciler] Backfill: attempting to link ${expensesWithoutId.length} expenses to Plaid transaction IDs...`);
+    let linked = 0;
+
+    for (const expense of expensesWithoutId) {
+      try {
+        // Find matching plaid transaction by amount + date + userId
+        const matchingTx = await db.query.plaidTransactions.findFirst({
+          where: and(
+            eq(plaidTransactions.amount, expense.amount as string),
+            eq(plaidTransactions.date, expense.date),
+            eq(plaidTransactions.matchedExpenseId, expense.id)
+          ),
+        });
+
+        if (matchingTx?.transactionId) {
+          await db.update(expenses)
+            .set({ plaidTransactionId: matchingTx.transactionId })
+            .where(eq(expenses.id, expense.id))
+            .catch(() => {
+              // Ignore unique constraint violations (another expense already has this ID)
+            });
+          linked++;
+        }
+      } catch (err) {
+        // Non-fatal: skip this expense
+      }
+    }
+
+    console.log(`[AutoReconciler] Backfill complete: linked ${linked}/${expensesWithoutId.length} expenses to Plaid transaction IDs.`);
+  } catch (err) {
+    console.error("[AutoReconciler] Backfill migration failed (non-fatal):", err);
+  }
+}
+
+// Run backfill at module load time (non-blocking, fire-and-forget)
+setImmediate(() => {
+  backfillExpensePlaidIds().catch((err) =>
+    console.error("[AutoReconciler] Backfill startup error:", err)
+  );
+});
 
 // ─── Currency flag emoji map ──────────────────────────────────────────────────
 
@@ -754,9 +817,34 @@ export async function autoReconcile(userId: string): Promise<{
 
     const merchant = tx.merchantCleanName || tx.name || "Unknown";
 
-    // ── Fix 2: Prevent duplicate expenses ───────────────────────────────
+    // ── Fix 3: PRIMARY CHECK — by Plaid transaction ID (strongest dedup) ─
+    if (tx.transactionId) {
+      try {
+        const existsByPlaidId = await db.query.expenses.findFirst({
+          where: and(
+            eq(expenses.userId, userId),
+            eq(expenses.plaidTransactionId, tx.transactionId)
+          )
+        });
+
+        if (existsByPlaidId) {
+          console.log(`[AutoReconciler] Expense already exists for Plaid txn ${tx.transactionId} — linking and skipping creation`);
+          await storage.updatePlaidTransaction(tx.id, {
+            matchedExpenseId: existsByPlaidId.id,
+            matchType: 'expense',
+            reconciled: 'true',
+          });
+          tx.reconciled = 'true';
+          continue;
+        }
+      } catch (pidErr) {
+        console.warn(`[AutoReconciler] plaidTransactionId check failed for tx ${tx.id}:`, pidErr);
+      }
+    }
+
+    // ── Fix 2: SECONDARY CHECK — by amount + date + merchant ────────────
     try {
-      const existing = await db.query.expenses.findFirst({
+      const existsByMatch = await db.query.expenses.findFirst({
         where: and(
           eq(expenses.userId, userId),
           eq(expenses.amount, tx.amount.toString()),
@@ -765,11 +853,17 @@ export async function autoReconcile(userId: string): Promise<{
         )
       });
 
-      if (existing) {
-        console.log(`[AutoReconciler] Duplicate expense skipped: ${tx.name} ${tx.date}`);
-        // Still link the transaction to the existing expense
+      if (existsByMatch) {
+        console.log(`[AutoReconciler] Matching expense found by amount/date/merchant — linking, not creating: ${tx.name} ${tx.date}`);
+        // Backfill plaidTransactionId on the existing expense if not set
+        if (!existsByMatch.plaidTransactionId && tx.transactionId) {
+          await db.update(expenses)
+            .set({ plaidTransactionId: tx.transactionId })
+            .where(eq(expenses.id, existsByMatch.id))
+            .catch(() => { /* ignore unique constraint violations */ });
+        }
         await storage.updatePlaidTransaction(tx.id, {
-          matchedExpenseId: existing.id,
+          matchedExpenseId: existsByMatch.id,
           matchType: 'expense',
           reconciled: 'true',
         });
@@ -822,6 +916,8 @@ export async function autoReconcile(userId: string): Promise<{
         taxDeductible: "false",
         taxCategory: null,
         isBusinessExpense: "false",
+        // Store Plaid's stable transaction ID for reconnection dedup protection
+        plaidTransactionId: tx.transactionId || null,
         // Pass through foreign currency metadata if the storage layer supports it
         ...(isForeignCurrency && cadEquivalent !== null ? {
           isoCurrencyCode: isoCurrency,
