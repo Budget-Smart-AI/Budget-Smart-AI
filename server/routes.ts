@@ -668,7 +668,7 @@ Return JSON: { "bills": [...] }`;
           return res.status(402).json({ feature: "bill_tracking", remaining: 0, resetDate: null, upgradeRequired: true });
         }
         const { rows: billRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(*)::int AS cnt FROM bills WHERE user_id = $1::uuid",
+          "SELECT COUNT(*)::int AS cnt FROM bills WHERE user_id = $1",
           [userId]
         );
         if ((billRows[0]?.cnt ?? 0) >= billLimit) {
@@ -1249,7 +1249,7 @@ Return JSON: { "income": [...] }`;
           return res.status(402).json({ feature: "budget_creation", remaining: 0, resetDate: null, upgradeRequired: true });
         }
         const { rows: budgetRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(DISTINCT category)::int AS cnt FROM budgets WHERE user_id = $1::uuid",
+          "SELECT COUNT(DISTINCT category)::int AS cnt FROM budgets WHERE user_id = $1",
           [userId]
         );
         if ((budgetRows[0]?.cnt ?? 0) >= budgetLimit) {
@@ -1339,7 +1339,7 @@ Return JSON: { "income": [...] }`;
           return res.status(402).json({ feature: "savings_goals", remaining: 0, resetDate: null, upgradeRequired: true });
         }
         const { rows: goalRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(*)::int AS cnt FROM savings_goals WHERE user_id = $1::uuid",
+          "SELECT COUNT(*)::int AS cnt FROM savings_goals WHERE user_id = $1",
           [userId]
         );
         if ((goalRows[0]?.cnt ?? 0) >= goalLimit) {
@@ -1429,7 +1429,7 @@ Return JSON: { "income": [...] }`;
           return res.status(402).json({ feature: "debt_tracking", remaining: 0, resetDate: null, upgradeRequired: true });
         }
         const { rows: debtRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(*)::int AS cnt FROM debt_details WHERE user_id = $1::uuid",
+          "SELECT COUNT(*)::int AS cnt FROM debt_details WHERE user_id = $1",
           [userId]
         );
         if ((debtRows[0]?.cnt ?? 0) >= debtLimit) {
@@ -7944,7 +7944,7 @@ ${JSON.stringify(txSummary)}`;
           return res.status(402).json({ feature: "categories_management", remaining: 0, resetDate: null, upgradeRequired: true });
         }
         const { rows: catRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(*)::int AS cnt FROM custom_categories WHERE user_id = $1::uuid",
+          "SELECT COUNT(*)::int AS cnt FROM custom_categories WHERE user_id = $1",
           [userId]
         );
         if ((catRows[0]?.cnt ?? 0) >= catLimit) {
@@ -12173,7 +12173,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
           return res.status(402).json({ feature: "asset_tracking", remaining: 0, resetDate: null, upgradeRequired: true });
         }
         const { rows: assetRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(*)::int AS cnt FROM assets WHERE user_id = $1::uuid",
+          "SELECT COUNT(*)::int AS cnt FROM assets WHERE user_id = $1",
           [userId]
         );
         if ((assetRows[0]?.cnt ?? 0) >= assetLimit) {
