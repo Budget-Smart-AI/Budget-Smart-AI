@@ -59,6 +59,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BILL_CATEGORIES, RECURRENCE_OPTIONS, type Bill } from "@shared/schema";
 import { FeatureGate } from "@/components/FeatureGate";
+import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
+import { AlertTriangle, Crown } from "lucide-react";
 
 const DAYS_OF_WEEK = [
   { value: 0, label: "Sunday" },
@@ -922,6 +924,7 @@ export default function Bills() {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: "nextDue", direction: "asc" });
   const [expandedBillId, setExpandedBillId] = useState<string | null>(null);
   const { toast } = useToast();
+  const { getFeatureState } = useFeatureUsage();
 
   // Detect bills state
   const [detectedBills, setDetectedBills] = useState<any[]>([]);
@@ -967,10 +970,12 @@ export default function Bills() {
   const addSelectedBills = async () => {
     if (selectedDetected.size === 0) return;
     setIsAddingDetected(true);
+    let addedCount = 0;
+    let limitHit = false;
     try {
       const billsToAdd = Array.from(selectedDetected).map(i => detectedBills[i]);
       for (const bill of billsToAdd) {
-        await apiRequest("POST", "/api/bills", {
+        const response = await apiRequest("POST", "/api/bills", {
           name: bill.name,
           amount: bill.amount,
           category: bill.category,
@@ -978,10 +983,24 @@ export default function Bills() {
           recurrence: bill.recurrence,
           notes: `Auto-detected from ${bill.source === "plaid" ? "bank transactions" : "AI analysis"}`,
         });
+        if (response.status === 402) {
+          limitHit = true;
+          break;
+        }
+        addedCount++;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
-      toast({ title: `Added ${billsToAdd.length} bill${billsToAdd.length > 1 ? "s" : ""}` });
+      if (addedCount > 0) {
+        toast({ title: `Added ${addedCount} bill${addedCount !== 1 ? "s" : ""}` });
+      }
+      if (limitHit) {
+        toast({
+          title: `Bill limit reached`,
+          description: `Added ${addedCount} bill${addedCount !== 1 ? "s" : ""}. Upgrade to Pro to add unlimited bills.`,
+          variant: "destructive",
+        });
+      }
       setIsDetectDialogOpen(false);
       setDetectedBills([]);
       setSelectedDetected(new Set());
@@ -1203,6 +1222,74 @@ export default function Bills() {
             </div>
           ) : (
             <>
+              {/* Plan limit banner */}
+              {(() => {
+                const billState = getFeatureState("bill_tracking");
+                if (!billState) return null;
+                const { remaining, limit, allowed } = billState;
+
+                if (!allowed || remaining === 0) {
+                  return (
+                    <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+                      <Crown className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-amber-300">Bill limit reached</p>
+                        <p className="text-xs text-amber-200/80 mt-0.5">
+                          You've used all {limit} free bills. Upgrade to Pro to add unlimited bills.
+                        </p>
+                        <button
+                          className="mt-1.5 text-xs font-semibold text-amber-300 underline underline-offset-2 hover:text-amber-200"
+                          onClick={() => { setIsDetectDialogOpen(false); window.location.href = "/upgrade"; }}
+                        >
+                          Upgrade to Pro →
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (remaining !== null && remaining < selectedDetected.size) {
+                  return (
+                    <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+                      <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-amber-300">
+                          You can only add {remaining} more bill{remaining !== 1 ? "s" : ""} on your current plan
+                        </p>
+                        <p className="text-xs text-amber-200/80 mt-0.5">
+                          You have {remaining} of {limit} bill slot{remaining !== 1 ? "s" : ""} remaining.
+                          Only the first {remaining} selected will be added.{" "}
+                          <button
+                            className="font-semibold underline underline-offset-2 hover:text-amber-200"
+                            onClick={() => { setIsDetectDialogOpen(false); window.location.href = "/upgrade"; }}
+                          >
+                            Upgrade to Pro for unlimited bills →
+                          </button>
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (remaining !== null && remaining <= 2 && remaining > 0) {
+                  return (
+                    <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-4 py-3">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                      <p className="text-xs text-amber-300">
+                        ⚡ Only {remaining} bill slot{remaining !== 1 ? "s" : ""} remaining on your free plan.{" "}
+                        <button
+                          className="font-semibold underline underline-offset-2 hover:text-amber-200"
+                          onClick={() => { setIsDetectDialogOpen(false); window.location.href = "/upgrade"; }}
+                        >
+                          Upgrade to Pro →
+                        </button>
+                      </p>
+                    </div>
+                  );
+                }
+
+                return null;
+              })()}
               <p className="text-sm text-muted-foreground mb-4">
                 We found {detectedBills.length} recurring payment{detectedBills.length > 1 ? "s" : ""} in your transactions.
                 Select which ones to add as bills.
@@ -1244,27 +1331,55 @@ export default function Bills() {
                   </div>
                 ))}
               </div>
-              <div className="flex items-center justify-between pt-4 border-t">
-                <span className="text-sm text-muted-foreground">
-                  {selectedDetected.size} of {detectedBills.length} selected
-                </span>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setIsDetectDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={addSelectedBills}
-                    disabled={selectedDetected.size === 0 || isAddingDetected}
-                  >
-                    {isAddingDetected ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Plus className="h-4 w-4 mr-2" />
-                    )}
-                    Add {selectedDetected.size} Bill{selectedDetected.size !== 1 ? "s" : ""}
-                  </Button>
-                </div>
-              </div>
+              {(() => {
+                const billState = getFeatureState("bill_tracking");
+                const remaining = billState?.remaining ?? null;
+                const isAtLimit = billState ? !billState.allowed || billState.remaining === 0 : false;
+                const effectiveCount = remaining !== null
+                  ? Math.min(selectedDetected.size, remaining)
+                  : selectedDetected.size;
+
+                return (
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm text-muted-foreground">
+                        {selectedDetected.size} of {detectedBills.length} selected
+                      </span>
+                      {remaining !== null && remaining < selectedDetected.size && !isAtLimit && (
+                        <span className="text-xs text-amber-400">
+                          Only {effectiveCount} will be added (plan limit)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => setIsDetectDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      {isAtLimit ? (
+                        <Button
+                          className="bg-gradient-to-r from-amber-500 to-yellow-500 text-black hover:from-amber-400 hover:to-yellow-400 font-semibold"
+                          onClick={() => { setIsDetectDialogOpen(false); window.location.href = "/upgrade"; }}
+                        >
+                          <Crown className="h-4 w-4 mr-2" />
+                          Upgrade to Add More
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={addSelectedBills}
+                          disabled={selectedDetected.size === 0 || isAddingDetected}
+                        >
+                          {isAddingDetected ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Plus className="h-4 w-4 mr-2" />
+                          )}
+                          Add {effectiveCount} Bill{effectiveCount !== 1 ? "s" : ""}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           )}
         </DialogContent>
