@@ -144,9 +144,20 @@ export async function syncTransactions(
   let modifiedCount = 0;
   let removedCount = 0;
 
+  // ── FIX 5: Log sync start with cursor state ───────────────────────────────
+  console.log(`[Plaid Sync] ─────────────────────────────────────────────`);
+  console.log(`[Plaid Sync] Starting sync for item ${itemId}`);
+  console.log(`[Plaid Sync]   cursor: ${cursor ? 'has cursor (incremental)' : 'null (full history from start)'}`);
+
+  let pageNumber = 0;
+
   try {
     while (hasMore) {
+      pageNumber++;
       let data: any;
+
+      // ── FIX 5: Log each page fetch ────────────────────────────────────────
+      console.log(`[Plaid Sync] Fetching page ${pageNumber} — cursor: ${cursor ? 'has cursor' : 'null (start)'}`);
 
       try {
         // ── BUG 1 FIX: days_requested removed ──────────────────────────────

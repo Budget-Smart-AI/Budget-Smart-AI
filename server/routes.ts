@@ -5306,30 +5306,101 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     setImmediate(async () => {
       try {
         const { webhook_type, webhook_code, item_id, error } = req.body;
-        console.log(`[Plaid Webhook] type=${webhook_type} code=${webhook_code} item_id=${item_id}`);
+
+        // ── FIX 4: Comprehensive webhook logging ──────────────────────────
+        console.log(`[Plaid Webhook] ═══════════════════════════════════════`);
+        console.log(`[Plaid Webhook] Received: type=${webhook_type} code=${webhook_code} plaid_item_id=${item_id}`);
 
         if (webhook_type === "TRANSACTIONS") {
-          // Find the plaid item by Plaid's item_id
+          // ── FIX 2: Look up by item_id (Plaid's external ID), NOT internal UUID ──
+          // item_id in the DB maps to Plaid's item_id field (the external identifier)
           const { rows } = await pool.query(
-            `SELECT id, user_id, access_token FROM plaid_items WHERE item_id = $1`,
+            `SELECT id, user_id, access_token, sync_cursor, is_syncing FROM plaid_items WHERE item_id = $1`,
             [item_id]
           );
+
           if (rows.length === 0) {
-            console.warn(`[Plaid Webhook] No plaid_item found for item_id=${item_id}`);
+            console.warn(`[Plaid Webhook] ⚠️  No plaid_item found for plaid_item_id=${item_id}`);
             return;
           }
+
           const item = rows[0];
+
+          // ── FIX 4: Log DB item details ────────────────────────────────────
+          console.log(`[Plaid Webhook] DB item found:`);
+          console.log(`[Plaid Webhook]   internal_id=${item.id}`);
+          console.log(`[Plaid Webhook]   user_id=${item.user_id}`);
+          console.log(`[Plaid Webhook]   isSyncing=${item.is_syncing}`);
+          console.log(`[Plaid Webhook]   hasCursor=${item.sync_cursor ? 'YES (has cursor)' : 'NO (null = fresh start)'}`);
+          console.log(`[Plaid Webhook]   tokenLength=${item.access_token?.length ?? 0}`);
+
+          // ── FIX 3: Always decrypt token before passing to syncTransactions ──
+          let decryptedToken: string;
+          try {
+            decryptedToken = decrypt(item.access_token);
+            const tokenPreview = decryptedToken.substring(0, 20);
+            console.log(`[Plaid Webhook]   decryptedTokenStart=${tokenPreview}...`);
+            if (!decryptedToken.startsWith("access-")) {
+              console.error(`[Plaid Webhook] ❌ Token does NOT start with "access-" — may still be encrypted!`);
+              console.error(`[Plaid Webhook]    Token preview: ${tokenPreview}`);
+            } else {
+              console.log(`[Plaid Webhook]   ✅ Token correctly decrypted (starts with "access-")`);
+            }
+          } catch (decryptErr) {
+            console.error(`[Plaid Webhook] ❌ Failed to decrypt access token for item ${item.id}:`, decryptErr);
+            return;
+          }
+
           const { syncTransactions } = await import("./plaid");
 
           if (
             webhook_code === "SYNC_UPDATES_AVAILABLE" ||
             webhook_code === "INITIAL_UPDATE" ||
-            webhook_code === "HISTORICAL_UPDATE" ||
             webhook_code === "DEFAULT_UPDATE"
           ) {
-            console.log(`[Plaid Webhook] Syncing transactions for item ${item.id} (user ${item.user_id})`);
-            const result = await syncTransactions(decrypt(item.access_token), item.id, item.user_id);
-            console.log(`[Plaid Webhook] Sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
+            console.log(`[Plaid Webhook] Starting sync for ${webhook_code} — item ${item.id} (user ${item.user_id})`);
+            console.log(`[Plaid Webhook]   cursor=${item.sync_cursor ? 'existing (incremental)' : 'null (fresh)'}`);
+
+            const result = await syncTransactions(decryptedToken, item.id, item.user_id);
+            console.log(`[Plaid Webhook] ✅ Sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
+
+            // Run enrichment in background if new transactions were added
+            if (result.added > 0) {
+              const { enrichPendingTransactions } = await import("./merchant-enricher");
+              enrichPendingTransactions(item.user_id, 100).catch((err: any) =>
+                console.error("[Enricher] Background enrichment failed:", err)
+              );
+            }
+
+          } else if (webhook_code === "HISTORICAL_UPDATE") {
+            // ── FIX 1: CRITICAL — Reset cursor on HISTORICAL_UPDATE ───────────
+            // HISTORICAL_UPDATE means Plaid has prepared the FULL 24-month history.
+            // If we use the cursor saved from INITIAL_UPDATE, Plaid thinks we already
+            // have recent data and only returns the remaining older data — missing months.
+            // We MUST reset the cursor to null so the sync fetches ALL history from scratch.
+            console.log(`[Plaid Webhook] 🔄 HISTORICAL_UPDATE received — resetting cursor for FULL history sync`);
+            console.log(`[Plaid Webhook]   Previous cursor: ${item.sync_cursor ? item.sync_cursor.substring(0, 30) + '...' : 'null'}`);
+
+            // Reset cursor to null AND release any stale sync lock
+            await pool.query(
+              `UPDATE plaid_items SET sync_cursor = NULL, is_syncing = false WHERE id = $1`,
+              [item.id]
+            );
+            console.log(`[Plaid Webhook]   ✅ Cursor reset to NULL — will fetch full 24-month history`);
+
+            // Re-fetch item to confirm reset
+            const { rows: freshRows } = await pool.query(
+              `SELECT id, user_id, access_token, sync_cursor, is_syncing FROM plaid_items WHERE id = $1`,
+              [item.id]
+            );
+            const freshItem = freshRows[0];
+            console.log(`[Plaid Webhook]   Confirmed cursor after reset: ${freshItem?.sync_cursor ?? 'null'}`);
+            console.log(`[Plaid Webhook]   Confirmed isSyncing after reset: ${freshItem?.is_syncing}`);
+
+            // Now sync from the very beginning (null cursor = full history)
+            console.log(`[Plaid Webhook] Starting FULL history sync for item ${item.id} (user ${item.user_id})`);
+            const result = await syncTransactions(decryptedToken, item.id, item.user_id);
+            console.log(`[Plaid Webhook] ✅ HISTORICAL sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
 
             // Run enrichment in background if new transactions were added
             if (result.added > 0) {
@@ -5339,30 +5410,33 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
               );
             }
           }
+
         } else if (webhook_type === "ITEM") {
           if (webhook_code === "ERROR") {
             const errorCode = error?.error_code || "UNKNOWN";
-            console.warn(`[Plaid Webhook] ITEM ERROR for item_id=${item_id}: ${errorCode}`);
+            console.warn(`[Plaid Webhook] ⚠️  ITEM ERROR for item_id=${item_id}: ${errorCode}`);
             await pool.query(
               `UPDATE plaid_items SET status = 'error' WHERE item_id = $1`,
               [item_id]
             );
           } else if (webhook_code === "PENDING_EXPIRATION") {
-            console.warn(`[Plaid Webhook] ITEM PENDING_EXPIRATION for item_id=${item_id}`);
+            console.warn(`[Plaid Webhook] ⚠️  ITEM PENDING_EXPIRATION for item_id=${item_id}`);
             await pool.query(
               `UPDATE plaid_items SET status = 'pending_expiration' WHERE item_id = $1`,
               [item_id]
             );
           } else if (webhook_code === "USER_PERMISSION_REVOKED") {
-            console.warn(`[Plaid Webhook] USER_PERMISSION_REVOKED for item_id=${item_id}`);
+            console.warn(`[Plaid Webhook] ⚠️  USER_PERMISSION_REVOKED for item_id=${item_id}`);
             await pool.query(
               `UPDATE plaid_items SET status = 'revoked' WHERE item_id = $1`,
               [item_id]
             );
           }
         }
+
+        console.log(`[Plaid Webhook] ═══════════════════════════════════════`);
       } catch (err) {
-        console.error("[Plaid Webhook] Error processing webhook:", err);
+        console.error("[Plaid Webhook] ❌ Error processing webhook:", err);
       }
     });
   });
