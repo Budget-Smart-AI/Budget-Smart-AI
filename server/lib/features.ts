@@ -709,11 +709,11 @@ export const FEATURE_LIMITS = {
   free: {
     // AI Features (Limited on free tier)
     ai_assistant: 10,                   // messages per month
-    receipt_scanning: 3,                // scans per month
-    portfolio_advisor: 1,               // insights per month
+    receipt_scanning: 10,               // scans per month (raised from 3)
+    portfolio_advisor: 3,               // insights per month (raised from 1)
     ai_budget_suggestions: 5,           // requests per month
     ai_transaction_categorization: 0,   // disabled on free
-    ai_savings_advisor: 3,              // requests per month
+    ai_savings_advisor: 10,             // requests per month (raised from 3)
     ai_insights: 0,                     // disabled on free
     ai_daily_coach: 0,                  // disabled on free
 
@@ -736,14 +736,14 @@ export const FEATURE_LIMITS = {
     expense_tracking: null,             // unlimited (auto-imported Plaid transactions must not count toward a limit)
     spending_analysis: null,            // unlimited (basic feature)
     unmatched_transactions: null,       // unlimited (basic feature)
-    subscription_tracking: null,        // unlimited (basic feature)
+    subscription_tracking: 0,          // disabled on free — Pro feature
 
     // Planning
-    budget_creation: 2,                 // total budgets
-    savings_goals: 1,                   // total goals
-    debt_tracking: 3,                   // total debts
+    budget_creation: 5,                 // total budgets
+    savings_goals: 3,                   // total goals
+    debt_tracking: 5,                   // total debts
     debt_payoff_planner: 0,             // disabled on free
-    bill_tracking: 10,                  // total bills (raised from 5)
+    bill_tracking: null,                // unlimited on free
     bill_reminders: null,               // unlimited (basic feature)
     calendar_view: null,                // unlimited (basic feature)
     what_if_simulator: 0,               // disabled on free

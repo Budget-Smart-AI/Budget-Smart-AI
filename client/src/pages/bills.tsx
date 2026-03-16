@@ -1,4 +1,4 @@
-// FEATURE: BILL_TRACKING | tier: free | limit: 5 bills
+// FEATURE: BILL_TRACKING | tier: free | limit: unlimited
 // FEATURE: BILL_REMINDERS | tier: free | limit: unlimited
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -1166,20 +1166,10 @@ export default function Bills() {
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <FeatureGate
-                feature="bill_tracking"
-                blurIntensity="low"
-                bullets={[
-                  "Track unlimited recurring bills and due dates",
-                  "Prevent missed payments with clearer visibility",
-                  "Keep cash flow planning accurate every month",
-                ]}
-              >
-                <Button onClick={() => setEditingBill(undefined)} data-testid="button-add-bill">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Bill
-                </Button>
-              </FeatureGate>
+              <Button onClick={() => setEditingBill(undefined)} data-testid="button-add-bill">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Bill
+              </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
