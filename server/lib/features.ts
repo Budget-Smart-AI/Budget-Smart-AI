@@ -724,7 +724,7 @@ export const FEATURE_LIMITS = {
     manual_accounts: 3,                 // total manual accounts
     account_sync: 5,                    // manual syncs per day
     account_refresh: 10,                // manual refreshes per day
-    transaction_history: 90,            // days of history viewable
+    transaction_history: null,          // unlimited (2-year history already paid via Plaid)
     transaction_search: null,           // unlimited searches
     manual_transactions: 50,            // manual transactions per month
 
@@ -733,7 +733,7 @@ export const FEATURE_LIMITS = {
     net_worth_tracking: null,           // unlimited (basic feature)
     investment_tracking: null,          // unlimited (basic feature)
     income_tracking: null,              // unlimited (basic feature)
-    expense_tracking: 100,              // manual expenses per month
+    expense_tracking: null,             // unlimited (auto-imported Plaid transactions must not count toward a limit)
     spending_analysis: null,            // unlimited (basic feature)
     unmatched_transactions: null,       // unlimited (basic feature)
     subscription_tracking: null,        // unlimited (basic feature)
@@ -743,7 +743,7 @@ export const FEATURE_LIMITS = {
     savings_goals: 1,                   // total goals
     debt_tracking: 3,                   // total debts
     debt_payoff_planner: 0,             // disabled on free
-    bill_tracking: 5,                   // total bills
+    bill_tracking: 10,                  // total bills (raised from 5)
     bill_reminders: null,               // unlimited (basic feature)
     calendar_view: null,                // unlimited (basic feature)
     what_if_simulator: 0,               // disabled on free

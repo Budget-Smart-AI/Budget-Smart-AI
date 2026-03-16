@@ -1421,16 +1421,7 @@ export default function Bills() {
           </div>
         </CardHeader>
         <CardContent>
-          <FeatureGate
-            feature="bill_tracking"
-            displayName="bills"
-            bullets={[
-              "Track unlimited recurring bills and due dates",
-              "Prevent missed payments with clearer visibility",
-              "Keep cash flow planning accurate every month",
-            ]}
-          >
-            {isLoading ? (
+          {isLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <Skeleton key={i} className="h-16 w-full" />
@@ -1549,7 +1540,49 @@ export default function Bills() {
                 </TableBody>
               </Table>
             )}
-          </FeatureGate>
+
+          {/* Inline limit banner — shown below the bills list when at/near the limit */}
+          {(() => {
+            const billState = getFeatureState("bill_tracking");
+            if (!billState || billState.limit === null) return null;
+            const { allowed, limit, remaining } = billState;
+            if (allowed && remaining !== null && remaining > 2) return null;
+
+            if (!allowed || remaining === 0) {
+              return (
+                <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+                  <Crown className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-300">
+                      You've reached the {limit} bill limit on Free.
+                    </p>
+                    <p className="text-xs text-amber-200/80 mt-0.5">
+                      Upgrade to Pro for unlimited bills.{" "}
+                      <a href="/upgrade" className="font-semibold underline underline-offset-2 hover:text-amber-200">
+                        Upgrade to Pro →
+                      </a>
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
+            if (remaining !== null && remaining <= 2) {
+              return (
+                <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-4 py-3">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                  <p className="text-xs text-amber-300">
+                    ⚡ Only {remaining} bill slot{remaining !== 1 ? "s" : ""} remaining on your free plan.{" "}
+                    <a href="/upgrade" className="font-semibold underline underline-offset-2 hover:text-amber-200">
+                      Upgrade to Pro for unlimited bills →
+                    </a>
+                  </p>
+                </div>
+              );
+            }
+
+            return null;
+          })()}
         </CardContent>
       </Card>
 
