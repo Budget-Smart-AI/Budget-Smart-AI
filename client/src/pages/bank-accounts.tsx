@@ -69,7 +69,6 @@ import {
   AlertCircle,
   DollarSign,
   Pencil,
-  History,
   RotateCcw,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
@@ -1312,27 +1311,6 @@ export default function BankAccounts() {
     },
   });
 
-  // Fetch historical transactions mutation (2 years)
-  const fetchHistoricalMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/plaid/transactions/fetch-historical");
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
-      const dateRange = data.dateRange 
-        ? `Data available: ${data.dateRange.oldest} to ${data.dateRange.newest}`
-        : "";
-      toast({ 
-        title: `Fetched ${data.added} new transactions`,
-        description: `${data.skipped} already existed. ${dateRange}${data.errors?.length ? ` Errors: ${data.errors.join(", ")}` : ""}`,
-      });
-    },
-    onError: () => {
-      toast({ title: "Failed to fetch historical transactions", variant: "destructive" });
-    },
-  });
-
   // Disconnect mutation
   const disconnectMutation = useMutation({
     mutationFn: async (itemId: string) => {
@@ -1582,17 +1560,6 @@ export default function BankAccounts() {
               >
                 <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                 <span className="hidden sm:inline">Sync</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fetchHistoricalMutation.mutate()}
-                disabled={fetchHistoricalMutation.isPending}
-                className="gap-1 text-xs sm:text-sm"
-                data-testid="button-fetch-historical"
-              >
-                <History className={`h-3 w-3 sm:h-4 sm:w-4 ${fetchHistoricalMutation.isPending ? "animate-spin" : ""}`} />
-                <span className="hidden sm:inline">2 Years</span>
               </Button>
             </>
           )}

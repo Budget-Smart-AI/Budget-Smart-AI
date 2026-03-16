@@ -5506,6 +5506,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             products: [Products.Transactions, Products.Auth],
             country_codes: PLAID_COUNTRY_CODES,
             language: PLAID_LANGUAGE,
+            webhook: process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`,
             transactions: {
               days_requested: 730,  // Request up to 2 years of transaction history
             },
@@ -5609,6 +5610,31 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         outcome: "success",
         metadata: { itemId: plaidItem.id, institutionName: plaidItem.institutionName },
       });
+
+      // CRITICAL: Per Plaid docs, /transactions/sync MUST be called at least once
+      // after the user completes the Link flow to "activate" the item for webhook syncing.
+      // Without this initial call, SYNC_UPDATES_AVAILABLE (including historical_update_complete)
+      // will never fire. We do this in the background so the response is fast.
+      setImmediate(async () => {
+        try {
+          const { syncTransactions } = await import("./plaid");
+          console.log(`[Plaid] Initial sync for new item ${plaidItem.id} (${plaidItem.institutionName}) to activate webhook...`);
+          const result = await syncTransactions(access_token, plaidItem.id, req.session.userId!);
+          console.log(`[Plaid] Initial sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
+
+          // Run enrichment if transactions were added
+          if (result.added > 0) {
+            const { enrichPendingTransactions } = await import("./merchant-enricher");
+            enrichPendingTransactions(req.session.userId!, 100).catch((err: any) =>
+              console.error("[Enricher] Background enrichment failed:", err)
+            );
+          }
+        } catch (syncErr: any) {
+          // Non-fatal — webhook will still fire when Plaid is ready
+          console.warn(`[Plaid] Initial sync failed for item ${plaidItem.id} (will rely on webhook):`, syncErr?.response?.data?.error_code || syncErr?.message);
+        }
+      });
+
       res.json({
         success: true,
         item: { id: plaidItem.id, institutionName: plaidItem.institutionName },
