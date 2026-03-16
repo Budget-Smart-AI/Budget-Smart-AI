@@ -91,7 +91,7 @@ function AddSubscriptionDialog({ onSuccess }: { onSuccess: () => void }) {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      await apiRequest("POST", "/api/bills", {
+      await apiRequest("POST", "/api/subscriptions", {
         name: data.name,
         amount: data.amount,
         category: "Subscriptions", // Always set to Subscriptions
@@ -283,7 +283,7 @@ function DetectSubscriptionsDialog({
       const toAdd = detected.filter((_, i) => selected.has(i));
 
       for (const sub of toAdd) {
-        await apiRequest("POST", "/api/bills", {
+        await apiRequest("POST", "/api/subscriptions", {
           name: sub.name,
           amount: sub.amount.toFixed(2),
           category: "Subscriptions",
