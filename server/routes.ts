@@ -12134,11 +12134,84 @@ The Budget Smart AI Team`,
   app.get("/api/investment-accounts", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const accounts = await storage.getInvestmentAccounts(userId);
-      res.json(accounts);
+      const manualAccounts = await storage.getInvestmentAccounts(userId);
+      const manualWithSource = manualAccounts.map((a: any) => ({ ...a, source: "manual" }));
+
+      let plaidWithSource: any[] = [];
+      try {
+        const { rows: plaidAccounts } = await pool.query(
+          `SELECT
+             pa.id,
+             pa.name,
+             pa.type AS account_type,
+             pa.subtype,
+             pa.balance_current AS balance,
+             pi.institution_name AS institution,
+             pa.mask AS account_number
+           FROM plaid_accounts pa
+           INNER JOIN plaid_items pi ON pa.plaid_item_id = pi.id
+           WHERE pi.user_id = $1
+             AND pi.status = 'active'
+             AND pa.is_active = 'true'
+             AND pa.type = 'investment'
+           ORDER BY pa.name`,
+          [userId]
+        );
+        plaidWithSource = plaidAccounts.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          accountType: a.subtype || "brokerage",
+          institution: a.institution,
+          accountNumber: a.account_number,
+          balance: a.balance,
+          source: "plaid",
+          notes: "Linked from Plaid",
+        }));
+      } catch (plaidErr) {
+        console.warn("Could not fetch Plaid investment accounts:", plaidErr);
+      }
+
+      res.json([...manualWithSource, ...plaidWithSource]);
     } catch (error) {
       console.error("Error fetching investment accounts:", error);
       res.status(500).json({ error: "Failed to fetch investment accounts" });
+    }
+  });
+
+  // IMPORTANT: This route MUST be before /:id to avoid "linkable-plaid-accounts" being treated as :id
+  app.get("/api/investment-accounts/linkable-plaid-accounts", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const plaidAccounts = await storage.getAllPlaidAccounts(userId);
+
+      // Filter for investment-type accounts or any that user might want to track
+      const investmentTypes = ["investment", "brokerage", "other"];
+      const investmentSubtypes = ["401k", "401a", "403b", "457b", "ira", "roth", "rrsp", "tfsa", "brokerage", "non-taxable brokerage", "pension"];
+
+      const linkableAccounts = plaidAccounts.filter((acc: any) => {
+        const type = (acc.type || "").toLowerCase();
+        const subtype = (acc.subtype || "").toLowerCase();
+        return investmentTypes.includes(type) ||
+          investmentSubtypes.some(st => subtype.includes(st)) ||
+          subtype.includes("investment");
+      });
+
+      // Get already linked account IDs
+      const existingAccounts = await storage.getInvestmentAccounts(userId);
+      const linkedPlaidIds = existingAccounts
+        .filter((a: any) => a.notes?.includes("Linked from Plaid"))
+        .map((a: any) => a.notes?.match(/Linked from Plaid account: ([^\s]+)/)?.[1])
+        .filter(Boolean);
+
+      const availableAccounts = linkableAccounts.map((acc: any) => ({
+        ...acc,
+        isLinked: linkedPlaidIds.includes(acc.accountId),
+      }));
+
+      res.json(availableAccounts);
+    } catch (error) {
+      console.error("Error fetching linkable accounts:", error);
+      res.status(500).json({ error: "Failed to fetch accounts" });
     }
   });
 
@@ -12637,43 +12710,6 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     } catch (error) {
       console.error("Error importing from Plaid:", error);
       res.status(500).json({ error: "Failed to import account" });
-    }
-  });
-
-  // Get Plaid accounts that can be linked as investment accounts
-  app.get("/api/investment-accounts/linkable-plaid-accounts", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const plaidAccounts = await storage.getAllPlaidAccounts(userId);
-
-      // Filter for investment-type accounts or any that user might want to track
-      const investmentTypes = ["investment", "brokerage", "other"];
-      const investmentSubtypes = ["401k", "401a", "403b", "457b", "ira", "roth", "rrsp", "tfsa", "brokerage", "non-taxable brokerage", "pension"];
-
-      const linkableAccounts = plaidAccounts.filter(acc => {
-        const type = (acc.type || "").toLowerCase();
-        const subtype = (acc.subtype || "").toLowerCase();
-        return investmentTypes.includes(type) ||
-          investmentSubtypes.some(st => subtype.includes(st)) ||
-          subtype.includes("investment");
-      });
-
-      // Get already linked account IDs
-      const existingAccounts = await storage.getInvestmentAccounts(userId);
-      const linkedPlaidIds = existingAccounts
-        .filter(a => a.notes?.includes("Linked from Plaid"))
-        .map(a => a.notes?.match(/Linked from Plaid account: ([^\s]+)/)?.[1])
-        .filter(Boolean);
-
-      const availableAccounts = linkableAccounts.map(acc => ({
-        ...acc,
-        isLinked: linkedPlaidIds.includes(acc.accountId),
-      }));
-
-      res.json(availableAccounts);
-    } catch (error) {
-      console.error("Error fetching linkable accounts:", error);
-      res.status(500).json({ error: "Failed to fetch accounts" });
     }
   });
 

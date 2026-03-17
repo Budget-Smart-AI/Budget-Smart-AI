@@ -1144,11 +1144,17 @@ export default function Investments() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => apiRequest("DELETE", `/api/${deleteType === "account" ? "investment-accounts" : "holdings"}/${deleteId}`),
-    onSuccess: () => {
+    mutationFn: ({ id, type }: { id: string; type: "account" | "holding" }) => {
+      if (!id) {
+        console.error("No ID provided for delete");
+        return Promise.reject(new Error("No ID provided"));
+      }
+      return apiRequest("DELETE", `/api/${type === "account" ? "investment-accounts" : "holdings"}/${id}`);
+    },
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/investment-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/holdings"] });
-      toast({ title: `${deleteType === "account" ? "Account" : "Holding"} deleted` });
+      toast({ title: `${variables.type === "account" ? "Account" : "Holding"} deleted` });
       setDeleteId(null);
     },
     onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
@@ -1164,7 +1170,13 @@ export default function Investments() {
     onError: () => toast({ title: "Failed to refresh prices", variant: "destructive" }),
   });
 
-  const totalValue = holdings.reduce((sum, h) => sum + parseFloat(h.currentValue || "0"), 0);
+  const totalValue = accounts.reduce((sum, account) => {
+    const accountHoldings = holdings.filter(h => h.investmentAccountId === account.id);
+    if (accountHoldings.length > 0) {
+      return sum + accountHoldings.reduce((s, h) => s + parseFloat(h.currentValue || "0"), 0);
+    }
+    return sum + parseFloat((account as any).balance || "0");
+  }, 0);
   const totalCost = holdings.reduce((sum, h) => sum + parseFloat(h.costBasis || "0"), 0);
   const totalGain = totalValue - totalCost;
   const gainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
@@ -1437,7 +1449,14 @@ export default function Investments() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteMutation.mutate()}>Delete</AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleteId) return;
+                deleteMutation.mutate({ id: deleteId, type: deleteType });
+              }}
+            >
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
