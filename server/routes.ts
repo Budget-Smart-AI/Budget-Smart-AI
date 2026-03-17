@@ -1297,6 +1297,33 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // GET /api/budgets/spending?month=YYYY-MM
+  // Returns spending per category for a given month (from manual expenses)
+  app.get("/api/budgets/spending", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const month = (req.query.month as string) || new Date().toISOString().substring(0, 7);
+
+      // Get all expenses for this user and filter by month
+      const allExpenses = await storage.getExpenses(userId);
+      const monthExpenses = allExpenses.filter((e: any) => e.date && e.date.startsWith(month));
+
+      // Group by category and sum amounts
+      const result: Record<string, number> = {};
+      for (const exp of monthExpenses) {
+        const cat = exp.category;
+        if (cat) {
+          result[cat] = (result[cat] || 0) + parseFloat(exp.amount);
+        }
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching budget spending:", error);
+      res.status(500).json({ error: "Failed to fetch budget spending" });
+    }
+  });
+
   // FEATURE: SAVINGS_GOALS | tier: free | limit: 1 goal
   // Savings Goals API
   app.get("/api/savings-goals", requireAuth, async (req, res) => {
