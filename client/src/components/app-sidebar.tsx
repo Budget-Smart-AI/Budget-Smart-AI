@@ -197,6 +197,11 @@ const adminMenuItems = [
     url: "/admin/communications",
     icon: Mail,
   },
+  {
+    title: "AI Models",
+    url: "/admin/ai-models",
+    icon: Cpu,
+  },
 ];
 
 interface AppSidebarProps {
