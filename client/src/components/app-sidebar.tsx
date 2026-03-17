@@ -95,8 +95,9 @@ const trackingItems = [
     icon: Home,
   },
   {
-    title: "Tax Report",
-    url: "/tax-report",
+    title: "TaxSmart AI",
+    url: "/tax-smart",
+    badge: "Pro",
     icon: FileText,
   },
 ];

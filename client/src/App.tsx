@@ -68,6 +68,7 @@ import AdminAuditLog from "@/pages/admin-audit-log";
 import AdminSystemStatus from "@/pages/admin-system-status";
 import AdminPlanFeatures from "@/pages/admin-plan-features";
 import AdminCommunications from "@/pages/admin-communications";
+import AdminAIModels from "@/pages/admin-ai-models";
 import AnomaliesPage from "@/pages/anomalies";
 import AffiliatePage from "@/pages/affiliate";
 import AffiliateTerms from "@/pages/affiliate-terms";
@@ -76,6 +77,7 @@ import Simulator from "@/pages/simulator";
 import Receipts from "@/pages/receipts";
 import VaultPage from "@/pages/vault";
 import TaxReport from "@/pages/tax-report";
+import TaxSmartPage from "@/pages/tax-smart";
 import NotFound from "@/pages/not-found";
 import DemoPage from "@/pages/demo";
 import UpgradePage from "@/pages/upgrade";
@@ -147,6 +149,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/receipts" component={Receipts} />
       <Route path="/vault" component={VaultPage} />
       <Route path="/tax-report" component={TaxReport} />
+      <Route path="/tax-smart" component={TaxSmartPage} />
       <Route path="/anomalies" component={AnomaliesPage} />
       <Route path="/upgrade" component={UpgradePage} />
       <Route path="/redeem" component={RedeemPage} />
@@ -163,6 +166,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
           <Route path="/admin/system-status" component={AdminSystemStatus} />
           <Route path="/admin/plan-features" component={AdminPlanFeatures} />
           <Route path="/admin/communications" component={AdminCommunications} />
+          <Route path="/admin/ai-models" component={AdminAIModels} />
         </>
       )}
       <Route component={NotFound} />

@@ -15020,6 +15020,154 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   });
 
   // ── Help Center module-scoped AI chat ──────────────────────────────────
+  // Admin: AI Model Config
+  app.get("/api/admin/ai-models", requireAdmin, async (req, res) => {
+    try {
+      const { aiModelConfig } = await import("@shared/schema");
+      const configs = await db.select().from(aiModelConfig);
+      res.json(configs);
+    } catch (error: any) {
+      console.error("GET /api/admin/ai-models error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/admin/ai-models/:feature", requireAdmin, async (req, res) => {
+    try {
+      const { feature } = req.params;
+      const { provider, model, maxTokens, temperature, isEnabled } = req.body;
+      const { aiModelConfig } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const adminUser = (req as any).user;
+
+      const existing = (await db.select().from(aiModelConfig).where(eq(aiModelConfig.feature, feature)))[0];
+
+      if (!existing) {
+        await db.insert(aiModelConfig).values({
+          feature,
+          provider: provider ?? "deepseek",
+          model: model ?? "deepseek-chat",
+          maxTokens: maxTokens ?? 500,
+          temperature: temperature ?? "0.70",
+          isEnabled: isEnabled ?? true,
+          updatedBy: adminUser?.username ?? null,
+        });
+      } else {
+        const updates: Record<string, any> = { updatedAt: new Date(), updatedBy: adminUser?.username ?? null };
+        if (provider !== undefined) updates.provider = provider;
+        if (model !== undefined) updates.model = model;
+        if (maxTokens !== undefined) updates.maxTokens = maxTokens;
+        if (temperature !== undefined) updates.temperature = String(temperature);
+        if (isEnabled !== undefined) updates.isEnabled = isEnabled;
+        await db.update(aiModelConfig).set(updates).where(eq(aiModelConfig.feature, feature));
+      }
+
+      const updated = (await db.select().from(aiModelConfig).where(eq(aiModelConfig.feature, feature)))[0];
+      res.json(updated);
+    } catch (error: any) {
+      console.error("PATCH /api/admin/ai-models error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // TaxSmart AI Assistant
+  app.post("/api/tax/ai-assistant", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const plan = await getEffectivePlan(userId);
+      const gateResult = await checkAndConsume(userId, plan, "tax_reporting");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "tax_reporting",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
+      const { country, taxYear, question, messages, isProactive } = req.body as {
+        country: "US" | "CA";
+        taxYear: number;
+        question: string;
+        messages?: Array<{ role: "user" | "assistant"; content: string }>;
+        isProactive?: boolean;
+      };
+
+      if (!question) {
+        return res.status(400).json({ error: "question is required" });
+      }
+
+      const { aiModelConfig } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const configRows = await db.select().from(aiModelConfig).where(eq(aiModelConfig.feature, "taxsmart"));
+      const modelConfig = configRows[0];
+
+      if (modelConfig && !modelConfig.isEnabled) {
+        return res.status(503).json({ error: "TaxSmart AI is temporarily disabled." });
+      }
+
+      const provider = modelConfig?.provider ?? "deepseek";
+      const modelName = modelConfig?.model ?? "deepseek-chat";
+      const maxTokens = modelConfig?.maxTokens ?? 500;
+      const temperature = parseFloat(String(modelConfig?.temperature ?? "0.7"));
+
+      const countryContext = country === "CA"
+        ? `You are TaxSmart AI, a tax education assistant for Canadian taxpayers (CRA). Focus on T2200, T2125, RRSP/TFSA/FHSA, CRA medical expense credit (3% of net income), charitable donation credit, vehicle log requirements, and GST/HST for self-employed. Tax year: ${taxYear}.`
+        : `You are TaxSmart AI, a tax education assistant for US taxpayers (IRS). Focus on Schedule C, Schedule A, home office deduction, standard mileage rate, medical expense threshold (7.5% AGI), charitable contribution limits, and education credits. Tax year: ${taxYear}.`;
+
+      const systemPrompt = `${countryContext}
+You are NOT a licensed tax professional and do NOT provide personalized tax advice.
+Always remind users to consult a CPA or tax professional for their specific situation.
+Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
+
+      const apiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: systemPrompt },
+        ...(messages ?? []).slice(-6).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+      ];
+
+      if (!messages || messages.length === 0) {
+        apiMessages.push({ role: "user", content: question });
+      } else {
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg?.role !== "user" || lastMsg?.content !== question) {
+          apiMessages.push({ role: "user", content: question });
+        }
+      }
+
+      const { withAITimeout } = await import("./timeout");
+      const OpenAI = (await import("openai")).default;
+
+      const apiKey = provider === "openai"
+        ? (process.env.OPENAI_API_KEY || process.env.OPENAI_API || "")
+        : (process.env.DEEPSEEK_API_KEY || "");
+
+      if (!apiKey) {
+        return res.status(500).json({ error: "AI API key not configured for provider: " + provider });
+      }
+
+      const client = new OpenAI({
+        apiKey,
+        ...(provider === "deepseek" ? { baseURL: "https://api.deepseek.com" } : {}),
+        timeout: 30000,
+      });
+
+      const completion = await withAITimeout(() =>
+        client.chat.completions.create({
+          model: modelName,
+          messages: apiMessages,
+          max_tokens: maxTokens,
+          temperature,
+        })
+      );
+
+      const response = completion.choices[0]?.message?.content ?? "I couldn't generate a response.";
+      res.json({ response });
+    } catch (error: any) {
+      console.error("TaxSmart AI error:", error);
+      res.status(500).json({ error: error.message || "Failed to get AI response" });
+    }
+  });
+
   app.post("/api/help/chat", requireAuth, async (req, res) => {
     try {
       const { moduleId, messages } = req.body as {
