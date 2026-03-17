@@ -15002,9 +15002,26 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   // Admin: AI Model Config
   app.get("/api/admin/ai-models", requireAdmin, async (req, res) => {
     try {
-      const { aiModelConfig } = await import("@shared/schema");
-      const configs = await db.select().from(aiModelConfig);
-      res.json(configs);
+      // Use raw SQL to avoid Drizzle ORM schema mismatch with the legacy UUID primary key table
+      const { pool: pgPool } = await import("./db");
+      const { rows } = await pgPool.query(`
+        SELECT
+          id::text,
+          COALESCE(feature, task_slot) AS feature,
+          COALESCE(model_key, 'HAIKU_45') AS "modelKey",
+          COALESCE(model, 'HAIKU_45') AS model,
+          COALESCE(provider, 'bedrock') AS provider,
+          COALESCE(max_tokens, 1000) AS "maxTokens",
+          COALESCE(temperature, 0.5)::text AS temperature,
+          COALESCE(is_enabled, true) AS "isEnabled",
+          notes,
+          updated_at AS "updatedAt",
+          updated_by AS "updatedBy"
+        FROM ai_model_config
+        WHERE feature IS NOT NULL
+        ORDER BY feature
+      `);
+      res.json(rows);
     } catch (error: any) {
       console.error("GET /api/admin/ai-models error:", error);
       res.status(500).json({ error: error.message });
@@ -15014,35 +15031,60 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.patch("/api/admin/ai-models/:feature", requireAdmin, async (req, res) => {
     try {
       const { feature } = req.params;
-      const { provider, model, maxTokens, temperature, isEnabled } = req.body;
-      const { aiModelConfig } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
+      const { modelKey, model, provider, maxTokens, temperature, isEnabled, notes } = req.body;
       const adminUser = (req as any).user;
+      const { pool: pgPool } = await import("./db");
 
-      const existing = (await db.select().from(aiModelConfig).where(eq(aiModelConfig.feature, feature)))[0];
-
-      if (!existing) {
-        await db.insert(aiModelConfig).values({
+      // Upsert using raw SQL — works with the legacy UUID primary key table
+      await pgPool.query(
+        `INSERT INTO ai_model_config
+           (task_slot, task_label, task_description, category, provider, model_id,
+            feature, model_key, model, max_tokens, temperature, is_enabled, notes, updated_at, updated_by)
+         VALUES
+           ($1, $1, $1, 'bedrock', $2, $3,
+            $1, $3, $3, $4, $5, $6, $7, NOW(), $8)
+         ON CONFLICT (task_slot) DO UPDATE
+           SET feature    = EXCLUDED.feature,
+               model_key  = EXCLUDED.model_key,
+               model      = EXCLUDED.model,
+               provider   = EXCLUDED.provider,
+               max_tokens = EXCLUDED.max_tokens,
+               temperature = EXCLUDED.temperature,
+               is_enabled = EXCLUDED.is_enabled,
+               notes      = EXCLUDED.notes,
+               updated_at = NOW(),
+               updated_by = EXCLUDED.updated_by`,
+        [
           feature,
-          provider: provider ?? "deepseek",
-          model: model ?? "deepseek-chat",
-          maxTokens: maxTokens ?? 500,
-          temperature: temperature ?? "0.70",
-          isEnabled: isEnabled ?? true,
-          updatedBy: adminUser?.username ?? null,
-        });
-      } else {
-        const updates: Record<string, any> = { updatedAt: new Date(), updatedBy: adminUser?.username ?? null };
-        if (provider !== undefined) updates.provider = provider;
-        if (model !== undefined) updates.model = model;
-        if (maxTokens !== undefined) updates.maxTokens = maxTokens;
-        if (temperature !== undefined) updates.temperature = String(temperature);
-        if (isEnabled !== undefined) updates.isEnabled = isEnabled;
-        await db.update(aiModelConfig).set(updates).where(eq(aiModelConfig.feature, feature));
-      }
+          provider ?? "bedrock",
+          modelKey ?? model ?? "HAIKU_45",
+          maxTokens ?? 1000,
+          temperature != null ? String(temperature) : "0.50",
+          isEnabled ?? true,
+          notes ?? null,
+          adminUser?.username ?? null,
+        ]
+      );
 
-      const updated = (await db.select().from(aiModelConfig).where(eq(aiModelConfig.feature, feature)))[0];
-      res.json(updated);
+      const { rows } = await pgPool.query(
+        `SELECT
+           id::text,
+           COALESCE(feature, task_slot) AS feature,
+           COALESCE(model_key, 'HAIKU_45') AS "modelKey",
+           COALESCE(model, 'HAIKU_45') AS model,
+           COALESCE(provider, 'bedrock') AS provider,
+           COALESCE(max_tokens, 1000) AS "maxTokens",
+           COALESCE(temperature, 0.5)::text AS temperature,
+           COALESCE(is_enabled, true) AS "isEnabled",
+           notes,
+           updated_at AS "updatedAt",
+           updated_by AS "updatedBy"
+         FROM ai_model_config
+         WHERE feature = $1
+         LIMIT 1`,
+        [feature]
+      );
+      res.json(rows[0] ?? { feature });
     } catch (error: any) {
       console.error("PATCH /api/admin/ai-models error:", error);
       res.status(500).json({ error: error.message });

@@ -8,9 +8,7 @@ import {
   InvokeModelCommand,
   InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import { db } from "../db";
-import { aiModelConfig } from "../../shared/schema";
-import { eq } from "drizzle-orm";
+import { pool } from "../db";
 
 // ─── Client ──────────────────────────────────────────────────────────────────
 
@@ -100,20 +98,22 @@ export async function getFeatureModel(feature: string): Promise<{
   isEnabled: boolean;
 }> {
   try {
-    const [row] = await db
-      .select()
-      .from(aiModelConfig)
-      .where(eq(aiModelConfig.feature, feature))
-      .limit(1);
-
-    if (row) {
-      const modelKey = row.modelKey ?? "HAIKU_45";
+    const { rows } = await pool.query(
+      `SELECT model_key, max_tokens, is_enabled
+         FROM ai_model_config
+        WHERE feature = $1
+        LIMIT 1`,
+      [feature]
+    );
+    if (rows.length > 0) {
+      const row = rows[0];
+      const modelKey = row.model_key ?? "HAIKU_45";
       const model = BEDROCK_MODELS[modelKey] ?? BEDROCK_MODELS["HAIKU_45"];
       return {
         modelId: model.id,
         modelKey,
-        maxTokens: row.maxTokens ?? 1000,
-        isEnabled: row.isEnabled ?? true,
+        maxTokens: row.max_tokens ?? 1000,
+        isEnabled: row.is_enabled ?? true,
       };
     }
   } catch {
@@ -130,10 +130,23 @@ export async function getFeatureModel(feature: string): Promise<{
 export async function seedAIModelDefaults(): Promise<void> {
   try {
     for (const [feature, modelKey] of Object.entries(FEATURE_MODEL_DEFAULTS)) {
-      await db
-        .insert(aiModelConfig)
-        .values({ feature, modelKey, isEnabled: true, maxTokens: 1000 })
-        .onConflictDoNothing();
+      // Use raw SQL so this works regardless of the Drizzle schema / column type mismatch
+      // between the legacy UUID primary key table and the new serial-based schema.
+      // ON CONFLICT on the partial unique index (feature IS NOT NULL) handles idempotency.
+      await pool.query(
+        `INSERT INTO ai_model_config
+           (task_slot, task_label, task_description, category, provider, model_id,
+            feature, model_key, model, max_tokens, is_enabled)
+         VALUES
+           ($1, $1, $1, 'bedrock', 'bedrock', $2,
+            $1, $2, $2, 1000, true)
+         ON CONFLICT (task_slot) DO UPDATE
+           SET feature    = EXCLUDED.feature,
+               model_key  = EXCLUDED.model_key,
+               model      = EXCLUDED.model,
+               updated_at = NOW()`,
+        [feature, modelKey]
+      );
     }
     console.log("[Bedrock] AI model defaults seeded");
   } catch (err) {

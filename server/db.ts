@@ -182,6 +182,26 @@ export async function ensureAITables(): Promise<void> {
     )
   `);
 
+  // ── Bedrock migration: add new columns to the existing ai_model_config table ──
+  // These columns are required by the Drizzle ORM schema (shared/schema.ts) and
+  // the new /api/admin/ai-models endpoints. Uses ADD COLUMN IF NOT EXISTS so it
+  // is safe to run on every startup regardless of whether the columns already exist.
+  await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS feature TEXT`);
+  await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS model TEXT DEFAULT 'HAIKU_45'`);
+  await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS model_key TEXT DEFAULT 'HAIKU_45'`);
+  await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS max_tokens INTEGER DEFAULT 1000`);
+  await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS temperature NUMERIC(3,2) DEFAULT 0.5`);
+  await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT true`);
+  await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS notes TEXT`);
+
+  // Ensure the UNIQUE constraint on the feature column exists (needed for ON CONFLICT upserts).
+  // We do this safely: create a unique index only if it doesn't already exist.
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_model_config_feature
+      ON ai_model_config (feature)
+      WHERE feature IS NOT NULL
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ai_usage_log (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
