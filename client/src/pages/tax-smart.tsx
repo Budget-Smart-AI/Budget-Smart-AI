@@ -130,6 +130,8 @@ Keep responses concise (3-5 sentences) and always include a disclaimer to consul
         warning: false,
       },
     ],
+    taxAuthority: "IRS",
+    taxAuthorityUrl: "https://www.irs.gov",
     disclaimer: `IMPORTANT DISCLAIMER: TaxSmart AI is an educational tool only. It does NOT provide personalized tax advice, legal advice, or accounting services. The information provided is for general educational purposes about US (IRS) tax concepts only. Tax laws change frequently and your individual situation may differ. Always consult a licensed CPA, Enrolled Agent, or tax attorney for advice specific to your situation. BudgetSmart AI is not responsible for any tax decisions made based on this tool.`,
   },
   CA: {
@@ -226,6 +228,8 @@ Keep responses concise (3-5 sentences) and always include a disclaimer to consul
         warning: false,
       },
     ],
+    taxAuthority: "CRA",
+    taxAuthorityUrl: "https://www.canada.ca/en/revenue-agency.html",
     disclaimer: `IMPORTANT DISCLAIMER: TaxSmart AI is an educational tool only. It does NOT provide personalized tax advice, legal advice, or accounting services. The information provided is for general educational purposes about Canadian (CRA) tax concepts only. Tax laws change frequently and your individual situation may differ. Always consult a licensed CPA, CGA, or tax professional for advice specific to your situation. BudgetSmart AI is not responsible for any tax decisions made based on this tool.`,
   },
 };
@@ -581,12 +585,15 @@ export default function TaxSmartPage() {
       </div>
 
       {/* ── Disclaimer Banner ── */}
-      <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-200">
-        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-        <span>
-          <strong>Educational tool only.</strong> TaxSmart AI does not provide tax advice. Always
-          consult a licensed tax professional for your specific situation.
-        </span>
+      <div className="flex items-start gap-2 p-2.5 mb-5 rounded-lg border border-amber-500/15 bg-amber-500/5 text-xs">
+        <AlertTriangle size={13} className="text-amber-500/70 shrink-0 mt-0.5" />
+        <p className="text-muted-foreground/70">
+          <span className="font-medium text-amber-600/80 dark:text-amber-400/80">Organizational tool only.</span>
+          {' '}TaxSmart AI does not provide tax advice. Always consult a qualified tax professional before filing.{' '}
+          <a href={config.taxAuthorityUrl} target="_blank" rel="noopener noreferrer" className="text-primary/70 hover:text-primary hover:underline transition-colors">
+            {config.taxAuthority} →
+          </a>
+        </p>
       </div>
 
       {/* ── FIX 1: AI Chat Section — FULL WIDTH, above summary cards ── */}
@@ -813,26 +820,27 @@ export default function TaxSmartPage() {
                 <p className="text-xs text-muted-foreground">At {marginalRate}% marginal rate</p>
               </div>
             </div>
-            {/* FIX 6: Marginal Rate Adjuster */}
-            <div className="flex items-center justify-end gap-2 mt-2 text-xs text-muted-foreground">
-              <span>Adjust rate:</span>
-              <input
-                type="number"
-                min={1}
-                max={60}
-                value={Math.round(marginalRate)}
-                onChange={(e) =>
-                  setMarginalRate(
-                    Math.min(60, Math.max(1, parseInt(e.target.value) || 1))
-                  )
-                }
-                className="w-14 text-center border border-border rounded px-2 py-1 bg-background text-xs"
-              />
-              <span>%</span>
-              <span className="text-muted-foreground/50 text-xs">(estimate only)</span>
-            </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* ── FIX 5: Marginal Rate Adjuster — standalone row below all 4 cards ── */}
+      <div className="flex items-center justify-end gap-2 mt-2 mb-6 text-xs text-muted-foreground">
+        <span>Adjust your marginal tax rate:</span>
+        <input
+          type="number"
+          min={1}
+          max={60}
+          step={1}
+          value={Math.round(marginalRate)}
+          onChange={(e) => {
+            const val = parseInt(e.target.value);
+            if (val >= 1 && val <= 60) setMarginalRate(val);
+          }}
+          className="w-16 text-center border border-border rounded px-2 py-1 bg-background text-xs"
+        />
+        <span>%</span>
+        <span className="text-muted-foreground/40">(estimate only)</span>
       </div>
 
       {/* ── Expense Breakdown + Table ── */}
@@ -896,9 +904,12 @@ export default function TaxSmartPage() {
           </CardHeader>
           <CardContent>
             {taxExpenses.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p>No deductible expenses for {taxYear}.</p>
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <FileText size={32} className="text-muted-foreground/30 mb-3" />
+                <p className="text-sm text-muted-foreground">No deductible expenses for {taxYear}</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">
+                  Tag expenses as tax-deductible in the Expenses page to see them here
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1008,13 +1019,14 @@ export default function TaxSmartPage() {
       </Card>
 
       {/* ── Footer Disclaimer ── */}
-      <div className="p-4 border border-amber-200 dark:border-amber-800 rounded-lg bg-amber-50/50 dark:bg-amber-950/20 text-xs text-amber-700 dark:text-amber-300">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div>
-            <strong>Full Disclaimer:</strong> {config.disclaimer}
-          </div>
-        </div>
+      <div className="mt-8 pt-5 border-t border-border">
+        <p className="text-xs text-muted-foreground/50 text-center leading-relaxed max-w-2xl mx-auto">
+          <span className="font-medium">Disclaimer: </span>
+          TaxSmart AI is an organizational tool, not tax software. All figures are estimates for general educational purposes only. Always consult a qualified CPA or tax professional before making any tax decisions or filing your return.{' '}
+          <a href={config.taxAuthorityUrl} target="_blank" rel="noopener noreferrer" className="text-primary/60 hover:underline">
+            Verify with {config.taxAuthority} ↗
+          </a>
+        </p>
       </div>
     </div>
   );

@@ -15163,8 +15163,18 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
       const response = completion.choices[0]?.message?.content ?? "I couldn't generate a response.";
       res.json({ response });
     } catch (error: any) {
-      console.error("TaxSmart AI error:", error);
-      res.status(500).json({ error: error.message || "Failed to get AI response" });
+      console.error("[TaxSmart AI] Full error:", {
+        message: error.message,
+        status: error.status,
+        response: error.response?.data,
+        provider: error._provider,
+        hasDeepSeekKey: !!process.env.DEEPSEEK_API_KEY,
+        hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+      });
+      res.status(500).json({
+        error: "TaxSmart AI temporarily unavailable.",
+        debug: process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
     }
   });
 
