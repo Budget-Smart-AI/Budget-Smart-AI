@@ -14319,7 +14319,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
 
   // ========== ADMIN AI MANAGEMENT ENDPOINTS ==========
 
-  // GET /api/admin/ai-config — all task slots + model config + registry + 7-day stats
+  // GET /api/admin/ai-config — all features + model config + registry + 7-day stats
   app.get("/api/admin/ai-config", requireAdmin, async (_req, res) => {
     try {
       const { MODEL_REGISTRY } = await import("./ai-models");
@@ -14329,15 +14329,15 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
                 COALESCE(s.total_cost,0) AS total_cost
          FROM ai_model_config mc
          LEFT JOIN (
-           SELECT task_slot,
+           SELECT COALESCE(feature_context, task_slot) AS feature_key,
                   COUNT(*)::int AS call_count,
                   SUM(estimated_cost_usd)::float AS total_cost
            FROM ai_usage_log
            WHERE created_at >= NOW() - INTERVAL '7 days'
-           GROUP BY task_slot
-         ) s ON s.task_slot = mc.task_slot
-         WHERE mc.is_active = true
-         ORDER BY mc.category, mc.task_slot`,
+           GROUP BY COALESCE(feature_context, task_slot)
+         ) s ON s.feature_key = mc.feature
+         WHERE mc.is_enabled = true
+         ORDER BY mc.feature`,
       );
       res.json({
         taskSlots: configRows.rows,
