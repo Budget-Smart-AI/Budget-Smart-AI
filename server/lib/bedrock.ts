@@ -135,14 +135,11 @@ export async function seedAIModelDefaults(): Promise<void> {
       // ON CONFLICT on the partial unique index (feature IS NOT NULL) handles idempotency.
       await pool.query(
         `INSERT INTO ai_model_config
-           (task_slot, task_label, task_description, category, provider, model_id,
-            feature, model_key, model, max_tokens, is_enabled)
+           (feature, model_key, model, provider, max_tokens, is_enabled)
          VALUES
-           ($1, $1, $1, 'bedrock', 'bedrock', $2,
-            $1, $2, $2, 1000, true)
-         ON CONFLICT (task_slot) DO UPDATE
-           SET feature    = EXCLUDED.feature,
-               model_key  = EXCLUDED.model_key,
+           ($1, $2, $2, 'bedrock', 1000, true)
+         ON CONFLICT (feature) DO UPDATE
+           SET model_key  = EXCLUDED.model_key,
                model      = EXCLUDED.model,
                updated_at = NOW()`,
         [feature, modelKey]

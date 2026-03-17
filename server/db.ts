@@ -167,25 +167,26 @@ export async function ensureVaultTables(): Promise<void> {
 }
 
 export async function ensureAITables(): Promise<void> {
+  // Create the table using the new Bedrock-native schema (feature as unique key, no task_slot).
+  // If the table already exists (e.g. created by drizzle-kit push) this is a no-op.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ai_model_config (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      task_slot VARCHAR(100) UNIQUE NOT NULL,
-      task_label VARCHAR(200) NOT NULL,
-      task_description TEXT,
-      category VARCHAR(50) NOT NULL,
-      provider VARCHAR(50) NOT NULL DEFAULT 'deepseek',
-      model_id VARCHAR(100) NOT NULL,
-      is_active BOOLEAN DEFAULT true,
-      updated_at TIMESTAMP DEFAULT NOW(),
-      updated_by VARCHAR(255)
+      id          SERIAL PRIMARY KEY,
+      feature     TEXT UNIQUE NOT NULL,
+      provider    TEXT DEFAULT 'bedrock',
+      model       TEXT DEFAULT 'HAIKU_45',
+      model_key   TEXT DEFAULT 'HAIKU_45',
+      max_tokens  INTEGER DEFAULT 1000,
+      temperature NUMERIC(3,2) DEFAULT 0.5,
+      is_enabled  BOOLEAN DEFAULT true,
+      notes       TEXT,
+      updated_at  TIMESTAMP DEFAULT NOW(),
+      updated_by  TEXT
     )
   `);
 
-  // ── Bedrock migration: add new columns to the existing ai_model_config table ──
-  // These columns are required by the Drizzle ORM schema (shared/schema.ts) and
-  // the new /api/admin/ai-models endpoints. Uses ADD COLUMN IF NOT EXISTS so it
-  // is safe to run on every startup regardless of whether the columns already exist.
+  // ── Idempotent column additions for deployments that have the old schema ──
+  // These are no-ops if the columns already exist (Drizzle-created table).
   await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS feature TEXT`);
   await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS model TEXT DEFAULT 'HAIKU_45'`);
   await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS model_key TEXT DEFAULT 'HAIKU_45'`);
@@ -194,8 +195,8 @@ export async function ensureAITables(): Promise<void> {
   await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT true`);
   await pool.query(`ALTER TABLE ai_model_config ADD COLUMN IF NOT EXISTS notes TEXT`);
 
-  // Ensure the UNIQUE constraint on the feature column exists (needed for ON CONFLICT upserts).
-  // We do this safely: create a unique index only if it doesn't already exist.
+  // Ensure a UNIQUE constraint on feature exists for ON CONFLICT upserts.
+  // This is a no-op if the column is already declared UNIQUE (Drizzle schema).
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_model_config_feature
       ON ai_model_config (feature)
@@ -245,21 +246,35 @@ export async function ensureAITables(): Promise<void> {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_usage_task ON ai_usage_log(task_slot, created_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_anomaly_user ON anomaly_alerts(user_id, detected_at DESC)`);
 
+  // Seed default Bedrock model assignments per feature (idempotent via ON CONFLICT).
+  // Uses the new feature-keyed schema — no task_slot references.
   await pool.query(`
-    INSERT INTO ai_model_config (task_slot, task_label, task_description, category, provider, model_id)
+    INSERT INTO ai_model_config (feature, model_key, model, provider, max_tokens, is_enabled)
     VALUES
-      ('chat_assistant', 'AI Chatbot', 'Bottom-right chat widget for quick questions', 'chat', 'deepseek', 'deepseek-chat'),
-      ('chat_fullscreen', 'AI Assistant', 'Full-screen sidebar assistant with canned prompts', 'chat', 'deepseek', 'deepseek-chat'),
-      ('detection_auto', 'AI Detection', 'Detects income, bills, subscriptions automatically', 'detection', 'deepseek', 'deepseek-chat'),
-      ('planning_advisor', 'AI Suggest / AI Advisor', 'Budget recommendations, debt payoff, planning', 'planning', 'deepseek', 'deepseek-reasoner'),
-      ('vault_ai', 'Financial Vault AI', 'All vault AI: extraction, summary, tags, chat Q&A', 'vault', 'deepseek', 'deepseek-chat'),
-      ('receipt_analysis', 'Receipt Scanning', 'Analyzes OCR text for merchant, amount, category', 'receipts', 'deepseek', 'deepseek-chat'),
-      ('anomaly_detection', 'Anomaly Detection', 'Detects duplicate charges, spikes, fraud patterns', 'detection', 'deepseek', 'deepseek-chat'),
-      ('ai_coach', 'AI Financial Coach', 'Personalized daily financial insights per user', 'insights', 'deepseek', 'deepseek-chat'),
-      ('support_assistant', 'Support AI Assistant', 'Helps admin respond to support tickets', 'support', 'deepseek', 'deepseek-chat'),
-      ('support_triage', 'Support Ticket Triage', 'Classifies incoming support tickets into categories and tiers, and generates Level 1 auto-responses', 'support', 'deepseek', 'deepseek-chat'),
-      ('support_kb', 'Knowledge Base Assistant', 'Answers user questions in the support portal search bar using knowledge base context', 'support', 'deepseek', 'deepseek-chat')
-    ON CONFLICT (task_slot) DO NOTHING
+      ('ai_assistant',          'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('receipt_scanning',      'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('auto_categorization',   'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('subscription_detection','HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('budget_suggestions',    'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('savings_advisor',       'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('bill_detection',        'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('income_detection',      'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('transaction_analysis',  'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('support_triage',        'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('kb_search',             'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('admin_support_ai',      'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('ai_daily_coach',        'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('ai_insights',           'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('portfolio_advisor',     'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('monthly_budget_email',  'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('autoblog',              'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('taxsmart_chat',         'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('taxsmart_proactive',    'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('taxsmart_analysis',     'SONNET_46', 'SONNET_46', 'bedrock', 2000, true),
+      ('sales_chatbot',         'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('vault_extraction',      'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true),
+      ('ai_forecast',           'HAIKU_45',  'HAIKU_45',  'bedrock', 1000, true)
+    ON CONFLICT (feature) DO NOTHING
   `);
 }
 

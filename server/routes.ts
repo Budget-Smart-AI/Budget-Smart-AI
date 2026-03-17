@@ -15007,7 +15007,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const { rows } = await pgPool.query(`
         SELECT
           id::text,
-          COALESCE(feature, task_slot) AS feature,
+          feature,
           COALESCE(model_key, 'HAIKU_45') AS "modelKey",
           COALESCE(model, 'HAIKU_45') AS model,
           COALESCE(provider, 'bedrock') AS provider,
@@ -15035,29 +15035,28 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const adminUser = (req as any).user;
       const { pool: pgPool } = await import("./db");
 
-      // Upsert using raw SQL — works with the legacy UUID primary key table
+      // Upsert using raw SQL — uses the new feature-keyed schema (no task_slot)
+      const resolvedModelKey = modelKey ?? model ?? "HAIKU_45";
+      const resolvedProvider = provider ?? "bedrock";
       await pgPool.query(
         `INSERT INTO ai_model_config
-           (task_slot, task_label, task_description, category, provider, model_id,
-            feature, model_key, model, max_tokens, temperature, is_enabled, notes, updated_at, updated_by)
+           (feature, model_key, model, provider, max_tokens, temperature, is_enabled, notes, updated_at, updated_by)
          VALUES
-           ($1, $1, $1, 'bedrock', $2, $3,
-            $1, $3, $3, $4, $5, $6, $7, NOW(), $8)
-         ON CONFLICT (task_slot) DO UPDATE
-           SET feature    = EXCLUDED.feature,
-               model_key  = EXCLUDED.model_key,
-               model      = EXCLUDED.model,
-               provider   = EXCLUDED.provider,
-               max_tokens = EXCLUDED.max_tokens,
+           ($1, $2, $2, $3, $4, $5, $6, $7, NOW(), $8)
+         ON CONFLICT (feature) DO UPDATE
+           SET model_key   = EXCLUDED.model_key,
+               model       = EXCLUDED.model,
+               provider    = EXCLUDED.provider,
+               max_tokens  = EXCLUDED.max_tokens,
                temperature = EXCLUDED.temperature,
-               is_enabled = EXCLUDED.is_enabled,
-               notes      = EXCLUDED.notes,
-               updated_at = NOW(),
-               updated_by = EXCLUDED.updated_by`,
+               is_enabled  = EXCLUDED.is_enabled,
+               notes       = EXCLUDED.notes,
+               updated_at  = NOW(),
+               updated_by  = EXCLUDED.updated_by`,
         [
           feature,
-          provider ?? "bedrock",
-          modelKey ?? model ?? "HAIKU_45",
+          resolvedModelKey,
+          resolvedProvider,
           maxTokens ?? 1000,
           temperature != null ? String(temperature) : "0.50",
           isEnabled ?? true,
@@ -15069,7 +15068,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       const { rows } = await pgPool.query(
         `SELECT
            id::text,
-           COALESCE(feature, task_slot) AS feature,
+           feature,
            COALESCE(model_key, 'HAIKU_45') AS "modelKey",
            COALESCE(model, 'HAIKU_45') AS model,
            COALESCE(provider, 'bedrock') AS provider,
