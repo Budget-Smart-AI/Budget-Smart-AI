@@ -6887,22 +6887,236 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         return res.status(400).json({ error: "messages array is required" });
       }
 
+      // ── Fetch user financial data for context ──────────────────────────────
+      const now = new Date();
+      const currentMonth = now.toISOString().slice(0, 7);
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        .toISOString().split("T")[0];
+      const today = now.toISOString().split("T")[0];
+
+      // Fetch all financial data in parallel
+      const [bills, incomes, budgets, savingsGoals] = await Promise.all([
+        storage.getBills(userId),
+        storage.getIncomes(userId),
+        storage.getBudgetsByMonth(userId, currentMonth),
+        storage.getSavingsGoals(userId),
+      ]);
+
+      // Fetch recent transactions (Plaid + MX)
+      let recentTransactions: any[] = [];
+      let accountBalances: { name: string; type: string; balance: string }[] = [];
+
+      try {
+        // Plaid accounts & transactions
+        const plaidItems = await storage.getPlaidItems(userId);
+        if (plaidItems.length > 0) {
+          const allPlaidAccounts = (
+            await Promise.all(plaidItems.map(item => storage.getPlaidAccounts(item.id)))
+          ).flat();
+          const activePlaidAccounts = allPlaidAccounts.filter(a => a.isActive === "true");
+
+          // Collect balances
+          for (const acc of activePlaidAccounts) {
+            accountBalances.push({
+              name: acc.name,
+              type: acc.type || "depository",
+              balance: acc.balanceCurrent || "0",
+            });
+          }
+
+          const plaidAccountIds = activePlaidAccounts.map(a => a.id);
+          if (plaidAccountIds.length > 0) {
+            const plaidTxns = await storage.getPlaidTransactions(plaidAccountIds, {
+              startDate: thirtyDaysAgo,
+              endDate: today,
+            });
+            recentTransactions.push(
+              ...plaidTxns
+                .filter(t => t.pending !== "true")
+                .map(t => ({
+                  date: t.date,
+                  description: t.merchantName || t.name,
+                  amount: parseFloat(t.amount),
+                  category: t.personalCategory || t.category || "Other",
+                  type: parseFloat(t.amount) > 0 ? "expense" : "income",
+                }))
+            );
+          }
+        }
+
+        // MX accounts & transactions
+        const mxAccounts = await storage.getMxAccountsByUserId(userId);
+        const activeMxAccounts = mxAccounts.filter(a => a.isActive === "true");
+        for (const acc of activeMxAccounts) {
+          accountBalances.push({
+            name: acc.name,
+            type: acc.type || "depository",
+            balance: acc.balance || "0",
+          });
+        }
+        if (activeMxAccounts.length > 0) {
+          const mxTxns = await storage.getMxTransactions(
+            activeMxAccounts.map(a => a.id),
+            { startDate: thirtyDaysAgo, endDate: today }
+          );
+          recentTransactions.push(
+            ...mxTxns.map(t => ({
+              date: t.date,
+              description: t.description,
+              amount: parseFloat(t.amount),
+              category: t.personalCategory || t.category || "Other",
+              type: t.type === "CREDIT" ? "income" : "expense",
+            }))
+          );
+        }
+      } catch (dataErr) {
+        console.warn("[AI Chat] Could not fetch bank data (non-fatal):", dataErr);
+      }
+
+      // Sort transactions by date descending, cap at 100
+      recentTransactions.sort((a, b) => b.date.localeCompare(a.date));
+      recentTransactions = recentTransactions.slice(0, 100);
+
+      // ── Build financial context system prompt ──────────────────────────────
+      const upcomingBills = bills
+        .filter(b => b.isPaused !== "true")
+        .map(b => ({
+          name: b.name,
+          amount: parseFloat(b.amount),
+          dueDay: b.dueDay,
+          category: b.category,
+          recurrence: b.recurrence,
+        }));
+
+      const activeIncomes = incomes
+        .filter(i => i.isActive !== "false")
+        .map(i => ({
+          source: i.source,
+          amount: parseFloat(i.amount),
+          category: i.category,
+          recurrence: i.recurrence,
+        }));
+
+      const budgetStatus = budgets.map(b => ({
+        category: b.category,
+        budgeted: parseFloat(b.amount),
+        month: b.month,
+      }));
+
+      const goalsProgress = savingsGoals.map(g => ({
+        name: g.name,
+        target: parseFloat(g.targetAmount),
+        current: parseFloat(g.currentAmount),
+        percentComplete: g.targetAmount
+          ? Math.round((parseFloat(g.currentAmount) / parseFloat(g.targetAmount)) * 100)
+          : 0,
+      }));
+
+      // Summarise spending by category for the last 30 days
+      const spendingByCategory: Record<string, number> = {};
+      for (const tx of recentTransactions) {
+        if (tx.type === "expense" && tx.amount > 0) {
+          spendingByCategory[tx.category] =
+            (spendingByCategory[tx.category] || 0) + tx.amount;
+        }
+      }
+      const totalSpent30d = Object.values(spendingByCategory).reduce((s, v) => s + v, 0);
+      const totalIncome30d = recentTransactions
+        .filter(t => t.type === "income")
+        .reduce((s, t) => s + Math.abs(t.amount), 0);
+
+      const totalBalance = accountBalances.reduce(
+        (s, a) => s + parseFloat(a.balance || "0"), 0
+      );
+
+      const financialContextSystem = `You are BudgetBot, the AI financial assistant built into BudgetSmart — a Canadian AI-powered personal finance platform at budgetsmart.io. You have deep knowledge of BudgetSmart's features AND full access to this user's real financial data.
+
+## ABOUT BUDGETSMART
+BudgetSmart is a Canadian AI-powered personal finance app that helps users take control of their money. Key features include:
+- **Dashboard**: Real-time overview of balances, spending, income, and net worth
+- **Budget Management**: Set monthly category budgets, track actuals vs budgeted, get overspend alerts
+- **Transaction Tracking**: Auto-import from connected bank accounts, manual entry, category tagging, receipt scanning
+- **Bank Connections**: Connect Canadian and US banks via Plaid or MX (never stores banking credentials)
+- **Bills & Reminders**: Track recurring bills, get email reminders before due dates, mark as paid
+- **Savings Goals**: Set and track progress toward financial goals (emergency fund, vacation, down payment, etc.)
+- **AI Financial Assistant**: Personalized advice based on your real data (that's me!)
+- **AI Daily Coach**: Proactive daily financial tips and insights
+- **Investment Portfolio Tracking**: Track holdings, cost basis, gains/losses, AI-powered portfolio advice
+- **Receipt Scanning**: Upload receipts and auto-extract merchant, amount, date, and category
+- **Financial Vault**: Encrypted document storage (AES-256-GCM) for tax docs, insurance, contracts
+- **Reports & Analytics**: Spending trends, income vs expense charts, category breakdowns, exportable reports
+- **TaxSmart**: AI-powered Canadian tax optimization (TFSA, RRSP, FHSA guidance)
+- **Cash Flow Forecasting**: Predict future balances based on bills and income patterns
+- **Anomaly Detection**: Alerts for unusual spending or duplicate charges
+- **Multi-currency Support**: Track accounts in different currencies with live exchange rates
+- **Security**: AES-256-GCM field-level encryption, SOC 2 compliance (targeting August 2026), account lockout after 5 failed attempts, 2FA support
+- **Plans**: Free tier (limited features), Pro ($9.99/month), Family ($14.99/month)
+- **Support**: support@budgetsmart.io, in-app support tickets
+
+You have FULL access to the user's real financial data shown below. Use this data to give specific, accurate, and personalized answers. Never say you don't have access to their financial information. When asked about BudgetSmart features, answer confidently from the product knowledge above.
+
+TODAY'S DATE: ${today}
+CURRENT MONTH: ${currentMonth}
+
+## ACCOUNT BALANCES
+${accountBalances.length > 0
+  ? accountBalances.map(a => `- ${a.name} (${a.type}): $${parseFloat(a.balance).toFixed(2)}`).join("\n")
+  : "No bank accounts connected yet."}
+Total Balance: $${totalBalance.toFixed(2)}
+
+## INCOME SOURCES
+${activeIncomes.length > 0
+  ? activeIncomes.map(i => `- ${i.source}: $${i.amount.toFixed(2)} (${i.recurrence || "monthly"})`).join("\n")
+  : "No income sources recorded."}
+
+## BILLS & RECURRING EXPENSES
+${upcomingBills.length > 0
+  ? upcomingBills.map(b => `- ${b.name}: $${b.amount.toFixed(2)} due day ${b.dueDay} (${b.recurrence}, ${b.category})`).join("\n")
+  : "No bills recorded."}
+
+## BUDGET STATUS (${currentMonth})
+${budgetStatus.length > 0
+  ? budgetStatus.map(b => `- ${b.category}: $${b.budgeted.toFixed(2)} budgeted`).join("\n")
+  : "No budgets set for this month."}
+
+## SAVINGS GOALS
+${goalsProgress.length > 0
+  ? goalsProgress.map(g => `- ${g.name}: $${g.current.toFixed(2)} / $${g.target.toFixed(2)} (${g.percentComplete}% complete)`).join("\n")
+  : "No savings goals set."}
+
+## SPENDING SUMMARY (Last 30 Days)
+Total Spent: $${totalSpent30d.toFixed(2)}
+Total Income Received: $${totalIncome30d.toFixed(2)}
+Net: $${(totalIncome30d - totalSpent30d).toFixed(2)}
+${Object.entries(spendingByCategory)
+  .sort(([, a], [, b]) => b - a)
+  .slice(0, 10)
+  .map(([cat, amt]) => `- ${cat}: $${amt.toFixed(2)}`)
+  .join("\n")}
+
+## RECENT TRANSACTIONS (Last 30 Days — up to 100)
+${recentTransactions.slice(0, 50).map(t =>
+  `- ${t.date} | ${t.description} | $${Math.abs(t.amount).toFixed(2)} | ${t.category} | ${t.type}`
+).join("\n") || "No recent transactions found."}
+
+Provide clear, specific, and actionable financial advice based on the data above. Format responses with headers and bullet points where helpful. Always reference actual numbers from the user's data.`;
+
       const { bedrockChat } = await import("./lib/bedrock");
 
-      // Separate system messages from user/assistant messages
-      const systemMsgs = messages.filter((m: any) => m.role === "system");
+      // Filter out any system messages from the client (we build our own)
       const chatMsgs = messages.filter((m: any) => m.role !== "system");
-      const system = systemMsgs.map((m: any) => m.content).join("\n\n") || undefined;
 
       const content = await bedrockChat({
         feature: "ai_assistant",
         messages: chatMsgs,
-        system,
+        system: financialContextSystem,
         maxTokens: 1500,
         temperature: 0.7,
       });
 
-      res.json({ content, role: "assistant" });
+      // Return { message: "..." } so the frontend's data.response field works,
+      // AND include { content: "..." } for any callers that use the new field.
+      res.json({ message: content, response: content, content, role: "assistant" });
     } catch (error: any) {
       console.error("AI chat error:", error);
       res.status(500).json({ error: error.message || "Failed to get AI response" });

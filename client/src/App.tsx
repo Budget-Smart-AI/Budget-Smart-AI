@@ -62,7 +62,6 @@ import SplitExpenses from "@/pages/split-expenses";
 import LandingPage from "@/pages/landing";
 import AdminSalesChat from "@/pages/admin-sales-chat";
 import AdminSupport from "@/pages/admin-support";
-import AdminAIManagement from "@/pages/admin-ai-management";
 import AdminBankProviders from "@/pages/admin-bank-providers";
 import AdminAuditLog from "@/pages/admin-audit-log";
 import AdminSystemStatus from "@/pages/admin-system-status";
@@ -160,7 +159,6 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
           <Route path="/admin/users" component={AdminUsers} />
           <Route path="/admin/sales-chat" component={AdminSalesChat} />
           <Route path="/admin/support" component={AdminSupport} />
-          <Route path="/admin/ai-management" component={AdminAIManagement} />
           <Route path="/admin/bank-providers" component={AdminBankProviders} />
           <Route path="/admin/audit-log" component={AdminAuditLog} />
           <Route path="/admin/system-status" component={AdminSystemStatus} />

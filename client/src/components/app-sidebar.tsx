@@ -173,11 +173,6 @@ const adminMenuItems = [
     icon: HelpCircle,
   },
   {
-    title: "AI Management",
-    url: "/admin/ai-management",
-    icon: Cpu,
-  },
-  {
     title: "Bank Providers",
     url: "/admin/bank-providers",
     icon: Building2,
