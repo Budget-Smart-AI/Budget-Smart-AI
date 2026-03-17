@@ -571,14 +571,24 @@ export async function autoReconcile(userId: string): Promise<{
   console.log(`[AutoReconciler] Starting reconciliation for user ${userId}`);
 
   // ── Fetch data ──────────────────────────────────────────────────────────
-  const [plaidAccounts, bills, existingExpenses] = await Promise.all([
+  const [allPlaidAccounts, bills, existingExpenses] = await Promise.all([
     storage.getAllPlaidAccounts(userId),
     storage.getBills(userId),
     storage.getExpenses(userId),
   ]);
 
+  // Fix 4: Only reconcile transactions from ACTIVE plaid items
+  // Filter accounts to those belonging to active plaid_items (status = 'active')
+  const { pool: reconcilerPool } = await import("../db");
+  const { rows: activeItemRows } = await reconcilerPool.query(
+    `SELECT id FROM plaid_items WHERE user_id = $1 AND status = 'active'`,
+    [userId]
+  );
+  const activeItemIds = new Set(activeItemRows.map((r: any) => r.id));
+  const plaidAccounts = allPlaidAccounts.filter(a => activeItemIds.has(a.plaidItemId));
+
   if (plaidAccounts.length === 0) {
-    console.log(`[AutoReconciler] No Plaid accounts for user ${userId}, skipping.`);
+    console.log(`[AutoReconciler] No active Plaid accounts for user ${userId}, skipping.`);
     return { billMatches: 0, expenseMatches: 0, autoCreated: 0, incomeCreated: 0, subscriptionsCreated: 0, subscriptionsUpdated: 0 };
   }
 

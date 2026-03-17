@@ -1349,12 +1349,15 @@ Return JSON: { "income": [...] }`;
             `SELECT
               COALESCE(personal_finance_category, category, 'Other') as category,
               SUM(ABS(amount::numeric)) as total
-            FROM plaid_transactions
-            WHERE user_id = $1
-              AND EXTRACT(YEAR FROM date::date) = $2
-              AND EXTRACT(MONTH FROM date::date) = $3
-              AND amount::numeric > 0
-              AND (pending IS NULL OR pending = 'false')
+            FROM plaid_transactions pt
+            JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
+            JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+            WHERE pi.user_id = $1
+              AND pi.status = 'active'
+              AND EXTRACT(YEAR FROM pt.date::date) = $2
+              AND EXTRACT(MONTH FROM pt.date::date) = $3
+              AND pt.amount::numeric > 0
+              AND (pt.pending IS NULL OR pt.pending = 'false')
             GROUP BY 1
             ORDER BY total DESC
             LIMIT 20`,
