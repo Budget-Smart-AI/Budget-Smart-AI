@@ -137,13 +137,13 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
     );
   }
 
-  // Check if user has an active subscription or is on the free plan
-  // Free users (plan === 'free') should pass through completely
-  // Only users with no plan assigned (null/undefined) should be blocked
+  // Check if user has an active subscription OR has any plan assigned in the DB
+  // - Active Stripe subscription (pro/family via checkout) → allow
+  // - userPlan set to any value (free, pro, family — manually assigned by admin) → allow
+  // - userPlan null/undefined → treat as free (belt-and-suspenders for legacy accounts)
   const hasAccess =
     (subscription?.hasSubscription && ["active", "trialing"].includes(subscription?.status || "")) ||
-    subscription?.userPlan === "free" ||
-    !subscription?.userPlan; // null/undefined = treat as free (belt-and-suspenders for existing users)
+    !!subscription?.userPlan; // any plan value (free, pro, family, etc.) grants access
 
   if (hasAccess) {
     return <>{children}</>;
