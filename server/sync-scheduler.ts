@@ -10,6 +10,10 @@ interface SyncJob {
 
 const activeSyncIntervals: Map<string, NodeJS.Timeout> = new Map();
 
+// Singleton guard — prevents duplicate scheduler registration on hot-reload
+// or if initializeSyncScheduler() is accidentally called more than once.
+let syncSchedulerInitialized = false;
+
 function parseTimeToMs(time: string): { hours: number; minutes: number } {
   const [hours, minutes] = time.split(":").map(Number);
   return { hours: hours || 0, minutes: minutes || 0 };
@@ -130,6 +134,12 @@ function scheduleNextSync(schedule: SyncSchedule): void {
 }
 
 export async function initializeSyncScheduler(): Promise<void> {
+  if (syncSchedulerInitialized) {
+    console.log("[Scheduler] Already initialized, skipping duplicate registration");
+    return;
+  }
+  syncSchedulerInitialized = true;
+
   console.log("[Sync] Initializing sync scheduler...");
 
   const users = await storage.getUsers();

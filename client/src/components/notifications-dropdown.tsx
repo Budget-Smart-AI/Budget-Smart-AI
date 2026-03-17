@@ -43,7 +43,8 @@ export function NotificationsDropdown() {
 
   const { data: unreadCount } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
-    refetchInterval: 30000,
+    refetchInterval: 5 * 60 * 1000, // 5 minutes — reduces server load
+    refetchOnWindowFocus: false,     // don't re-fetch every tab switch
   });
 
   const markReadMutation = useMutation({

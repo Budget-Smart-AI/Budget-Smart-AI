@@ -1,6 +1,36 @@
 import { storage } from "./storage";
+import { pool } from "./db";
 import { format, setDate, addMonths, isBefore, isAfter, startOfMonth, endOfMonth } from "date-fns";
 import type { Budget, Expense, Bill } from "@shared/schema";
+
+/**
+ * Check whether a notification of the given type+title already exists for
+ * this user in the current calendar month.  Used to prevent duplicate
+ * budget_alert / budget_warning notifications when the hourly scheduler fires.
+ */
+async function notificationAlreadySentThisMonth(
+  userId: string,
+  type: string,
+  title: string
+): Promise<boolean> {
+  try {
+    const result = await pool.query(
+      `SELECT 1 FROM notifications
+       WHERE user_id = $1
+         AND type = $2
+         AND title = $3
+         AND created_at >= date_trunc('month', NOW())
+         AND created_at <  date_trunc('month', NOW()) + interval '1 month'
+       LIMIT 1`,
+      [userId, type, title]
+    );
+    return (result.rowCount ?? 0) > 0;
+  } catch {
+    // If the query fails (e.g. table not yet created) allow the notification
+    // to be created so we don't silently swallow alerts.
+    return false;
+  }
+}
 
 // Convert dollar amount string to integer cents to avoid floating point errors
 function toCents(amount: string | number): number {
@@ -94,17 +124,25 @@ export async function checkBudgetAlerts(userId: string): Promise<void> {
           emailSent: "false"
         });
 
-        await storage.createNotification({
-          userId,
-          type: "budget_alert",
-          title: `Budget Exceeded: ${budget.category}`,
-          message: `You've exceeded your ${budget.category} budget! Spent $${spentDollars.toFixed(2)} of $${limitDollars.toFixed(2)} limit.`,
-          link: "/budgets",
-          isRead: "false",
-          createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss")
-        });
-
-        console.log(`[Budget] Created exceeded alert for ${budget.category}`);
+        // Dedup guard: only create the notification if one hasn't already been
+        // sent for this category this month (prevents duplicates when the
+        // hourly scheduler fires multiple times).
+        const notifTitle = `Budget Exceeded: ${budget.category}`;
+        const alreadyNotified = await notificationAlreadySentThisMonth(userId, "budget_alert", notifTitle);
+        if (!alreadyNotified) {
+          await storage.createNotification({
+            userId,
+            type: "budget_alert",
+            title: notifTitle,
+            message: `You've exceeded your ${budget.category} budget! Spent $${spentDollars.toFixed(2)} of $${limitDollars.toFixed(2)} limit.`,
+            link: "/budgets",
+            isRead: "false",
+            createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss")
+          });
+          console.log(`[Budget] ✅ Created exceeded notification for ${budget.category}`);
+        } else {
+          console.log(`[Budget] Dedup: notification already sent for ${budget.category} this month, skipping`);
+        }
       } else if (percentage >= 80 && percentage < 100 && !hasActiveAlert) {
         await storage.createBudgetAlert({
           userId,
@@ -119,17 +157,24 @@ export async function checkBudgetAlerts(userId: string): Promise<void> {
           emailSent: "false"
         });
 
-        await storage.createNotification({
-          userId,
-          type: "budget_alert",
-          title: `Budget Warning: ${budget.category}`,
-          message: `You've used ${percentage.toFixed(0)}% of your ${budget.category} budget. Spent $${spentDollars.toFixed(2)} of $${limitDollars.toFixed(2)} limit.`,
-          link: "/budgets",
-          isRead: "false",
-          createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss")
-        });
-
-        console.log(`[Budget] Created warning alert for ${budget.category}`);
+        // Dedup guard: only create the notification if one hasn't already been
+        // sent for this category this month.
+        const warnTitle = `Budget Warning: ${budget.category}`;
+        const alreadyWarned = await notificationAlreadySentThisMonth(userId, "budget_alert", warnTitle);
+        if (!alreadyWarned) {
+          await storage.createNotification({
+            userId,
+            type: "budget_alert",
+            title: warnTitle,
+            message: `You've used ${percentage.toFixed(0)}% of your ${budget.category} budget. Spent $${spentDollars.toFixed(2)} of $${limitDollars.toFixed(2)} limit.`,
+            link: "/budgets",
+            isRead: "false",
+            createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss")
+          });
+          console.log(`[Budget] ✅ Created warning notification for ${budget.category}`);
+        } else {
+          console.log(`[Budget] Dedup: warning notification already sent for ${budget.category} this month, skipping`);
+        }
       }
     }
 
