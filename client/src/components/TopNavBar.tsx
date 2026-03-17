@@ -176,9 +176,9 @@ export function TopNavBar() {
           {isPro && (
             <span
               className="text-xs font-medium text-emerald-400/90 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30"
-              title="Pro member"
+              title={`${plan?.charAt(0).toUpperCase()}${plan?.slice(1)} member`}
             >
-              Pro ✓
+              {plan === "family" ? "Family ✓" : plan === "lifetime" ? "Lifetime ✓" : "Pro ✓"}
             </span>
           )}
           <Link href="/settings/profile">

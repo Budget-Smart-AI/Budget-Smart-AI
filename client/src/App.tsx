@@ -137,6 +137,9 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/settings/notifications">
         <Settings onLogout={onLogout} />
       </Route>
+      <Route path="/settings/spending-alerts">
+        <Settings onLogout={onLogout} />
+      </Route>
       <Route path="/ai-assistant" component={AIAssistant} />
       <Route path="/liabilities" component={Liabilities} />
       <Route path="/debts"><Redirect to="/liabilities" /></Route>

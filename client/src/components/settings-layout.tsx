@@ -51,8 +51,10 @@ export function SettingsLayout({ activeTab, children }: SettingsLayoutProps) {
       ? `${firstName[0]}${lastName[0]}`.toUpperCase()
       : (s?.username || "U")[0]?.toUpperCase() || "U";
 
-  const planLabel: string = s?.planStatus
-    ? `${s.planStatus} — Active`
+  // Use the plan column (set by admin or Stripe webhook) — capitalise first letter
+  const rawPlan: string = s?.plan || "";
+  const planLabel: string = rawPlan && rawPlan !== "free"
+    ? `${rawPlan.charAt(0).toUpperCase()}${rawPlan.slice(1)} Plan — Active`
     : "Free Plan";
 
   const activeConfig = SETTINGS_TABS.find((t) => t.slug === activeTab);
