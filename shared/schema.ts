@@ -2139,12 +2139,14 @@ export type SystemAlertDismissal = typeof systemAlertDismissals.$inferSelect;
 // AI model configuration - admin-managed per-feature model settings
 export const aiModelConfig = pgTable("ai_model_config", {
   id: serial("id").primaryKey(),
-  feature: text("feature").unique().notNull(), // e.g. 'taxsmart', 'ai_coach', 'help_chat'
-  provider: text("provider").default("deepseek"), // 'deepseek' | 'openai'
-  model: text("model").default("deepseek-chat"), // e.g. 'deepseek-chat', 'gpt-4o-mini'
-  maxTokens: integer("max_tokens").default(500),
-  temperature: numeric("temperature", { precision: 3, scale: 2 }).default("0.7"),
+  feature: text("feature").unique().notNull(), // e.g. 'ai_assistant', 'receipt_scanning'
+  provider: text("provider").default("bedrock"), // 'bedrock' (unified)
+  model: text("model").default("HAIKU_45"), // legacy field kept for compatibility
+  modelKey: text("model_key").default("HAIKU_45"), // Bedrock model key: HAIKU_45 | SONNET_46 | DEEPSEEK_R1 | NOVA_MICRO | NOVA_LITE
+  maxTokens: integer("max_tokens").default(1000),
+  temperature: numeric("temperature", { precision: 3, scale: 2 }).default("0.5"),
   isEnabled: boolean("is_enabled").default(true),
+  notes: text("notes"),
   updatedAt: timestamp("updated_at").defaultNow(),
   updatedBy: text("updated_by"),
 });

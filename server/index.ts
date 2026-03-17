@@ -479,7 +479,16 @@ app.use((req, res, next) => {
   // exercised and so startup logs confirm the upsert count.
   const { seedPlanFeatureLimits } = await import("./routes/admin-plans");
   await seedPlanFeatureLimits().catch(err =>
-    console.error("Failed to seed plan_feature_limits — admin panel may show empty:", err)
+    console.error("Failed to seed plan_feature_limits - admin panel may show empty:", err)
+  );
+
+  // Seed Bedrock AI model defaults and verify connection
+  const { seedAIModelDefaults, verifyBedrockConnection } = await import("./lib/bedrock");
+  await seedAIModelDefaults().catch(err =>
+    console.error("Failed to seed AI model defaults - Bedrock model config will use code defaults:", err)
+  );
+  verifyBedrockConnection().catch(err =>
+    console.warn("Bedrock connection check failed - AI features may be unavailable:", err)
   );
 
   // Apply apiRateLimiter globally to all /api routes before route definitions.

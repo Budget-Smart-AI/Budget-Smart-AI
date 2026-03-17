@@ -4468,8 +4468,6 @@ Return JSON: { "income": [...] }`;
       // ── Fire-and-forget AI triage (non-blocking) ──────────────────────────
       setImmediate(async () => {
         try {
-          if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) return;
-
           const { routeAI } = await import("./ai-router");
 
           const triageSystemPrompt = `You are a support ticket classifier for BudgetSmart AI. Classify the ticket into one of: HOW_TO, LOGIN_ISSUE, BILLING, BANK_CONNECTION, BUG_REPORT, FEATURE_REQUEST, DATA_ISSUE, ACCOUNT_SECURITY, OTHER.
@@ -4657,9 +4655,6 @@ Respond in JSON only: { "category": "...", "confidence": 0, "tier": "LEVEL_1|LEV
       const { query } = req.body;
       if (!query || typeof query !== "string" || query.trim().length < 2) {
         return res.status(400).json({ error: "query is required" });
-      }
-      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) {
-        return res.status(503).json({ error: "AI not configured" });
       }
       const { routeAI } = await import("./ai-router");
       const kbSystemPrompt = `You are a BudgetSmart AI support assistant with expert knowledge of the platform — a Canadian personal finance SaaS covering budgeting, transaction tracking, bank connections via Plaid and MX, bills, subscriptions, AI financial advisor, Financial Vault document storage, receipt scanning, and investment tracking. Answer the user's support question in 2–4 sentences in plain friendly language. If you don't know the answer, say so and suggest they submit a support ticket. Do not make up features that don't exist.`;
@@ -4889,10 +4884,6 @@ Submitted: ${ticket.createdAt}
 
 --- Conversation ---
 ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")}`;
-
-      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) {
-        return res.status(503).json({ error: "AI assistant not configured (DEEPSEEK_API_KEY missing)" });
-      }
 
       const { routeAI } = await import("./ai-router");
       const aiResult = await routeAI({
@@ -6896,18 +6887,22 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         return res.status(400).json({ error: "messages array is required" });
       }
 
-      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
-      }
+      const { bedrockChat } = await import("./lib/bedrock");
 
-      const { chatWithDeepSeek, getModelForTask } = await import("./deepseek");
-      const { withAITimeout } = await import("./timeout");
-      
-      const result = await withAITimeout(() => 
-        chatWithDeepSeek(messages, req.session.userId!, getModelForTask("moderate"))
-      );
+      // Separate system messages from user/assistant messages
+      const systemMsgs = messages.filter((m: any) => m.role === "system");
+      const chatMsgs = messages.filter((m: any) => m.role !== "system");
+      const system = systemMsgs.map((m: any) => m.content).join("\n\n") || undefined;
 
-      res.json(result);
+      const content = await bedrockChat({
+        feature: "ai_assistant",
+        messages: chatMsgs,
+        system,
+        maxTokens: 1500,
+        temperature: 0.7,
+      });
+
+      res.json({ content, role: "assistant" });
     } catch (error: any) {
       console.error("AI chat error:", error);
       res.status(500).json({ error: error.message || "Failed to get AI response" });
@@ -6945,10 +6940,6 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           resetDate: gateResult.resetDate?.toISOString() ?? null,
           upgradeRequired: gateResult.upgradeRequired,
         });
-      }
-
-      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
       }
 
       // Gather 12 months of data
@@ -7118,10 +7109,6 @@ Rules:
       }
 
       const { month } = req.body;
-
-      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
-      }
 
       // Determine target month and 6-month analysis window
       const targetMonth = month || new Date().toISOString().substring(0, 7);
@@ -7311,10 +7298,6 @@ Rules:
 
       if (!goalName) {
         return res.status(400).json({ error: "Goal name is required" });
-      }
-
-      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
       }
 
       // Gather user's financial data
@@ -7609,10 +7592,6 @@ Rules:
   app.post("/api/analyze-transactions", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-
-      if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY && !process.env.OPENAI_API) {
-        return res.status(500).json({ error: "AI API key not configured. Please set DEEPSEEK_API_KEY or OPENAI_API_KEY" });
-      }
 
       const accounts = await storage.getAllPlaidAccounts(userId);
       const accountIds = accounts.map(a => a.id);
@@ -15134,33 +15113,21 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
         }
       }
 
-      const { withAITimeout } = await import("./timeout");
-      const OpenAI = (await import("openai")).default;
-
-      const apiKey = provider === "openai"
-        ? (process.env.OPENAI_API_KEY || process.env.OPENAI_API || "")
-        : (process.env.DEEPSEEK_API_KEY || "");
-
-      if (!apiKey) {
-        return res.status(500).json({ error: "AI API key not configured for provider: " + provider });
-      }
-
-      const client = new OpenAI({
-        apiKey,
-        ...(provider === "deepseek" ? { baseURL: "https://api.deepseek.com" } : {}),
-        timeout: 30000,
+      const { routeAI } = await import("./ai-router");
+      const chatMessages = apiMessages.filter((m: any) => m.role !== "system");
+      const systemContent = apiMessages.find((m: any) => m.role === "system")?.content;
+      const aiResult = await routeAI({
+        taskSlot: "taxsmart_chat",
+        userId,
+        featureContext: "taxsmart_chat",
+        maxTokens,
+        temperature,
+        messages: [
+          ...(systemContent ? [{ role: "system" as const, content: systemContent }] : []),
+          ...chatMessages,
+        ],
       });
-
-      const completion = await withAITimeout(() =>
-        client.chat.completions.create({
-          model: modelName,
-          messages: apiMessages,
-          max_tokens: maxTokens,
-          temperature,
-        })
-      );
-
-      const response = completion.choices[0]?.message?.content ?? "I couldn't generate a response.";
+      const response = aiResult.content ?? "I couldn't generate a response.";
       res.json({ response });
     } catch (error: any) {
       console.error("[TaxSmart AI] Full error:", {
@@ -15221,37 +15188,41 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
 
       const systemPrompt = SCOPED_PROMPTS[moduleId] ?? DEFAULT_PROMPT;
 
-      const { withAITimeout } = await import("./timeout");
-      const OpenAI = (await import("openai")).default;
-
-      const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.OPENAI_API || "";
-      const useDeepSeek = !!process.env.DEEPSEEK_API_KEY;
-      const client = new OpenAI({
-        apiKey,
-        ...(useDeepSeek ? { baseURL: "https://api.deepseek.com" } : {}),
-        timeout: 30000,
+      const { routeAI } = await import("./ai-router");
+      const aiResult = await routeAI({
+        taskSlot: "help_chat",
+        userId: req.session.userId,
+        featureContext: "kb_search",
+        maxTokens: 1024,
+        temperature: 0.5,
+        messages: [
+          { role: "system" as const, content: systemPrompt },
+          ...messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        ],
       });
-      const model = useDeepSeek ? "deepseek-chat" : "gpt-4o-mini";
-
-      const apiMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-        { role: "system", content: systemPrompt },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ];
-
-      const completion = await withAITimeout(() =>
-        client.chat.completions.create({
-          model,
-          messages: apiMessages,
-          max_tokens: 1024,
-          temperature: 0.5,
-        })
-      );
-
-      const response = completion.choices[0]?.message?.content ?? "I couldn't generate a response.";
+      const response = aiResult.content ?? "I couldn't generate a response.";
       res.json({ response });
     } catch (error: any) {
       console.error("Help chat error:", error);
       res.status(500).json({ error: error.message || "Failed to get AI response" });
+    }
+  });
+
+  app.get("/api/admin/ai-models/test/:feature", requireAdmin, async (req, res) => {
+    try {
+      const { feature } = req.params;
+      const { bedrockChat, getFeatureModel } = await import("./lib/bedrock");
+      const { modelId, modelKey, maxTokens } = await getFeatureModel(feature);
+      const start = Date.now();
+      const content = await bedrockChat({
+        feature,
+        messages: [{ role: "user", content: "Say 'OK' in one word." }],
+        maxTokens: 10,
+      });
+      const latencyMs = Date.now() - start;
+      res.json({ success: true, feature, modelId, modelKey, content, latencyMs });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

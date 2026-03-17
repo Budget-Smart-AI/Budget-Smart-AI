@@ -49,13 +49,7 @@ export async function extractReceiptData(
       return { ...fallback, confidence: 0 };
     }
 
-    // Step 2: AI to understand the receipt text
-    if (!process.env.DEEPSEEK_API_KEY && !process.env.OPENAI_API_KEY) {
-      console.warn(
-        '[Receipt] No AI provider configured, returning OCR text only',
-      );
-      return { ...fallback, confidence: 0 };
-    }
+    // Step 2: AI to understand the receipt text (uses AWS Bedrock)
 
     const systemPrompt =
       `You are a receipt parser for a personal finance app. ` +
