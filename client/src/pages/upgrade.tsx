@@ -256,7 +256,7 @@ export default function UpgradePage() {
   };
 
   const savingsLabel =
-    billing === "yearly" ? "3–4 Month Annual Savings" : null;
+    billing === "yearly" ? "Best Value" : null;
 
   if (isLoading) {
     return (

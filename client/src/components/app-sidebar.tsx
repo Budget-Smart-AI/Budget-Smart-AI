@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut, Lock, FileText } from "lucide-react";
+import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut, Lock, FileText, ArrowRight } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -430,6 +430,29 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
                 ))}
               </SidebarMenu>
             </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {/* Family plan upsell — only for Pro users (not family, not free, not admin) */}
+        {!isAdmin && plan === "pro" && (
+          <SidebarGroup className="px-2 pb-2">
+            <div className="mx-1 p-3 rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-500/5 to-orange-500/5">
+              <div className="flex items-center gap-2 mb-2">
+                <Users2 className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                <p className="text-xs font-semibold text-amber-500">Family Plan</p>
+              </div>
+              <p className="text-xs text-muted-foreground mb-2.5 leading-relaxed">
+                Add up to 6 members and share budgets with your household.
+              </p>
+              <Link href="/upgrade">
+                <button
+                  type="button"
+                  className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-white text-xs font-medium transition-colors"
+                >
+                  Upgrade to Family
+                  <ArrowRight className="h-3 w-3" />
+                </button>
+              </Link>
+            </div>
           </SidebarGroup>
         )}
       </SidebarContent>

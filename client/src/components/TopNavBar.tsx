@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Zap, DollarSign, Bell, ChevronDown } from "lucide-react";
+import { Zap, DollarSign, Bell, ChevronDown, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -50,7 +50,8 @@ export function TopNavBar() {
       : ((s?.username as string) || "U")[0]?.toUpperCase() || "U";
 
   const isFree = !plan || plan === "free";
-  const isPro = plan === "pro" || plan === "family" || plan === "lifetime";
+  const isProOnly = plan === "pro"; // Pro but NOT family — show Family upsell
+  const isPro = plan === "pro" || plan === "family" || plan === "lifetime"; // any paid plan — show Pro badge
 
   // First-login pulse: show until user has seen it (stored in sessionStorage)
   useEffect(() => {
@@ -163,6 +164,15 @@ export function TopNavBar() {
         <NotificationsDropdown />
 
         <div className="flex items-center gap-2">
+          {/* Family upsell pill — only for Pro users (not family, not free, not admin) */}
+          {isProOnly && (
+            <Link href="/upgrade">
+              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-medium hover:bg-amber-500/20 transition-colors whitespace-nowrap cursor-pointer">
+                <Users className="h-3 w-3" />
+                Add Family
+              </span>
+            </Link>
+          )}
           {isPro && (
             <span
               className="text-xs font-medium text-emerald-400/90 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30"
