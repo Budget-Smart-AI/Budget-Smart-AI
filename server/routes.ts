@@ -1324,6 +1324,108 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  // GET /api/reports/category-comparison?month=YYYY-MM
+  // Returns spending per category for current month, previous month, and same month last year
+  app.get("/api/reports/category-comparison", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const month = (req.query.month as string) || new Date().toISOString().substring(0, 7);
+
+      const [year, mon] = String(month).split("-");
+      const yr = parseInt(year);
+      const mo = parseInt(mon);
+
+      // Previous month
+      const prevMonth = mo === 1 ? 12 : mo - 1;
+      const prevYear = mo === 1 ? yr - 1 : yr;
+
+      // Same month last year
+      const lastYear = yr - 1;
+
+      async function getSpendingByCategory(y: number, m: number): Promise<Record<string, number>> {
+        // Try Plaid transactions first, fall back to manual expenses
+        try {
+          const { rows } = await pool.query(
+            `SELECT
+              COALESCE(personal_finance_category, category, 'Other') as category,
+              SUM(ABS(amount::numeric)) as total
+            FROM plaid_transactions
+            WHERE user_id = $1
+              AND EXTRACT(YEAR FROM date::date) = $2
+              AND EXTRACT(MONTH FROM date::date) = $3
+              AND amount::numeric > 0
+              AND (pending IS NULL OR pending = 'false')
+            GROUP BY 1
+            ORDER BY total DESC
+            LIMIT 20`,
+            [userId, y, m]
+          );
+          const map: Record<string, number> = {};
+          rows.forEach((row: any) => {
+            map[row.category] = parseFloat(row.total);
+          });
+          // Also add manual expenses for the same period
+          const monthStr = `${y}-${String(m).padStart(2, "0")}`;
+          const allExpenses = await storage.getExpenses(userId);
+          const filtered = allExpenses.filter((e: any) => e.date && e.date.startsWith(monthStr));
+          for (const exp of filtered) {
+            const cat = exp.category || "Other";
+            map[cat] = (map[cat] || 0) + parseFloat(exp.amount);
+          }
+          return map;
+        } catch {
+          // Fallback: manual expenses only
+          const monthStr = `${y}-${String(m).padStart(2, "0")}`;
+          const allExpenses = await storage.getExpenses(userId);
+          const filtered = allExpenses.filter((e: any) => e.date && e.date.startsWith(monthStr));
+          const map: Record<string, number> = {};
+          for (const exp of filtered) {
+            const cat = exp.category || "Other";
+            map[cat] = (map[cat] || 0) + parseFloat(exp.amount);
+          }
+          return map;
+        }
+      }
+
+      const [current, previous, yearAgo] = await Promise.all([
+        getSpendingByCategory(yr, mo),
+        getSpendingByCategory(prevYear, prevMonth),
+        getSpendingByCategory(lastYear, mo),
+      ]);
+
+      // Build unified category list
+      const allCategories = new Set([
+        ...Object.keys(current),
+        ...Object.keys(previous),
+        ...Object.keys(yearAgo),
+      ]);
+
+      const comparison = Array.from(allCategories)
+        .map((category) => {
+          const curr = current[category] || 0;
+          const prev = previous[category] || 0;
+          const yago = yearAgo[category] || 0;
+
+          const momChange = prev > 0 ? ((curr - prev) / prev) * 100 : null;
+          const yoyChange = yago > 0 ? ((curr - yago) / yago) * 100 : null;
+
+          return { category, current: curr, previousMonth: prev, yearAgo: yago, momChange, yoyChange };
+        })
+        .filter((c) => c.current > 0 || c.previousMonth > 0)
+        .sort((a, b) => b.current - a.current);
+
+      res.json({
+        month,
+        previousMonth: `${prevYear}-${String(prevMonth).padStart(2, "0")}`,
+        yearAgoMonth: `${lastYear}-${String(mo).padStart(2, "0")}`,
+        categories: comparison,
+      });
+    } catch (error) {
+      console.error("Error fetching category comparison:", error);
+      res.status(500).json({ error: "Failed to fetch category comparison" });
+    }
+  });
+
   // FEATURE: SAVINGS_GOALS | tier: free | limit: 1 goal
   // Savings Goals API
   app.get("/api/savings-goals", requireAuth, async (req, res) => {

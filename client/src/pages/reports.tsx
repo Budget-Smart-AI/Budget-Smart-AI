@@ -247,6 +247,8 @@ export default function ReportsPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [activeReport, setActiveReport] = useState<ReportView>("overview");
 
+  const selectedMonth = format(currentMonth, "yyyy-MM");
+
   const { data: expenses = [], isLoading: expensesLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
   });
@@ -261,6 +263,27 @@ export default function ReportsPage() {
 
   const { data: plaidTransactions = [], isLoading: plaidLoading } = useQuery<PlaidTransaction[]>({
     queryKey: ["/api/plaid/transactions"],
+  });
+
+  const { data: categoryComparison } = useQuery<{
+    month: string;
+    previousMonth: string;
+    yearAgoMonth: string;
+    categories: Array<{
+      category: string;
+      current: number;
+      previousMonth: number;
+      yearAgo: number;
+      momChange: number | null;
+      yoyChange: number | null;
+    }>;
+  }>({
+    queryKey: ["category-comparison", selectedMonth],
+    queryFn: async () => {
+      const res = await fetch(`/api/reports/category-comparison?month=${selectedMonth}`);
+      return res.json();
+    },
+    enabled: activeReport === "category-trends",
   });
 
   const { data: forecastData, isLoading: forecastLoading, refetch: fetchForecast, isError: forecastError } = useQuery<{
@@ -670,50 +693,107 @@ export default function ReportsPage() {
     });
 
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <PieChartIcon className="h-5 w-5" />
-            Category Trends - Last 6 Months
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {topCategories.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">No expense data available</p>
-          ) : (
-            <div className="space-y-4">
-              {topCategories.map((cat) => (
-                <div key={cat} className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat] || "#6b7280" }} />
-                    <span className="text-sm font-medium">{cat}</span>
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PieChartIcon className="h-5 w-5" />
+              Category Trends - Last 6 Months
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {topCategories.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground">No expense data available</p>
+            ) : (
+              <div className="space-y-4">
+                {topCategories.map((cat) => (
+                  <div key={cat} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat] || "#6b7280" }} />
+                      <span className="text-sm font-medium">{cat}</span>
+                    </div>
+                    <div className="flex items-end gap-1 h-12">
+                      {trendData.map((m, i) => {
+                        const val = (m as any)[cat] || 0;
+                        const maxCat = Math.max(...trendData.map((d) => (d as any)[cat] || 0), 1);
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center">
+                            <div
+                              className="w-full rounded-t"
+                              style={{
+                                height: `${(val / maxCat) * 100}%`,
+                                minHeight: val > 0 ? "4px" : "0px",
+                                backgroundColor: CATEGORY_COLORS[cat] || "#6b7280",
+                              }}
+                              title={`${m.month}: ${formatCurrency(val)}`}
+                            />
+                            <span className="text-[10px] text-muted-foreground mt-0.5">{m.month}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="flex items-end gap-1 h-12">
-                    {trendData.map((m, i) => {
-                      const val = (m as any)[cat] || 0;
-                      const maxCat = Math.max(...trendData.map((d) => (d as any)[cat] || 0), 1);
-                      return (
-                        <div key={i} className="flex-1 flex flex-col items-center">
-                          <div
-                            className="w-full rounded-t"
-                            style={{
-                              height: `${(val / maxCat) * 100}%`,
-                              minHeight: val > 0 ? "4px" : "0px",
-                              backgroundColor: CATEGORY_COLORS[cat] || "#6b7280",
-                            }}
-                            title={`${m.month}: ${formatCurrency(val)}`}
-                          />
-                          <span className="text-[10px] text-muted-foreground mt-0.5">{m.month}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ArrowUpDown className="h-5 w-5" />
+              Category Comparison — MoM &amp; YoY
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!categoryComparison ? (
+              <p className="text-center py-8 text-muted-foreground">Loading comparison data…</p>
+            ) : categoryComparison.categories.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground">No category data available</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-3 px-3 font-medium text-muted-foreground">Category</th>
+                      <th className="text-right py-3 px-3 font-medium text-muted-foreground">This Month</th>
+                      <th className="text-right py-3 px-3 font-medium text-muted-foreground">Last Month</th>
+                      <th className="text-right py-3 px-3 font-medium text-muted-foreground">MoM</th>
+                      <th className="text-right py-3 px-3 font-medium text-muted-foreground">Last Year</th>
+                      <th className="text-right py-3 px-3 font-medium text-muted-foreground">YoY</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categoryComparison.categories.map((row, i) => (
+                      <tr key={row.category} className={`border-b border-border/50 hover:bg-muted/20 transition-colors ${i % 2 === 0 ? "" : "bg-muted/10"}`}>
+                        <td className="py-3 px-3 font-medium">{row.category}</td>
+                        <td className="py-3 px-3 text-right font-medium">{formatCurrency(row.current)}</td>
+                        <td className="py-3 px-3 text-right text-muted-foreground">{row.previousMonth > 0 ? formatCurrency(row.previousMonth) : "—"}</td>
+                        <td className="py-3 px-3 text-right">
+                          {row.momChange !== null ? (
+                            <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${Math.abs(row.momChange) < 5 ? "text-muted-foreground" : row.momChange > 0 ? "text-red-500" : "text-green-500"}`}>
+                              {row.momChange > 0 ? "↑" : "↓"}{Math.abs(row.momChange).toFixed(0)}%
+                            </span>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                        <td className="py-3 px-3 text-right text-muted-foreground">{row.yearAgo > 0 ? formatCurrency(row.yearAgo) : "—"}</td>
+                        <td className="py-3 px-3 text-right">
+                          {row.yoyChange !== null ? (
+                            <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${Math.abs(row.yoyChange) < 5 ? "text-muted-foreground" : row.yoyChange > 0 ? "text-red-500" : "text-green-500"}`}>
+                              {row.yoyChange > 0 ? "↑" : "↓"}{Math.abs(row.yoyChange).toFixed(0)}%
+                            </span>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
