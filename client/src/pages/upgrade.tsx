@@ -189,6 +189,12 @@ function PriceDisplay({ plan, billing }: { plan: Plan; billing: BillingCycle }) 
   );
 }
 
+interface SubscriptionData {
+  userPlan: string | null;
+  hasSubscription: boolean;
+  status: string | null;
+}
+
 export default function UpgradePage() {
   const [billing, setBilling] = useState<BillingCycle>("yearly");
   const { toast } = useToast();
@@ -197,6 +203,13 @@ export default function UpgradePage() {
   const { data: landingData, isLoading } = useQuery<{ pricing: PlanData[] }>({
     queryKey: ["/api/landing"],
   });
+
+  // Fetch current user plan to highlight "Current Plan" correctly
+  const { data: subscriptionData } = useQuery<SubscriptionData>({
+    queryKey: ["/api/stripe/subscription"],
+  });
+  // Normalise: 'pro', 'family', 'free', or null
+  const currentPlan = subscriptionData?.userPlan?.toLowerCase() || "free";
 
   const checkoutMutation = useMutation({
     mutationFn: async (apiPlan: PlanData) => {
@@ -294,9 +307,10 @@ export default function UpgradePage() {
           whenever you want more automations and insights.
         </p>
 
-        <div className="flex flex-wrap items-center justify-center gap-3 mb-12 overflow-visible">
+        {/* Billing toggle — no flex-wrap so badge never clips */}
+        <div className="flex items-center justify-center gap-3 mb-12">
           <span
-            className={`text-sm font-medium cursor-pointer transition-colors ${
+            className={`text-sm font-medium cursor-pointer transition-colors whitespace-nowrap ${
               billing === "monthly" ? "text-white" : "text-slate-500"
             }`}
             onClick={() => setBilling("monthly")}
@@ -306,7 +320,7 @@ export default function UpgradePage() {
           <button
             type="button"
             onClick={() => setBilling(billing === "monthly" ? "yearly" : "monthly")}
-            className={`relative w-14 h-7 rounded-full transition-colors duration-300 ${
+            className={`relative shrink-0 w-14 h-7 rounded-full transition-colors duration-300 ${
               billing === "yearly" ? "bg-emerald-500" : "bg-slate-700"
             }`}
           >
@@ -317,7 +331,7 @@ export default function UpgradePage() {
             />
           </button>
           <span
-            className={`text-sm font-medium cursor-pointer transition-colors ${
+            className={`text-sm font-medium cursor-pointer transition-colors whitespace-nowrap ${
               billing === "yearly" ? "text-white" : "text-slate-500"
             }`}
             onClick={() => setBilling("yearly")}
@@ -337,6 +351,8 @@ export default function UpgradePage() {
             const isPaid = plan.id === "pro" || plan.id === "family";
             const apiPlan = isPaid ? findApiPlan(plan.id) : null;
             const checkoutPending = isPaid && checkoutMutation.isPending;
+            // Determine if this is the user's current plan
+            const isCurrentPlan = plan.id === currentPlan;
             const badgeText =
               billing === "yearly"
                 ? plan.badge
@@ -345,6 +361,11 @@ export default function UpgradePage() {
                   : plan.id === "family"
                     ? "Best value"
                     : plan.badge;
+
+            // Button label: "Current Plan" if this is the user's plan, otherwise the plan's CTA
+            const buttonLabel = isCurrentPlan ? "Current Plan" : plan.cta;
+            // Button is disabled if it's the current plan OR if paid plan has no API plan yet
+            const buttonDisabled = isCurrentPlan || (isPaid && !isCurrentPlan && (!apiPlan || checkoutPending));
 
             return (
               <div
@@ -372,6 +393,11 @@ export default function UpgradePage() {
                     {plan.icon}
                   </span>
                   <h3 className="text-xl font-bold text-white">{plan.name}</h3>
+                  {isCurrentPlan && (
+                    <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-700 text-slate-400 border border-slate-600">
+                      Your Plan
+                    </span>
+                  )}
                 </div>
 
                 <PriceDisplay plan={plan} billing={billing} />
@@ -386,23 +412,25 @@ export default function UpgradePage() {
 
                 <button
                   type="button"
-                  onClick={() => handleSelectPlan(plan.id)}
-                  disabled={isPaid && (!apiPlan || checkoutPending)}
+                  onClick={() => !isCurrentPlan && handleSelectPlan(plan.id)}
+                  disabled={buttonDisabled}
                   className={`w-full py-3 rounded-xl font-semibold text-sm transition-all duration-200 mb-6 ${
-                    plan.ctaVariant === "primary"
-                      ? "bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_4px_20px_rgba(34,197,94,0.3)] hover:shadow-[0_4px_28px_rgba(34,197,94,0.5)] disabled:opacity-50"
-                      : plan.ctaVariant === "accent"
-                        ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black shadow-[0_4px_20px_rgba(245,158,11,0.25)] disabled:opacity-50"
-                        : "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700"
+                    isCurrentPlan
+                      ? "bg-slate-700/60 text-slate-400 border border-slate-600 cursor-default opacity-70"
+                      : plan.ctaVariant === "primary"
+                        ? "bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_4px_20px_rgba(34,197,94,0.3)] hover:shadow-[0_4px_28px_rgba(34,197,94,0.5)] disabled:opacity-50"
+                        : plan.ctaVariant === "accent"
+                          ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black shadow-[0_4px_20px_rgba(245,158,11,0.25)] disabled:opacity-50"
+                          : "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700"
                   }`}
                 >
-                  {checkoutPending ? (
+                  {!isCurrentPlan && checkoutPending ? (
                     <>
                       <Loader2 className="inline-block w-4 h-4 mr-2 animate-spin" />
                       Preparing checkout...
                     </>
                   ) : (
-                    plan.cta
+                    buttonLabel
                   )}
                 </button>
 
