@@ -483,9 +483,12 @@ app.use((req, res, next) => {
   );
 
   // Seed Bedrock AI model defaults and verify connection
-  const { seedAIModelDefaults, verifyBedrockConnection } = await import("./lib/bedrock");
+  const { seedAIModelDefaults, verifyBedrockConnection, fixStaleModelKeys } = await import("./lib/bedrock");
   await seedAIModelDefaults().catch(err =>
     console.error("Failed to seed AI model defaults - Bedrock model config will use code defaults:", err)
+  );
+  await fixStaleModelKeys().catch(err =>
+    console.error("Failed to fix stale model keys - AI features may use outdated model IDs:", err)
   );
   verifyBedrockConnection().catch(err =>
     console.warn("Bedrock connection check failed - AI features may be unavailable:", err)

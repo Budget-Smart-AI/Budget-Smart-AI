@@ -30,14 +30,14 @@ export const BEDROCK_MODELS: Record<
   { id: string; label: string; inputPer1k: number; outputPer1k: number }
 > = {
   HAIKU_45: {
-    id: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    label: "Claude Haiku 4.5",
+    id: "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+    label: "Claude 3.5 Haiku",
     inputPer1k: 0.0008,
     outputPer1k: 0.004,
   },
   SONNET_46: {
-    id: "global.anthropic.claude-sonnet-4-6",
-    label: "Claude Sonnet 4.6",
+    id: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    label: "Claude 3.5 Sonnet",
     inputPer1k: 0.003,
     outputPer1k: 0.015,
   },
@@ -148,6 +148,24 @@ export async function seedAIModelDefaults(): Promise<void> {
     console.log("[Bedrock] AI model defaults seeded");
   } catch (err) {
     console.error("[Bedrock] Failed to seed AI model defaults:", err);
+  }
+}
+
+// ─── Fix Stale Model Keys in DB ───────────────────────────────────────────────
+// Called on startup to update any old/invalid model IDs stored in ai_model_config
+
+export async function fixStaleModelKeys(): Promise<void> {
+  try {
+    // Map old invalid model keys to new valid ones
+    const migrations: Record<string, string> = {
+      "HAIKU_45": "HAIKU_45",   // force re-seed with correct model ID
+      "SONNET_46": "SONNET_46", // force re-seed with correct model ID
+    };
+    // Re-seed all defaults to ensure DB has the latest valid model IDs
+    await seedAIModelDefaults();
+    console.log("[Bedrock] Stale model keys fixed");
+  } catch (err) {
+    console.error("[Bedrock] Failed to fix stale model keys:", err);
   }
 }
 

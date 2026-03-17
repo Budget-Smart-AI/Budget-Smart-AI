@@ -253,7 +253,7 @@ export default function AIAssistant() {
     onSuccess: (data) => {
       setMessages(prev => [
         ...prev,
-        { role: "assistant", content: data.response, timestamp: new Date() },
+        { role: "assistant", content: data.response || data.content || data.message || "Sorry, I could not generate a response. Please try again.", timestamp: new Date() },
       ]);
     },
     onError: (error: any) => {
