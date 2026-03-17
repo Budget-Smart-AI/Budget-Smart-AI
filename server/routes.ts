@@ -2532,6 +2532,7 @@ Return JSON: { "income": [...] }`;
         firstName,
         lastName,
         isApproved: true, // Approval is now via email verification
+        plan: "free", // All new signups start on free plan — upgrade prompts shown inside app
         trialEmailReminder: trialEmailReminder ? "true" : "false",
         selectedPlanId: selectedPlanId || null,
         emailVerified: "false",
@@ -14411,7 +14412,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
         hasSubscription: !!user.stripeSubscriptionId,
         status: user.subscriptionStatus,
         planId: user.subscriptionPlanId,
-        userPlan: user.plan || null,
+        userPlan: user.plan || 'free', // Default to 'free' so SubscriptionGate always grants access
         plan: plan ? {
           id: plan.id,
           name: plan.name,

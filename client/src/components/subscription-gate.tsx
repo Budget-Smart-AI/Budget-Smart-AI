@@ -142,7 +142,8 @@ export function SubscriptionGate({ children, isAdmin, isDemo }: SubscriptionGate
   // Only users with no plan assigned (null/undefined) should be blocked
   const hasAccess =
     (subscription?.hasSubscription && ["active", "trialing"].includes(subscription?.status || "")) ||
-    subscription?.userPlan === "free";
+    subscription?.userPlan === "free" ||
+    !subscription?.userPlan; // null/undefined = treat as free (belt-and-suspenders for existing users)
 
   if (hasAccess) {
     return <>{children}</>;
