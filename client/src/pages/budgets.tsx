@@ -1,5 +1,5 @@
 // FEATURE: BUDGET_CREATION | tier: free | limit: 2 budgets
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
@@ -43,7 +44,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Pencil, Trash2, PieChart, ChevronLeft, ChevronRight, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, PieChart, ChevronLeft, ChevronRight, Sparkles, Loader2, Settings2, Banknote } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -125,6 +126,19 @@ function formatCurrency(amount: string | number) {
     style: "currency",
     currency: "USD",
   }).format(num);
+}
+
+function getDaysUntilPayday(nextPayday: string | null, budgetPeriod: string): number | null {
+  if (!nextPayday || budgetPeriod === 'monthly') return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let payday = new Date(nextPayday);
+  payday.setHours(0, 0, 0, 0);
+  const intervalDays = budgetPeriod === 'biweekly' ? 14 : 7;
+  while (payday < today) {
+    payday = new Date(payday.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  }
+  return Math.ceil((payday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 // ════════════════════════════════════════
@@ -304,7 +318,38 @@ export default function BudgetsPage() {
   const [adjustedAmounts, setAdjustedAmounts] = useState<Record<string, string>>({});
   const [filterStatus, setFilterStatus] = useState<"all" | "over" | "on-pace" | "under">("all");
   const [sortBy, setSortBy] = useState<"default" | "spent-desc" | "name" | "over-first">("over-first");
+  const [showBudgetSettings, setShowBudgetSettings] = useState(false);
+  const [budgetPeriodSetting, setBudgetPeriodSetting] = useState('monthly');
+  const [nextPaydaySetting, setNextPaydaySetting] = useState('');
   const { toast } = useToast();
+
+  const { data: userBudgetSettings, refetch: refetchBudgetSettings } = useQuery<{
+    budgetPeriod: string;
+    nextPayday: string | null;
+  }>({
+    queryKey: ['budget-settings'],
+    queryFn: () => fetch('/api/user/budget-settings').then(r => r.json()),
+  });
+
+  useEffect(() => {
+    if (userBudgetSettings) {
+      setBudgetPeriodSetting(userBudgetSettings.budgetPeriod || 'monthly');
+      setNextPaydaySetting(userBudgetSettings.nextPayday || '');
+    }
+  }, [userBudgetSettings]);
+
+  const saveBudgetSettings = async () => {
+    await fetch('/api/user/budget-settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        budgetPeriod: budgetPeriodSetting,
+        nextPayday: nextPaydaySetting || null,
+      })
+    });
+    refetchBudgetSettings();
+    setShowBudgetSettings(false);
+  };
 
   const now = new Date();
   const monthStr = format(currentMonth, "yyyy-MM");
@@ -492,6 +537,16 @@ export default function BudgetsPage() {
   const totalDaysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const totalPaceStatus = getPaceStatus(totalSpent, totalBudget);
 
+  // ── Paycheck-aligned calculations ─────────────────────────────────────────
+  const daysUntilPayday = getDaysUntilPayday(
+    userBudgetSettings?.nextPayday ?? null,
+    userBudgetSettings?.budgetPeriod || 'monthly'
+  );
+  const remaining = Math.max(totalBudget - totalSpent, 0);
+  const safePerDay = daysUntilPayday && daysUntilPayday > 0
+    ? remaining / daysUntilPayday
+    : null;
+
   return (
     <div className="space-y-6">
       {/* ── HEADER ── */}
@@ -507,6 +562,12 @@ export default function BudgetsPage() {
           <p className="text-muted-foreground">Set spending limits by category</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowBudgetSettings(true)}
+            className="p-2 border border-border rounded-lg hover:bg-muted transition-colors"
+            title="Budget Settings">
+            <Settings2 size={15} className="text-muted-foreground" />
+          </button>
           <Button
             variant="outline"
             onClick={() => aiSuggestMutation.mutate()}
@@ -620,6 +681,35 @@ export default function BudgetsPage() {
               )}
             </div>
           </div>
+
+          {/* Payday countdown row */}
+          {daysUntilPayday !== null && (
+            <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                <Banknote size={12} className="text-green-500 shrink-0" />
+                {daysUntilPayday === 0 ? (
+                  <span className="text-green-500 font-medium">Payday today!</span>
+                ) : daysUntilPayday === 1 ? (
+                  <span className="text-green-500 font-medium">Payday tomorrow</span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Payday in{' '}
+                    <span className="font-medium text-foreground">{daysUntilPayday} days</span>
+                  </span>
+                )}
+              </div>
+              {safePerDay !== null && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Safe to spend:</span>
+                  <span className={`font-medium ${
+                    safePerDay < 20 ? 'text-red-500' : safePerDay < 50 ? 'text-amber-500' : 'text-green-500'
+                  }`}>
+                    {formatCurrency(safePerDay)}/day
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -892,6 +982,60 @@ export default function BudgetsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── BUDGET SETTINGS DIALOG ── */}
+      <Dialog open={showBudgetSettings} onOpenChange={setShowBudgetSettings}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Budget Settings</DialogTitle>
+            <DialogDescription>Configure how your budget period resets.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 mt-2">
+            <div>
+              <label className="text-sm font-medium mb-2.5 block">Budget Period</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'monthly', label: 'Monthly', desc: 'Resets 1st of month' },
+                  { value: 'biweekly', label: 'Bi-weekly', desc: 'Every 2 weeks' },
+                  { value: 'weekly', label: 'Weekly', desc: 'Every Monday' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setBudgetPeriodSetting(opt.value)}
+                    className={`p-3 rounded-lg border text-left transition-all ${
+                      budgetPeriodSetting === opt.value
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border hover:bg-muted'
+                    }`}
+                  >
+                    <p className="text-sm font-medium">{opt.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {budgetPeriodSetting !== 'monthly' && (
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Next Payday</label>
+                <input
+                  type="date"
+                  value={nextPaydaySetting}
+                  onChange={e => setNextPaydaySetting(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background"
+                />
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  We'll calculate future paydays automatically from this date.
+                </p>
+              </div>
+            )}
+            <button
+              onClick={saveBudgetSettings}
+              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90">
+              Save Settings
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── AI SUGGESTIONS DIALOG ── */}
       <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>

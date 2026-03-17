@@ -2008,6 +2008,39 @@ Return JSON: { "income": [...] }`;
    * Used by the UsageSummaryWidget to display a usage dashboard.
    * Only returns features that have a finite monthly limit (> 0) on the free plan.
    */
+  // ── Budget Period Settings ────────────────────────────────────────────────
+  app.get("/api/user/budget-settings", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { rows } = await pool.query(
+        `SELECT budget_period, next_payday FROM users WHERE id = $1`,
+        [userId]
+      );
+      res.json({
+        budgetPeriod: rows[0]?.budget_period || 'monthly',
+        nextPayday: rows[0]?.next_payday || null,
+      });
+    } catch (error) {
+      console.error("Error fetching budget settings:", error);
+      res.status(500).json({ error: "Failed to fetch budget settings" });
+    }
+  });
+
+  app.patch("/api/user/budget-settings", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { budgetPeriod, nextPayday } = req.body;
+      await pool.query(
+        `UPDATE users SET budget_period = $1, next_payday = $2 WHERE id = $3`,
+        [budgetPeriod || 'monthly', nextPayday || null, userId]
+      );
+      res.json({ success: true, budgetPeriod: budgetPeriod || 'monthly', nextPayday: nextPayday || null });
+    } catch (error) {
+      console.error("Error updating budget settings:", error);
+      res.status(500).json({ error: "Failed to update budget settings" });
+    }
+  });
+
   app.get("/api/user/feature-usage", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;

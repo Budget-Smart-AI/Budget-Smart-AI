@@ -798,3 +798,13 @@ export async function ensurePlanFeatureLimitsTable(): Promise<void> {
     );
   }
 }
+
+/**
+ * Ensure budget_period and next_payday columns exist on the users table.
+ * Added for paycheck-aligned budget periods feature.
+ * Safe to call on every startup (uses ADD COLUMN IF NOT EXISTS).
+ */
+export async function ensureBudgetPeriodColumns(): Promise<void> {
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS budget_period TEXT DEFAULT 'monthly'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS next_payday TEXT`);
+}
