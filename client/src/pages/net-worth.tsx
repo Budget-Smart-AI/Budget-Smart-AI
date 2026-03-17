@@ -1,4 +1,5 @@
 // FEATURE: NET_WORTH_TRACKING | tier: free | limit: unlimited
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -260,9 +261,14 @@ export default function NetWorth() {
         {/* Liabilities Card */}
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <TrendingDown className="h-5 w-5 text-red-600" />
-              <CardTitle className="text-lg">Liabilities</CardTitle>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingDown className="h-5 w-5 text-red-600" />
+                <CardTitle className="text-lg">Liabilities</CardTitle>
+              </div>
+              <Link href="/liabilities" className="text-xs text-primary hover:underline">
+                View all liabilities →
+              </Link>
             </div>
             <CardTitle className="text-2xl text-red-600">-{formatCurrencyFull(netWorth.totalLiabilities)}</CardTitle>
           </CardHeader>

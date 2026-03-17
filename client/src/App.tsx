@@ -54,6 +54,7 @@ import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
 import DebtPayoff from "@/pages/debt-payoff";
 import Debts from "@/pages/debts";
+import Liabilities from "@/pages/liabilities";
 import Investments from "@/pages/investments";
 import Assets from "@/pages/assets";
 import NetWorth from "@/pages/net-worth";
@@ -137,7 +138,8 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
         <Settings onLogout={onLogout} />
       </Route>
       <Route path="/ai-assistant" component={AIAssistant} />
-      <Route path="/debts" component={Debts} />
+      <Route path="/liabilities" component={Liabilities} />
+      <Route path="/debts"><Redirect to="/liabilities" /></Route>
       <Route path="/debt-payoff" component={DebtPayoff} />
       <Route path="/investments" component={Investments} />
       <Route path="/assets" component={Assets} />

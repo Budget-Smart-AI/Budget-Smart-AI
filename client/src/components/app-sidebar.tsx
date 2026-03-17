@@ -95,6 +95,11 @@ const trackingItems = [
     icon: Home,
   },
   {
+    title: "Liabilities",
+    url: "/liabilities",
+    icon: TrendingDown,
+  },
+  {
     title: "TaxSmart AI",
     url: "/tax-smart",
     badge: "Pro",
@@ -114,14 +119,9 @@ const planningItems = [
     icon: Target,
   },
   {
-    title: "Debts",
-    url: "/debts",
-    icon: Landmark,
-  },
-  {
     title: "Debt Payoff",
     url: "/debt-payoff",
-    icon: TrendingDown,
+    icon: Landmark,
   },
   {
     title: "Split Expenses",
