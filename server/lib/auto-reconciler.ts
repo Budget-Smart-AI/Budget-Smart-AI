@@ -49,23 +49,24 @@ export async function backfillExpensePlaidIds(): Promise<void> {
       return;
     }
 
-    console.log(`[AutoReconciler] Backfill: attempting to link ${expensesWithoutId.length} expenses to external transaction IDs...`);
+    console.log(`[AutoReconciler] Backfill: attempting to link ${expensesWithoutId.length} expenses to external transaction IDs from notes...`);
     let linked = 0;
 
     for (const expense of expensesWithoutId) {
       try {
-        // Find matching plaid transaction by matchedExpenseId
-        const matchingTx = await db.query.plaidTransactions.findFirst({
-          where: and(
-            eq(plaidTransactions.amount, expense.amount as string),
-            eq(plaidTransactions.date, expense.date),
-            eq(plaidTransactions.matchedExpenseId, expense.id)
-          ),
-        });
-
-        if (matchingTx?.transactionId) {
+        // Extract Plaid transaction ID directly from the notes field.
+        // When expenses are auto-imported, the notes field contains:
+        //   "Auto-imported from bank transaction | plaid_tx:<PLAID_TX_ID>"
+        // The plaid_transactions records are DELETED when a bank is disconnected,
+        // so we cannot look them up — we must parse the ID from notes instead.
+        // Plaid transaction IDs are STABLE across reconnections, so once we
+        // backfill externalTransactionId, the PRIMARY dedup check in STEP 3
+        // will correctly skip re-creating expenses on the next reconcile run.
+        const notesMatch = (expense.notes || '').match(/plaid_tx:([A-Za-z0-9_-]+)/);
+        if (notesMatch && notesMatch[1]) {
+          const plaidTxId = notesMatch[1];
           await db.update(expenses)
-            .set({ externalTransactionId: matchingTx.transactionId })
+            .set({ externalTransactionId: plaidTxId })
             .where(eq(expenses.id, expense.id))
             .catch(() => {
               // Ignore unique constraint violations (another expense already has this ID)
@@ -78,6 +79,35 @@ export async function backfillExpensePlaidIds(): Promise<void> {
     }
 
     console.log(`[AutoReconciler] Backfill complete: linked ${linked}/${expensesWithoutId.length} expenses to external transaction IDs.`);
+
+    // Also backfill income records that have plaidTransactionId = null
+    // but have the Plaid tx ID stored in notes as "plaid_tx:<id>"
+    try {
+      const { pool: backfillPool } = await import("../db");
+      const { rows: incomeWithoutId } = await backfillPool.query(`
+        SELECT id, notes FROM income
+        WHERE plaid_transaction_id IS NULL
+          AND notes LIKE '%plaid_tx:%'
+      `);
+
+      if (incomeWithoutId.length > 0) {
+        console.log(`[AutoReconciler] Backfill: attempting to link ${incomeWithoutId.length} income records to Plaid transaction IDs from notes...`);
+        let incomeLinked = 0;
+        for (const row of incomeWithoutId) {
+          const match = (row.notes || '').match(/plaid_tx:([A-Za-z0-9_-]+)/);
+          if (match && match[1]) {
+            await backfillPool.query(
+              `UPDATE income SET plaid_transaction_id = $1 WHERE id = $2`,
+              [match[1], row.id]
+            ).catch(() => { /* ignore unique constraint violations */ });
+            incomeLinked++;
+          }
+        }
+        console.log(`[AutoReconciler] Income backfill complete: linked ${incomeLinked}/${incomeWithoutId.length} income records.`);
+      }
+    } catch (incomeErr) {
+      console.warn("[AutoReconciler] Income backfill failed (non-fatal):", incomeErr);
+    }
   } catch (err) {
     console.error("[AutoReconciler] Backfill migration failed (non-fatal):", err);
   }
