@@ -932,7 +932,47 @@ Return JSON: { "bills": [...] }`;
         return true;
       });
 
-      res.json(filteredIncomes);
+      // ── Dedup recurring income: keep only the most recent record per
+      // (source, recurrence) group.
+      //
+      // WHY THIS IS NEEDED:
+      // The "Detect Income" flow historically imported every individual Plaid
+      // paycheck as a RECURRING income entry (e.g., each biweekly Roche Pharma
+      // deposit became its own recurring record). The frontend then projects ALL
+      // of them forward into the selected month, multiplying the total by the
+      // number of historical records × occurrences per month.
+      //
+      // Example: 20 historical "Roche Pharma biweekly" records each contribute
+      // 2 occurrences in March → 40× the actual income instead of 2×.
+      //
+      // The fix: for recurring income with the same source name and recurrence
+      // pattern, only the MOST RECENT record represents the current schedule.
+      // Older records are superseded historical snapshots and should not be
+      // projected forward. Non-recurring (one-time) records are always kept.
+      //
+      // SAFETY: manually-created recurring records (user-entered) are preserved
+      // because they typically have unique source names. Only auto-imported
+      // records with identical source+recurrence are collapsed.
+      const deduplicatedIncomes = (() => {
+        // Separate recurring from non-recurring
+        const nonRecurring = filteredIncomes.filter(inc => inc.isRecurring !== "true");
+        const recurring = filteredIncomes.filter(inc => inc.isRecurring === "true");
+
+        // For recurring: group by (source lowercase, recurrence)
+        // Keep only the most recent record per group (highest date)
+        const recurringMap = new Map<string, typeof recurring[0]>();
+        for (const inc of recurring) {
+          const key = `${inc.source.toLowerCase().trim()}|${inc.recurrence || "monthly"}`;
+          const existing = recurringMap.get(key);
+          if (!existing || inc.date > existing.date) {
+            recurringMap.set(key, inc);
+          }
+        }
+
+        return [...nonRecurring, ...Array.from(recurringMap.values())];
+      })();
+
+      res.json(deduplicatedIncomes);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch income" });
     }

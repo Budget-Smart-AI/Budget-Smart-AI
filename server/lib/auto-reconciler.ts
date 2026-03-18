@@ -757,6 +757,10 @@ export async function autoReconcile(userId: string): Promise<{
         isRecurring: "false",
         isActive: "true",
         notes: `Auto-imported from bank transaction | plaid_tx:${plaidTxId}`,
+        // Link to the Plaid account so the inactive-item filter in GET /api/income works.
+        // This ensures that if the bank connection is later disconnected/errored,
+        // this auto-imported record is excluded from income totals automatically.
+        linkedPlaidAccountId: tx.plaidAccountId || null,
       });
 
       await storage.updatePlaidTransaction(tx.id, {
