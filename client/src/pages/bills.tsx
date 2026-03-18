@@ -943,7 +943,7 @@ export default function Bills() {
       // Auto-select high confidence bills
       const highConfidence = new Set<number>();
       data.suggestions?.forEach((s: any, i: number) => {
-        if (s.confidence === "high") highConfidence.add(i);
+        if (s.confidenceLabel === "high") highConfidence.add(i);
       });
       setSelectedDetected(highConfidence);
     } catch (error) {
@@ -980,7 +980,7 @@ export default function Bills() {
           category: bill.category,
           dueDay: bill.dueDay,
           recurrence: bill.recurrence,
-          notes: `Auto-detected from ${bill.source === "plaid" ? "bank transactions" : "AI analysis"}`,
+          notes: `Auto-detected from bank transactions`,
         });
         if (response.status === 402) {
           limitHit = true;
@@ -1299,7 +1299,7 @@ export default function Bills() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{bill.name}</span>
-                        {bill.confidence === "high" && (
+                        {bill.confidenceLabel === "high" && (
                           <Badge variant="secondary" className="text-xs">
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             High confidence
@@ -1315,7 +1315,7 @@ export default function Bills() {
                       </div>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {bill.source === "plaid" ? "Bank" : "AI"}
+                      {Math.round((bill.confidence ?? 0) * 100)}% confident
                     </span>
                   </div>
                 ))}

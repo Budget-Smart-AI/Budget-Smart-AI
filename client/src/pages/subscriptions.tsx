@@ -403,7 +403,7 @@ function DetectSubscriptionsDialog({
 
       const filtered = data.subscriptions.filter((sub: DetectedSubscription) =>
         !existingNames.has(sub.name.toLowerCase()) &&
-        !existingMerchants.has(sub.merchant.toLowerCase())
+        !(sub.merchant && existingMerchants.has(sub.merchant.toLowerCase()))
       );
 
       setDetected(filtered);

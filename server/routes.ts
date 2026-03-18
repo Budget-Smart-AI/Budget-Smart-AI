@@ -384,203 +384,198 @@ export async function registerRoutes(
     }
   });
 
-  // Detect recurring bills from Plaid transactions + AI analysis
+  // Detect recurring bills from Plaid transactions using unified pattern-matching
+  // Uses the same algorithm as /api/subscriptions/detect so both show the same comprehensive list.
+  // Items already saved as subscriptions are excluded from bills results, and vice versa.
   app.post("/api/bills/detect", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { plaidClient } = await import("./plaid");
-      const { routeAI } = await import("./ai-router");
+
+      // Get existing bills AND subscriptions so we can exclude both
       const existingBills = await storage.getBills(userId);
       const existingBillNames = existingBills.map(b => b.name.toLowerCase());
+      // Subscriptions are bills with category "Subscriptions"
+      const existingSubscriptionNames = existingBills
+        .filter(b => b.category === "Subscriptions")
+        .map(b => b.name.toLowerCase());
 
-      // Get Plaid recurring transactions
-      const items = await storage.getPlaidItems(userId);
-      const plaidRecurring: any[] = [];
+      // Get all Plaid transactions from the last 12 months
+      const plaidItems = await storage.getPlaidItems(userId);
+      if (plaidItems.length === 0) {
+        return res.json({ suggestions: [], existingCount: existingBills.length, analyzedCount: 0 });
+      }
 
-      for (const item of items) {
-        try {
-          const accounts = await storage.getPlaidAccounts(item.id);
-          // Only include explicitly active accounts (isActive === "true")
-          const activeAccounts = accounts.filter(a => a.isActive === "true");
-          const accountIds = activeAccounts.map(a => a.accountId);
-          if (accountIds.length === 0) continue;
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
-          const response = await plaidClient.transactionsRecurringGet({
-            access_token: decrypt(item.accessToken),
-            account_ids: accountIds,
-          });
-
-          // Only get outflows (bills/payments)
-          if (response.data.outflow_streams) {
-            for (const stream of response.data.outflow_streams) {
-              plaidRecurring.push({
-                name: stream.merchant_name || stream.description || "Unknown",
-                amount: Math.abs(stream.average_amount?.amount || 0),
-                frequency: stream.frequency,
-                lastDate: stream.last_date,
-                category: stream.personal_finance_category?.primary || null,
-                isActive: stream.is_active,
-              });
-            }
+      // Collect all active account IDs
+      const allAccountIds: string[] = [];
+      for (const item of plaidItems) {
+        const accounts = await storage.getPlaidAccounts(item.id);
+        for (const account of accounts) {
+          if (account.isActive === "true") {
+            allAccountIds.push(account.id);
           }
-        } catch (itemError: any) {
-          console.error(`Error fetching recurring for item ${item.id}:`, itemError?.response?.data || itemError);
         }
       }
 
-      // Also get recent transactions for AI analysis (last 12 months)
-      const allAccounts = [];
-      for (const item of items) {
-        const accounts = await storage.getPlaidAccounts(item.id);
-        // Only include explicitly active accounts (isActive === "true")
-        const activeAccounts = accounts.filter(a => a.isActive === "true");
-        allAccounts.push(...activeAccounts);
+      if (allAccountIds.length === 0) {
+        return res.json({ suggestions: [], existingCount: existingBills.length, analyzedCount: 0 });
       }
-      const accountIds = allAccounts.map(a => a.id);
 
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 12);
-
-      const transactions = await storage.getPlaidTransactions(accountIds, {
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
+      // Fetch all transactions at once
+      const allTransactions = await storage.getPlaidTransactions(allAccountIds, {
+        startDate: twelveMonthsAgo.toISOString().split("T")[0],
+        endDate: new Date().toISOString().split("T")[0],
       });
 
-      // Filter to outflows only (positive amounts are charges)
-      const outflowTx = transactions
-        .filter(t => parseFloat(t.amount) > 0)
-        .map(t => ({
-          date: t.date,
-          name: t.merchantName || t.name,
-          amount: parseFloat(t.amount),
-          category: t.category,
-        }));
-
-      // Use AI to analyze transactions for recurring patterns
-      const BILL_CATS = ["Rent", "Internet", "Phone", "Subscriptions", "Utilities", "Insurance", "Loans", "Transportation", "Shopping", "Fitness", "Communications", "Business Expense", "Electrical", "Credit Card", "Line of Credit", "Mortgage", "Entertainment", "Travel", "Maintenance", "Car", "Day Care", "Other"];
-
-      let aiSuggestions: any[] = [];
-      if (outflowTx.length > 0) {
-        const prompt = `Analyze these ${outflowTx.length} bank transactions (last 12 months) and identify recurring bills/payments:
-
-${JSON.stringify(outflowTx.slice(0, 800))}
-
-Find patterns that occur 2+ times with similar amounts. IMPORTANT NOTES:
-- Some payments may have gone NSF (non-sufficient funds) and been retried a few days later — treat these as a single recurring payment, not two separate ones. Use the most common/predominant day of month for dueDay.
-- Look for loan payments, mortgage payments, insurance, utilities, phone bills, etc. — even if the exact amount varies slightly.
-- A payment appearing on the 2nd and 16th of the same month is likely an NSF retry, not biweekly.
-
-For each recurring bill, provide:
-- name: Clean merchant/service name
-- amount: Most common/typical amount (positive number)
-- category: One of: ${BILL_CATS.join(", ")}
-- recurrence: weekly, biweekly, monthly, or yearly
-- dueDay: Most predominant day of month (1-31) typically charged (use the mode/most common day)
-- confidence: high (3+ occurrences), medium (2 occurrences)
-
-Return JSON: { "bills": [...] }`;
-
-        try {
-          const aiRes = await routeAI({
-            taskSlot: "detection_auto",
-            userId: req.session.userId!,
-            featureContext: "bills_detect",
-            jsonMode: true,
-            temperature: 0.2,
-            maxTokens: 4000,
-            messages: [
-              { role: "system", content: "You are a financial analyst. Identify recurring payment patterns. Return only valid JSON." },
-              { role: "user", content: prompt },
-            ],
-          });
-
-          const result = JSON.parse(aiRes.content || "{}");
-          aiSuggestions = result.bills || [];
-        } catch (aiError) {
-          console.error("AI analysis error:", aiError);
+      // Helper: get mode (most common value) from an array of numbers
+      const getMode = (arr: number[]): number => {
+        const freq: Record<number, number> = {};
+        let maxFreq = 0;
+        let mode = arr[0];
+        for (const v of arr) {
+          freq[v] = (freq[v] || 0) + 1;
+          if (freq[v] > maxFreq) { maxFreq = freq[v]; mode = v; }
         }
+        return mode;
+      };
+
+      // Group transactions by merchant name (normalized)
+      const merchantGroups: Record<string, any[]> = {};
+      for (const tx of allTransactions) {
+        // Only look at expenses (positive amounts in Plaid are money leaving account)
+        const amount = parseFloat(tx.amount);
+        if (amount <= 0) continue;
+
+        const merchant = (tx.merchantName || tx.name || "").toLowerCase().trim();
+        if (!merchant || merchant.length < 3) continue;
+
+        if (!merchantGroups[merchant]) {
+          merchantGroups[merchant] = [];
+        }
+        merchantGroups[merchant].push(tx);
       }
 
-      // Combine Plaid recurring with AI suggestions
-      const allSuggestions: any[] = [];
+      // Analyze each merchant group for recurring patterns
+      const detected: any[] = [];
 
-      // Add Plaid recurring (higher confidence)
-      for (const rec of plaidRecurring) {
-        if (!rec.isActive) continue;
+      for (const [merchant, rawTransactions] of Object.entries(merchantGroups)) {
+        if (rawTransactions.length < 2) continue;
 
-        // Map Plaid frequency to our recurrence
-        let recurrence = "monthly";
-        if (rec.frequency === "WEEKLY") recurrence = "weekly";
-        else if (rec.frequency === "BIWEEKLY") recurrence = "biweekly";
-        else if (rec.frequency === "ANNUALLY") recurrence = "yearly";
+        // Sort by date
+        rawTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        // Get due day from last date
-        const dueDay = rec.lastDate ? new Date(rec.lastDate).getDate() : 1;
+        // NSF deduplication: if two transactions from same merchant are within 10 days
+        // and within 5% of each other in amount, keep only the first (NSF retry pattern)
+        const transactions: typeof rawTransactions = [];
+        for (let i = 0; i < rawTransactions.length; i++) {
+          const tx = rawTransactions[i];
+          const txDate = new Date(tx.date).getTime();
+          const isDuplicate = transactions.some(prev => {
+            const prevDate = new Date(prev.date).getTime();
+            const daysDiff = Math.abs(txDate - prevDate) / (1000 * 60 * 60 * 24);
+            const prevAmt = parseFloat(prev.amount);
+            const txAmt = parseFloat(tx.amount);
+            const amountDiff = prevAmt > 0 ? Math.abs(txAmt - prevAmt) / prevAmt : 1;
+            return daysDiff <= 10 && amountDiff < 0.05;
+          });
+          if (!isDuplicate) transactions.push(tx);
+        }
 
-        // Map Plaid category to our categories
-        let category = "Other";
-        const plaidCat = (rec.category || "").toUpperCase();
-        if (plaidCat.includes("RENT")) category = "Rent";
-        else if (plaidCat.includes("UTILITIES")) category = "Utilities";
-        else if (plaidCat.includes("INSURANCE")) category = "Insurance";
-        else if (plaidCat.includes("SUBSCRIPTION") || plaidCat.includes("ENTERTAINMENT")) category = "Subscriptions";
-        else if (plaidCat.includes("LOAN") || plaidCat.includes("CREDIT")) category = "Loans";
-        else if (plaidCat.includes("TELECOM") || plaidCat.includes("INTERNET")) category = "Internet";
-        else if (plaidCat.includes("PHONE")) category = "Phone";
-        else if (plaidCat.includes("TRANSPORTATION")) category = "Transportation";
+        if (transactions.length < 2) continue;
 
-        allSuggestions.push({
-          name: rec.name,
-          amount: rec.amount.toFixed(2),
-          category,
-          recurrence,
-          dueDay,
-          source: "plaid",
-          confidence: "high",
+        // Get amounts and check for consistency
+        const amounts = transactions.map(tx => parseFloat(tx.amount));
+        const avgAmount = amounts.reduce((a, b) => a + b, 0) / amounts.length;
+
+        // Check if amounts are consistent (within 10% of average)
+        const amountsConsistent = amounts.every(a => Math.abs(a - avgAmount) / avgAmount < 0.1);
+        if (!amountsConsistent && transactions.length < 4) continue;
+
+        // Analyze frequency
+        const dates = transactions.map(tx => new Date(tx.date).getTime());
+        const intervals: number[] = [];
+        for (let i = 1; i < dates.length; i++) {
+          intervals.push((dates[i] - dates[i - 1]) / (1000 * 60 * 60 * 24));
+        }
+
+        if (intervals.length === 0) continue;
+
+        const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+
+        // Determine frequency
+        let frequency = "monthly";
+        let confidence = 0.5;
+
+        if (avgInterval >= 6 && avgInterval <= 8) {
+          frequency = "weekly";
+          confidence = 0.8;
+        } else if (avgInterval >= 13 && avgInterval <= 16) {
+          frequency = "biweekly";
+          confidence = 0.75;
+        } else if (avgInterval >= 25 && avgInterval <= 38) {
+          frequency = "monthly";
+          confidence = 0.85;
+        } else if (avgInterval >= 355 && avgInterval <= 375) {
+          frequency = "yearly";
+          confidence = 0.9;
+        } else if (avgInterval >= 85 && avgInterval <= 95) {
+          frequency = "quarterly";
+          confidence = 0.7;
+        } else {
+          continue; // Not a recognizable pattern
+        }
+
+        // Increase confidence based on transaction count
+        if (transactions.length >= 6) confidence = Math.min(confidence + 0.1, 0.95);
+        if (transactions.length >= 12) confidence = Math.min(confidence + 0.05, 0.98);
+
+        // Use mode (most common day of month) as the predominant charge day
+        const daysOfMonth = transactions.map(tx => new Date(tx.date).getDate());
+        const predominantDay = getMode(daysOfMonth);
+
+        // Get display name (capitalize first letters)
+        const displayName = (transactions[0].merchantName || transactions[0].name || merchant)
+          .split(" ")
+          .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(" ");
+
+        detected.push({
+          name: displayName,
+          amount: Math.round(avgAmount * 100) / 100,
+          frequency,
+          recurrence: frequency,
+          dueDay: predominantDay,
+          merchant: displayName,
+          confidence,
+          confidenceLabel: confidence >= 0.85 ? "high" : confidence >= 0.7 ? "medium" : "low",
+          lastChargeDate: transactions[transactions.length - 1].date,
+          transactionCount: transactions.length,
+          predominantDay,
+          source: "pattern",
+          category: "Other",
         });
       }
 
-      // Add AI suggestions (may have duplicates with Plaid)
-      for (const ai of aiSuggestions) {
-        // Check if already in Plaid suggestions (by similar name)
-        const aiNameLower = (ai.name || "").toLowerCase();
-        const alreadyInPlaid = allSuggestions.some(s =>
-          s.name.toLowerCase().includes(aiNameLower) || aiNameLower.includes(s.name.toLowerCase())
-        );
-        if (!alreadyInPlaid) {
-          allSuggestions.push({
-            name: ai.name,
-            amount: String(ai.amount),
-            category: BILL_CATS.includes(ai.category) ? ai.category : "Other",
-            recurrence: ai.recurrence || "monthly",
-            dueDay: ai.dueDay || 1,
-            source: "ai",
-            confidence: ai.confidence || "medium",
-          });
-        }
-      }
+      // Sort by confidence and amount
+      detected.sort((a, b) => b.confidence - a.confidence || b.amount - a.amount);
 
-      // Filter out bills that already exist
-      const newSuggestions = allSuggestions.filter(s => {
+      // Filter out items already saved as bills (any category) OR as subscriptions
+      const suggestions = detected.filter(s => {
         const nameLower = s.name.toLowerCase();
-        return !existingBillNames.some(existing =>
-          existing.includes(nameLower) || nameLower.includes(existing)
-        );
-      });
-
-      // Sort by confidence then amount
-      newSuggestions.sort((a, b) => {
-        if (a.confidence === "high" && b.confidence !== "high") return -1;
-        if (b.confidence === "high" && a.confidence !== "high") return 1;
-        return parseFloat(b.amount) - parseFloat(a.amount);
+        // Exclude if already a bill
+        if (existingBillNames.some(existing => existing.includes(nameLower) || nameLower.includes(existing))) {
+          return false;
+        }
+        return true;
       });
 
       res.json({
-        suggestions: newSuggestions,
+        suggestions,
         existingCount: existingBills.length,
-        plaidRecurringCount: plaidRecurring.length,
-        aiAnalyzedCount: outflowTx.length,
+        analyzedCount: allTransactions.length,
+        detectedCount: detected.length,
       });
     } catch (error: any) {
       console.error("Bills detect error:", error);
@@ -8431,14 +8426,22 @@ ${JSON.stringify(txSummary)}`;
   // ============ SUBSCRIPTION DETECTION ============
 
   // FEATURE: SUBSCRIPTION_TRACKING | tier: free | limit: unlimited
+  // Detect recurring transactions using the same unified pattern-matching algorithm as /api/bills/detect.
+  // Items already saved as bills (any category) are excluded from the results.
+  // This ensures both endpoints return the same comprehensive list so users can manually
+  // categorize each detected item as either a bill or a subscription.
   app.post("/api/subscriptions/detect", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
 
+      // Get existing bills (all categories) so we can exclude already-saved items
+      const existingBills = await storage.getBills(userId);
+      const existingBillNames = existingBills.map(b => b.name.toLowerCase());
+
       // Get all Plaid transactions from the last 12 months
       const plaidItems = await storage.getPlaidItems(userId);
       if (plaidItems.length === 0) {
-        return res.json({ subscriptions: [] });
+        return res.json({ subscriptions: [], suggestions: [], existingCount: existingBills.length, analyzedCount: 0 });
       }
 
       const twelveMonthsAgo = new Date();
@@ -8456,7 +8459,7 @@ ${JSON.stringify(txSummary)}`;
       }
 
       if (allAccountIds.length === 0) {
-        return res.json({ subscriptions: [] });
+        return res.json({ subscriptions: [], suggestions: [], existingCount: existingBills.length, analyzedCount: 0 });
       }
 
       // Fetch all transactions at once
@@ -8493,8 +8496,8 @@ ${JSON.stringify(txSummary)}`;
         merchantGroups[merchant].push(tx);
       }
 
-      // Analyze each merchant group for subscription patterns
-      const subscriptions: any[] = [];
+      // Analyze each merchant group for recurring patterns
+      const detected: any[] = [];
 
       for (const [merchant, rawTransactions] of Object.entries(merchantGroups)) {
         if (rawTransactions.length < 2) continue;
@@ -8577,22 +8580,42 @@ ${JSON.stringify(txSummary)}`;
           .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
           .join(" ");
 
-        subscriptions.push({
+        detected.push({
           name: displayName,
           amount: Math.round(avgAmount * 100) / 100,
           frequency,
+          recurrence: frequency,
+          dueDay: predominantDay,
           merchant: displayName,
           confidence,
+          confidenceLabel: confidence >= 0.85 ? "high" : confidence >= 0.7 ? "medium" : "low",
           lastChargeDate: transactions[transactions.length - 1].date,
           transactionCount: transactions.length,
           predominantDay,
+          source: "pattern",
+          category: "Other",
         });
       }
 
       // Sort by confidence and amount
-      subscriptions.sort((a, b) => b.confidence - a.confidence || b.amount - a.amount);
+      detected.sort((a, b) => b.confidence - a.confidence || b.amount - a.amount);
 
-      res.json({ subscriptions });
+      // Filter out items already saved as bills or subscriptions
+      const suggestions = detected.filter(s => {
+        const nameLower = s.name.toLowerCase();
+        return !existingBillNames.some(existing =>
+          existing.includes(nameLower) || nameLower.includes(existing)
+        );
+      });
+
+      // Return both the legacy `subscriptions` field (for backward compat) and the new `suggestions` field
+      res.json({
+        subscriptions: suggestions,
+        suggestions,
+        existingCount: existingBills.length,
+        analyzedCount: allTransactions.length,
+        detectedCount: detected.length,
+      });
     } catch (error) {
       console.error("Error detecting subscriptions:", error);
       res.status(500).json({ error: "Failed to detect subscriptions" });
