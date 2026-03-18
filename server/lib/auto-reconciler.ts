@@ -307,6 +307,10 @@ const SKIP_CATEGORIES = [
   ...new Set([...SKIP_CATEGORIES_PLAID, ...SKIP_CATEGORIES_MX]),
 ];
 
+// Generic transaction-type keywords that indicate non-expense movements.
+// These are NOT bank-specific — they describe transaction types that appear
+// across all institutions (Chase, TD, Barclays, Commonwealth, etc.).
+// Rule: only include strings that describe a TRANSACTION TYPE, never a bank name.
 const SKIP_MERCHANT_KEYWORDS = [
   'customer transfer',
   'bank transfer',
@@ -323,7 +327,6 @@ const SKIP_MERCHANT_KEYWORDS = [
   'mortgage trans',
   'loan payment',
   'loan payment transfer',
-  'scotiabank transit',
   'atm withdrawal',
   'abm withdrawal',
   'cash advance',
@@ -335,6 +338,43 @@ const SKIP_MERCHANT_KEYWORDS = [
   'interest charges',
   'overlimit fee',
 ];
+
+// ─── Universal Transfer Detection ────────────────────────────────────────────
+
+/**
+ * Returns true if a Plaid transaction should be treated as a transfer/payment
+ * rather than real income or an expense.
+ *
+ * Uses ONLY Plaid's own normalised category fields — works identically for all
+ * 12,000+ Plaid institutions worldwide (Chase, TD, Barclays, Commonwealth, etc.).
+ * Never hardcodes bank names or institution-specific strings.
+ *
+ * Plaid fields checked (in order of reliability):
+ *   1. personal_finance_category  — most accurate, Plaid's modern taxonomy
+ *   2. category                   — legacy but still populated on all transactions
+ *   3. transaction_type           — 'special' = non-purchase (transfer/payment)
+ */
+function isTransferTransaction(tx: PlaidTransaction): boolean {
+  const personalCat = (
+    (tx as any).personal_finance_category ||
+    tx.personalCategory ||
+    ''
+  ).toLowerCase();
+
+  const category = (tx.category || '').toLowerCase();
+  const transactionType = ((tx as any).transaction_type || tx.transactionType || '').toLowerCase();
+
+  return (
+    personalCat.includes('transfer') ||
+    personalCat.includes('loan_payment') ||
+    personalCat.includes('credit_card_payment') ||
+    personalCat.includes('savings') ||
+    category.includes('transfer') ||
+    category.includes('credit card payment') ||
+    category.includes('loan payment') ||
+    transactionType === 'special'
+  );
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -652,31 +692,13 @@ export async function autoReconcile(userId: string): Promise<{
 
     const source = tx.merchantCleanName || tx.name || "Unknown";
 
-    // ── EXCLUSION LIST: skip internal bank transfers, not real income ────
-    // These are bank-internal movements that Plaid sometimes categorises as
-    // INCOME/DIRECT_DEPOSIT but are NOT actual income (e.g. Scotiabank Transit
-    // is an internal routing entry, not a payroll deposit).
-    const INCOME_EXCLUSION_KEYWORDS = [
-      'scotiabank transit',
-      'bank transfer',
-      'transfer from',
-      'transfer to',
-      'e-transfer',
-      'etransfer',
-      'interac',
-      'internal transfer',
-      'account transfer',
-      'funds transfer',
-      'wire transfer',
-      'ach transfer',
-      'credit card payment',
-      'loan payment',
-      'mortgage payment',
-    ];
-    const sourceLower = source.toLowerCase();
-    const isExcluded = INCOME_EXCLUSION_KEYWORDS.some(kw => sourceLower.includes(kw));
-    if (isExcluded) {
-      console.log(`[AutoReconciler] Skipping excluded income source: "${source}" (matches exclusion list)`);
+    // ── UNIVERSAL TRANSFER DETECTION: skip any transaction Plaid categorises
+    // as a transfer, loan payment, or credit card payment.
+    // Uses Plaid's own normalised category fields — works identically for all
+    // 12,000+ Plaid institutions (Chase, TD, Barclays, Commonwealth, etc.).
+    // Never hardcodes bank names or institution-specific strings.
+    if (isTransferTransaction(tx)) {
+      console.log(`[AutoReconciler] Skipping transfer transaction: "${source}" (Plaid category: ${tx.personalCategory || tx.category || tx.transactionType})`);
       continue;
     }
     const absAmount = Math.abs(txAmount);
