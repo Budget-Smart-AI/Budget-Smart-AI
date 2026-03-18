@@ -167,6 +167,20 @@ export async function detectRecurringIncome(userId: string): Promise<DetectionRe
 
     // 5. Find matching income records and update them
     const matchingIncome = existingIncome.filter((inc) => {
+      // ── CRITICAL: Never mark auto-imported records as recurring.
+      // Auto-imported records are individual paycheck snapshots created by the
+      // auto-reconciler. Marking them recurring causes the frontend to project
+      // each historical record forward, multiplying the total by the number of
+      // historical records × occurrences per month (e.g. 20 records × 2 = 40×).
+      //
+      // Auto-imported records are identified by their notes field containing
+      // "Auto-imported from bank transaction". These records represent individual
+      // transactions and should remain as one-time (isRecurring = false) entries.
+      // The server-side dedup in GET /api/income already collapses them correctly.
+      if (inc.notes && inc.notes.includes("Auto-imported from bank transaction")) {
+        return false;
+      }
+
       const incNorm = normalizeName(inc.source);
       return (
         incNorm.includes(normalizedKey) ||

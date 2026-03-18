@@ -6119,17 +6119,16 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           const result = await syncTransactions(access_token, plaidItem.id, req.session.userId!);
           console.log(`[Plaid] Initial sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
 
-          // Auto-detect recurring income patterns after initial Plaid sync
-          try {
-            const { detectRecurringIncome } = await import("./recurring-income-detector");
-            const detectionResults = await detectRecurringIncome(req.session.userId!);
-            const totalUpdated = detectionResults.reduce((s, r) => s + r.incomeIdsUpdated.length, 0);
-            if (totalUpdated > 0) {
-              console.log(`[Plaid] Auto-detected ${detectionResults.length} recurring income pattern(s), updated ${totalUpdated} record(s)`);
-            }
-          } catch (detectionErr) {
-            console.warn("[Plaid] Recurring income detection failed (non-fatal):", detectionErr);
-          }
+          // NOTE: detectRecurringIncome() is intentionally NOT called here.
+          // Auto-imported income records (created by auto-reconciler Step 0) must
+          // remain as one-time (isRecurring = false) entries. The recurring-income-
+          // detector was previously called here and incorrectly marked all historical
+          // paycheck records as recurring, causing the frontend to project each one
+          // forward and multiply the income total by 10-40x.
+          //
+          // The recurring-income-detector now skips any record with notes containing
+          // "Auto-imported from bank transaction", so it is safe to call manually
+          // from /api/income/detect-recurring for user-created income records only.
 
           // Run enrichment if transactions were added
           if (result.added > 0) {

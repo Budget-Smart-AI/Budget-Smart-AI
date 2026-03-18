@@ -754,14 +754,21 @@ export async function autoReconcile(userId: string): Promise<{
         amount: String(absAmount),
         date: tx.date,
         category: incomeCategory,
+        // NEVER set isRecurring = true for auto-imported records.
+        // Auto-imported records are individual paycheck snapshots. Marking them
+        // recurring causes the frontend to project each historical record forward,
+        // multiplying the total by the number of records × occurrences per month.
+        // The recurring-income-detector is blocked from touching these records.
+        // The server-side dedup in GET /api/income handles the correct projection.
         isRecurring: "false",
         isActive: "true",
         notes: `Auto-imported from bank transaction | plaid_tx:${plaidTxId}`,
+        // Store the stable Plaid transaction ID as the primary dedup key.
+        // This prevents duplicate income records on webhook retries or reconnections.
+        plaidTransactionId: plaidTxId,
         // Link to the Plaid account so the inactive-item filter in GET /api/income works.
-        // This ensures that if the bank connection is later disconnected/errored,
-        // this auto-imported record is excluded from income totals automatically.
         linkedPlaidAccountId: tx.plaidAccountId || null,
-      });
+      } as any);
 
       await storage.updatePlaidTransaction(tx.id, {
         matchType: "income",

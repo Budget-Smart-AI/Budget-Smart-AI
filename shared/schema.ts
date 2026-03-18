@@ -220,6 +220,10 @@ export const income = pgTable("income", {
   notes: text("notes"),
   isActive: text("is_active").default("true"), // Allows disabling income to exclude from forecasts
   linkedPlaidAccountId: varchar("linked_plaid_account_id"), // Link to Plaid account for auto-detected income
+  // Stable Plaid transaction ID — used as primary dedup key for auto-imported income.
+  // Prevents duplicate income records when the same Plaid transaction is processed
+  // multiple times (e.g., webhook retry, reconnection, or manual sync).
+  plaidTransactionId: text("plaid_transaction_id"),
   // Scheduled amount change fields (e.g., for tax bracket changes, raises)
   futureAmount: numeric("future_amount", { precision: 10, scale: 2 }), // New amount after change date
   amountChangeDate: text("amount_change_date"), // When the amount changes (yyyy-MM-dd)
