@@ -182,6 +182,34 @@ export async function initializeSyncScheduler(): Promise<void> {
   scheduleExchangeRateRefresh();
   setInterval(scheduleExchangeRateRefresh, ONE_DAY_MS);
   console.log('[Sync] Exchange rate daily refresh scheduled (every 24h)');
+
+  // Run recurring income detection nightly for all users
+  const scheduleRecurringIncomeDetection = async () => {
+    try {
+      const allUsers = await storage.getUsers();
+      const { detectRecurringIncome } = await import('./recurring-income-detector');
+      let totalUpdated = 0;
+      for (const user of allUsers) {
+        try {
+          const results = await detectRecurringIncome(String(user.id));
+          const updated = results.reduce((s, r) => s + r.incomeIdsUpdated.length, 0);
+          totalUpdated += updated;
+        } catch (err) {
+          console.error(`[Sync] Recurring income detection failed for user ${user.id}:`, err);
+        }
+      }
+      if (totalUpdated > 0) {
+        console.log(`[Sync] Nightly income detection: updated ${totalUpdated} income record(s) across ${allUsers.length} user(s)`);
+      }
+    } catch (err) {
+      console.error('[Sync] Nightly recurring income detection failed:', err);
+    }
+  };
+
+  // Run once at startup (deferred 30s to let DB settle), then every 24 hours
+  setTimeout(scheduleRecurringIncomeDetection, 30_000);
+  setInterval(scheduleRecurringIncomeDetection, ONE_DAY_MS);
+  console.log('[Sync] Nightly recurring income detection scheduled (every 24h)');
 }
 
 export function updateSyncScheduleTimer(schedule: SyncSchedule): void {

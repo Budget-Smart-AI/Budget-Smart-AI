@@ -223,6 +223,9 @@ export const income = pgTable("income", {
   // Scheduled amount change fields (e.g., for tax bracket changes, raises)
   futureAmount: numeric("future_amount", { precision: 10, scale: 2 }), // New amount after change date
   amountChangeDate: text("amount_change_date"), // When the amount changes (yyyy-MM-dd)
+  // Auto-detection fields
+  autoDetected: boolean("auto_detected").default(false), // true = system detected recurring pattern
+  detectedAt: timestamp("detected_at"), // When the pattern was detected
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, userId: true }).extend({

@@ -939,6 +939,25 @@ Return JSON: { "bills": [...] }`;
     }
   });
 
+  // Auto-detect recurring income from transaction history (pattern-based, no AI)
+  app.post("/api/income/detect-recurring", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { detectRecurringIncome } = await import("./recurring-income-detector");
+      const results = await detectRecurringIncome(userId);
+      const totalUpdated = results.reduce((s, r) => s + r.incomeIdsUpdated.length, 0);
+      res.json({
+        success: true,
+        patternsFound: results.length,
+        recordsUpdated: totalUpdated,
+        results,
+      });
+    } catch (error: any) {
+      console.error("detect-recurring error:", error);
+      res.status(500).json({ error: error.message || "Failed to detect recurring income" });
+    }
+  });
+
   // Income detection endpoint - finds recurring income from Plaid transactions
   app.post("/api/income/detect", requireAuth, async (req, res) => {
     try {
@@ -5943,6 +5962,18 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           console.log(`[Plaid] Initial sync for new item ${plaidItem.id} (${plaidItem.institutionName}) to activate webhook...`);
           const result = await syncTransactions(access_token, plaidItem.id, req.session.userId!);
           console.log(`[Plaid] Initial sync complete: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`);
+
+          // Auto-detect recurring income patterns after initial Plaid sync
+          try {
+            const { detectRecurringIncome } = await import("./recurring-income-detector");
+            const detectionResults = await detectRecurringIncome(req.session.userId!);
+            const totalUpdated = detectionResults.reduce((s, r) => s + r.incomeIdsUpdated.length, 0);
+            if (totalUpdated > 0) {
+              console.log(`[Plaid] Auto-detected ${detectionResults.length} recurring income pattern(s), updated ${totalUpdated} record(s)`);
+            }
+          } catch (detectionErr) {
+            console.warn("[Plaid] Recurring income detection failed (non-fatal):", detectionErr);
+          }
 
           // Run enrichment if transactions were added
           if (result.added > 0) {

@@ -53,7 +53,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, DollarSign, ChevronLeft, ChevronRight, Search, Filter, ArrowUpDown, Sparkles, Loader2, CheckCircle2, Calendar } from "lucide-react";
+import { Plus, Pencil, Trash2, DollarSign, ChevronLeft, ChevronRight, Search, Filter, ArrowUpDown, Sparkles, Loader2, CheckCircle2, Calendar, X } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isBefore, isAfter, isEqual } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -320,13 +320,25 @@ function IncomeForm({
           />
         </div>
 
+        {isEditing && (income as any)?.autoDetected && (
+          <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-primary">Auto-detected</span>
+            {(income as any)?.recurrence && (
+              <Badge variant="secondary" className="text-xs ml-auto">
+                Detected as {(income as any).recurrence}
+              </Badge>
+            )}
+          </div>
+        )}
+
         <FormField
           control={form.control}
           name="category"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Category</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
@@ -626,9 +638,13 @@ export default function IncomePage() {
     }
   };
 
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
   const { data: allIncome = [], isLoading } = useQuery<Income[]>({
     queryKey: ["/api/income"],
   });
+
+  const autoDetectedIncome = allIncome.filter((inc) => (inc as any).autoDetected === true);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -753,6 +769,29 @@ export default function IncomePage() {
           </Dialog>
         </div>
       </div>
+
+      {/* Auto-detected income banner */}
+      {!bannerDismissed && autoDetectedIncome.length > 0 && (
+        <div className="flex items-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-lg">
+          <Sparkles className="h-5 w-5 text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-primary">
+              {autoDetectedIncome.length} recurring income source{autoDetectedIncome.length > 1 ? "s were" : " was"} auto-detected from your bank history
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Review and edit them below. Click the pencil icon to see detection details.
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setBannerDismissed(true)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Detect Income Dialog */}
       <Dialog open={isDetectDialogOpen} onOpenChange={(open) => !isDetecting && setIsDetectDialogOpen(open)}>
