@@ -81,6 +81,7 @@ import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditC
 import { TransactionDrilldown } from "@/components/transaction-drilldown";
 import { BankProviderSelectionDialog } from "@/components/bank-provider-selection";
 import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
+import { ConnectBankWizard } from "@/components/connect-bank-wizard";
 // Category color map mirrors server/merchant-categories.ts CATEGORY_COLORS
 const CATEGORY_COLORS: Record<string, string> = {
   'Food & Dining':    '#f97316',
@@ -1192,6 +1193,7 @@ export default function BankAccounts() {
   
   // Provider selection state
   const [showProviderSelection, setShowProviderSelection] = useState(false);
+  const [showConnectWizard, setShowConnectWizard] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<"plaid" | "mx" | null>(null);
   const [editingManualAccount, setEditingManualAccount] = useState<ManualAccount | null>(null);
   const [selectedManualAccount, setSelectedManualAccount] = useState<ManualAccount | null>(null);
@@ -1563,7 +1565,7 @@ export default function BankAccounts() {
             <div className="flex gap-2">
               {selectedProvider === null ? (
                 <Button 
-                  onClick={() => setShowProviderSelection(true)} 
+                  onClick={() => setShowConnectWizard(true)} 
                   className="gap-2"
                 >
                   <Link2 className="h-4 w-4" />
@@ -1824,7 +1826,7 @@ export default function BankAccounts() {
             <div className="flex gap-2">
               {selectedProvider === null ? (
                 <Button 
-                  onClick={() => setShowProviderSelection(true)} 
+                  onClick={() => setShowConnectWizard(true)} 
                   className="gap-2"
                 >
                   <Link2 className="h-4 w-4" />
@@ -2366,6 +2368,14 @@ export default function BankAccounts() {
         userCountry={session?.country || ""}
         onSelectProvider={handleProviderSelected}
         onSelectManual={handleManualAccountSelected}
+      />
+
+      {/* Connect Bank Wizard (Country/State → Phone Ready → Plaid/MX) */}
+      <ConnectBankWizard
+        open={showConnectWizard}
+        onOpenChange={setShowConnectWizard}
+        onSuccess={handleAccountConnected}
+        initialCountry={session?.country || ""}
       />
     </div>
   );
