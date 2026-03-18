@@ -940,6 +940,75 @@ Return JSON: { "bills": [...] }`;
   });
 
   // Auto-detect recurring income from transaction history (pattern-based, no AI)
+  // Deduplicate income records — removes exact duplicates (same source+date+amount),
+  // keeping the oldest record per group. Also removes "Auto-imported" entries that
+  // duplicate manually-entered records. Returns count of removed records.
+  app.post("/api/income/deduplicate", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { pool: dedupPool } = await import("./db");
+
+      // Step 1: Remove exact duplicates (same user_id + source + date + amount),
+      // keeping the one with the earliest created_at (or lowest id as tiebreaker).
+      const { rows: dupGroups } = await dedupPool.query(`
+        SELECT source, date, amount, COUNT(*) as cnt,
+               MIN(id) as keep_id,
+               ARRAY_AGG(id ORDER BY id) as all_ids
+        FROM income
+        WHERE user_id = $1
+        GROUP BY source, date, amount
+        HAVING COUNT(*) > 1
+      `, [userId]);
+
+      let removed = 0;
+      for (const group of dupGroups) {
+        const idsToDelete = (group.all_ids as string[]).filter((id: string) => id !== group.keep_id);
+        if (idsToDelete.length > 0) {
+          await dedupPool.query(
+            `DELETE FROM income WHERE id = ANY($1) AND user_id = $2`,
+            [idsToDelete, userId]
+          );
+          removed += idsToDelete.length;
+        }
+      }
+
+      // Step 2: Remove "Auto-imported from bank transaction" entries where a
+      // manually-entered record exists for the same source within ±3 days and
+      // within 5% of the same amount (the manual entry takes precedence).
+      const { rows: autoImported } = await dedupPool.query(`
+        SELECT id, source, date, amount
+        FROM income
+        WHERE user_id = $1
+          AND notes LIKE '%Auto-imported from bank transaction%'
+      `, [userId]);
+
+      for (const autoInc of autoImported) {
+        const amt = parseFloat(autoInc.amount);
+        const { rows: manualMatches } = await dedupPool.query(`
+          SELECT id FROM income
+          WHERE user_id = $1
+            AND id != $2
+            AND (notes IS NULL OR notes NOT LIKE '%Auto-imported from bank transaction%')
+            AND LOWER(source) = LOWER($3)
+            AND ABS(date::date - $4::date) <= 3
+            AND ABS(amount::numeric - $5) / NULLIF($5, 0) < 0.05
+          LIMIT 1
+        `, [userId, autoInc.id, autoInc.source, autoInc.date, amt]);
+
+        if (manualMatches.length > 0) {
+          await dedupPool.query(`DELETE FROM income WHERE id = $1 AND user_id = $2`, [autoInc.id, userId]);
+          removed++;
+        }
+      }
+
+      console.log(`[Income Dedup] Removed ${removed} duplicate income records for user ${userId}`);
+      res.json({ removed, message: `Removed ${removed} duplicate income records` });
+    } catch (error: any) {
+      console.error("income deduplicate error:", error);
+      res.status(500).json({ error: error.message || "Failed to deduplicate income" });
+    }
+  });
+
   app.post("/api/income/detect-recurring", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;

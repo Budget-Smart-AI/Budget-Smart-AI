@@ -574,6 +574,23 @@ export default function IncomePage() {
   const [isDetecting, setIsDetecting] = useState(false);
   const [isAddingDetected, setIsAddingDetected] = useState(false);
 
+  const deduplicateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/income/deduplicate");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Duplicates Removed",
+        description: data.message || `Removed ${data.removed} duplicate income records`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to clean duplicates", variant: "destructive" });
+    },
+  });
+
   const detectIncome = async () => {
     setIsDetecting(true);
     setDetectedIncome([]);
@@ -741,6 +758,19 @@ export default function IncomePage() {
           <p className="text-muted-foreground">Track your income sources</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => deduplicateMutation.mutate()}
+            disabled={deduplicateMutation.isPending}
+            title="Remove duplicate income records"
+          >
+            {deduplicateMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-2" />
+            )}
+            Clean Duplicates
+          </Button>
           <Button variant="outline" onClick={detectIncome} disabled={isDetecting}>
             {isDetecting ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -625,28 +625,77 @@ export async function autoReconcile(userId: string): Promise<{
   for (const tx of pending) {
     if (tx.reconciled === "true") continue;
 
+    // Skip if already linked to an income record (reconnection protection)
+    if (tx.matchedIncomeId) {
+      tx.reconciled = "true";
+      continue;
+    }
+
     const txAmount = parseFloat(tx.amount as string);
     const cat = (tx.category || "").toUpperCase();
     const personalCat = (tx.personalCategory || "").toLowerCase();
 
     // Income transactions: category === 'INCOME' OR personalCategory === 'Salary'
     // AND amount is NEGATIVE (Plaid uses negative for money coming IN on checking accounts)
-        // Expanded income detection: catch all common income/payroll categories
-        const isIncomeCategory =
-          cat === "INCOME" ||
-          cat === "PAYROLL" ||
-          cat === "DIRECT_DEPOSIT" ||
-          personalCat === "salary" ||
-          personalCat === "payroll" ||
-          personalCat === "income" ||
-          personalCat === "direct_deposit" ||
-          personalCat === "wages";
-        if (!isIncomeCategory) continue;
+    // Expanded income detection: catch all common income/payroll categories
+    const isIncomeCategory =
+      cat === "INCOME" ||
+      cat === "PAYROLL" ||
+      cat === "DIRECT_DEPOSIT" ||
+      personalCat === "salary" ||
+      personalCat === "payroll" ||
+      personalCat === "income" ||
+      personalCat === "direct_deposit" ||
+      personalCat === "wages";
+    if (!isIncomeCategory) continue;
     if (txAmount >= 0) continue; // must be negative (money in)
 
     const source = tx.merchantCleanName || tx.name || "Unknown";
     const absAmount = Math.abs(txAmount);
-    const incomeCategory = personalCat === "salary" ? "Employment" : "Other";
+    const incomeCategory = personalCat === "salary" ? "Salary" : "Other";
+
+    // ── PRIMARY DEDUP: check by Plaid transaction ID stored in notes ─────
+    // We store the Plaid transaction ID in notes as "plaid_tx:<id>" to allow
+    // dedup without a schema migration.
+    const plaidTxId = tx.transactionId || tx.id;
+    try {
+      const { rows: existingByTxId } = await reconcilerPool.query(
+        `SELECT id FROM income WHERE user_id = $1 AND notes LIKE $2 LIMIT 1`,
+        [userId, `%plaid_tx:${plaidTxId}%`]
+      );
+      if (existingByTxId.length > 0) {
+        console.log(`[AutoReconciler] Income already exists for Plaid tx ${plaidTxId} — linking and skipping`);
+        await storage.updatePlaidTransaction(tx.id, {
+          matchType: "income",
+          matchedIncomeId: existingByTxId[0].id,
+          reconciled: "true",
+        });
+        tx.reconciled = "true";
+        continue;
+      }
+    } catch (dedupErr) {
+      console.warn(`[AutoReconciler] Income dedup check failed for tx ${tx.id}:`, dedupErr);
+    }
+
+    // ── SECONDARY DEDUP: check by (source, date, amount) ─────────────────
+    try {
+      const { rows: existingByMatch } = await reconcilerPool.query(
+        `SELECT id FROM income WHERE user_id = $1 AND source = $2 AND date = $3 AND amount = $4 LIMIT 1`,
+        [userId, source, tx.date, String(absAmount)]
+      );
+      if (existingByMatch.length > 0) {
+        console.log(`[AutoReconciler] Duplicate income found by source/date/amount — linking: "${source}" ${tx.date}`);
+        await storage.updatePlaidTransaction(tx.id, {
+          matchType: "income",
+          matchedIncomeId: existingByMatch[0].id,
+          reconciled: "true",
+        });
+        tx.reconciled = "true";
+        continue;
+      }
+    } catch (dedupErr) {
+      console.warn(`[AutoReconciler] Income secondary dedup check failed for tx ${tx.id}:`, dedupErr);
+    }
 
     try {
       const newIncome = await storage.createIncome({
@@ -656,7 +705,8 @@ export async function autoReconcile(userId: string): Promise<{
         date: tx.date,
         category: incomeCategory,
         isRecurring: "false",
-        notes: "Auto-imported from bank transaction",
+        isActive: "true",
+        notes: `Auto-imported from bank transaction | plaid_tx:${plaidTxId}`,
       });
 
       await storage.updatePlaidTransaction(tx.id, {
