@@ -103,12 +103,20 @@ function getNextDueDate(dueDay: number, recurrence: string, customDates?: string
 
 function calculateMonthlyIncomeTotal(income: Income, monthStart: Date, monthEnd: Date): number {
   const amount = parseFloat(income.amount);
+  if (isNaN(amount)) return 0;
 
+  const incomeStartDate = parseISO(income.date);
+
+  // Non-recurring: only count if the exact date falls within this month
   if (income.isRecurring !== "true") {
-    const incomeDate = parseISO(income.date);
-    if (incomeDate >= monthStart && incomeDate <= monthEnd) {
+    if (incomeStartDate >= monthStart && incomeStartDate <= monthEnd) {
       return amount;
     }
+    return 0;
+  }
+
+  // Recurring: must have started on or before the end of this month
+  if (isAfter(incomeStartDate, monthEnd)) {
     return 0;
   }
 
@@ -130,44 +138,41 @@ function calculateMonthlyIncomeTotal(income: Income, monthStart: Date, monthEnd:
   }
 
   if (recurrence === "yearly") {
-    const incomeDate = parseISO(income.date);
-    if (incomeDate.getMonth() === monthStart.getMonth()) {
+    // Only counts if the income's start month matches the selected month
+    if (incomeStartDate.getMonth() === monthStart.getMonth()) {
       return amount;
     }
     return 0;
   }
 
   if (recurrence === "weekly") {
-    const startDate = parseISO(income.date);
-    const dayOfWeek = getDay(startDate);
+    const dayOfWeek = getDay(incomeStartDate);
     let count = 0;
     const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
     for (const day of allDays) {
-      if (getDay(day) === dayOfWeek) {
-        if (!isBefore(day, startDate) || isEqual(day, startDate)) {
-          count++;
-        }
+      if (getDay(day) === dayOfWeek && !isBefore(day, incomeStartDate)) {
+        count++;
       }
     }
     return amount * count;
   }
 
   if (recurrence === "biweekly") {
-    const startDate = parseISO(income.date);
     let count = 0;
-    let payDate = startDate;
+    let payDate = incomeStartDate;
+    // Advance to first occurrence on or after monthStart
     while (isBefore(payDate, monthStart)) {
       payDate = addWeeks(payDate, 2);
     }
+    // Count all occurrences within the month
     while (!isAfter(payDate, monthEnd)) {
-      if (!isBefore(payDate, monthStart)) {
-        count++;
-      }
+      count++;
       payDate = addWeeks(payDate, 2);
     }
     return amount * count;
   }
 
+  // Default fallback: treat as monthly
   return amount;
 }
 

@@ -93,90 +93,86 @@ function formatCurrency(amount: string | number) {
 // Calculate total monthly income accounting for recurrence
 function calculateMonthlyIncomeTotal(income: Income, monthStart: Date, monthEnd: Date): number {
   const amount = parseFloat(income.amount);
-  
-  // Non-recurring income: check if the date is in this month
+  if (isNaN(amount)) return 0;
+
+  const incomeStartDate = parseISO(income.date);
+
+  // Non-recurring income: only count if the exact date falls within this month
   if (income.isRecurring !== "true") {
-    const incomeDate = parseISO(income.date);
-    if (incomeDate >= monthStart && incomeDate <= monthEnd) {
+    if (incomeStartDate >= monthStart && incomeStartDate <= monthEnd) {
       return amount;
     }
     return 0;
   }
-  
-  // For recurring income, calculate number of payments in the month
+
+  // Recurring income: must have started on or before the end of this month
+  if (isAfter(incomeStartDate, monthEnd)) {
+    return 0;
+  }
+
   const recurrence = income.recurrence;
-  
+
   if (recurrence === "custom" && income.customDates) {
     // Custom dates: count how many custom days fall in this month
     try {
       const customDays: number[] = JSON.parse(income.customDates);
       const daysInMonth = getDaysInMonth(monthStart);
-      // Count valid days that exist in this month
       const validDays = customDays.filter(day => day <= daysInMonth);
       return amount * validDays.length;
     } catch {
       return amount;
     }
   }
-  
+
   if (recurrence === "monthly") {
-    // Monthly: 1 payment per month
+    // Monthly: exactly 1 payment per month (regardless of which month)
     return amount;
   }
-  
+
   if (recurrence === "yearly") {
-    // Yearly: check if the due day month matches current month
-    const dueDay = income.dueDay || 1;
-    const incomeDate = parseISO(income.date);
-    if (incomeDate.getMonth() === monthStart.getMonth()) {
+    // Yearly: only counts if the income's start month matches the selected month
+    // Must match BOTH month AND year (or be a future occurrence in the same month)
+    const startMonth = incomeStartDate.getMonth(); // 0-11
+    const selectedMonth = monthStart.getMonth();
+    if (startMonth === selectedMonth) {
       return amount;
     }
     return 0;
   }
-  
+
   if (recurrence === "weekly") {
-    // Weekly: calculate number of weeks in the month that have the pay date
-    // Get first occurrence based on the income start date
-    const startDate = parseISO(income.date);
-    const dayOfWeek = getDay(startDate); // 0-6 (Sunday-Saturday)
-    
-    // Find all matching weekdays in this month
+    // Weekly: count how many matching weekdays fall in this month on/after start date
+    const dayOfWeek = getDay(incomeStartDate);
     let count = 0;
     const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
     for (const day of allDays) {
-      if (getDay(day) === dayOfWeek) {
-        // Check if this day is on or after the start date
-        if (!isBefore(day, startDate) || isEqual(day, startDate)) {
-          count++;
-        }
+      if (getDay(day) === dayOfWeek && !isBefore(day, incomeStartDate)) {
+        count++;
       }
     }
     return amount * count;
   }
-  
+
   if (recurrence === "biweekly") {
-    // Biweekly: typically 2 payments per month
-    const startDate = parseISO(income.date);
+    // Biweekly: walk forward from start date in 2-week steps, count hits in month
     let count = 0;
-    let payDate = startDate;
-    
-    // Move forward if start date is before the month
+    let payDate = incomeStartDate;
+
+    // Advance to first occurrence on or after monthStart
     while (isBefore(payDate, monthStart)) {
       payDate = addWeeks(payDate, 2);
     }
-    
-    // Count payments within the month
+
+    // Count all occurrences within the month
     while (!isAfter(payDate, monthEnd)) {
-      if (!isBefore(payDate, monthStart)) {
-        count++;
-      }
+      count++;
       payDate = addWeeks(payDate, 2);
     }
-    
+
     return amount * count;
   }
-  
-  // Default: return the amount once
+
+  // Default fallback: treat as monthly (1 payment)
   return amount;
 }
 
@@ -726,8 +722,10 @@ export default function IncomePage() {
       return 0;
     });
 
-  // Calculate total for month accounting for recurring payments
-  const monthlyTotal = allIncome.reduce(
+  // Calculate total for the selected month — use filteredIncome so it respects
+  // the month filter, search, and category filter (matching what's shown in the table).
+  // calculateMonthlyIncomeTotal handles recurrence multipliers correctly.
+  const monthlyTotal = filteredIncome.reduce(
     (sum, inc) => sum + calculateMonthlyIncomeTotal(inc, monthStart, monthEnd),
     0
   );
