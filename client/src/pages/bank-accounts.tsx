@@ -1171,6 +1171,91 @@ function ManualTransactionDialog({
   );
 }
 
+// Transaction Syncing State — shown when bank is connected but transactions haven't arrived yet
+function TransactionSyncingState({ hasTransactions, onRefresh }: { hasTransactions: boolean; onRefresh: () => void }) {
+  const [secondsLeft, setSecondsLeft] = useState(30);
+  const [isRecentConnection, setIsRecentConnection] = useState(false);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  useEffect(() => {
+    const lastConnect = localStorage.getItem("budgetsmart_last_bank_connect");
+    if (lastConnect) {
+      const elapsed = Date.now() - parseInt(lastConnect, 10);
+      const TEN_MINUTES = 10 * 60 * 1000;
+      setIsRecentConnection(elapsed < TEN_MINUTES);
+    }
+  }, []);
+
+  // Auto-refresh every 30 seconds if recent connection
+  useEffect(() => {
+    if (!isRecentConnection) return;
+    const countdown = setInterval(() => {
+      setSecondsLeft(prev => {
+        if (prev <= 1) {
+          onRefreshRef.current();
+          return 30;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(countdown);
+  }, [isRecentConnection]);
+
+  if (isRecentConnection) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+        <div className="rounded-full bg-primary/10 p-4">
+          <RefreshCw className="h-10 w-10 text-primary animate-spin" />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-lg font-semibold">Syncing Your Transactions</h3>
+          <p className="text-muted-foreground max-w-md text-sm">
+            We're importing up to 2 years of transaction history from your bank. This typically takes <strong>5–10 minutes</strong> — no action needed on your part.
+          </p>
+        </div>
+        <div className="bg-muted/50 border border-border rounded-xl p-4 max-w-sm text-sm space-y-2 text-left">
+          <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+            <span>Bank account connected successfully</span>
+          </div>
+          <div className="flex items-center gap-2 text-primary">
+            <RefreshCw className="h-4 w-4 flex-shrink-0 animate-spin" />
+            <span>BudgetSmart AI is importing &amp; categorizing your transactions</span>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            <span>This page will auto-refresh in <strong>{secondsLeft}s</strong></span>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => { onRefreshRef.current(); setSecondsLeft(30); }}
+          className="gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Refresh Now
+        </Button>
+      </div>
+    );
+  }
+
+  if (!hasTransactions) {
+    return (
+      <div className="text-center py-8 text-muted-foreground text-sm">
+        No transactions found for this period.
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-center py-8 text-muted-foreground text-sm">
+      No transactions match your filters.
+    </div>
+  );
+}
+
 export default function BankAccounts() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [search, setSearch] = useState("");
@@ -1409,6 +1494,8 @@ export default function BankAccounts() {
     queryClient.invalidateQueries({ queryKey: ["/api/savings-goals"] });
     // Reset selected provider after successful connection
     setSelectedProvider(null);
+    // Record connection time so we can show the syncing state
+    localStorage.setItem("budgetsmart_last_bank_connect", Date.now().toString());
   };
 
   const handleProviderSelected = (provider: "plaid" | "mx") => {
@@ -2035,11 +2122,14 @@ export default function BankAccounts() {
                 <Skeleton className="h-10 w-full" />
               </div>
             ) : filteredTransactions.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                {transactions.length === 0
-                  ? "No transactions found. Click \"Sync Transactions\" to fetch from your bank."
-                  : "No transactions match your filters."}
-              </div>
+              <TransactionSyncingState
+                hasTransactions={transactions.length > 0}
+                onRefresh={() => {
+                  queryClient.invalidateQueries({ predicate: (q) =>
+                    (q.queryKey[0] as string)?.startsWith?.("/api/plaid/transactions") ?? false
+                  });
+                }}
+              />
             ) : (
               <>
                 {selectedIds.size > 0 && (
