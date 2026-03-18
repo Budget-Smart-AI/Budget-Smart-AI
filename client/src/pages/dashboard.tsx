@@ -401,9 +401,12 @@ function WhereYourMoneyWent({
       </CardHeader>
       <CardContent className="px-4 pb-4">
         {topCategories.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">
-            No transaction data available
-          </p>
+          /* Fix 8: Show skeleton instead of "No transaction data" when empty */
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
         ) : (
           <div className="space-y-3">
             {topCategories.map(([category, amount], index) => {
@@ -625,7 +628,7 @@ export default function Dashboard() {
     pending: boolean;
   }
 
-  const { data: allTransactions = [], isLoading: transactionsLoading } = useQuery<UnifiedTransaction[]>({
+  const { data: allTransactions = [], isLoading: transactionsLoading, refetch: refetchTransactions } = useQuery<UnifiedTransaction[]>({
     queryKey: ["/api/transactions/all", startDate, endDate],
     queryFn: async () => {
       const res = await fetch(`/api/transactions/all?startDate=${startDate}&endDate=${endDate}`, {
@@ -641,6 +644,25 @@ export default function Dashboard() {
   });
 
   const isLoading = billsLoading || incomeLoading || transactionsLoading || budgetsLoading || savingsGoalsLoading;
+
+  // ============================================
+  // Fix 7: Processing banner — show when onboarding just completed
+  // but no transactions have synced yet. Auto-refresh every 15s.
+  // ============================================
+  const transactionCount = allTransactions.length;
+  const isProcessing =
+    !transactionsLoading &&
+    sessionData?.onboardingComplete === true &&
+    transactionCount === 0;
+
+  useEffect(() => {
+    if (!isProcessing) return;
+    const interval = setInterval(() => {
+      refetchTransactions();
+      qc.invalidateQueries({ queryKey: ["/api/reports/money-timeline"] });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [isProcessing, refetchTransactions, qc]);
 
   // ============================================
   // SECTION A: REAL CASH FLOW CALCULATIONS
@@ -791,6 +813,20 @@ export default function Dashboard() {
           Your complete financial picture for {format(now, "MMMM yyyy")}
         </p>
       </div>
+
+      {/* Fix 7: Processing Banner — shown right after onboarding while transactions sync */}
+      {isProcessing && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border border-primary/20 bg-primary/5">
+          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold">Analyzing your finances...</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              We're categorizing your transactions and detecting recurring bills. Usually takes 1–2 minutes.
+            </p>
+          </div>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Auto-refreshing...</span>
+        </div>
+      )}
 
       {/* Mismatch Alerts */}
       <MismatchAlert
@@ -1047,10 +1083,12 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* Money Timeline - 90 Day Forecast */}
-          <div className="mt-4">
-            <MoneyTimeline />
-          </div>
+          {/* Money Timeline - 90 Day Forecast (Fix 8: only render when transactions exist) */}
+          {transactionCount > 0 && (
+            <div className="mt-4">
+              <MoneyTimeline />
+            </div>
+          )}
 
           {/* Cash Flow Forecast - Detailed 30 Day View */}
           <div className="mt-4">

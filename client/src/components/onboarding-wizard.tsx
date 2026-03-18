@@ -20,6 +20,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES } from "@shared/schema";
@@ -38,6 +45,9 @@ import {
   ShoppingBag,
   Utensils,
   ChevronRight,
+  Smartphone,
+  BellOff,
+  Info,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -55,17 +65,33 @@ interface WizardProvider {
   isEnabled: boolean;
 }
 
+// ─── Country detection ────────────────────────────────────────────────────────
+
+function detectCountry(): string {
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale || "";
+    if (locale.includes("CA") || locale.toLowerCase().includes("-ca")) return "CA";
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    if (tz.includes("America")) return "US";
+  } catch {
+    // ignore
+  }
+  return "US";
+}
+
 // ─── Progress Indicator ───────────────────────────────────────────────────────
 
 function StepProgress({ current, total }: { current: number; total: number }) {
   const labels = ["Welcome", "Connect Bank", "Monthly Income", "Budget Goal", "You're Ready!"];
+  // Show 100% on the final step
+  const pct = current >= total ? 100 : Math.round(((current - 1) / total) * 100);
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-medium text-muted-foreground">
           Step {current} of {total} — {labels[current - 1]}
         </p>
-        <p className="text-xs text-muted-foreground">{Math.round(((current - 1) / total) * 100)}%</p>
+        <p className="text-xs text-muted-foreground">{pct}%</p>
       </div>
       <div className="flex gap-1.5">
         {Array.from({ length: total }).map((_, i) => (
@@ -148,11 +174,15 @@ function ConnectBankStep({
   onSkip,
   onPlaidOpen,
   onBankConnected,
+  initialCountry,
+  onCountryChange,
 }: {
   onNext: () => void;
   onSkip: () => void;
   onPlaidOpen?: (isOpen: boolean) => void;
   onBankConnected: (connected: boolean, accountCount?: number, txCount?: number) => void;
+  initialCountry: string;
+  onCountryChange: (country: string, state: string) => void;
 }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -166,11 +196,19 @@ function ConnectBankStep({
   const [mxWidgetUrl, setMxWidgetUrl] = useState<string | null>(null);
   const [showMxWidget, setShowMxWidget] = useState(false);
   const [mxLoading, setMxLoading] = useState(false);
-  // Consent dialog state
+  // Consent + country state
   const [showPlaidConsent, setShowPlaidConsent] = useState(false);
   const [plaidPrivacyChecked, setPlaidPrivacyChecked] = useState(false);
   const [showMxConsent, setShowMxConsent] = useState(false);
   const [mxPrivacyChecked, setMxPrivacyChecked] = useState(false);
+  // Inline consent checkbox (in wizard step)
+  const [consentChecked, setConsentChecked] = useState(false);
+  // Country / state
+  const [country, setCountry] = useState(initialCountry || detectCountry());
+  const [stateProvince, setStateProvince] = useState("");
+  // Sub-step: 'connect-bank' | 'phone-ready'
+  const [subStep, setSubStep] = useState<"connect-bank" | "phone-ready">("connect-bank");
+
   const { toast } = useToast();
 
   const { data: wizardProviders = [], isLoading: providersLoading } = useQuery<WizardProvider[]>({
@@ -202,6 +240,16 @@ function ConnectBankStep({
       if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
     };
   }, [autoAdvanceTimer]);
+
+  // Notify parent of country/state changes
+  useEffect(() => {
+    onCountryChange(country, stateProvince);
+  }, [country, stateProvince]);
+
+  // Reset state when country changes
+  useEffect(() => {
+    setStateProvince("");
+  }, [country]);
 
   const onPlaidSuccess = useCallback(async (publicToken: string, metadata: any) => {
     onPlaidOpen?.(false);
@@ -271,15 +319,28 @@ function ConnectBankStep({
     onExit: onPlaidExit,
   });
 
-  const handleOpenPlaid = useCallback(() => {
+  const openPlaidLink = useCallback(() => {
     onPlaidOpen?.(true);
     open();
   }, [open, onPlaidOpen]);
 
+  // Save country/state to DB then show phone-ready screen
+  const handleConnectBank = useCallback(async () => {
+    try {
+      await apiRequest("PATCH", "/api/user/household", {
+        country,
+        provinceState: stateProvince || null,
+      });
+    } catch (err) {
+      console.error("Failed to save country:", err);
+    }
+    setSubStep("phone-ready");
+  }, [country, stateProvince]);
+
   const handlePlaidConsentAccept = useCallback(() => {
     setShowPlaidConsent(false);
-    handleOpenPlaid();
-  }, [handleOpenPlaid]);
+    openPlaidLink();
+  }, [openPlaidLink]);
 
   const handleOpenMX = useCallback(async () => {
     setMxLoading(true);
@@ -352,13 +413,79 @@ function ConnectBankStep({
     }
   }, [isSyncing]);
 
-  const providerName =
-    preferredProvider === "mx" ? "MX" :
-    preferredProvider === "plaid" ? "Plaid" :
-    "bank connection";
+  const skipBankConnection = useCallback(() => {
+    onSkip();
+  }, [onSkip]);
 
+  // ── Phone Ready sub-step ──────────────────────────────────────────────────
+  if (subStep === "phone-ready") {
+    return (
+      <div className="flex flex-col items-center text-center px-1">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4">
+          <Smartphone size={28} className="text-amber-500" />
+        </div>
+
+        <h2 className="text-lg font-bold mb-2">Get Your Phone Ready</h2>
+        <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
+          Your bank will verify your identity before sharing data. Here's what to expect:
+        </p>
+
+        <div className="w-full space-y-2.5 mb-5 text-left">
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-muted/40 border border-border">
+            <BellOff size={16} className="text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mb-0.5">
+                Turn off Silent / Do Not Disturb
+              </p>
+              <p className="text-xs text-muted-foreground">
+                You must receive notifications to complete the bank verification.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-muted/40 border border-border">
+            <Smartphone size={16} className="text-primary shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold mb-0.5">Open your banking app</p>
+              <p className="text-xs text-muted-foreground">
+                Many banks (Scotiabank, TD, RBC, Chase, Bank of America and others) send a push
+                notification to their app to confirm it's really you. Approve it when it appears.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-muted/40 border border-border">
+            <Info size={16} className="text-muted-foreground shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Missed the notification?</span>{" "}
+                Just close and try again — your data is always safe.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={openPlaidLink}
+          className="w-full py-3.5 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+        >
+          I'm Ready — Connect My Bank
+          <ArrowRight size={16} />
+        </button>
+
+        <button
+          onClick={skipBankConnection}
+          className="mt-3 text-xs text-muted-foreground hover:text-foreground underline transition-colors"
+        >
+          Skip for now — add manually →
+        </button>
+      </div>
+    );
+  }
+
+  // ── Main connect-bank sub-step ────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="text-center space-y-2">
         <div className="text-3xl mb-2">🏦</div>
         <h2 className="text-xl font-bold">Connect your bank to unlock the magic</h2>
@@ -406,18 +533,157 @@ function ConnectBankStep({
             </p>
           ) : (
             <>
+              {/* ── Country / State selector ── */}
+              <div className="w-full space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Your Country
+                  </label>
+                  <Select value={country} onValueChange={setCountry}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="US">🇺🇸 United States</SelectItem>
+                      <SelectItem value="CA">🇨🇦 Canada</SelectItem>
+                      <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
+                      <SelectItem value="AU">🇦🇺 Australia</SelectItem>
+                      <SelectItem value="OTHER">🌍 Other Country</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {(country === "US" || country === "CA") && (
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                      {country === "CA" ? "Province" : "State"}
+                    </label>
+                    <Select value={stateProvince} onValueChange={setStateProvince}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={`Select ${country === "CA" ? "province" : "state"}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {country === "CA" ? (
+                          <>
+                            <SelectItem value="AB">Alberta</SelectItem>
+                            <SelectItem value="BC">British Columbia</SelectItem>
+                            <SelectItem value="MB">Manitoba</SelectItem>
+                            <SelectItem value="NB">New Brunswick</SelectItem>
+                            <SelectItem value="NL">Newfoundland and Labrador</SelectItem>
+                            <SelectItem value="NS">Nova Scotia</SelectItem>
+                            <SelectItem value="NT">Northwest Territories</SelectItem>
+                            <SelectItem value="NU">Nunavut</SelectItem>
+                            <SelectItem value="ON">Ontario</SelectItem>
+                            <SelectItem value="PE">Prince Edward Island</SelectItem>
+                            <SelectItem value="QC">Quebec</SelectItem>
+                            <SelectItem value="SK">Saskatchewan</SelectItem>
+                            <SelectItem value="YT">Yukon</SelectItem>
+                          </>
+                        ) : (
+                          <>
+                            <SelectItem value="AL">Alabama</SelectItem>
+                            <SelectItem value="AK">Alaska</SelectItem>
+                            <SelectItem value="AZ">Arizona</SelectItem>
+                            <SelectItem value="AR">Arkansas</SelectItem>
+                            <SelectItem value="CA">California</SelectItem>
+                            <SelectItem value="CO">Colorado</SelectItem>
+                            <SelectItem value="CT">Connecticut</SelectItem>
+                            <SelectItem value="DE">Delaware</SelectItem>
+                            <SelectItem value="FL">Florida</SelectItem>
+                            <SelectItem value="GA">Georgia</SelectItem>
+                            <SelectItem value="HI">Hawaii</SelectItem>
+                            <SelectItem value="ID">Idaho</SelectItem>
+                            <SelectItem value="IL">Illinois</SelectItem>
+                            <SelectItem value="IN">Indiana</SelectItem>
+                            <SelectItem value="IA">Iowa</SelectItem>
+                            <SelectItem value="KS">Kansas</SelectItem>
+                            <SelectItem value="KY">Kentucky</SelectItem>
+                            <SelectItem value="LA">Louisiana</SelectItem>
+                            <SelectItem value="ME">Maine</SelectItem>
+                            <SelectItem value="MD">Maryland</SelectItem>
+                            <SelectItem value="MA">Massachusetts</SelectItem>
+                            <SelectItem value="MI">Michigan</SelectItem>
+                            <SelectItem value="MN">Minnesota</SelectItem>
+                            <SelectItem value="MS">Mississippi</SelectItem>
+                            <SelectItem value="MO">Missouri</SelectItem>
+                            <SelectItem value="MT">Montana</SelectItem>
+                            <SelectItem value="NE">Nebraska</SelectItem>
+                            <SelectItem value="NV">Nevada</SelectItem>
+                            <SelectItem value="NH">New Hampshire</SelectItem>
+                            <SelectItem value="NJ">New Jersey</SelectItem>
+                            <SelectItem value="NM">New Mexico</SelectItem>
+                            <SelectItem value="NY">New York</SelectItem>
+                            <SelectItem value="NC">North Carolina</SelectItem>
+                            <SelectItem value="ND">North Dakota</SelectItem>
+                            <SelectItem value="OH">Ohio</SelectItem>
+                            <SelectItem value="OK">Oklahoma</SelectItem>
+                            <SelectItem value="OR">Oregon</SelectItem>
+                            <SelectItem value="PA">Pennsylvania</SelectItem>
+                            <SelectItem value="RI">Rhode Island</SelectItem>
+                            <SelectItem value="SC">South Carolina</SelectItem>
+                            <SelectItem value="SD">South Dakota</SelectItem>
+                            <SelectItem value="TN">Tennessee</SelectItem>
+                            <SelectItem value="TX">Texas</SelectItem>
+                            <SelectItem value="UT">Utah</SelectItem>
+                            <SelectItem value="VT">Vermont</SelectItem>
+                            <SelectItem value="VA">Virginia</SelectItem>
+                            <SelectItem value="WA">Washington</SelectItem>
+                            <SelectItem value="WV">West Virginia</SelectItem>
+                            <SelectItem value="WI">Wisconsin</SelectItem>
+                            <SelectItem value="WY">Wyoming</SelectItem>
+                          </>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Shared computer warning ── */}
               <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-left">
                 <p className="text-xs text-amber-800 dark:text-amber-200">
                   <strong>Shared computer?</strong> Use a private/incognito window to prevent bank login conflicts.
                 </p>
               </div>
 
+              {/* ── Revoke notice ── */}
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-left">
+                <p className="text-xs text-blue-800 dark:text-blue-200">
+                  <strong>You can revoke this consent at any time.</strong> Go to{" "}
+                  <strong>Settings → Accounts</strong> and click <strong>Unlink</strong> next to any
+                  connected account to remove access immediately.
+                </p>
+              </div>
+
+              {/* ── Inline consent checkbox ── */}
+              <div className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/20">
+                <Checkbox
+                  id="plaid-consent-wizard"
+                  checked={consentChecked}
+                  onCheckedChange={(c) => setConsentChecked(c === true)}
+                  className="mt-0.5"
+                />
+                <label
+                  htmlFor="plaid-consent-wizard"
+                  className="text-xs text-muted-foreground leading-relaxed cursor-pointer"
+                >
+                  I have read and agree to BudgetSmart AI's{" "}
+                  <a href="/privacy" target="_blank" className="text-primary underline">
+                    Privacy Policy
+                  </a>{" "}
+                  and consent to my financial data being accessed through Plaid as described.
+                  <span className="block mt-1.5 text-muted-foreground/70">
+                    You can revoke this at any time via Settings → Accounts → Unlink.
+                  </span>
+                </label>
+              </div>
+
+              {/* ── Connect button ── */}
               {preferredProvider === "plaid" && (
-                <Button
-                  onClick={() => setShowPlaidConsent(true)}
-                  disabled={!ready || !linkToken || isConnecting}
-                  className="w-full gap-2"
-                  size="lg"
+                <button
+                  onClick={handleConnectBank}
+                  disabled={!consentChecked || !country || !ready || !linkToken || isConnecting}
+                  className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                 >
                   {isConnecting ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -425,14 +691,13 @@ function ConnectBankStep({
                     <Building2 className="h-4 w-4" />
                   )}
                   Connect Bank Account
-                </Button>
+                </button>
               )}
               {preferredProvider === "mx" && (
-                <Button
+                <button
                   onClick={() => setShowMxConsent(true)}
-                  disabled={mxLoading || isConnecting}
-                  className="w-full gap-2"
-                  size="lg"
+                  disabled={!consentChecked || !country || mxLoading || isConnecting}
+                  className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                 >
                   {mxLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -440,7 +705,13 @@ function ConnectBankStep({
                     <Building2 className="h-4 w-4" />
                   )}
                   Connect Bank Account
-                </Button>
+                </button>
+              )}
+
+              {!country && (
+                <p className="text-xs text-amber-500 text-center -mt-2">
+                  Please select your country first
+                </p>
               )}
             </>
           )}
@@ -477,33 +748,6 @@ function ConnectBankStep({
         </div>,
         document.body
       )}
-
-      {/* Plaid Consent Dialog */}
-      <AlertDialog open={showPlaidConsent} onOpenChange={(o) => { setShowPlaidConsent(o); if (!o) setPlaidPrivacyChecked(false); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Connect Your Bank via Plaid</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-3">
-              <span className="block">By connecting your bank account, you consent to BudgetSmart accessing your financial data through Plaid. Your bank credentials are entered directly with your bank — BudgetSmart never sees or stores them.</span>
-              <span className="block bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-blue-800 dark:text-blue-200 text-sm">
-                <strong>You can revoke this consent at any time.</strong> Go to <strong>Settings → Accounts</strong> and click <strong>Unlink</strong>.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="flex items-start gap-3 px-6 pb-2">
-            <Checkbox id="plaid-consent" checked={plaidPrivacyChecked} onCheckedChange={(c) => setPlaidPrivacyChecked(c === true)} />
-            <label htmlFor="plaid-consent" className="text-sm leading-snug cursor-pointer select-none">
-              I agree to BudgetSmart AI's{" "}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">Privacy Policy</a>{" "}
-              and consent to my financial data being accessed through Plaid.
-            </label>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handlePlaidConsentAccept} disabled={!plaidPrivacyChecked}>I Consent — Connect Bank</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* MX Consent Dialog */}
       <AlertDialog open={showMxConsent} onOpenChange={(o) => { setShowMxConsent(o); if (!o) setMxPrivacyChecked(false); }}>
@@ -542,14 +786,23 @@ function MonthlyIncomeStep({
   onSkip,
   detectedIncome,
   detectedEmployer,
+  selectedCountry,
 }: {
   onNext: (income: number | null) => void;
   onSkip: () => void;
   detectedIncome?: number | null;
   detectedEmployer?: string | null;
+  selectedCountry: string;
 }) {
   const [income, setIncome] = useState<string>(detectedIncome ? String(detectedIncome) : "");
   const [confirmed, setConfirmed] = useState(false);
+
+  // Currency label based on country
+  const currencyLabel =
+    selectedCountry === "CA" ? "CAD $" :
+    selectedCountry === "GB" ? "GBP £" :
+    selectedCountry === "AU" ? "AUD $" :
+    "USD $";
 
   const handleNext = () => {
     const val = parseFloat(income);
@@ -601,7 +854,7 @@ function MonthlyIncomeStep({
         <label className="text-sm font-medium">Monthly take-home income</label>
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
-            CAD $
+            {currencyLabel}
           </span>
           <Input
             type="number"
@@ -610,7 +863,7 @@ function MonthlyIncomeStep({
             placeholder="e.g. 4500"
             value={income}
             onChange={(e) => setIncome(e.target.value)}
-            className="pl-16 text-lg h-12"
+            className="pl-20 text-lg h-12"
           />
         </div>
         <p className="text-xs text-muted-foreground">
@@ -652,13 +905,21 @@ function BudgetGoalStep({
   onNext,
   onSkip,
   topCategories,
+  selectedCountry,
 }: {
   onNext: (category: string, amount: number) => void;
   onSkip: () => void;
   topCategories?: Array<{ category: string; total: number }>;
+  selectedCountry: string;
 }) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [budgetAmount, setBudgetAmount] = useState<string>("");
+
+  const currencyLabel =
+    selectedCountry === "CA" ? "CAD $" :
+    selectedCountry === "GB" ? "GBP £" :
+    selectedCountry === "AU" ? "AUD $" :
+    "USD $";
 
   // Build display categories: use top categories from transactions if available, else defaults
   const displayCategories = topCategories && topCategories.length > 0
@@ -725,7 +986,7 @@ function BudgetGoalStep({
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
-              CAD $
+              {currencyLabel}
             </span>
             <Input
               type="number"
@@ -734,7 +995,7 @@ function BudgetGoalStep({
               placeholder="e.g. 500"
               value={budgetAmount}
               onChange={(e) => setBudgetAmount(e.target.value)}
-              className="pl-16 text-lg h-12"
+              className="pl-20 text-lg h-12"
               autoFocus
             />
           </div>
@@ -855,6 +1116,10 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
   const [budgetAmount, setBudgetAmount] = useState<number | null>(null);
   const [billsDetected, setBillsDetected] = useState(0);
 
+  // Country / state selected in Step 2
+  const [selectedCountry, setSelectedCountry] = useState<string>(detectCountry());
+  const [selectedState, setSelectedState] = useState<string>("");
+
   // Progress tracking
   const [progress, setProgress] = useState<Record<string, boolean>>({
     bank: false,
@@ -862,13 +1127,20 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     budget: false,
   });
 
-  // Session data for firstName
+  // Session data for firstName + existing country
   const { data: session } = useQuery<any>({
     queryKey: ["/api/auth/session"],
     enabled: open,
   });
 
   const firstName = session?.firstName || null;
+
+  // Pre-populate country from existing user profile
+  useEffect(() => {
+    if (session?.country && session.country !== "US") {
+      setSelectedCountry(session.country);
+    }
+  }, [session]);
 
   // Onboarding status
   const { data: onboardingStatus } = useQuery<{
@@ -953,6 +1225,11 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     setProgress((p) => ({ ...p, bank: connected }));
   }, []);
 
+  const handleCountryChange = useCallback((country: string, state: string) => {
+    setSelectedCountry(country);
+    setSelectedState(state);
+  }, []);
+
   const handleIncomeNext = async (income: number | null) => {
     setMonthlyIncome(income);
     setProgress((p) => ({ ...p, income: income !== null }));
@@ -1022,6 +1299,8 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
             }}
             onPlaidOpen={setPlaidOpen}
             onBankConnected={handleBankConnected}
+            initialCountry={selectedCountry}
+            onCountryChange={handleCountryChange}
           />
         )}
 
@@ -1034,6 +1313,7 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
             }}
             detectedIncome={detectedIncomeAmount}
             detectedEmployer={detectedEmployer}
+            selectedCountry={selectedCountry}
           />
         )}
 
@@ -1045,6 +1325,7 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
               setStep(5);
             }}
             topCategories={topCategories}
+            selectedCountry={selectedCountry}
           />
         )}
 

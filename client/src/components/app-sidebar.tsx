@@ -235,6 +235,8 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   const aiUsage = usageMap.get("ai_assistant");
   const usageCurrent = aiUsage?.currentUsage ?? 0;
   const usageLimit = aiUsage?.limit ?? 10;
+  // Show remaining uses (not used), so new users see "10/10 AI uses left"
+  const usageRemaining = Math.max(0, usageLimit - usageCurrent);
   const usagePct = usageLimit > 0 ? (usageCurrent / usageLimit) * 100 : 0;
   const usageResetStr = aiUsage?.resetDate ? formatResetDate(aiUsage.resetDate) : "";
 
@@ -323,7 +325,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
             </TooltipProvider>
             <div className="mt-2 px-2 py-2 rounded-lg border border-border/80 bg-muted/30">
               <p className="text-xs font-medium text-foreground">
-                {usageCurrent}/{usageLimit} AI uses left
+                {usageRemaining}/{usageLimit} AI uses left
               </p>
               <div className="h-1.5 rounded-full mt-1.5 overflow-hidden bg-muted">
                 <div
