@@ -808,3 +808,8 @@ export async function ensureBudgetPeriodColumns(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS budget_period TEXT DEFAULT 'monthly'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS next_payday TEXT`);
 }
+
+export async function ensureIncomeAutoDetectionColumns(): Promise<void> {
+  await pool.query(`ALTER TABLE income ADD COLUMN IF NOT EXISTS auto_detected boolean DEFAULT false`);
+  await pool.query(`ALTER TABLE income ADD COLUMN IF NOT EXISTS detected_at timestamp`);
+}

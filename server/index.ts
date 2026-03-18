@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureIsSyncingColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn, ensureBudgetPeriodColumns } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureIsSyncingColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn, ensureBudgetPeriodColumns, ensureIncomeAutoDetectionColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 import { db } from "./db";
 import { plaidItems } from "@shared/schema";
@@ -473,6 +473,10 @@ app.use((req, res, next) => {
 
   await ensureBudgetPeriodColumns().catch(err =>
     console.error("Failed to ensure budget_period/next_payday columns — paycheck-aligned budgets will not work:", err)
+  );
+
+  await ensureIncomeAutoDetectionColumns().catch(err =>
+    console.error("Failed to ensure income auto_detected/detected_at columns — recurring income detection will not work:", err)
   );
 
   // Note: ensureUserFeatureUsageTable() and ensurePlanFeatureLimitsTable() are now
