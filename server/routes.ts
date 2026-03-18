@@ -6629,7 +6629,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       const id = req.params.id as string;
       const { matchType, matchedId, personalCategory, updateIncomeAmount } = req.body;
 
-      if (!matchType || !["bill", "expense", "income", "unmatched"].includes(matchType)) {
+      if (!matchType || !["bill", "expense", "income", "unmatched", "transfer"].includes(matchType)) {
         return res.status(400).json({ error: "Invalid matchType" });
       }
 
@@ -6644,6 +6644,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       if (matchType === "bill" && matchedId) updates.matchedBillId = matchedId;
       if (matchType === "expense" && matchedId) updates.matchedExpenseId = matchedId;
       if (matchType === "income" && matchedId) updates.matchedIncomeId = matchedId;
+      if (matchType === "transfer") updates.isTransfer = "true";
       if (personalCategory) updates.personalCategory = personalCategory;
 
       const transaction = await storage.updatePlaidTransaction(id, updates);

@@ -642,6 +642,9 @@ function ReconcileDialog({
   const [matchedId, setMatchedId] = useState<string>("");
   const [category, setCategory] = useState<string>("Other");
   const [updateIncomeAmount, setUpdateIncomeAmount] = useState<boolean>(true);
+  const [transferNote, setTransferNote] = useState<string>("");
+  const [matchSearch, setMatchSearch] = useState<string>("");
+  const [categorySearch, setCategorySearch] = useState<string>("");
   const { toast } = useToast();
 
   // Initialize values when editing an already reconciled transaction
@@ -762,24 +765,58 @@ function ReconcileDialog({
                 <SelectItem value="bill">Match to Bill</SelectItem>
                 <SelectItem value="expense">Match to Expense</SelectItem>
                 <SelectItem value="income">Match to Income</SelectItem>
+                <SelectItem value="transfer">Mark as Transfer (exclude from totals)</SelectItem>
                 <SelectItem value="unmatched">Keep as Other Expense</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {matchType !== "unmatched" && (
+          {matchType === "transfer" && (
+            <div className="p-3 bg-slate-500/10 border border-slate-500/20 rounded-lg space-y-2">
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>
+                Account Transfer
+              </p>
+              <p className="text-xs text-muted-foreground">
+                This transaction will be excluded from income and spending totals on your dashboard. Use this for money moved between your own accounts (e.g., chequing to savings, credit card payments).
+              </p>
+            </div>
+          )}
+
+          {matchType !== "unmatched" && matchType !== "transfer" && (
             <div className="space-y-2">
               <label className="text-sm font-medium">Select Match</label>
-              <Select value={matchedId} onValueChange={setMatchedId}>
+              <Select value={matchedId} onValueChange={(v) => { setMatchedId(v); setMatchSearch(""); }}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {getCandidates().map((item: any) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name || item.merchant || item.source} - {formatCurrency(item.amount)}
-                    </SelectItem>
-                  ))}
+                  <div className="p-2 pb-1 sticky top-0 bg-popover z-10">
+                    <Input
+                      placeholder="Search..."
+                      value={matchSearch}
+                      onChange={(e) => setMatchSearch(e.target.value)}
+                      className="h-7 text-xs"
+                      onKeyDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                  {getCandidates()
+                    .filter((item: any) => {
+                      const label = (item.name || item.merchant || item.source || "").toLowerCase();
+                      return label.includes(matchSearch.toLowerCase());
+                    })
+                    .map((item: any) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name || item.merchant || item.source} - {formatCurrency(item.amount)}
+                      </SelectItem>
+                    ))}
+                  {getCandidates().filter((item: any) => {
+                    const label = (item.name || item.merchant || item.source || "").toLowerCase();
+                    return label.includes(matchSearch.toLowerCase());
+                  }).length === 0 && (
+                    <div className="py-2 px-3 text-xs text-muted-foreground">No results</div>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -801,14 +838,29 @@ function ReconcileDialog({
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Category</label>
-            <Select value={category} onValueChange={setCategory}>
+            <Select value={category} onValueChange={(v) => { setCategory(v); setCategorySearch(""); }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                ))}
+                <div className="p-2 pb-1 sticky top-0 bg-popover z-10">
+                  <Input
+                    placeholder="Search categories..."
+                    value={categorySearch}
+                    onChange={(e) => setCategorySearch(e.target.value)}
+                    className="h-7 text-xs"
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+                {(categories as string[])
+                  .filter((cat) => cat.toLowerCase().includes(categorySearch.toLowerCase()))
+                  .map((cat) => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                {(categories as string[]).filter((cat) => cat.toLowerCase().includes(categorySearch.toLowerCase())).length === 0 && (
+                  <div className="py-2 px-3 text-xs text-muted-foreground">No results</div>
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -816,7 +868,7 @@ function ReconcileDialog({
           <div className="flex gap-2">
             <Button
               onClick={() => reconcileMutation.mutate()}
-              disabled={reconcileMutation.isPending || (matchType !== "unmatched" && !matchedId)}
+              disabled={reconcileMutation.isPending || (matchType !== "unmatched" && matchType !== "transfer" && !matchedId)}
               className="flex-1"
               data-testid="button-save-reconcile"
             >
@@ -824,7 +876,9 @@ function ReconcileDialog({
                 ? "Save Changes"
                 : matchType === "unmatched"
                   ? "Add to Other Expenses"
-                  : "Match"}
+                  : matchType === "transfer"
+                    ? "Mark as Transfer"
+                    : "Match"}
             </Button>
           </div>
         </div>
@@ -1260,6 +1314,11 @@ export default function BankAccounts() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [search, setSearch] = useState("");
   const [matchFilter, setMatchFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  // Bulk match to income/bill state
+  const [bulkMatchType, setBulkMatchType] = useState<"income" | "bill" | null>(null);
+  const [bulkMatchTargetId, setBulkMatchTargetId] = useState<string>("");
+  const [bulkMatchSearch, setBulkMatchSearch] = useState<string>("");
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: "asc" | "desc" }>({
     key: "date",
     direction: "desc",
@@ -1510,6 +1569,45 @@ export default function BankAccounts() {
     setShowManualAccountDialog(true);
   };
 
+  // Derive unique categories from current month's transactions for the category filter
+  const uniqueCategories = useMemo(() => {
+    const cats = new Set<string>();
+    transactions.forEach(tx => {
+      const cat = (tx as any).subcategory || tx.personalCategory;
+      if (cat) cats.add(cat);
+    });
+    return Array.from(cats).sort();
+  }, [transactions]);
+
+  // Bulk match to income/bill mutation
+  const bulkMatchMutation = useMutation({
+    mutationFn: async ({ ids, matchType, targetId }: { ids: string[]; matchType: "income" | "bill"; targetId: string }) => {
+      await Promise.all(
+        ids.map(id =>
+          apiRequest("POST", `/api/plaid/transactions/${id}/reconcile`, {
+            matchType,
+            matchedId: targetId,
+          })
+        )
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/plaid/transactions") ?? false
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      toast({ title: `${selectedIds.size} transactions matched` });
+      setSelectedIds(new Set());
+      setBulkMatchType(null);
+      setBulkMatchTargetId("");
+      setBulkMatchSearch("");
+    },
+    onError: () => {
+      toast({ title: "Failed to match transactions", variant: "destructive" });
+    },
+  });
+
   // Filter and sort transactions
   const filteredTransactions = transactions
     .filter((tx) => {
@@ -1519,7 +1617,9 @@ export default function BankAccounts() {
         : matchFilter === "needs_review"
           ? (tx as any).needsReview === true
           : tx.matchType === matchFilter;
-      return matchesSearch && matchesFilter;
+      const txCat = (tx as any).subcategory || tx.personalCategory || "Other";
+      const matchesCategoryFilter = categoryFilter === "all" || txCat === categoryFilter;
+      return matchesSearch && matchesFilter && matchesCategoryFilter;
     })
     .sort((a, b) => {
       const direction = sortConfig.direction === "asc" ? 1 : -1;
@@ -1566,12 +1666,13 @@ export default function BankAccounts() {
     .filter(acc => acc.isActive !== "false")
     .reduce((sum, acc) => sum + parseFloat(acc.balance || "0"), 0);
 
+  // Exclude transfers from income and spending summaries
   const monthlySpending = transactions
-    .filter(tx => parseFloat(tx.amount) > 0)
+    .filter(tx => parseFloat(tx.amount) > 0 && tx.matchType !== "transfer")
     .reduce((sum, tx) => sum + parseFloat(tx.amount), 0);
 
   const monthlyIncome = transactions
-    .filter(tx => parseFloat(tx.amount) < 0)
+    .filter(tx => parseFloat(tx.amount) < 0 && tx.matchType !== "transfer")
     .reduce((sum, tx) => sum + Math.abs(parseFloat(tx.amount)), 0);
 
   const unmatchedCount = transactions.filter(tx => tx.matchType === "unmatched").length;
@@ -2108,10 +2209,25 @@ export default function BankAccounts() {
                   <SelectItem value="bill">Matched Bills</SelectItem>
                   <SelectItem value="expense">Matched Expenses</SelectItem>
                   <SelectItem value="income">Income</SelectItem>
+                  <SelectItem value="transfer">Transfers</SelectItem>
                   <SelectItem value="unmatched">Unmatched</SelectItem>
                   <SelectItem value="needs_review">Needs Review</SelectItem>
                 </SelectContent>
               </Select>
+              {uniqueCategories.length > 0 && (
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-full sm:w-[160px] text-sm">
+                    <Filter className="h-4 w-4 mr-2 opacity-60" />
+                    <SelectValue placeholder="All Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {uniqueCategories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -2135,7 +2251,7 @@ export default function BankAccounts() {
                 {selectedIds.size > 0 && (
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-muted rounded-lg mb-3">
                     <span className="text-xs sm:text-sm font-medium">{selectedIds.size} selected</span>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         className="text-xs sm:text-sm"
@@ -2143,6 +2259,22 @@ export default function BankAccounts() {
                         disabled={bulkCreateMutation.isPending}
                       >
                         {bulkCreateMutation.isPending ? "Adding..." : "Add to Expenses"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs sm:text-sm"
+                        onClick={() => { setBulkMatchType("income"); setBulkMatchTargetId(""); setBulkMatchSearch(""); }}
+                      >
+                        Match to Income
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs sm:text-sm"
+                        onClick={() => { setBulkMatchType("bill"); setBulkMatchTargetId(""); setBulkMatchSearch(""); }}
+                      >
+                        Match to Bill
                       </Button>
                       <Button
                         variant="ghost"
@@ -2298,6 +2430,26 @@ export default function BankAccounts() {
                                   <AlertCircle className="h-3 w-3" />
                                   Unmatched
                                 </Badge>
+                              ) : tx.matchType === "transfer" ? (
+                                <button
+                                  title="Click to reset to Unmatched"
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest("POST", `/api/plaid/transactions/${tx.id}/reconcile`, { matchType: "unmatched" });
+                                      queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith?.("/api/plaid/transactions") ?? false });
+                                      toast({ title: "Reset to Unmatched" });
+                                    } catch { toast({ title: "Failed to reset", variant: "destructive" }); }
+                                  }}
+                                  className="focus:outline-none"
+                                >
+                                  <Badge
+                                    className="text-xs gap-1 bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 cursor-pointer"
+                                    title="Account transfer — click to reset"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>
+                                    Transfer
+                                  </Badge>
+                                </button>
                               ) : tx.matchType === "receipt" ? (
                                 <Badge
                                   className="text-xs gap-1 bg-blue-100 text-blue-800 hover:bg-blue-100"
@@ -2307,10 +2459,24 @@ export default function BankAccounts() {
                                   Receipt
                                 </Badge>
                               ) : tx.reconciled === "true" ? (
-                                <Badge className="text-xs gap-1 bg-green-100 text-green-800 hover:bg-green-100">
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  {tx.matchType}
-                                </Badge>
+                                <button
+                                  title="Click to reset to Unmatched"
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest("POST", `/api/plaid/transactions/${tx.id}/reconcile`, { matchType: "unmatched" });
+                                      queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith?.("/api/plaid/transactions") ?? false });
+                                      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+                                      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+                                      toast({ title: "Reset to Unmatched" });
+                                    } catch { toast({ title: "Failed to reset", variant: "destructive" }); }
+                                  }}
+                                  className="focus:outline-none"
+                                >
+                                  <Badge className="text-xs gap-1 bg-green-100 text-green-800 hover:bg-green-200 cursor-pointer">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    {tx.matchType}
+                                  </Badge>
+                                </button>
                               ) : (
                                 <Badge variant="outline" className="text-xs gap-1">
                                   {tx.matchType}
@@ -2467,6 +2633,91 @@ export default function BankAccounts() {
         onSuccess={handleAccountConnected}
         initialCountry={session?.country || ""}
       />
+
+      {/* Bulk Match to Income / Bill Dialog */}
+      <Dialog
+        open={!!bulkMatchType}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkMatchType(null);
+            setBulkMatchTargetId("");
+            setBulkMatchSearch("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {bulkMatchType === "income" ? "Match to Income" : "Match to Bill"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Select which {bulkMatchType === "income" ? "income entry" : "bill"} to match all{" "}
+              <strong>{selectedIds.size}</strong> selected transaction{selectedIds.size !== 1 ? "s" : ""} to.
+            </p>
+            <div className="space-y-2">
+              <Input
+                placeholder={`Search ${bulkMatchType === "income" ? "income entries" : "bills"}...`}
+                value={bulkMatchSearch}
+                onChange={(e) => setBulkMatchSearch(e.target.value)}
+                className="text-sm"
+              />
+              <div className="max-h-60 overflow-y-auto rounded-md border divide-y">
+                {(bulkMatchType === "income" ? incomes : bills)
+                  .filter((item: any) => {
+                    const label = (item.name || item.merchant || item.source || "").toLowerCase();
+                    return label.includes(bulkMatchSearch.toLowerCase());
+                  })
+                  .map((item: any) => (
+                    <button
+                      key={item.id}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center justify-between gap-2 ${bulkMatchTargetId === item.id ? "bg-primary/10 font-medium" : ""}`}
+                      onClick={() => setBulkMatchTargetId(item.id)}
+                    >
+                      <span className="truncate">{item.name || item.merchant || item.source}</span>
+                      <span className="text-muted-foreground whitespace-nowrap flex-shrink-0">
+                        {formatCurrency(item.amount)}
+                      </span>
+                    </button>
+                  ))}
+                {(bulkMatchType === "income" ? incomes : bills).filter((item: any) => {
+                  const label = (item.name || item.merchant || item.source || "").toLowerCase();
+                  return label.includes(bulkMatchSearch.toLowerCase());
+                }).length === 0 && (
+                  <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                    No {bulkMatchType === "income" ? "income entries" : "bills"} found
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => { setBulkMatchType(null); setBulkMatchTargetId(""); setBulkMatchSearch(""); }}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={!bulkMatchTargetId || bulkMatchMutation.isPending}
+                onClick={() => {
+                  if (bulkMatchType && bulkMatchTargetId) {
+                    bulkMatchMutation.mutate({
+                      ids: Array.from(selectedIds),
+                      matchType: bulkMatchType,
+                      targetId: bulkMatchTargetId,
+                    });
+                  }
+                }}
+              >
+                {bulkMatchMutation.isPending
+                  ? "Matching..."
+                  : `Match ${selectedIds.size} Transaction${selectedIds.size !== 1 ? "s" : ""}`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

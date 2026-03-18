@@ -1,0 +1,1 @@
+fix: add timeframe to dashboard cards; fix subscriptions modal scrollbar and Uncheck All visibility
