@@ -13,7 +13,6 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { TopNavBar } from "@/components/TopNavBar";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
-import { FloatingChatbot } from "@/components/floating-chatbot";
 import { FeatureUsageProvider } from "@/contexts/FeatureUsageContext";
 import { SubscriptionGate } from "@/components/subscription-gate";
 import { Button } from "@/components/ui/button";
@@ -241,7 +240,6 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
       </div>
       <OnboardingWizard open={showOnboarding} onComplete={handleOnboardingComplete} isDemo={isDemo} />
       <PWAInstallPrompt />
-      <FloatingChatbot />
     </SidebarProvider>
     </FeatureUsageProvider>
     </SubscriptionGate>

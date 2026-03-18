@@ -135,9 +135,28 @@ function ChatMessage({ message }: { message: Message }) {
   );
 }
 
-export function FloatingChatbot() {
+interface FloatingChatbotProps {
+  /** When provided, the component is controlled externally — the floating
+   *  trigger button is hidden and the caller manages open/close. */
+  externalOpen?: boolean;
+  onExternalClose?: () => void;
+}
+
+export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatbotProps = {}) {
+  const isControlled = externalOpen !== undefined;
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+
+  // Sync external open state
+  const effectiveOpen = isControlled ? externalOpen! : isOpen;
+  const handleClose = () => {
+    if (isControlled) {
+      onExternalClose?.();
+    } else {
+      setIsOpen(false);
+    }
+    setIsMinimized(false);
+  };
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -201,7 +220,10 @@ export function FloatingChatbot() {
     "Spending tips",
   ];
 
-  if (!isOpen) {
+  if (!effectiveOpen) {
+    // In controlled mode, never show the floating button — caller handles trigger
+    if (isControlled) return null;
+
     return (
       <button
         onClick={() => setIsOpen(true)}
@@ -274,10 +296,7 @@ export function FloatingChatbot() {
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-white hover:bg-white/20"
-              onClick={() => {
-                setIsOpen(false);
-                setIsMinimized(false);
-              }}
+              onClick={handleClose}
             >
               <X className="h-4 w-4" />
             </Button>

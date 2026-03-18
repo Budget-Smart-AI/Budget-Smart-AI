@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut, Lock, FileText, ArrowRight } from "lucide-react";
+import { FloatingChatbot } from "@/components/floating-chatbot";
+import { LayoutDashboard, Receipt, CreditCard, DollarSign, PieChart, Target, BarChart3, Settings, Users, User, Building2, Wallet, Bot, RefreshCw, Tag, Mail, Sparkles, Brain, HelpCircle, Zap, BookOpen, TrendingDown, Landmark, TrendingUp, Home, Calendar, Users2, MessageSquare, Calculator, ScanLine, Shield, ShieldAlert, Cpu, Store, Activity, LogOut, Lock, FileText, ArrowRight, Loader2 } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -213,6 +214,7 @@ function formatResetDate(d: Date | null): string {
 export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarProps) {
   const [location, navigate] = useLocation();
   const [upgradeModalFeature, setUpgradeModalFeature] = useState<UpgradeModalFeature | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const { plan, getFeatureState, usageMap } = useFeatureUsage();
 
   const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
@@ -291,6 +293,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   };
 
   return (
+    <>
     <Sidebar>
       <SidebarHeader className="p-4">
         <BudgetSmartLogoWithText showTagline={true} />
@@ -479,30 +482,80 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
               )}
             </div>
           </Link>
-          <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
-            {import.meta.env.VITE_PARTNERO_ENABLED === 'true' && (
-              <>
-                <Link href="/affiliate" className="hover:text-primary transition-colors">
-                  Affiliate Program
-                </Link>
-                <span>·</span>
-              </>
-            )}
-            <Link href="/help" className="hover:text-primary transition-colors">
-              Help
-            </Link>
-            <span>·</span>
-            <button
-              onClick={() => logoutMutation.mutate()}
-              disabled={logoutMutation.isPending}
-              className="hover:text-primary transition-colors disabled:opacity-50"
-              data-testid="sidebar-logout-button"
-              aria-label="Logout"
-              aria-busy={logoutMutation.isPending}
-            >
-              {logoutMutation.isPending ? "Logging out..." : "Logout"}
-            </button>
-          </div>
+          <TooltipProvider>
+            <div className="flex items-center gap-1 px-1">
+              {/* Help icon */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/help">
+                    <button
+                      type="button"
+                      className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      aria-label="Help"
+                    >
+                      <HelpCircle className="h-4 w-4" />
+                    </button>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="top">Help</TooltipContent>
+              </Tooltip>
+
+              {/* Logout icon */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => logoutMutation.mutate()}
+                    disabled={logoutMutation.isPending}
+                    className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                    data-testid="sidebar-logout-button"
+                    aria-label="Logout"
+                  >
+                    {logoutMutation.isPending
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <LogOut className="h-4 w-4" />
+                    }
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Logout</TooltipContent>
+              </Tooltip>
+
+              {/* AI Chat icon */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setChatOpen(true)}
+                    className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors relative"
+                    aria-label="AI Financial Assistant"
+                  >
+                    <div className="relative">
+                      <Bot className="h-4 w-4" />
+                      <Sparkles className="h-2.5 w-2.5 text-emerald-500 absolute -top-1 -right-1" />
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">AI Financial Assistant</TooltipContent>
+              </Tooltip>
+
+              {import.meta.env.VITE_PARTNERO_ENABLED === 'true' && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link href="/affiliate">
+                      <button
+                        type="button"
+                        className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        aria-label="Affiliate Program"
+                      >
+                        <Tag className="h-4 w-4" />
+                      </button>
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Affiliate Program</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          </TooltipProvider>
         </div>
       </SidebarFooter>
       {upgradeModalFeature && (
@@ -514,5 +567,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
         />
       )}
     </Sidebar>
+    <FloatingChatbot externalOpen={chatOpen} onExternalClose={() => setChatOpen(false)} />
+    </>
   );
 }
