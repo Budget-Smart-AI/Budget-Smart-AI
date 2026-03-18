@@ -914,14 +914,14 @@ export default function Dashboard() {
               title="Bank Deposits"
               value={formatCurrency(realIncomeFromBank)}
               icon={TrendingUp}
-              description="Actual income received"
+              description={`Actual income received · ${format(now, "MMM yyyy")}`}
               isLoading={isLoading}
             />
             <RealCashFlowCard
               title="Total Outgoing"
               value={formatCurrency(realSpendingFromBank)}
               icon={TrendingDown}
-              description="All spending this month"
+              description={`All spending · ${format(now, "MMM yyyy")}`}
               isLoading={isLoading}
               isNegative
             />

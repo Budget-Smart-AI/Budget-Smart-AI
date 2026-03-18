@@ -464,13 +464,13 @@ function DetectSubscriptionsDialog({
           Detect Subscriptions
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-lg flex flex-col max-h-[85vh] overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Detect Subscriptions with AI</DialogTitle>
         </DialogHeader>
 
         {detected.length === 0 ? (
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto">
             <p className="text-sm text-muted-foreground">
               Analyze your bank transactions to automatically detect recurring subscription charges like Netflix, Spotify, gym memberships, and more.
             </p>
@@ -503,8 +503,9 @@ function DetectSubscriptionsDialog({
             </Button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="flex flex-col min-h-0 flex-1 gap-4">
+            {/* Header row — always visible, never scrolls */}
+            <div className="flex items-center justify-between shrink-0">
               <p className="text-sm text-muted-foreground">
                 Found {detected.length} potential subscription{detected.length !== 1 ? "s" : ""}. Select the ones you want to add:
               </p>
@@ -519,7 +520,8 @@ function DetectSubscriptionsDialog({
               </Button>
             </div>
 
-            <div className="max-h-[300px] overflow-y-auto space-y-2">
+            {/* Scrollable list — only this part scrolls */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-2 min-h-0">
               {detected.map((sub, index) => (
                 <div
                   key={index}
@@ -531,11 +533,11 @@ function DetectSubscriptionsDialog({
                     onCheckedChange={() => toggleSelect(index)}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="font-medium truncate">{sub.name}</span>
-                      <span className="font-bold text-primary">{formatCurrency(sub.amount)}</span>
+                      <span className="font-bold text-primary shrink-0">{formatCurrency(sub.amount)}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                       <span>{sub.frequency}</span>
                       <span>•</span>
                       <span>{sub.transactionCount} charges found</span>
@@ -547,13 +549,8 @@ function DetectSubscriptionsDialog({
               ))}
             </div>
 
-            {detected.length === 0 && (
-              <p className="text-center text-muted-foreground py-4">
-                No new subscriptions detected. All recurring charges are already tracked!
-              </p>
-            )}
-
-            <div className="flex gap-2">
+            {/* Action buttons — always visible at bottom */}
+            <div className="flex gap-2 shrink-0">
               <Button
                 variant="outline"
                 onClick={() => {
