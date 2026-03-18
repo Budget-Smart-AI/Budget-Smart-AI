@@ -1,5 +1,6 @@
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import {
   User,
   Shield,
@@ -51,10 +52,11 @@ export function SettingsLayout({ activeTab, children }: SettingsLayoutProps) {
       ? `${firstName[0]}${lastName[0]}`.toUpperCase()
       : (s?.username || "U")[0]?.toUpperCase() || "U";
 
-  // Use the plan column (set by admin or Stripe webhook) — capitalise first letter
-  const rawPlan: string = s?.plan || "";
-  const planLabel: string = rawPlan && rawPlan !== "free"
-    ? `${rawPlan.charAt(0).toUpperCase()}${rawPlan.slice(1)} Plan — Active`
+  // Use the effective plan from FeatureUsageContext (same source as the top-right badge).
+  // This respects admin overrides, Stripe subscriptions, and the planResolver priority chain.
+  const { plan: effectivePlan } = useFeatureUsage();
+  const planLabel: string = effectivePlan && effectivePlan !== "free"
+    ? `${effectivePlan.charAt(0).toUpperCase()}${effectivePlan.slice(1)} Plan — Active`
     : "Free Plan";
 
   const activeConfig = SETTINGS_TABS.find((t) => t.slug === activeTab);
