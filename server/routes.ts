@@ -4016,7 +4016,11 @@ Return JSON: { "income": [...] }`;
 
       // Update subscription plan and/or status if provided
       if (subscriptionPlanId !== undefined || subscriptionStatus !== undefined) {
-        const stripeUpdates: { subscriptionPlanId?: string | null; subscriptionStatus?: string | null } = {};
+        const stripeUpdates: {
+          subscriptionPlanId?: string | null;
+          subscriptionStatus?: string | null;
+          plan?: string | null;
+        } = {};
 
         if (subscriptionPlanId !== undefined) {
           stripeUpdates.subscriptionPlanId = subscriptionPlanId;
@@ -4025,6 +4029,30 @@ Return JSON: { "income": [...] }`;
             stripeUpdates.subscriptionStatus = "active";
           } else if (subscriptionPlanId === null) {
             stripeUpdates.subscriptionStatus = null;
+          }
+
+          // Derive the plan tier (free/pro/family) from the pricing plan name so that
+          // planResolver.ts Priority 3 (manual override via user.plan) works correctly.
+          // Without this, getEffectivePlan() falls through to 'free' even when a plan
+          // is manually assigned in the admin panel.
+          if (subscriptionPlanId === null) {
+            stripeUpdates.plan = "free";
+          } else {
+            try {
+              const pricingPlan = await storage.getLandingPricingPlan(subscriptionPlanId);
+              if (pricingPlan) {
+                const nameLower = pricingPlan.name.toLowerCase();
+                if (nameLower.includes("family")) {
+                  stripeUpdates.plan = "family";
+                } else if (nameLower.includes("pro")) {
+                  stripeUpdates.plan = "pro";
+                } else {
+                  stripeUpdates.plan = "pro"; // default any paid plan to pro
+                }
+              }
+            } catch (err) {
+              console.warn(`[Admin] Could not resolve plan tier for planId=${subscriptionPlanId}:`, err);
+            }
           }
         }
 
