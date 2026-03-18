@@ -474,6 +474,15 @@ function DetectSubscriptionsDialog({
             <p className="text-sm text-muted-foreground">
               Analyze your bank transactions to automatically detect recurring subscription charges like Netflix, Spotify, gym memberships, and more.
             </p>
+
+            {/* Reconciliation wait-time tip */}
+            <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                <strong>Just added a new account?</strong> Wait about 20 minutes for the auto-reconciliation process to finish before running detection — this ensures all your transactions are fully categorized for the most accurate results.
+              </p>
+            </div>
+
             <Button
               onClick={handleDetect}
               disabled={detecting}
@@ -495,9 +504,20 @@ function DetectSubscriptionsDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Found {detected.length} potential subscription{detected.length !== 1 ? "s" : ""}. Select the ones you want to add:
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Found {detected.length} potential subscription{detected.length !== 1 ? "s" : ""}. Select the ones you want to add:
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground hover:text-foreground shrink-0 ml-2"
+                onClick={() => setSelected(new Set())}
+                disabled={selected.size === 0}
+              >
+                Uncheck All
+              </Button>
+            </div>
 
             <div className="max-h-[300px] overflow-y-auto space-y-2">
               {detected.map((sub, index) => (
