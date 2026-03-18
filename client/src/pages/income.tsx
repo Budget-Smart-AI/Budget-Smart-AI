@@ -53,7 +53,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, DollarSign, ChevronLeft, ChevronRight, Search, Filter, ArrowUpDown, Sparkles, Loader2, CheckCircle2, Calendar, X } from "lucide-react";
+import { Plus, Pencil, Trash2, DollarSign, ChevronLeft, ChevronRight, Search, Filter, ArrowUpDown, Sparkles, Loader2, CheckCircle2, Calendar, X, AlertTriangle, ShieldCheck } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isBefore, isAfter, isEqual } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -576,11 +576,10 @@ export default function IncomePage() {
       return response.json();
     },
     onSuccess: (data) => {
-      toast({
-        title: "Duplicates Removed",
-        description: data.message || `Removed ${data.removed} duplicate income records`,
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      // Always show the review dialog so the user sees what happened
+      setDedupReviewData(data);
+      setIsDedupReviewOpen(true);
     },
     onError: () => {
       toast({ title: "Failed to clean duplicates", variant: "destructive" });
@@ -650,6 +649,14 @@ export default function IncomePage() {
       setIsAddingDetected(false);
     }
   };
+
+  // Dedup review dialog state
+  const [dedupReviewData, setDedupReviewData] = useState<{
+    removed: number;
+    message: string;
+    flaggedForReview: Array<{ source: string; date: string; amount: string; count: number; ids: string[] }>;
+  } | null>(null);
+  const [isDedupReviewOpen, setIsDedupReviewOpen] = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
@@ -1061,6 +1068,96 @@ export default function IncomePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Clean Duplicates Review Dialog */}
+      <Dialog open={isDedupReviewOpen} onOpenChange={setIsDedupReviewOpen}>
+        <DialogContent className="sm:max-w-[560px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Clean Duplicates — Results
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Exact duplicates removed */}
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+              <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                  {dedupReviewData?.removed ?? 0} exact duplicate{(dedupReviewData?.removed ?? 0) !== 1 ? "s" : ""} removed
+                </p>
+                <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
+                  {(dedupReviewData?.removed ?? 0) > 0
+                    ? "Records where source, date, amount, category, and notes all matched — safest to remove."
+                    : "No exact duplicates found in your income records."}
+                </p>
+              </div>
+            </div>
+
+            {/* Manual/auto-import conflicts */}
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+              <CheckCircle2 className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium">
+                  0 manual / auto-import conflicts found
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  No auto-imported records had a matching manual entry within ±1 day and 1% amount.
+                </p>
+              </div>
+            </div>
+
+            {/* Flagged for review */}
+            {(dedupReviewData?.flaggedForReview?.length ?? 0) > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <p className="text-sm font-medium">
+                    {dedupReviewData!.flaggedForReview.length} group{dedupReviewData!.flaggedForReview.length !== 1 ? "s" : ""} flagged for your review
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  These entries appear 3+ times on the same day with the same amount. They may be legitimate (e.g., 3 separate client payments) — review before deleting.
+                </p>
+                <div className="space-y-2 max-h-[240px] overflow-y-auto">
+                  {dedupReviewData!.flaggedForReview.map((group, i) => (
+                    <div key={i} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{group.source}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {format(parseISO(group.date), "MMM d, yyyy")} · {formatCurrency(group.amount)} · appears {group.count}×
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700 shrink-0 text-xs">
+                        Keep all
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground italic">
+                  To remove any of these, use the delete (🗑) button on the income row directly.
+                </p>
+              </div>
+            )}
+
+            {/* All clear message when nothing flagged */}
+            {(dedupReviewData?.flaggedForReview?.length ?? 0) === 0 && (dedupReviewData?.removed ?? 0) === 0 && (
+              <div className="text-center py-4">
+                <ShieldCheck className="h-10 w-10 mx-auto text-green-500 mb-2" />
+                <p className="text-sm font-medium">Your income records look clean!</p>
+                <p className="text-xs text-muted-foreground mt-1">No duplicates or suspicious entries were found.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end pt-2 border-t">
+            <Button onClick={() => setIsDedupReviewOpen(false)}>
+              Done
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

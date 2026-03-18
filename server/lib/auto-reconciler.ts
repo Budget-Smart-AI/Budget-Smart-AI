@@ -651,6 +651,34 @@ export async function autoReconcile(userId: string): Promise<{
     if (txAmount >= 0) continue; // must be negative (money in)
 
     const source = tx.merchantCleanName || tx.name || "Unknown";
+
+    // ── EXCLUSION LIST: skip internal bank transfers, not real income ────
+    // These are bank-internal movements that Plaid sometimes categorises as
+    // INCOME/DIRECT_DEPOSIT but are NOT actual income (e.g. Scotiabank Transit
+    // is an internal routing entry, not a payroll deposit).
+    const INCOME_EXCLUSION_KEYWORDS = [
+      'scotiabank transit',
+      'bank transfer',
+      'transfer from',
+      'transfer to',
+      'e-transfer',
+      'etransfer',
+      'interac',
+      'internal transfer',
+      'account transfer',
+      'funds transfer',
+      'wire transfer',
+      'ach transfer',
+      'credit card payment',
+      'loan payment',
+      'mortgage payment',
+    ];
+    const sourceLower = source.toLowerCase();
+    const isExcluded = INCOME_EXCLUSION_KEYWORDS.some(kw => sourceLower.includes(kw));
+    if (isExcluded) {
+      console.log(`[AutoReconciler] Skipping excluded income source: "${source}" (matches exclusion list)`);
+      continue;
+    }
     const absAmount = Math.abs(txAmount);
     const incomeCategory = personalCat === "salary" ? "Salary" : "Other";
 

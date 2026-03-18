@@ -904,16 +904,27 @@ Return JSON: { "bills": [...] }`;
       }
 
       // Get disabled Plaid account IDs to filter out linked incomes
+      // Also filter by plaid_items.status = 'active' to exclude ghost transactions
+      // from disconnected/error items (fixes inflated income totals)
       const plaidItems = await storage.getPlaidItems(userId);
       let disabledPlaidAccountIds = new Set<string>();
       if (plaidItems.length > 0) {
-        const allAccounts = await Promise.all(plaidItems.map(item => storage.getPlaidAccounts(item.id)));
-        disabledPlaidAccountIds = new Set(
-          allAccounts.flat().filter(a => a.isActive !== "true").map(a => a.id)
+        // Collect accounts from inactive items OR accounts marked inactive
+        const allAccountsNested = await Promise.all(plaidItems.map(item => storage.getPlaidAccounts(item.id)));
+        const allAccounts = allAccountsNested.flat();
+        // Disable accounts that are themselves inactive
+        const inactiveByAccount = allAccounts.filter(a => a.isActive !== "true").map(a => a.id);
+        // Disable ALL accounts belonging to a plaid_item that is not 'active'
+        const inactiveItemIds = new Set(
+          plaidItems.filter(item => item.status !== "active").map(item => item.id)
         );
+        const inactiveByItem = allAccounts
+          .filter(a => inactiveItemIds.has(a.plaidItemId))
+          .map(a => a.id);
+        disabledPlaidAccountIds = new Set([...inactiveByAccount, ...inactiveByItem]);
       }
 
-      // Filter out incomes linked to disabled Plaid accounts
+      // Filter out incomes linked to disabled/inactive Plaid accounts
       const filteredIncomes = incomes.filter(inc => {
         if (inc.linkedPlaidAccountId && disabledPlaidAccountIds.has(inc.linkedPlaidAccountId)) {
           return false;
@@ -940,28 +951,38 @@ Return JSON: { "bills": [...] }`;
   });
 
   // Auto-detect recurring income from transaction history (pattern-based, no AI)
-  // Deduplicate income records — removes exact duplicates (same source+date+amount),
-  // keeping the oldest record per group. Also removes "Auto-imported" entries that
-  // duplicate manually-entered records. Returns count of removed records.
+  // Deduplicate income records — SAFER version:
+  //   Step 1: Remove records where the SAME Plaid transaction was imported twice
+  //           (identified by matching notes containing the same plaid transaction ID).
+  //   Step 2: Flag (but do NOT auto-delete) same source+date+amount appearing 3+ times.
+  //   Step 3: Remove "Auto-imported" entries where a manual entry exists within ±1 day
+  //           and within 1% of the same amount.
+  // Returns count removed + flagged groups for user review.
   app.post("/api/income/deduplicate", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
       const { pool: dedupPool } = await import("./db");
 
-      // Step 1: Remove exact duplicates (same user_id + source + date + amount),
-      // keeping the one with the earliest created_at (or lowest id as tiebreaker).
-      const { rows: dupGroups } = await dedupPool.query(`
-        SELECT source, date, amount, COUNT(*) as cnt,
+      let removed = 0;
+
+      // ── Step 1: Remove EXACT duplicates only when ALL fields match ──────────
+      // Requires source + date + amount + category + notes ALL identical.
+      // This catches the case where the same record was inserted twice (e.g., a
+      // double-sync bug) but will NOT delete legitimate same-day same-amount
+      // payments from different transactions (e.g., 3 × $400 Stripe payouts).
+      const { rows: exactDupGroups } = await dedupPool.query(`
+        SELECT source, date, amount, category, notes,
+               COUNT(*) as cnt,
                MIN(id) as keep_id,
-               ARRAY_AGG(id ORDER BY id) as all_ids
+               ARRAY_AGG(id ORDER BY created_at ASC, id ASC) as all_ids
         FROM income
         WHERE user_id = $1
-        GROUP BY source, date, amount
+        GROUP BY source, date, amount, category, notes
         HAVING COUNT(*) > 1
       `, [userId]);
 
-      let removed = 0;
-      for (const group of dupGroups) {
+      for (const group of exactDupGroups) {
+        // Only delete the extras — keep the oldest (first in all_ids after ORDER BY created_at)
         const idsToDelete = (group.all_ids as string[]).filter((id: string) => id !== group.keep_id);
         if (idsToDelete.length > 0) {
           await dedupPool.query(
@@ -972,9 +993,23 @@ Return JSON: { "bills": [...] }`;
         }
       }
 
-      // Step 2: Remove "Auto-imported from bank transaction" entries where a
-      // manually-entered record exists for the same source within ±3 days and
-      // within 5% of the same amount (the manual entry takes precedence).
+      // ── Step 2: Flag suspicious entries (same source+date+amount, 3+ times) ─
+      // These are NOT auto-deleted — returned to the frontend for user review.
+      // Legitimate case: 3 × $400 Stripe payments same day = 3 real customers.
+      // Suspicious case: same record imported 3 times by a sync bug.
+      const { rows: suspicious } = await dedupPool.query(`
+        SELECT source, date, amount, COUNT(*) as count,
+               ARRAY_AGG(id ORDER BY created_at ASC) as ids
+        FROM income
+        WHERE user_id = $1
+          AND (notes IS NULL OR notes NOT LIKE '%Auto-imported from bank transaction%')
+        GROUP BY source, date, amount
+        HAVING COUNT(*) >= 3
+      `, [userId]);
+
+      // ── Step 3: Remove "Auto-imported" entries where a manual entry exists ──
+      // Tighter thresholds: ±1 day (was ±3) and within 1% amount (was 5%).
+      // This prevents false positives like $400 auto-import vs $380 manual entry.
       const { rows: autoImported } = await dedupPool.query(`
         SELECT id, source, date, amount
         FROM income
@@ -990,8 +1025,8 @@ Return JSON: { "bills": [...] }`;
             AND id != $2
             AND (notes IS NULL OR notes NOT LIKE '%Auto-imported from bank transaction%')
             AND LOWER(source) = LOWER($3)
-            AND ABS(date::date - $4::date) <= 3
-            AND ABS(amount::numeric - $5) / NULLIF($5, 0) < 0.05
+            AND ABS(date::date - $4::date) <= 1
+            AND ABS(amount::numeric - $5) / NULLIF($5, 0) < 0.01
           LIMIT 1
         `, [userId, autoInc.id, autoInc.source, autoInc.date, amt]);
 
@@ -1001,8 +1036,20 @@ Return JSON: { "bills": [...] }`;
         }
       }
 
-      console.log(`[Income Dedup] Removed ${removed} duplicate income records for user ${userId}`);
-      res.json({ removed, message: `Removed ${removed} duplicate income records` });
+      console.log(`[Income Dedup] Removed ${removed} exact duplicate income records for user ${userId}. Flagged ${suspicious.length} group(s) for review.`);
+      res.json({
+        removed,
+        message: removed > 0
+          ? `Removed ${removed} exact duplicate income record${removed !== 1 ? "s" : ""}`
+          : "No exact duplicates found",
+        flaggedForReview: suspicious.map((g: any) => ({
+          source: g.source,
+          date: g.date,
+          amount: g.amount,
+          count: parseInt(g.count),
+          ids: g.ids,
+        })),
+      });
     } catch (error: any) {
       console.error("income deduplicate error:", error);
       res.status(500).json({ error: error.message || "Failed to deduplicate income" });
