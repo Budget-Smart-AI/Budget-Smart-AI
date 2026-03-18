@@ -1370,6 +1370,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteUser(id: string): Promise<boolean> {
+    // Delete all child rows that have FK constraints on users.id before deleting the user
+    await db.delete(spendingAlerts).where(eq(spendingAlerts.userId, id));
     const result = await db.delete(users).where(eq(users.id, id)).returning();
     return result.length > 0;
   }
