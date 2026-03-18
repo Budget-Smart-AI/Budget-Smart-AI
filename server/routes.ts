@@ -428,7 +428,7 @@ export async function registerRoutes(
         }
       }
 
-      // Also get recent transactions for AI analysis (last 6 months)
+      // Also get recent transactions for AI analysis (last 12 months)
       const allAccounts = [];
       for (const item of items) {
         const accounts = await storage.getPlaidAccounts(item.id);
@@ -440,7 +440,7 @@ export async function registerRoutes(
 
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 6);
+      startDate.setMonth(startDate.getMonth() - 12);
 
       const transactions = await storage.getPlaidTransactions(accountIds, {
         startDate: startDate.toISOString().split('T')[0],
@@ -462,16 +462,21 @@ export async function registerRoutes(
 
       let aiSuggestions: any[] = [];
       if (outflowTx.length > 0) {
-        const prompt = `Analyze these ${outflowTx.length} bank transactions (last 6 months) and identify recurring bills/payments:
+        const prompt = `Analyze these ${outflowTx.length} bank transactions (last 12 months) and identify recurring bills/payments:
 
-${JSON.stringify(outflowTx.slice(0, 500))}
+${JSON.stringify(outflowTx.slice(0, 800))}
 
-Find patterns that occur 2+ times with similar amounts. For each recurring bill, provide:
+Find patterns that occur 2+ times with similar amounts. IMPORTANT NOTES:
+- Some payments may have gone NSF (non-sufficient funds) and been retried a few days later — treat these as a single recurring payment, not two separate ones. Use the most common/predominant day of month for dueDay.
+- Look for loan payments, mortgage payments, insurance, utilities, phone bills, etc. — even if the exact amount varies slightly.
+- A payment appearing on the 2nd and 16th of the same month is likely an NSF retry, not biweekly.
+
+For each recurring bill, provide:
 - name: Clean merchant/service name
-- amount: Typical amount (positive number)
+- amount: Most common/typical amount (positive number)
 - category: One of: ${BILL_CATS.join(", ")}
 - recurrence: weekly, biweekly, monthly, or yearly
-- dueDay: Day of month (1-31) typically charged
+- dueDay: Most predominant day of month (1-31) typically charged (use the mode/most common day)
 - confidence: high (3+ occurrences), medium (2 occurrences)
 
 Return JSON: { "bills": [...] }`;
@@ -8430,14 +8435,14 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
 
-      // Get all Plaid transactions from the last 6 months
+      // Get all Plaid transactions from the last 12 months
       const plaidItems = await storage.getPlaidItems(userId);
       if (plaidItems.length === 0) {
         return res.json({ subscriptions: [] });
       }
 
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
       // Collect all account IDs first - only include explicitly active accounts (isActive === "true")
       const allAccountIds: string[] = [];
@@ -8456,9 +8461,21 @@ ${JSON.stringify(txSummary)}`;
 
       // Fetch all transactions at once
       const allTransactions = await storage.getPlaidTransactions(allAccountIds, {
-        startDate: sixMonthsAgo.toISOString().split("T")[0],
+        startDate: twelveMonthsAgo.toISOString().split("T")[0],
         endDate: new Date().toISOString().split("T")[0],
       });
+
+      // Helper: get mode (most common value) from an array of numbers
+      const getMode = (arr: number[]): number => {
+        const freq: Record<number, number> = {};
+        let maxFreq = 0;
+        let mode = arr[0];
+        for (const v of arr) {
+          freq[v] = (freq[v] || 0) + 1;
+          if (freq[v] > maxFreq) { maxFreq = freq[v]; mode = v; }
+        }
+        return mode;
+      };
 
       // Group transactions by merchant name (normalized)
       const merchantGroups: Record<string, any[]> = {};
@@ -8479,11 +8496,30 @@ ${JSON.stringify(txSummary)}`;
       // Analyze each merchant group for subscription patterns
       const subscriptions: any[] = [];
 
-      for (const [merchant, transactions] of Object.entries(merchantGroups)) {
-        if (transactions.length < 2) continue;
+      for (const [merchant, rawTransactions] of Object.entries(merchantGroups)) {
+        if (rawTransactions.length < 2) continue;
 
         // Sort by date
-        transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        rawTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        // NSF deduplication: if two transactions from same merchant are within 10 days
+        // and within 5% of each other in amount, keep only the first (NSF retry pattern)
+        const transactions: typeof rawTransactions = [];
+        for (let i = 0; i < rawTransactions.length; i++) {
+          const tx = rawTransactions[i];
+          const txDate = new Date(tx.date).getTime();
+          const isDuplicate = transactions.some(prev => {
+            const prevDate = new Date(prev.date).getTime();
+            const daysDiff = Math.abs(txDate - prevDate) / (1000 * 60 * 60 * 24);
+            const prevAmt = parseFloat(prev.amount);
+            const txAmt = parseFloat(tx.amount);
+            const amountDiff = prevAmt > 0 ? Math.abs(txAmt - prevAmt) / prevAmt : 1;
+            return daysDiff <= 10 && amountDiff < 0.05;
+          });
+          if (!isDuplicate) transactions.push(tx);
+        }
+
+        if (transactions.length < 2) continue;
 
         // Get amounts and check for consistency
         const amounts = transactions.map(tx => parseFloat(tx.amount));
@@ -8504,7 +8540,7 @@ ${JSON.stringify(txSummary)}`;
 
         const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
 
-        // Determine frequency
+        // Determine frequency (widened monthly window to catch slight timing variations)
         let frequency = "monthly";
         let confidence = 0.5;
 
@@ -8514,7 +8550,7 @@ ${JSON.stringify(txSummary)}`;
         } else if (avgInterval >= 13 && avgInterval <= 16) {
           frequency = "biweekly";
           confidence = 0.75;
-        } else if (avgInterval >= 27 && avgInterval <= 35) {
+        } else if (avgInterval >= 25 && avgInterval <= 38) {
           frequency = "monthly";
           confidence = 0.85;
         } else if (avgInterval >= 355 && avgInterval <= 375) {
@@ -8527,9 +8563,13 @@ ${JSON.stringify(txSummary)}`;
           continue; // Not a recognizable pattern
         }
 
-        // Increase confidence based on transaction count
+        // Increase confidence based on deduplicated transaction count
         if (transactions.length >= 6) confidence = Math.min(confidence + 0.1, 0.95);
         if (transactions.length >= 12) confidence = Math.min(confidence + 0.05, 0.98);
+
+        // Use mode (most common day of month) as the predominant charge day
+        const daysOfMonth = transactions.map(tx => new Date(tx.date).getDate());
+        const predominantDay = getMode(daysOfMonth);
 
         // Get display name (capitalize first letters)
         const displayName = (transactions[0].merchantName || transactions[0].name || merchant)
@@ -8545,6 +8585,7 @@ ${JSON.stringify(txSummary)}`;
           confidence,
           lastChargeDate: transactions[transactions.length - 1].date,
           transactionCount: transactions.length,
+          predominantDay,
         });
       }
 
