@@ -1677,13 +1677,11 @@ export default function BankAccounts() {
 
   const unmatchedCount = transactions.filter(tx => tx.matchType === "unmatched").length;
 
-  const selectableTransactions = filteredTransactions.filter(tx => tx.matchType === "unmatched" || tx.reconciled !== "true");
-
   const toggleSelectAll = () => {
-    if (selectedIds.size === selectableTransactions.length && selectableTransactions.length > 0) {
+    if (selectedIds.size === filteredTransactions.length && filteredTransactions.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(selectableTransactions.map(tx => tx.id)));
+      setSelectedIds(new Set(filteredTransactions.map(tx => tx.id)));
     }
   };
 
@@ -2316,7 +2314,7 @@ export default function BankAccounts() {
                       <TableRow>
                         <TableHead className="w-8 sm:w-10">
                           <Checkbox
-                            checked={selectableTransactions.length > 0 && selectedIds.size === selectableTransactions.length}
+                            checked={filteredTransactions.length > 0 && selectedIds.size === filteredTransactions.length}
                             onCheckedChange={toggleSelectAll}
                           />
                         </TableHead>
@@ -2332,16 +2330,14 @@ export default function BankAccounts() {
                       {filteredTransactions.map((tx) => {
                         const amount = parseFloat(tx.amount);
                         const isDebit = amount > 0;
-                        const isSelectable = tx.matchType === "unmatched" || tx.reconciled !== "true";
+                        const isReconciled = tx.reconciled === "true" || (tx.matchType && tx.matchType !== "unmatched");
                         return (
                           <TableRow key={tx.id}>
                             <TableCell className="p-2 sm:p-4">
-                              {isSelectable && (
-                                <Checkbox
-                                  checked={selectedIds.has(tx.id)}
-                                  onCheckedChange={() => toggleSelect(tx.id)}
-                                />
-                              )}
+                              <Checkbox
+                                checked={selectedIds.has(tx.id)}
+                                onCheckedChange={() => toggleSelect(tx.id)}
+                              />
                             </TableCell>
                             <TableCell className="text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap">{tx.date}</TableCell>
                             <TableCell className="p-2 sm:p-4">
@@ -2507,21 +2503,7 @@ export default function BankAccounts() {
                               )}
                             </TableCell>
                             <TableCell className="p-2 sm:p-4">
-                              {isSelectable ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3"
-                                  onClick={() => {
-                                    setIsEditMode(false);
-                                    setReconcileTransaction(tx);
-                                  }}
-                                  data-testid={`button-reconcile-${tx.id}`}
-                                >
-                                  <span className="hidden sm:inline">Reconcile</span>
-                                  <span className="sm:hidden">Match</span>
-                                </Button>
-                              ) : tx.reconciled === "true" ? (
+                              {isReconciled ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -2535,7 +2517,21 @@ export default function BankAccounts() {
                                   <Pencil className="h-3 w-3" />
                                   <span className="hidden sm:inline">Edit</span>
                                 </Button>
-                              ) : null}
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3"
+                                  onClick={() => {
+                                    setIsEditMode(false);
+                                    setReconcileTransaction(tx);
+                                  }}
+                                  data-testid={`button-reconcile-${tx.id}`}
+                                >
+                                  <span className="hidden sm:inline">Reconcile</span>
+                                  <span className="sm:hidden">Match</span>
+                                </Button>
+                              )}
                             </TableCell>
                           </TableRow>
                         );
