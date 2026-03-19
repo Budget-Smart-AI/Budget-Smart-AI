@@ -5912,6 +5912,121 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // POST /api/admin/plaid/reset-cursor — set sync_cursor to null for a given item_id
+  // Allows forcing a full re-sync from the beginning without disconnecting the bank account.
+  // Body: { item_id: string }  (the internal DB UUID, not the Plaid item_id string)
+  app.post("/api/admin/plaid/reset-cursor", requireAdmin, async (req, res) => {
+    try {
+      const { item_id } = req.body;
+      if (!item_id) {
+        return res.status(400).json({ error: "item_id is required" });
+      }
+
+      const { rows } = await pool.query(
+        `UPDATE plaid_items SET sync_cursor = NULL, is_syncing = false WHERE id = $1 RETURNING id, institution_name, item_id`,
+        [item_id]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: `No Plaid item found with id=${item_id}` });
+      }
+
+      console.log(`[Admin] Reset sync cursor for item ${item_id} (${rows[0].institution_name})`);
+      res.json({
+        success: true,
+        message: `Sync cursor cleared for ${rows[0].institution_name || item_id}. Next sync will fetch full transaction history.`,
+        item: { id: rows[0].id, institution_name: rows[0].institution_name, plaid_item_id: rows[0].item_id },
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error resetting Plaid cursor:", error);
+      res.status(500).json({ error: error.message || "Failed to reset cursor" });
+    }
+  });
+
+  // POST /api/admin/plaid/manual-sync — trigger an immediate sync for a given item_id
+  // Useful for testing enrichment without waiting for the scheduler or a webhook.
+  // Body: { item_id: string }  (the internal DB UUID)
+  app.post("/api/admin/plaid/manual-sync", requireAdmin, async (req, res) => {
+    try {
+      const { item_id } = req.body;
+      if (!item_id) {
+        return res.status(400).json({ error: "item_id is required" });
+      }
+
+      const { rows } = await pool.query(
+        `SELECT id, access_token, user_id, institution_name FROM plaid_items WHERE id = $1`,
+        [item_id]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: `No Plaid item found with id=${item_id}` });
+      }
+
+      const item = rows[0];
+      const { syncTransactions } = await import("./plaid");
+
+      console.log(`[Admin] Manual sync triggered for item ${item_id} (${item.institution_name}) by admin`);
+
+      // Run sync in background — respond immediately so the request doesn't time out
+      const syncPromise = syncTransactions(decrypt(item.access_token), item.id, item.user_id);
+
+      syncPromise
+        .then(result => console.log(`[Admin] Manual sync complete for item ${item_id}: +${result.added} added, ${result.modified} modified, ${result.removed} removed`))
+        .catch(err => console.error(`[Admin] Manual sync failed for item ${item_id}:`, err));
+
+      res.json({
+        success: true,
+        message: `Manual sync started for ${item.institution_name || item_id}. Check server logs for progress.`,
+        item: { id: item.id, institution_name: item.institution_name },
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error triggering manual Plaid sync:", error);
+      res.status(500).json({ error: error.message || "Failed to trigger sync" });
+    }
+  });
+
+  // POST /api/admin/plaid/backfill-enrichment — run /transactions/enrich backfill
+  // for all existing transactions missing merchant_name, in batches of 100.
+  // Body: { item_id: string }  (the internal DB UUID)
+  app.post("/api/admin/plaid/backfill-enrichment", requireAdmin, async (req, res) => {
+    try {
+      const { item_id } = req.body;
+      if (!item_id) {
+        return res.status(400).json({ error: "item_id is required" });
+      }
+
+      const { rows } = await pool.query(
+        `SELECT id, access_token, user_id, institution_name FROM plaid_items WHERE id = $1`,
+        [item_id]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: `No Plaid item found with id=${item_id}` });
+      }
+
+      const item = rows[0];
+      const { backfillPlaidEnrichment } = await import("./plaid");
+
+      console.log(`[Admin] Enrichment backfill triggered for item ${item_id} (${item.institution_name}) by admin`);
+
+      // Run backfill — this can take a while for large transaction sets, so respond immediately
+      const backfillPromise = backfillPlaidEnrichment(decrypt(item.access_token), item.user_id);
+
+      backfillPromise
+        .then(result => console.log(`[Admin] Enrichment backfill complete for item ${item_id}: processed=${result.processed}, updated=${result.updated}, errors=${result.errors}`))
+        .catch(err => console.error(`[Admin] Enrichment backfill failed for item ${item_id}:`, err));
+
+      res.json({
+        success: true,
+        message: `Enrichment backfill started for ${item.institution_name || item_id}. Check server logs for progress.`,
+        item: { id: item.id, institution_name: item.institution_name },
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error triggering enrichment backfill:", error);
+      res.status(500).json({ error: error.message || "Failed to trigger enrichment backfill" });
+    }
+  });
+
   // FEATURE: PLAID_BANK_CONNECTIONS | tier: free | limit: 1 connection
   // ==================== PLAID ROUTES ====================
 

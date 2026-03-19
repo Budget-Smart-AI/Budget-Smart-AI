@@ -260,6 +260,119 @@ async function detectTransferPairs(userId: string): Promise<number> {
 }
 
 /**
+ * One-time backfill: calls Plaid /transactions/enrich on all existing
+ * plaid_transactions rows that are missing merchant_name, in batches of 100.
+ *
+ * Plaid /transactions/enrich accepts up to 100 transactions per call and
+ * returns enriched merchant_name, logo_url, website, personal_finance_category,
+ * payment_channel, and counterparties for each transaction.
+ *
+ * Returns the total number of transactions updated.
+ */
+export async function backfillPlaidEnrichment(
+  accessToken: string,
+  userId: string
+): Promise<{ processed: number; updated: number; errors: number }> {
+  let processed = 0;
+  let updated = 0;
+  let errors = 0;
+
+  try {
+    // Fetch all plaid_transactions for this user that are missing merchant_name
+    const { rows } = await pool.query(`
+      SELECT
+        t.id,
+        t.transaction_id,
+        t.name,
+        t.amount,
+        t.date,
+        t.category
+      FROM plaid_transactions t
+      JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
+      JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+      WHERE pi.user_id = $1
+        AND t.is_active = 'true'
+        AND (t.merchant_name IS NULL OR t.merchant_name = '')
+      ORDER BY t.date DESC
+    `, [userId]);
+
+    console.log(`[Plaid Enrich Backfill] Found ${rows.length} transactions missing merchant_name for user ${userId}`);
+
+    // Process in batches of 100 (Plaid API limit)
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+
+      try {
+        const enrichPayload = batch.map((tx: any) => ({
+          id: tx.transaction_id,
+          description: tx.name,
+          amount: Math.abs(parseFloat(tx.amount)),
+          direction: parseFloat(tx.amount) > 0 ? "OUTFLOW" : "INFLOW",
+          iso_currency_code: "CAD",
+        }));
+
+        const enrichResponse = await plaidClient.transactionsEnrich({
+          account_type: "depository",
+          transactions: enrichPayload,
+        } as any);
+
+        const enriched = enrichResponse.data.enriched_transactions || [];
+        processed += batch.length;
+
+        for (const enrichedTx of enriched) {
+          // Find the matching DB row by transaction_id
+          const dbRow = batch.find((r: any) => r.transaction_id === enrichedTx.id);
+          if (!dbRow) continue;
+
+          const merchantName = enrichedTx.merchant_name || null;
+          const logoUrl = enrichedTx.counterparties?.[0]?.logo_url || enrichedTx.logo_url || null;
+          const merchantEntityId = enrichedTx.counterparties?.[0]?.entity_id || null;
+          const paymentChannel = enrichedTx.payment_channel || null;
+          const pfcPrimary = enrichedTx.personal_finance_category?.primary || null;
+          const pfcDetailed = enrichedTx.personal_finance_category?.detailed || null;
+          const pfcConfidence = enrichedTx.personal_finance_category?.confidence_level || null;
+          const website = enrichedTx.website || null;
+
+          if (!merchantName && !logoUrl && !pfcPrimary) continue; // Nothing to update
+
+          await pool.query(`
+            UPDATE plaid_transactions SET
+              merchant_name = COALESCE($1, merchant_name),
+              logo_url = COALESCE($2, logo_url),
+              merchant_entity_id = COALESCE($3, merchant_entity_id),
+              payment_channel = COALESCE($4, payment_channel),
+              category = COALESCE($5, category),
+              personal_finance_category_detailed = COALESCE($6, personal_finance_category_detailed),
+              personal_finance_category_confidence = COALESCE($7, personal_finance_category_confidence)
+            WHERE id = $8
+          `, [merchantName, logoUrl, merchantEntityId, paymentChannel, pfcPrimary, pfcDetailed, pfcConfidence, dbRow.id]);
+
+          updated++;
+        }
+
+        console.log(`[Plaid Enrich Backfill] Batch ${Math.floor(i / BATCH_SIZE) + 1}: processed ${batch.length}, updated ${enriched.length}`);
+
+        // Rate limit: 100ms between batches
+        if (i + BATCH_SIZE < rows.length) {
+          await new Promise(r => setTimeout(r, 100));
+        }
+      } catch (batchErr: any) {
+        errors += batch.length;
+        console.error(`[Plaid Enrich Backfill] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed:`, batchErr?.response?.data || batchErr?.message);
+      }
+    }
+
+    console.log(`[Plaid Enrich Backfill] Complete for user ${userId}: processed=${processed}, updated=${updated}, errors=${errors}`);
+  } catch (err) {
+    console.error(`[Plaid Enrich Backfill] Fatal error for user ${userId}:`, err);
+    throw err;
+  }
+
+  return { processed, updated, errors };
+}
+
+/**
  * Sync transactions for a Plaid item using the /transactions/sync endpoint.
  *
  * Key advantages over the legacy /transactions/get:
