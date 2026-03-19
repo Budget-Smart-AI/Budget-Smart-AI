@@ -468,6 +468,14 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
   needsReview: boolean("needs_review").default(false),
+  // Plaid Transaction Enrichment API fields
+  personalFinanceCategoryDetailed: text("personal_finance_category_detailed"),
+  personalFinanceCategoryConfidence: text("personal_finance_category_confidence"), // VERY_HIGH | HIGH | LOW
+  paymentChannel: text("payment_channel"), // online | in store | other
+  merchantEntityId: text("merchant_entity_id"), // Plaid stable merchant entity ID
+  // Transfer detection fields
+  isTransfer: boolean("is_transfer").default(false),
+  transferPairId: uuid("transfer_pair_id"), // shared UUID linking matched transfer pairs
   // Soft-delete flag for /transactions/sync REMOVED events
   isActive: text("is_active").default("true"),
 });

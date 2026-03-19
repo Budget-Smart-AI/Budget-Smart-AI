@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureIsSyncingColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn, ensureBudgetPeriodColumns, ensureIncomeAutoDetectionColumns } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureIsSyncingColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn, ensureBudgetPeriodColumns, ensureIncomeAutoDetectionColumns, ensurePlaidEnrichmentColumns } from "./db";
 import { encrypt, decrypt } from "./encryption";
 import { db } from "./db";
 import { plaidItems } from "@shared/schema";
@@ -160,9 +160,8 @@ app.use(
           "https://api.plaid.com",
           "https://api.mx.com",
           "https://api.deepseek.com",
-          "https://api.openai.com",
-          "https://api.brandfetch.io",
-        ],
+            "https://api.openai.com",
+          ],
         frameSrc: ["https://cdn.plaid.com", "https://*.plaid.com", "https://*.moneydesktop.com"],
         objectSrc: ["'none'"],
       },
@@ -477,6 +476,10 @@ app.use((req, res, next) => {
 
   await ensureIncomeAutoDetectionColumns().catch(err =>
     console.error("Failed to ensure income auto_detected/detected_at columns — recurring income detection will not work:", err)
+  );
+
+  await ensurePlaidEnrichmentColumns().catch(err =>
+    console.error("Failed to ensure Plaid enrichment columns — personal_finance_category/transfer detection will not work:", err)
   );
 
   // Note: ensureUserFeatureUsageTable() and ensurePlanFeatureLimitsTable() are now

@@ -1,10 +1,12 @@
 import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from "plaid";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db";
+import { pool } from "./db";
 import { plaidItems, plaidTransactions } from "@shared/schema";
 import { storage } from "./storage";
 import { reconcileTransaction } from "./reconciliation";
 import { autoReconcile } from "./lib/auto-reconciler";
+import { randomUUID } from "crypto";
 
 const configuration = new Configuration({
   basePath: PlaidEnvironments.production,
@@ -26,37 +28,91 @@ export const PLAID_LANGUAGE = "en";
 export { Products };
 
 /**
- * Upsert a single Plaid transaction into the database.
- * Creates the transaction if it doesn't exist, updates it if it does.
- * Runs reconciliation to match against bills, expenses, and income.
+ * Map Plaid personal_finance_category.primary to Budget Smart AI category.
+ * Plaid returns values like "FOOD_AND_DRINK", "TRANSPORTATION", etc.
  */
-async function upsertTransaction(
-  userId: string,
-  itemId: string,
-  tx: any
-): Promise<void> {
+function mapPlaidCategory(plaidPrimary: string | null | undefined): string | null {
+  if (!plaidPrimary) return null;
+  const map: Record<string, string> = {
+    FOOD_AND_DRINK: "Restaurant & Bars",
+    GROCERIES: "Groceries",
+    TRANSPORTATION: "Transportation",
+    TRAVEL: "Travel",
+    ENTERTAINMENT: "Entertainment",
+    GENERAL_MERCHANDISE: "Shopping",
+    CLOTHING_AND_ACCESSORIES: "Clothing",
+    HOME_IMPROVEMENT: "Maintenance",
+    MEDICAL: "Healthcare",
+    PERSONAL_CARE: "Personal",
+    EDUCATION: "Education",
+    RENT_AND_UTILITIES: "Housing",
+    LOAN_PAYMENTS: "Credit Card",
+    BANK_FEES: "Financial",
+    GOVERNMENT_AND_NON_PROFIT: "Other",
+    INCOME: "Income",
+    TRANSFER_IN: "Transfers",
+    TRANSFER_OUT: "Transfers",
+    GENERAL_SERVICES: "Other",
+    ENTERTAINMENT_AND_RECREATION: "Entertainment",
+  };
+  return map[plaidPrimary] ?? "Other";
+}
+
+/**
+ * Upsert a single Plaid transaction into the database.
+ * Stores all enrichment fields returned by Plaid's /transactions/sync endpoint
+ * when include_personal_finance_category=true and include_logo_and_counterparty_beta=true.
+ */
+async function upsertTransaction(userId: string, itemId: string, tx: any): Promise<void> {
   const account = await storage.getPlaidAccountByAccountId(tx.account_id);
   if (!account) {
     console.warn(`[syncTransactions] No account found for account_id=${tx.account_id}, skipping`);
     return;
   }
 
-  const plaidCategory = tx.personal_finance_category?.primary || null;
+  // ── Plaid Enrichment Fields ──────────────────────────────────────────────
+  // Plaid returns enrichment inline when include_personal_finance_category=true
+  // and include_logo_and_counterparty_beta=true are set on the sync request.
+  const pfcPrimary = tx.personal_finance_category?.primary || null;
+  const pfcDetailed = tx.personal_finance_category?.detailed || null;
+  const pfcConfidence = tx.personal_finance_category?.confidence_level || null; // VERY_HIGH | HIGH | LOW
+
+  // Logo: prefer counterparties[0].logo_url (Plaid enriched), fall back to tx.logo_url
   const logoUrl = tx.counterparties?.[0]?.logo_url || tx.logo_url || null;
+
+  // Merchant entity ID for stable cross-transaction merchant linking
+  const merchantEntityId = tx.counterparties?.[0]?.entity_id || null;
+
+  // Payment channel: online | in store | other
+  const paymentChannel = tx.payment_channel || null;
+
+  // Map Plaid category to our internal category system
+  const mappedCategory = mapPlaidCategory(pfcPrimary);
+
+  // Auto-reconcile threshold based on Plaid confidence:
+  // VERY_HIGH / HIGH → auto-reconcile (reconciled = "true")
+  // LOW / null → leave for user review
+  const autoReconciled = (pfcConfidence === "VERY_HIGH" || pfcConfidence === "HIGH") ? "true" : "false";
 
   const existing = await storage.getPlaidTransactionByTransactionId(tx.transaction_id);
 
   if (existing) {
-    // Update existing transaction
+    // Update existing transaction — preserve enrichment fields
     await storage.updatePlaidTransaction(existing.id, {
       amount: tx.amount.toString(),
       date: tx.date,
       name: tx.name,
       merchantName: tx.merchant_name || null,
       logoUrl: logoUrl,
-      category: plaidCategory,
+      category: pfcPrimary,
+      personalCategory: mappedCategory,
       pending: tx.pending ? "true" : "false",
       isActive: "true",
+      // Enrichment fields
+      personalFinanceCategoryDetailed: pfcDetailed,
+      personalFinanceCategoryConfidence: pfcConfidence,
+      paymentChannel: paymentChannel,
+      merchantEntityId: merchantEntityId,
     });
   } else {
     // Fetch reconciliation context
@@ -71,10 +127,15 @@ async function upsertTransaction(
       date: tx.date,
       name: tx.name,
       merchantName: tx.merchant_name || null,
-      category: plaidCategory,
+      category: pfcPrimary,
     };
 
     const matchResult = reconcileTransaction(txData, bills, expensesList, incomes);
+
+    // Use Plaid confidence to override reconciliation status
+    const finalReconciled = autoReconciled === "true"
+      ? "true"
+      : matchResult.confidence === "high" ? "true" : "false";
 
     await storage.createPlaidTransaction({
       plaidAccountId: account.id,
@@ -84,17 +145,118 @@ async function upsertTransaction(
       name: tx.name,
       merchantName: tx.merchant_name || null,
       logoUrl: logoUrl,
-      category: plaidCategory,
-      personalCategory: matchResult.personalCategory,
+      category: pfcPrimary,
+      personalCategory: matchResult.personalCategory || mappedCategory,
       pending: tx.pending ? "true" : "false",
       matchType: matchResult.matchType,
       matchedBillId: matchResult.matchType === "bill" ? matchResult.matchedId || null : null,
       matchedExpenseId: matchResult.matchType === "expense" ? matchResult.matchedId || null : null,
       matchedIncomeId: matchResult.matchType === "income" ? matchResult.matchedId || null : null,
-      reconciled: matchResult.confidence === "high" ? "true" : "false",
-      needsReview: flagNeedsReview && (!plaidCategory || plaidCategory === "Uncategorized") ? true : false,
+      reconciled: finalReconciled,
+      needsReview: flagNeedsReview && (!pfcPrimary || pfcPrimary === "Uncategorized") ? true : false,
+      // Plaid enrichment fields
+      personalFinanceCategoryDetailed: pfcDetailed,
+      personalFinanceCategoryConfidence: pfcConfidence,
+      paymentChannel: paymentChannel,
+      merchantEntityId: merchantEntityId,
     });
   }
+}
+
+/**
+ * Detect transfer pairs after a sync batch.
+ *
+ * Finds pairs of transactions where:
+ * - Same absolute amount
+ * - Within 2 days of each other
+ * - One positive (debit), one negative (credit)
+ * - Across different accounts (same user)
+ *
+ * Marks both as is_transfer=true, matchType="transfer", and links them
+ * via a shared transfer_pair_id UUID.
+ */
+async function detectTransferPairs(userId: string): Promise<number> {
+  let pairsFound = 0;
+
+  try {
+    // Find candidate transactions: unmatched, not already flagged as transfers,
+    // belonging to this user's Plaid accounts
+    const result = await pool.query(`
+      SELECT
+        t.id,
+        t.transaction_id,
+        t.amount,
+        t.date,
+        t.plaid_account_id,
+        t.name
+      FROM plaid_transactions t
+      JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
+      JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+      WHERE pi.user_id = $1
+        AND t.is_active = 'true'
+        AND (t.is_transfer IS NULL OR t.is_transfer = false)
+        AND (t.match_type IS NULL OR t.match_type = 'unmatched')
+      ORDER BY t.date, ABS(t.amount::numeric)
+    `, [userId]);
+
+    const txs = result.rows;
+
+    // Build a map: amount → list of transactions with that absolute amount
+    const byAmount = new Map<string, typeof txs>();
+    for (const tx of txs) {
+      const absAmt = Math.abs(parseFloat(tx.amount)).toFixed(2);
+      if (!byAmount.has(absAmt)) byAmount.set(absAmt, []);
+      byAmount.get(absAmt)!.push(tx);
+    }
+
+    // For each amount group, find debit/credit pairs within 2 days across different accounts
+    for (const [, group] of byAmount) {
+      if (group.length < 2) continue;
+
+      const debits = group.filter(t => parseFloat(t.amount) > 0);  // money out
+      const credits = group.filter(t => parseFloat(t.amount) < 0); // money in
+
+      for (const debit of debits) {
+        for (const credit of credits) {
+          // Must be different accounts
+          if (debit.plaid_account_id === credit.plaid_account_id) continue;
+
+          // Must be within 2 days of each other
+          const debitDate = new Date(debit.date);
+          const creditDate = new Date(credit.date);
+          const daysDiff = Math.abs((debitDate.getTime() - creditDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysDiff > 2) continue;
+
+          // Found a transfer pair — link them
+          const pairId = randomUUID();
+          await pool.query(`
+            UPDATE plaid_transactions
+            SET is_transfer = true,
+                transfer_pair_id = $1::uuid,
+                match_type = 'transfer',
+                reconciled = 'true'
+            WHERE id = ANY($2::text[])
+          `, [pairId, [debit.id, credit.id]]);
+
+          console.log(`[Transfer Detection] Paired: ${debit.name} (${debit.amount}) ↔ ${credit.name} (${credit.amount}) on ${debit.date}/${credit.date} — pairId: ${pairId}`);
+          pairsFound++;
+
+          // Mark these as processed so we don't double-pair them
+          debit.is_transfer = true;
+          credit.is_transfer = true;
+          break; // Only pair each debit once
+        }
+      }
+    }
+
+    if (pairsFound > 0) {
+      console.log(`[Transfer Detection] Found ${pairsFound} transfer pair(s) for user ${userId}`);
+    }
+  } catch (err) {
+    console.error(`[Transfer Detection] Error for user ${userId}:`, err);
+  }
+
+  return pairsFound;
 }
 
 /**
@@ -119,10 +281,6 @@ export async function syncTransactions(
   userId: string
 ): Promise<{ added: number; modified: number; removed: number }> {
   // ── RACE CONDITION GUARD ──────────────────────────────────────────────────
-  // Check if a sync is already in progress for this item. Both
-  // HISTORICAL_UPDATE and SYNC_UPDATES_AVAILABLE webhooks fire nearly
-  // simultaneously; without this lock they both attempt to sync with the
-  // same cursor and corrupt each other's state.
   const item = await db.query.plaidItems.findFirst({
     where: eq(plaidItems.id, itemId),
   });
@@ -144,7 +302,6 @@ export async function syncTransactions(
   let modifiedCount = 0;
   let removedCount = 0;
 
-  // ── FIX 5: Log sync start with cursor state ───────────────────────────────
   console.log(`[Plaid Sync] ─────────────────────────────────────────────`);
   console.log(`[Plaid Sync] Starting sync for item ${itemId}`);
   console.log(`[Plaid Sync]   cursor: ${cursor ? 'has cursor (incremental)' : 'null (full history from start)'}`);
@@ -156,16 +313,9 @@ export async function syncTransactions(
       pageNumber++;
       let data: any;
 
-      // ── FIX 5: Log each page fetch ────────────────────────────────────────
       console.log(`[Plaid Sync] Fetching page ${pageNumber} — cursor: ${cursor ? 'has cursor' : 'null (start)'}`);
 
       try {
-        // ── BUG 1 FIX: days_requested removed ──────────────────────────────
-        // days_requested is NOT a valid parameter for /transactions/sync.
-        // It only exists on the legacy /transactions/get endpoint.
-        // Sending it causes Plaid to return HTTP 400.
-        // /transactions/sync automatically returns all available history on
-        // the first call (when cursor is undefined/null) — no parameter needed.
         const response = await plaidClient.transactionsSync({
           access_token: accessToken,
           cursor: cursor,
@@ -176,10 +326,6 @@ export async function syncTransactions(
         });
         data = response.data;
       } catch (err: any) {
-        // ── BUG 2a FIX: stale cursor reset ─────────────────────────────────
-        // If Plaid returns 400, the cursor stored in the DB is stale/invalid
-        // (e.g. from a previous failed sync). Clear it and retry once from
-        // the beginning (null cursor = full history sync).
         const status = err?.response?.status;
         const errorCode = err?.response?.data?.error_code;
 
@@ -188,13 +334,11 @@ export async function syncTransactions(
         if (status === 400 && cursor !== undefined) {
           console.log(`[Plaid Sync] Invalid cursor detected for item ${itemId} — resetting to null and retrying from beginning`);
 
-          // Clear the bad cursor in DB so future syncs also start fresh
           await db
             .update(plaidItems)
             .set({ syncCursor: null })
             .where(eq(plaidItems.id, itemId));
 
-          // Retry once with null cursor (full sync from start)
           cursor = undefined;
           const retryResponse = await plaidClient.transactionsSync({
             access_token: accessToken,
@@ -206,7 +350,6 @@ export async function syncTransactions(
           });
           data = retryResponse.data;
         } else {
-          // Not a cursor issue — re-throw so the outer catch handles it
           throw err;
         }
       }
@@ -229,11 +372,6 @@ export async function syncTransactions(
         removedCount++;
       }
 
-      // ── BUG 2a FIX: cursor saved only after successful page ─────────────
-      // Previously the cursor was saved inside the loop before we knew if
-      // the next page would succeed. Now we only persist it after a page
-      // completes successfully, so a crash mid-sync leaves the cursor at
-      // the last known-good position rather than a partial/invalid state.
       cursor = data.next_cursor;
       hasMore = data.has_more;
 
@@ -245,7 +383,14 @@ export async function syncTransactions(
 
     console.log(`[Plaid Sync] Complete for item ${itemId}: +${addedCount} added, ${modifiedCount} modified, ${removedCount} removed`);
 
-    // Auto-reconcile after every sync — fire-and-forget (don't block the response)
+    // Run transfer detection after sync if any transactions were added/modified
+    if (addedCount > 0 || modifiedCount > 0) {
+      detectTransferPairs(userId).catch((err) =>
+        console.error("[syncTransactions] detectTransferPairs failed:", err)
+      );
+    }
+
+    // Auto-reconcile after every sync — fire-and-forget
     autoReconcile(userId).catch((err) =>
       console.error("[syncTransactions] autoReconcile failed:", err)
     );
@@ -255,10 +400,6 @@ export async function syncTransactions(
     console.error(`[Plaid Sync] Error syncing item ${itemId}:`, error);
     throw error;
   } finally {
-    // ── BUG 2b FIX: always release the sync lock ────────────────────────
-    // Whether the sync succeeded or threw, clear isSyncing so the next
-    // webhook can trigger a fresh sync. Without this finally block, a
-    // crashed sync would permanently lock the item.
     await db
       .update(plaidItems)
       .set({ isSyncing: false })

@@ -813,3 +813,26 @@ export async function ensureIncomeAutoDetectionColumns(): Promise<void> {
   await pool.query(`ALTER TABLE income ADD COLUMN IF NOT EXISTS auto_detected boolean DEFAULT false`);
   await pool.query(`ALTER TABLE income ADD COLUMN IF NOT EXISTS detected_at timestamp`);
 }
+
+/**
+ * Ensure Plaid Transaction Enrichment columns exist on plaid_transactions.
+ * These columns store the enrichment data returned inline by Plaid's
+ * /transactions/sync endpoint when include_personal_finance_category=true
+ * and include_logo_and_counterparty_beta=true are set.
+ *
+ * Also adds transfer detection columns (is_transfer, transfer_pair_id).
+ * Safe to call on every startup (uses ADD COLUMN IF NOT EXISTS).
+ */
+export async function ensurePlaidEnrichmentColumns(): Promise<void> {
+  // Plaid enrichment fields
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS personal_finance_category_detailed TEXT`);
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS personal_finance_category_confidence TEXT`);
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS payment_channel TEXT`);
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS merchant_entity_id TEXT`);
+  // Transfer detection fields
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS is_transfer BOOLEAN DEFAULT false`);
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS transfer_pair_id UUID`);
+  // Index for fast transfer pair lookups
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_plaid_tx_transfer_pair ON plaid_transactions(transfer_pair_id) WHERE transfer_pair_id IS NOT NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_plaid_tx_is_transfer ON plaid_transactions(is_transfer) WHERE is_transfer = true`);
+}

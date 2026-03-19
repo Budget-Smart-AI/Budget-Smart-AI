@@ -29,46 +29,8 @@ function normalizeRawDescription(raw: string): string {
     .trim();
 }
 
-async function fetchBrandfetchLogo(merchantName: string): Promise<{ logoUrl: string | null; website: string | null }> {
-  const apiKey = process.env.BRANDFETCH_API_KEY;
-  if (!apiKey) return { logoUrl: null, website: null };
-
-  try {
-    const searchRes = await fetch(
-      `https://api.brandfetch.io/v2/search/${encodeURIComponent(merchantName)}`,
-      { headers: { 'Authorization': `Bearer ${apiKey}` } }
-    );
-    if (!searchRes.ok) return { logoUrl: null, website: null };
-
-    const results = await searchRes.json() as Array<{ domain?: string }>;
-    if (!results?.length) return { logoUrl: null, website: null };
-
-    const domain = results[0]?.domain;
-    if (!domain) return { logoUrl: null, website: null };
-
-    const brandRes = await fetch(
-      `https://api.brandfetch.io/v2/brands/${domain}`,
-      { headers: { 'Authorization': `Bearer ${apiKey}` } }
-    );
-    if (!brandRes.ok) return { logoUrl: null, website: `https://${domain}` };
-
-    const brandData = await brandRes.json() as { logos?: Array<{ formats?: Array<{ format: string; src?: string }> }> };
-    let logoUrl: string | null = null;
-
-    for (const logoSet of (brandData.logos || [])) {
-      const formats = logoSet.formats || [];
-      const png = formats.find((f) => f.format === 'png');
-      const svg = formats.find((f) => f.format === 'svg');
-      if (png?.src) { logoUrl = png.src; break; }
-      if (svg?.src) { logoUrl = svg.src; break; }
-    }
-
-    return { logoUrl, website: `https://${domain}` };
-  } catch {
-    console.warn('[Enricher] Brandfetch failed:', merchantName);
-    return { logoUrl: null, website: null };
-  }
-}
+// Logo fetching is handled directly by Plaid (merchant.logo_url / counterparties[0].logo_url)
+// and MX (logo_url field). No external logo API is used.
 
 async function enrichWithAI(
   rawDescription: string,
@@ -181,14 +143,12 @@ export async function enrichTransaction(params: {
   // Run AI enrichment
   const aiResult = await enrichWithAI(rawDescription, normalized, amount, providerCategory);
 
-  // Fetch brand logo
-  const brandData = await fetchBrandfetchLogo(aiResult.cleanName);
-
   // Merge results — use provider category as fallback if AI confidence is low
+  // Logo is sourced from Plaid (merchant.logo_url / counterparties[0].logo_url) or MX — not fetched here
   const final: EnrichmentResult = {
     ...aiResult,
-    logoUrl: brandData.logoUrl,
-    website: brandData.website,
+    logoUrl: null,
+    website: null,
     category: (providerMapped && aiResult.confidence < 0.6) ? providerMapped.category : aiResult.category,
     subcategory: (providerMapped && aiResult.confidence < 0.6) ? providerMapped.subcategory : aiResult.subcategory,
   };
