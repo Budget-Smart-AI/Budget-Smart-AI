@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -82,11 +82,15 @@ import {
   Loader2,
   CheckCircle2,
   X,
+  MessageCircle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { format, parseISO, startOfMonth, endOfMonth, startOfMonth as startOfLastMonth, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema";
+import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -557,6 +561,50 @@ export default function ExpensesPage() {
   const [summaryExpense, setSummaryExpense] = useState<Expense | undefined>();
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
 
+  // AI Teller state
+  const [tellerOpen, setTellerOpen] = useState(false);
+  const [tellerTransaction, setTellerTransaction] = useState<TransactionContext | null>(null);
+  const [tellerHoverId, setTellerHoverId] = useState<string | null>(null);
+
+  // Teller flags state
+  const [tellerFlags, setTellerFlags] = useState<any[]>([]);
+  const [flagsBannerOpen, setFlagsBannerOpen] = useState(true);
+  const [flagsBannerExpanded, setFlagsBannerExpanded] = useState(false);
+  const [flagsLoaded, setFlagsLoaded] = useState(false);
+
+  // Load teller flags on mount
+  useEffect(() => {
+    if (flagsLoaded) return;
+    setFlagsLoaded(true);
+    apiRequest("GET", "/api/ai/teller/flags")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setTellerFlags(data);
+      })
+      .catch(() => {/* silently ignore — feature may not be available */});
+  }, [flagsLoaded]);
+
+  const dismissFlag = async (flagId: string) => {
+    try {
+      await apiRequest("POST", `/api/ai/teller/flags/${flagId}/dismiss`);
+      setTellerFlags((prev) => prev.filter((f) => f.id !== flagId));
+    } catch {/* ignore */}
+  };
+
+  const openTeller = (expense: Expense) => {
+    setTellerTransaction({
+      id: expense.id,
+      merchant: expense.merchant,
+      amount: parseFloat(expense.amount as string),
+      date: expense.date,
+      category: expense.category,
+      notes: expense.notes || undefined,
+      source: "manual",
+      isoCurrencyCode: (expense as any).isoCurrencyCode || "CAD",
+    });
+    setTellerOpen(true);
+  };
+
   // tax category dialog
   const [taxCategoryExpense, setTaxCategoryExpense] = useState<Expense | undefined>();
   const [isTaxCategoryOpen, setIsTaxCategoryOpen] = useState(false);
@@ -869,6 +917,8 @@ export default function ExpensesPage() {
 
   // ── sort header helper ─────────────────────────────────────────────────────
 
+  const flaggedTransactionIds = new Set(tellerFlags.map((f: any) => f.transaction_id));
+
   const SortHeader = ({ label, sortKey }: { label: string; sortKey: SortKey }) => (
     <TableHead
       className="cursor-pointer hover:text-primary transition-colors select-none"
@@ -885,6 +935,68 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-6">
+      {/* ── Teller Alert Banner ── */}
+      {flagsBannerOpen && tellerFlags.length > 0 && (
+        <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 overflow-hidden">
+          <div className="flex items-center gap-3 px-4 py-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                AI Bank Teller flagged {tellerFlags.length} transaction{tellerFlags.length !== 1 ? "s" : ""} for review
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                Possible issues detected — click to review
+              </p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                onClick={() => setFlagsBannerExpanded((v) => !v)}
+              >
+                {flagsBannerExpanded ? (
+                  <><ChevronUp className="h-3.5 w-3.5 mr-1" />Hide</>
+                ) : (
+                  <><ChevronDown className="h-3.5 w-3.5 mr-1" />Show</>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                onClick={() => setFlagsBannerOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          {flagsBannerExpanded && (
+            <div className="border-t border-amber-200 dark:border-amber-800 divide-y divide-amber-100 dark:divide-amber-900">
+              {tellerFlags.map((flag: any) => (
+                <div key={flag.id} className="flex items-start gap-3 px-4 py-3">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-amber-800 dark:text-amber-300">{flag.message}</p>
+                    <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 capitalize">
+                      {flag.flag_type.replace("_", " ")}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/40 shrink-0"
+                    onClick={() => dismissFlag(flag.id)}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -1198,10 +1310,13 @@ export default function ExpensesPage() {
                 <TableBody>
                   {pagedExpenses.map((expense) => {
                     const matched = isAlreadyMatched(expense);
+                    const isFlagged = flaggedTransactionIds.has(expense.id);
                     return (
                       <TableRow
                         key={expense.id}
-                        className={`${selectedIds.has(expense.id) ? "bg-muted/40" : ""} ${matched ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                        className={`${selectedIds.has(expense.id) ? "bg-muted/40" : ""} ${matched ? "cursor-pointer hover:bg-muted/30" : ""} ${isFlagged ? "border-l-2 border-l-amber-400" : ""}`}
+                        onMouseEnter={() => setTellerHoverId(expense.id)}
+                        onMouseLeave={() => setTellerHoverId(null)}
                         onClick={matched ? () => handleRowClick(expense) : undefined}
                       >
                         {/* Checkbox */}
@@ -1291,6 +1406,17 @@ export default function ExpensesPage() {
                         {/* Actions */}
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1">
+                            {/* Ask AI button — visible on hover */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`h-8 w-8 transition-opacity ${tellerHoverId === expense.id ? "opacity-100" : "opacity-0"} text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30`}
+                              onClick={(e) => { e.stopPropagation(); openTeller(expense); }}
+                              aria-label="Ask AI about this transaction"
+                              title="Ask AI about this transaction"
+                            >
+                              <MessageCircle className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -1467,6 +1593,14 @@ export default function ExpensesPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── AI Bank Teller Chatbot ── */}
+      <FloatingChatbot
+        externalOpen={tellerOpen}
+        onExternalClose={() => { setTellerOpen(false); setTellerTransaction(null); }}
+        transactionContext={tellerTransaction}
+        tellerMode={true}
+      />
 
       {/* ── Delete Confirm ── */}
       <AlertDialog open={!!deletingExpense} onOpenChange={() => setDeletingExpense(undefined)}>

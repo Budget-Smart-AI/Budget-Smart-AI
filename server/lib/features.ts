@@ -260,6 +260,15 @@ export const FEATURES: Record<string, Feature> = {
     monthlyLimit: null,
     limitUnit: null,
   },
+  AI_TELLER: {
+    key: 'ai_teller',
+    displayName: 'AI Bank Teller',
+    description: 'Conversational AI that explains transactions, flags anomalies, and takes corrective actions',
+    tier: 'pro',
+    category: 'ai',
+    monthlyLimit: null,
+    limitUnit: null,
+  },
 
   // ========== BANKING & ACCOUNTS ==========
   MX_BANK_CONNECTIONS: {
@@ -716,6 +725,7 @@ export const FEATURE_LIMITS = {
     ai_savings_advisor: 10,             // requests per month (raised from 3)
     ai_insights: 0,                     // disabled on free
     ai_daily_coach: 0,                  // disabled on free
+    ai_teller: 0,                       // disabled on free — Pro/Family feature
 
     // Banking & Accounts
     bank_connections: 1,                // total connected banks (Plaid + MX combined)
@@ -788,6 +798,7 @@ export const FEATURE_LIMITS = {
     ai_savings_advisor: null,           // unlimited
     ai_insights: null,                  // unlimited
     ai_daily_coach: null,               // unlimited
+    ai_teller: null,                    // unlimited on pro
 
     // Banking & Accounts
     bank_connections: null,             // unlimited
@@ -862,6 +873,7 @@ export const FEATURE_LIMITS = {
     ai_savings_advisor: null,
     ai_insights: null,
     ai_daily_coach: null,
+    ai_teller: null,                    // unlimited on family
 
     // Banking & Accounts (same as pro)
     bank_connections: null,

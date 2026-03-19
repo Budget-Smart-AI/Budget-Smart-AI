@@ -69,6 +69,8 @@ const TASK_SLOT_TO_FEATURE: Record<string, string> = {
   // Coach
   ai_daily_coach: 'ai_daily_coach',
   daily_coach: 'ai_daily_coach',
+  // AI Teller
+  ai_teller: 'ai_teller',
 };
 
 function resolveFeature(taskSlot: string): string {

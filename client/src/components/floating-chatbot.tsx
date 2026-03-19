@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -12,6 +12,12 @@ import {
   Loader2,
   Sparkles,
   MessageCircle,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  RefreshCw,
+  Tag,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -21,6 +27,37 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  suggestedAction?: TellerSuggestedAction | null;
+}
+
+export interface TransactionContext {
+  id: string;
+  merchant: string;
+  amount: string | number;
+  date: string;
+  category: string;
+  notes?: string;
+  source?: string; // "plaid" | "mx" | "manual"
+  isoCurrencyCode?: string;
+}
+
+interface TellerSuggestedAction {
+  type: "recategorize" | "match_transfer" | "bulk_reconcile" | "none";
+  label?: string;
+  newCategory?: string;
+  transferPairId?: string;
+  confidence?: string;
+  reason?: string;
+}
+
+interface TellerFlag {
+  id: string;
+  transaction_id: string;
+  flag_type: "transfer_pair" | "miscategory" | "anomaly";
+  message: string;
+  suggested_action?: TellerSuggestedAction | null;
+  is_dismissed: boolean;
+  created_at: string;
 }
 
 // Enhanced message formatting function
@@ -97,7 +134,124 @@ function formatMessageContent(text: string): React.ReactNode {
   return <div className="space-y-1">{elements}</div>;
 }
 
-function ChatMessage({ message }: { message: Message }) {
+// ── Teller Action Card ────────────────────────────────────────────────────────
+
+function TellerActionCard({
+  action,
+  transactionId,
+  onActionComplete,
+}: {
+  action: TellerSuggestedAction;
+  transactionId: string;
+  onActionComplete: (result: string) => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [isDismissed, setIsDismissed] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  if (action.type === "none" || isDismissed) return null;
+
+  const getActionIcon = () => {
+    switch (action.type) {
+      case "recategorize": return <Tag className="h-3.5 w-3.5" />;
+      case "match_transfer": return <ArrowLeftRight className="h-3.5 w-3.5" />;
+      case "bulk_reconcile": return <CheckCircle2 className="h-3.5 w-3.5" />;
+      default: return <Sparkles className="h-3.5 w-3.5" />;
+    }
+  };
+
+  const getActionLabel = () => {
+    if (action.label) return action.label;
+    switch (action.type) {
+      case "recategorize": return `Recategorize to "${action.newCategory}"`;
+      case "match_transfer": return "Mark as Transfer";
+      case "bulk_reconcile": return "Reconcile Transaction";
+      default: return "Apply Suggestion";
+    }
+  };
+
+  const handleConfirm = async () => {
+    setIsLoading(true);
+    try {
+      let endpoint = "";
+      let body: Record<string, any> = { transaction_id: transactionId };
+
+      if (action.type === "recategorize") {
+        endpoint = "/api/ai/teller/recategorize";
+        body.new_category = action.newCategory;
+        body.reason = action.reason;
+      } else if (action.type === "match_transfer") {
+        endpoint = "/api/ai/teller/match-transfer";
+        body.transfer_pair_id = action.transferPairId;
+      } else if (action.type === "bulk_reconcile") {
+        endpoint = "/api/ai/teller/bulk-reconcile";
+        body.transaction_ids = [transactionId];
+      }
+
+      const res = await apiRequest("POST", endpoint, body);
+      const data = await res.json();
+
+      // Invalidate relevant queries
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+
+      toast({ title: "Action applied", description: data.message || "Transaction updated successfully." });
+      onActionComplete(data.message || "Done.");
+      setIsDismissed(true);
+    } catch (err: any) {
+      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2">
+      <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+        <Sparkles className="h-3.5 w-3.5" />
+        <span className="text-xs font-semibold uppercase tracking-wide">AI Suggestion</span>
+      </div>
+      <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+        {action.reason || getActionLabel()}
+      </p>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1"
+          onClick={handleConfirm}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            getActionIcon()
+          )}
+          {getActionLabel()}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs text-muted-foreground"
+          onClick={() => setIsDismissed(true)}
+          disabled={isLoading}
+        >
+          Dismiss
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Chat Message ──────────────────────────────────────────────────────────────
+
+function ChatMessage({
+  message,
+  transactionId,
+}: {
+  message: Message;
+  transactionId?: string;
+}) {
   const isUser = message.role === "user";
 
   return (
@@ -113,39 +267,66 @@ function ChatMessage({ message }: { message: Message }) {
         )}
       </div>
       <div className={cn(
-        "max-w-[85%] rounded-2xl px-3 py-2 shadow-sm",
-        isUser
-          ? "bg-primary text-primary-foreground rounded-br-md"
-          : "bg-muted rounded-bl-md"
+        "max-w-[85%]",
+        isUser ? "" : ""
       )}>
         <div className={cn(
-          "text-sm",
-          isUser ? "" : "text-foreground"
+          "rounded-2xl px-3 py-2 shadow-sm",
+          isUser
+            ? "bg-primary text-primary-foreground rounded-br-md"
+            : "bg-muted rounded-bl-md"
         )}>
-          {isUser ? message.content : formatMessageContent(message.content)}
+          <div className={cn(
+            "text-sm",
+            isUser ? "" : "text-foreground"
+          )}>
+            {isUser ? message.content : formatMessageContent(message.content)}
+          </div>
+          <div className={cn(
+            "text-[10px] mt-1",
+            isUser ? "text-primary-foreground/60" : "text-muted-foreground"
+          )}>
+            {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </div>
         </div>
-        <div className={cn(
-          "text-[10px] mt-1",
-          isUser ? "text-primary-foreground/60" : "text-muted-foreground"
-        )}>
-          {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </div>
+        {/* Teller action card below assistant message */}
+        {!isUser && message.suggestedAction && message.suggestedAction.type !== "none" && transactionId && (
+          <TellerActionCard
+            action={message.suggestedAction}
+            transactionId={transactionId}
+            onActionComplete={(result) => {
+              // Result is shown via toast in TellerActionCard
+            }}
+          />
+        )}
       </div>
     </div>
   );
 }
+
+// ── Props ─────────────────────────────────────────────────────────────────────
 
 interface FloatingChatbotProps {
   /** When provided, the component is controlled externally — the floating
    *  trigger button is hidden and the caller manages open/close. */
   externalOpen?: boolean;
   onExternalClose?: () => void;
+  /** Teller mode: pass a transaction to ask AI about it */
+  transactionContext?: TransactionContext | null;
+  /** Whether to operate in teller mode (uses /api/ai/teller) */
+  tellerMode?: boolean;
 }
 
-export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatbotProps = {}) {
+export function FloatingChatbot({
+  externalOpen,
+  onExternalClose,
+  transactionContext,
+  tellerMode = false,
+}: FloatingChatbotProps = {}) {
   const isControlled = externalOpen !== undefined;
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const autoSentRef = useRef(false);
 
   // Sync external open state
   const effectiveOpen = isControlled ? externalOpen! : isOpen;
@@ -156,13 +337,25 @@ export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatb
       setIsOpen(false);
     }
     setIsMinimized(false);
+    // Reset auto-send flag when closed
+    autoSentRef.current = false;
   };
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
+  // Reset messages when transaction context changes (new transaction selected)
+  useEffect(() => {
+    if (tellerMode && transactionContext) {
+      setMessages([]);
+      autoSentRef.current = false;
+    }
+  }, [transactionContext?.id, tellerMode]);
+
+  // ── Regular chat mutation ──────────────────────────────────────────────────
   const chatMutation = useMutation({
     mutationFn: async (userMessages: { role: string; content: string }[]) => {
       const res = await apiRequest("POST", "/api/ai/chat", { messages: userMessages });
@@ -171,40 +364,139 @@ export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatb
     onSuccess: (data) => {
       setMessages(prev => [
         ...prev,
-        { role: "assistant", content: data.response || data.content || data.message || "Sorry, I could not generate a response. Please try again.", timestamp: new Date() },
+        {
+          role: "assistant",
+          content: data.response || data.content || data.message || "Sorry, I could not generate a response. Please try again.",
+          timestamp: new Date(),
+        },
       ]);
     },
     onError: (error: any) => {
-      toast({ title: "Failed to get response", description: error.message, variant: "destructive" });
-      setMessages(prev => [
-        ...prev,
-        { role: "assistant", content: "Sorry, I encountered an error. Please try again.", timestamp: new Date() },
-      ]);
+      if (error?.status === 402 || error?.message?.includes("402")) {
+        toast({
+          title: "Upgrade Required",
+          description: "AI Bank Teller is available on Pro and Family plans.",
+          variant: "destructive",
+        });
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "⭐ **AI Bank Teller** is a Pro feature. Upgrade your plan to ask AI about individual transactions.",
+            timestamp: new Date(),
+          },
+        ]);
+      } else {
+        toast({ title: "Failed to get response", description: error.message, variant: "destructive" });
+        setMessages(prev => [
+          ...prev,
+          { role: "assistant", content: "Sorry, I encountered an error. Please try again.", timestamp: new Date() },
+        ]);
+      }
     },
   });
+
+  // ── Teller mutation ────────────────────────────────────────────────────────
+  const tellerMutation = useMutation({
+    mutationFn: async ({
+      userMessage,
+      conversationHistory,
+    }: {
+      userMessage: string;
+      conversationHistory: { role: string; content: string }[];
+    }) => {
+      const res = await apiRequest("POST", "/api/ai/teller", {
+        transaction_id: transactionContext?.id,
+        user_message: userMessage,
+        conversation_history: conversationHistory,
+        transaction_context: transactionContext,
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        if (res.status === 402) {
+          throw Object.assign(new Error("upgrade_required"), { status: 402, data: errData });
+        }
+        throw new Error(errData.error || "Request failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.response || "I couldn't analyze this transaction. Please try again.",
+          timestamp: new Date(),
+          suggestedAction: data.suggested_action || null,
+        },
+      ]);
+    },
+    onError: (error: any) => {
+      if (error?.status === 402) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "⭐ **AI Bank Teller** is available on **Pro** and **Family** plans.\n\nUpgrade to get AI-powered transaction analysis, anomaly detection, and smart recategorization.",
+            timestamp: new Date(),
+          },
+        ]);
+      } else {
+        toast({ title: "Teller error", description: error.message, variant: "destructive" });
+        setMessages(prev => [
+          ...prev,
+          { role: "assistant", content: "Sorry, I encountered an error analyzing this transaction. Please try again.", timestamp: new Date() },
+        ]);
+      }
+    },
+  });
+
+  const isPending = tellerMode ? tellerMutation.isPending : chatMutation.isPending;
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, chatMutation.isPending]);
+  }, [messages, isPending]);
 
   useEffect(() => {
-    if (isOpen && !isMinimized && inputRef.current) {
+    if (effectiveOpen && !isMinimized && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [isOpen, isMinimized]);
+  }, [effectiveOpen, isMinimized]);
+
+  // Auto-send initial teller message when opened in teller mode
+  useEffect(() => {
+    if (
+      tellerMode &&
+      transactionContext &&
+      effectiveOpen &&
+      !isMinimized &&
+      !autoSentRef.current &&
+      messages.length === 0 &&
+      !isPending
+    ) {
+      autoSentRef.current = true;
+      const initialMessage = "Explain this transaction to me and tell me if anything looks wrong.";
+      sendMessage(initialMessage);
+    }
+  }, [tellerMode, transactionContext, effectiveOpen, isMinimized, messages.length, isPending]);
 
   const sendMessage = (text: string) => {
-    if (!text.trim() || chatMutation.isPending) return;
+    if (!text.trim() || isPending) return;
 
     const userMessage: Message = { role: "user", content: text.trim(), timestamp: new Date() };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput("");
 
-    const apiMessages = updatedMessages.map(m => ({ role: m.role, content: m.content }));
-    chatMutation.mutate(apiMessages);
+    if (tellerMode && transactionContext) {
+      const conversationHistory = messages.map(m => ({ role: m.role, content: m.content }));
+      tellerMutation.mutate({ userMessage: text.trim(), conversationHistory });
+    } else {
+      const apiMessages = updatedMessages.map(m => ({ role: m.role, content: m.content }));
+      chatMutation.mutate(apiMessages);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -219,6 +511,15 @@ export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatb
     "Upcoming bills",
     "Spending tips",
   ];
+
+  // ── Teller header subtitle ─────────────────────────────────────────────────
+  const tellerSubtitle = transactionContext
+    ? `${transactionContext.merchant} · ${
+        typeof transactionContext.amount === "number"
+          ? new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(transactionContext.amount)
+          : transactionContext.amount
+      }`
+    : null;
 
   if (!effectiveOpen) {
     // In controlled mode, never show the floating button — caller handles trigger
@@ -268,22 +569,37 @@ export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatb
       <div className={cn(
         "bg-background rounded-2xl shadow-2xl border overflow-hidden",
         "transition-all duration-300 ease-out",
-        isMinimized ? "h-14" : "h-[500px]"
+        isMinimized ? "h-14" : "h-[520px]"
       )}>
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center">
-              <Sparkles className="h-4 w-4" />
+        <div className={cn(
+          "flex items-center justify-between px-4 py-3 text-white",
+          tellerMode
+            ? "bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"
+            : "bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500"
+        )}>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+              {tellerMode ? (
+                <AlertTriangle className="h-4 w-4" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
             </div>
-            <div>
-              <h3 className="font-semibold text-sm">AI Assistant</h3>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-sm">
+                {tellerMode ? "AI Bank Teller" : "AI Assistant"}
+              </h3>
               {!isMinimized && (
-                <p className="text-[10px] text-white/80">Your financial advisor</p>
+                <p className="text-[10px] text-white/80 truncate max-w-[200px]">
+                  {tellerMode && tellerSubtitle
+                    ? tellerSubtitle
+                    : "Your financial advisor"}
+                </p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             <Button
               variant="ghost"
               size="icon"
@@ -305,47 +621,101 @@ export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatb
 
         {!isMinimized && (
           <>
+            {/* Teller context banner */}
+            {tellerMode && transactionContext && (
+              <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-800">
+                <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                  You asked about:{" "}
+                  <span className="font-semibold">{transactionContext.merchant}</span>
+                  {" · "}
+                  <span>
+                    {typeof transactionContext.amount === "number"
+                      ? new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(transactionContext.amount)
+                      : transactionContext.amount}
+                  </span>
+                  {" on "}
+                  <span>
+                    {new Date(transactionContext.date + "T00:00:00").toLocaleDateString("en-CA", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                </p>
+              </div>
+            )}
+
             {/* Messages */}
-            <div ref={scrollRef} className="flex-1 h-[350px] overflow-y-auto p-3 space-y-3">
-              {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center space-y-4 px-4">
-                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center">
-                    <Bot className="h-6 w-6 text-emerald-600" />
+            <div
+              ref={scrollRef}
+              className={cn(
+                "flex-1 overflow-y-auto p-3 space-y-3",
+                tellerMode && transactionContext ? "h-[330px]" : "h-[350px]"
+              )}
+            >
+              {messages.length === 0 && !isPending ? (
+                tellerMode ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center space-y-3 px-4">
+                    <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                      <AlertTriangle className="h-6 w-6 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Analyzing transaction…</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Your AI Bank Teller is reviewing this transaction
+                      </p>
+                    </div>
+                    <Loader2 className="h-5 w-5 animate-spin text-amber-500" />
                   </div>
-                  <div>
-                    <p className="text-sm font-medium">Hi! How can I help?</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Ask me about your finances
-                    </p>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-center space-y-4 px-4">
+                    <div className="h-12 w-12 rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center">
+                      <Bot className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Hi! How can I help?</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Ask me about your finances
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      {quickPrompts.map((prompt, i) => (
+                        <Button
+                          key={i}
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 px-2 rounded-full"
+                          onClick={() => sendMessage(prompt)}
+                        >
+                          {prompt}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 justify-center">
-                    {quickPrompts.map((prompt, i) => (
-                      <Button
-                        key={i}
-                        variant="outline"
-                        size="sm"
-                        className="text-xs h-7 px-2 rounded-full"
-                        onClick={() => sendMessage(prompt)}
-                      >
-                        {prompt}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
+                )
               ) : (
                 <>
                   {messages.map((msg, i) => (
-                    <ChatMessage key={i} message={msg} />
+                    <ChatMessage
+                      key={i}
+                      message={msg}
+                      transactionId={tellerMode ? transactionContext?.id : undefined}
+                    />
                   ))}
-                  {chatMutation.isPending && (
+                  {isPending && (
                     <div className="flex gap-2">
-                      <div className="h-7 w-7 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
+                      <div className={cn(
+                        "h-7 w-7 rounded-full flex items-center justify-center shadow-sm",
+                        tellerMode
+                          ? "bg-gradient-to-br from-amber-500 to-orange-600"
+                          : "bg-gradient-to-br from-emerald-500 to-teal-600"
+                      )}>
                         <Sparkles className="h-3.5 w-3.5 text-white" />
                       </div>
                       <div className="bg-muted rounded-2xl rounded-bl-md px-3 py-2 shadow-sm">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>Thinking...</span>
+                          <span>{tellerMode ? "Analyzing…" : "Thinking…"}</span>
                         </div>
                       </div>
                     </div>
@@ -362,16 +732,21 @@ export function FloatingChatbot({ externalOpen, onExternalClose }: FloatingChatb
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Type a message..."
+                  placeholder={tellerMode ? "Ask about this transaction…" : "Type a message..."}
                   className="min-h-[38px] max-h-[80px] resize-none text-sm rounded-xl bg-background"
                   rows={1}
-                  disabled={chatMutation.isPending}
+                  disabled={isPending}
                 />
                 <Button
                   onClick={() => sendMessage(input)}
-                  disabled={!input.trim() || chatMutation.isPending}
+                  disabled={!input.trim() || isPending}
                   size="icon"
-                  className="h-[38px] w-[38px] flex-shrink-0 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                  className={cn(
+                    "h-[38px] w-[38px] flex-shrink-0 rounded-xl",
+                    tellerMode
+                      ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                      : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                  )}
                 >
                   <Send className="h-4 w-4" />
                 </Button>

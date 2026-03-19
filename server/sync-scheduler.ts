@@ -210,6 +210,36 @@ export async function initializeSyncScheduler(): Promise<void> {
   setTimeout(scheduleRecurringIncomeDetection, 30_000);
   setInterval(scheduleRecurringIncomeDetection, ONE_DAY_MS);
   console.log('[Sync] Nightly recurring income detection scheduled (every 24h)');
+
+  // Run AI Teller proactive analysis nightly for all users
+  const scheduleTellerAnalysis = async () => {
+    try {
+      const allUsers = await storage.getUsers();
+      const { runTellerAnalysis } = await import('./ai-teller');
+      let totalFlags = 0;
+      for (const user of allUsers) {
+        try {
+          // Get recent transactions (last 7 days) for this user
+          const recentTxIds = await storage.getRecentTransactionIds(String(user.id), 7);
+          if (recentTxIds.length === 0) continue;
+          const flags = await runTellerAnalysis(String(user.id), recentTxIds);
+          totalFlags += flags.length;
+        } catch (err) {
+          console.error(`[Sync] Teller analysis failed for user ${user.id}:`, err);
+        }
+      }
+      if (totalFlags > 0) {
+        console.log(`[Sync] Nightly teller analysis: created ${totalFlags} flag(s) across ${allUsers.length} user(s)`);
+      }
+    } catch (err) {
+      console.error('[Sync] Nightly teller analysis failed:', err);
+    }
+  };
+
+  // Run once at startup (deferred 60s to let DB settle), then every 24 hours
+  setTimeout(scheduleTellerAnalysis, 60_000);
+  setInterval(scheduleTellerAnalysis, ONE_DAY_MS);
+  console.log('[Sync] Nightly AI Teller analysis scheduled (every 24h)');
 }
 
 export function updateSyncScheduleTimer(schedule: SyncSchedule): void {

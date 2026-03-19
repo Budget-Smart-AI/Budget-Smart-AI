@@ -161,6 +161,7 @@ export interface IStorage {
   // Plaid Transactions
   getPlaidTransactions(accountIds: string[], options?: { startDate?: string; endDate?: string }): Promise<PlaidTransaction[]>;
   getPlaidTransactionByTransactionId(transactionId: string): Promise<PlaidTransaction | undefined>;
+  getRecentTransactionIds(userId: string, daysBack: number): Promise<string[]>;
   createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction>;
   updatePlaidTransaction(id: string, updates: Partial<PlaidTransaction>): Promise<PlaidTransaction | undefined>;
   deleteRemovedTransactions(transactionIds: string[]): Promise<void>;
@@ -941,6 +942,7 @@ export class MemStorage implements IStorage {
   // Plaid Transactions (MemStorage stubs)
   async getPlaidTransactions(_accountIds: string[], _options?: { startDate?: string; endDate?: string }): Promise<PlaidTransaction[]> { return []; }
   async getPlaidTransactionByTransactionId(_transactionId: string): Promise<PlaidTransaction | undefined> { return undefined; }
+  async getRecentTransactionIds(_userId: string, _daysBack: number): Promise<string[]> { return []; }
   async createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction> { return { id: randomUUID(), ...transaction, merchantName: transaction.merchantName || null, category: transaction.category || null, personalCategory: transaction.personalCategory || null, pending: transaction.pending || "false", matchType: transaction.matchType || null, matchedBillId: transaction.matchedBillId || null, matchedExpenseId: transaction.matchedExpenseId || null, matchedIncomeId: transaction.matchedIncomeId || null, reconciled: transaction.reconciled || "false", isoCurrencyCode: transaction.isoCurrencyCode || "CAD", taxDeductible: transaction.taxDeductible || null, taxCategory: transaction.taxCategory || null, isBusinessExpense: transaction.isBusinessExpense || null, logoUrl: transaction.logoUrl || null, createdAt: transaction.createdAt || null, merchantCleanName: null, merchantLogoUrl: null, subcategory: null, merchantType: null, isSubscription: "false", enrichmentSource: null, enrichmentConfidence: null } as PlaidTransaction; }
   async updatePlaidTransaction(_id: string, _updates: Partial<PlaidTransaction>): Promise<PlaidTransaction | undefined> { return undefined; }
   async deleteRemovedTransactions(_transactionIds: string[]): Promise<void> {}
@@ -1735,6 +1737,26 @@ export class DatabaseStorage implements IStorage {
   async getPlaidTransactionByTransactionId(transactionId: string): Promise<PlaidTransaction | undefined> {
     const result = await db.select().from(plaidTransactions).where(eq(plaidTransactions.transactionId, transactionId));
     return result[0];
+  }
+
+  async getRecentTransactionIds(userId: string, daysBack: number): Promise<string[]> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysBack);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
+    const userAccounts = await this.getAllPlaidAccounts(userId);
+    const accountIds = userAccounts.map(a => a.id);
+    if (accountIds.length === 0) return [];
+    const rows = await db
+      .select({ id: plaidTransactions.id })
+      .from(plaidTransactions)
+      .where(
+        and(
+          inArray(plaidTransactions.plaidAccountId, accountIds),
+          gte(plaidTransactions.date, cutoffStr)
+        )
+      )
+      .limit(50);
+    return rows.map(r => r.id);
   }
 
   async createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction> {

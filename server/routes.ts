@@ -7619,6 +7619,229 @@ Provide clear, specific, and actionable financial advice based on the data above
     }
   });
 
+  // ── AI Bank Teller Routes ─────────────────────────────────────────────────
+
+  // POST /api/ai/teller — Phase 1: Transaction-level AI conversation
+  app.post("/api/ai/teller", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const plan = await getEffectivePlan(userId);
+      const gateResult = await checkAndConsume(userId, plan, "ai_teller");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          error: "upgrade_required",
+          upgradeRequired: true,
+          message: "AI Bank Teller is available on Pro and Family plans.",
+        });
+      }
+
+      const { transaction_id, user_message, conversation_history = [], transaction_context } = req.body;
+      if (!user_message) return res.status(400).json({ error: "user_message is required" });
+
+      const { buildTellerSystemPrompt } = await import("./ai-teller");
+      const { system, suggestedAction } = await buildTellerSystemPrompt(userId, transaction_context || null);
+
+      const { bedrockChat } = await import("./lib/bedrock");
+
+      const chatMessages = [
+        ...(conversation_history as Array<{ role: string; content: string }>),
+        { role: "user" as const, content: user_message },
+      ];
+
+      const responseContent = await bedrockChat({
+        feature: "ai_teller",
+        messages: chatMessages,
+        system,
+        maxTokens: 512,
+        temperature: 0.7,
+      });
+
+      auditLogFromRequest(req, {
+        eventType: "data.ai_teller_action",
+        eventCategory: "data",
+        actorId: userId,
+        action: "ai_teller_chat",
+        outcome: "success",
+        metadata: { transaction_id },
+      });
+
+      return res.json({
+        response: responseContent,
+        suggested_action: suggestedAction,
+      });
+    } catch (err: any) {
+      console.error("[AI Teller] Error:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // GET /api/ai/teller/flags — Phase 2: Get active teller flags
+  app.get("/api/ai/teller/flags", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { rows } = await pool.query(
+        `SELECT * FROM teller_flags WHERE user_id = $1 AND is_dismissed = false ORDER BY created_at DESC LIMIT 10`,
+        [userId]
+      );
+      return res.json(rows);
+    } catch (err: any) {
+      console.error("[AI Teller] Error fetching flags:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/ai/teller/flags/:id/dismiss — Phase 2: Dismiss a flag
+  app.post("/api/ai/teller/flags/:id/dismiss", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { id } = req.params;
+      await pool.query(
+        `UPDATE teller_flags SET is_dismissed = true WHERE id = $1 AND user_id = $2`,
+        [id, userId]
+      );
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/ai/teller/recategorize — Phase 3: Recategorize a transaction
+  app.post("/api/ai/teller/recategorize", requireAuth, requireWriteAccess, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const plan = await getEffectivePlan(userId);
+      const gateResult = await checkAndConsume(userId, plan, "ai_teller");
+      if (!gateResult.allowed) return res.status(402).json({ error: "upgrade_required" });
+
+      const { transaction_id, new_category, reason, source = "plaid" } = req.body;
+      if (!transaction_id || !new_category) {
+        return res.status(400).json({ error: "transaction_id and new_category required" });
+      }
+
+      let updated: any;
+      if (source === "mx") {
+        updated = await storage.updateMxTransaction(transaction_id, { category: new_category } as any);
+      } else {
+        updated = await storage.updatePlaidTransaction(transaction_id, { category: new_category } as any);
+      }
+
+      // Dismiss related miscategory flags
+      await pool.query(
+        `UPDATE teller_flags SET is_dismissed = true WHERE transaction_id = $1 AND user_id = $2 AND flag_type = 'miscategory'`,
+        [transaction_id, userId]
+      );
+
+      auditLogFromRequest(req, {
+        eventType: "data.ai_teller_action",
+        eventCategory: "data",
+        actorId: userId,
+        action: `AI Teller recategorized transaction ${transaction_id} to "${new_category}" — user confirmed`,
+        outcome: "success",
+        metadata: { transaction_id, new_category, reason },
+      });
+
+      return res.json({ success: true, updated });
+    } catch (err: any) {
+      console.error("[AI Teller] Recategorize error:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/ai/teller/match-transfer — Phase 3: Match two transactions as a transfer pair
+  app.post("/api/ai/teller/match-transfer", requireAuth, requireWriteAccess, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const plan = await getEffectivePlan(userId);
+      const gateResult = await checkAndConsume(userId, plan, "ai_teller");
+      if (!gateResult.allowed) return res.status(402).json({ error: "upgrade_required" });
+
+      const { transaction_id_1, transaction_id_2 } = req.body;
+      if (!transaction_id_1 || !transaction_id_2) {
+        return res.status(400).json({ error: "Both transaction IDs required" });
+      }
+
+      const tx1 = await storage.getPlaidTransactionByTransactionId(transaction_id_1);
+      const tx2 = await storage.getPlaidTransactionByTransactionId(transaction_id_2);
+      if (!tx1 || !tx2) return res.status(404).json({ error: "One or both transactions not found" });
+
+      const amt1 = Math.abs(parseFloat(tx1.amount));
+      const amt2 = Math.abs(parseFloat(tx2.amount));
+      if (Math.abs(amt1 - amt2) > 0.02) {
+        return res.status(400).json({ error: "Amounts do not match" });
+      }
+
+      const d1 = new Date(tx1.date).getTime();
+      const d2 = new Date(tx2.date).getTime();
+      const daysDiff = Math.abs(d1 - d2) / (1000 * 60 * 60 * 24);
+      if (daysDiff > 3) {
+        return res.status(400).json({ error: "Transactions are more than 3 days apart" });
+      }
+
+      const transferPairId = crypto.randomUUID();
+
+      await storage.updatePlaidTransaction(tx1.id, { isTransfer: "true", transferPairId, status: "Transfer" } as any);
+      await storage.updatePlaidTransaction(tx2.id, { isTransfer: "true", transferPairId, status: "Transfer" } as any);
+
+      await pool.query(
+        `UPDATE teller_flags SET is_dismissed = true WHERE transaction_id IN ($1, $2) AND user_id = $3`,
+        [transaction_id_1, transaction_id_2, userId]
+      );
+
+      auditLogFromRequest(req, {
+        eventType: "data.ai_teller_action",
+        eventCategory: "data",
+        actorId: userId,
+        action: `AI Teller matched transfer pair ${transaction_id_1} ↔ ${transaction_id_2} — user confirmed`,
+        outcome: "success",
+        metadata: { transaction_id_1, transaction_id_2, transferPairId },
+      });
+
+      return res.json({ success: true, transferPairId });
+    } catch (err: any) {
+      console.error("[AI Teller] Match-transfer error:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/ai/teller/bulk-reconcile — Phase 3: Bulk reconcile high-confidence transactions
+  app.post("/api/ai/teller/bulk-reconcile", requireAuth, requireWriteAccess, sensitiveApiRateLimiter, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const plan = await getEffectivePlan(userId);
+      const gateResult = await checkAndConsume(userId, plan, "ai_teller");
+      if (!gateResult.allowed) return res.status(402).json({ error: "upgrade_required" });
+
+      const { transaction_ids } = req.body;
+      if (!Array.isArray(transaction_ids) || transaction_ids.length === 0) {
+        return res.status(400).json({ error: "transaction_ids array required" });
+      }
+
+      const updated: any[] = [];
+      for (const txId of transaction_ids) {
+        const tx = await storage.getPlaidTransactionByTransactionId(txId);
+        if (!tx) continue;
+        const confidence = ((tx as any).enrichmentConfidence || "").toUpperCase();
+        if (!["VERY_HIGH", "HIGH"].includes(confidence)) continue;
+        const result = await storage.updatePlaidTransaction(tx.id, { reconciled: "true" } as any);
+        if (result) updated.push(result);
+      }
+
+      auditLogFromRequest(req, {
+        eventType: "data.ai_teller_action",
+        eventCategory: "data",
+        actorId: userId,
+        action: `AI Teller bulk reconciled ${updated.length} transactions — user confirmed`,
+        outcome: "success",
+        metadata: { count: updated.length, transaction_ids },
+      });
+
+      return res.json({ success: true, updated });
+    } catch (err: any) {
+      console.error("[AI Teller] Bulk-reconcile error:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Get suggested prompts
   app.get("/api/ai/suggestions", requireAuth, async (_req, res) => {
     res.json([
