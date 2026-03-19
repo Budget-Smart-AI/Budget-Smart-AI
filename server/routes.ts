@@ -7622,6 +7622,7 @@ Provide clear, specific, and actionable financial advice based on the data above
   // ── AI Bank Teller Routes ─────────────────────────────────────────────────
 
   // POST /api/ai/teller — Phase 1: Transaction-level AI conversation
+  // Supports mode: "transaction" (default) | "health_summary" | "bulk_triage"
   app.post("/api/ai/teller", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -7635,13 +7636,87 @@ Provide clear, specific, and actionable financial advice based on the data above
         });
       }
 
-      const { transaction_id, user_message, conversation_history = [], transaction_context } = req.body;
+      const { mode = "transaction", transaction_id, user_message, conversation_history = [], transaction_context } = req.body;
       if (!user_message) return res.status(400).json({ error: "user_message is required" });
 
+      const { bedrockChat } = await import("./lib/bedrock");
+
+      // ── Health Summary mode ──────────────────────────────────────────────
+      if (mode === "health_summary") {
+        const { buildHealthSummaryContext, buildHealthSummaryPrompt } = await import("./ai-teller");
+        const ctx = await buildHealthSummaryContext(userId);
+        const system = buildHealthSummaryPrompt(ctx);
+
+        const chatMessages = [
+          ...(conversation_history as Array<{ role: string; content: string }>),
+          { role: "user" as const, content: user_message },
+        ];
+
+        const responseContent = await bedrockChat({
+          feature: "ai_teller",
+          messages: chatMessages,
+          system,
+          maxTokens: 600,
+          temperature: 0.7,
+        });
+
+        auditLogFromRequest(req, {
+          eventType: "data.ai_teller_action",
+          eventCategory: "data",
+          actorId: userId,
+          action: "ai_teller_health_summary",
+          outcome: "success",
+          metadata: {
+            unmatched_count: ctx.unmatchedCount,
+            transfer_pairs: ctx.detectedTransferPairs.length,
+            stale_items: ctx.stalePlaidItems.length,
+          },
+        });
+
+        return res.json({
+          response: responseContent,
+          suggested_action: { type: "none", details: null },
+          health_context: ctx,
+        });
+      }
+
+      // ── Bulk Triage mode ─────────────────────────────────────────────────
+      if (mode === "bulk_triage") {
+        const { buildBulkTriageContext } = await import("./ai-teller");
+        const { items, prompt: system } = await buildBulkTriageContext(userId);
+
+        const chatMessages = [
+          ...(conversation_history as Array<{ role: string; content: string }>),
+          { role: "user" as const, content: user_message },
+        ];
+
+        const responseContent = await bedrockChat({
+          feature: "ai_teller",
+          messages: chatMessages,
+          system,
+          maxTokens: 800,
+          temperature: 0.7,
+        });
+
+        auditLogFromRequest(req, {
+          eventType: "data.ai_teller_action",
+          eventCategory: "data",
+          actorId: userId,
+          action: "ai_teller_bulk_triage",
+          outcome: "success",
+          metadata: { triage_items: items.length },
+        });
+
+        return res.json({
+          response: responseContent,
+          suggested_action: { type: "none", details: null },
+          triage_items: items,
+        });
+      }
+
+      // ── Default: single transaction mode ────────────────────────────────
       const { buildTellerSystemPrompt } = await import("./ai-teller");
       const { system, suggestedAction } = await buildTellerSystemPrompt(userId, transaction_context || null);
-
-      const { bedrockChat } = await import("./lib/bedrock");
 
       const chatMessages = [
         ...(conversation_history as Array<{ role: string; content: string }>),

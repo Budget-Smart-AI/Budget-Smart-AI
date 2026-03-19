@@ -70,6 +70,10 @@ import {
   DollarSign,
   Pencil,
   RotateCcw,
+  MessageCircle,
+  Bot,
+  ArrowLeftRight,
+  Sparkles,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -82,6 +86,7 @@ import { TransactionDrilldown } from "@/components/transaction-drilldown";
 import { BankProviderSelectionDialog } from "@/components/bank-provider-selection";
 import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
 import { ConnectBankWizard } from "@/components/connect-bank-wizard";
+import { FloatingChatbot } from "@/components/floating-chatbot";
 // Category color map mirrors server/merchant-categories.ts CATEGORY_COLORS
 const CATEGORY_COLORS: Record<string, string> = {
   'Food & Dining':    '#f97316',
@@ -1345,6 +1350,11 @@ export default function BankAccounts() {
   const [editingManualTx, setEditingManualTx] = useState<ManualTransaction | null>(null);
   const [deleteManualAccountId, setDeleteManualAccountId] = useState<string | null>(null);
 
+  // AI Teller state
+  const [tellerTx, setTellerTx] = useState<PlaidTransaction | null>(null);
+  const [tellerOpen, setTellerOpen] = useState(false);
+  const [tellerMode, setTellerMode] = useState<"transaction" | "health_summary" | "bulk_triage">("transaction");
+
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
 
@@ -1744,6 +1754,16 @@ export default function BankAccounts() {
               >
                 <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                 <span className="hidden sm:inline">Sync</span>
+              </Button>
+              {/* AI Teller — Account Health button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-xs sm:text-sm bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-400"
+                onClick={() => { setTellerMode("health_summary"); setTellerTx(null); setTellerOpen(true); }}
+              >
+                <Bot className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Ask AI Teller</span>
               </Button>
             </>
           )}
@@ -2226,6 +2246,21 @@ export default function BankAccounts() {
                   </SelectContent>
                 </Select>
               )}
+              {/* Review Unmatched with AI — only shown when there are unmatched transactions */}
+              {unmatchedCount > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 text-xs sm:text-sm border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/20 whitespace-nowrap"
+                  onClick={() => { setTellerMode("bulk_triage"); setTellerTx(null); setTellerOpen(true); }}
+                >
+                  <Sparkles className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Review Unmatched</span>
+                  <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px] bg-amber-500 text-white border-0">
+                    {unmatchedCount}
+                  </Badge>
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -2331,8 +2366,9 @@ export default function BankAccounts() {
                         const amount = parseFloat(tx.amount);
                         const isDebit = amount > 0;
                         const isReconciled = tx.reconciled === "true" || (tx.matchType && tx.matchType !== "unmatched");
+                        const isUnmatched = tx.matchType === "unmatched";
                         return (
-                          <TableRow key={tx.id}>
+                          <TableRow key={tx.id} className={isUnmatched ? "border-l-2 border-l-amber-400" : ""}>
                             <TableCell className="p-2 sm:p-4">
                               <Checkbox
                                 checked={selectedIds.has(tx.id)}
@@ -2503,35 +2539,51 @@ export default function BankAccounts() {
                               )}
                             </TableCell>
                             <TableCell className="p-2 sm:p-4">
-                              {isReconciled ? (
+                              <div className="flex items-center gap-1">
+                                {isReconciled ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3 gap-1"
+                                    onClick={() => {
+                                      setIsEditMode(true);
+                                      setReconcileTransaction(tx);
+                                    }}
+                                    data-testid={`button-edit-${tx.id}`}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    <span className="hidden sm:inline">Edit</span>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3"
+                                    onClick={() => {
+                                      setIsEditMode(false);
+                                      setReconcileTransaction(tx);
+                                    }}
+                                    data-testid={`button-reconcile-${tx.id}`}
+                                  >
+                                    <span className="hidden sm:inline">Reconcile</span>
+                                    <span className="sm:hidden">Match</span>
+                                  </Button>
+                                )}
+                                {/* Ask AI button */}
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3 gap-1"
+                                  className="h-7 w-7 p-0 text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                                  title="Ask AI about this transaction"
                                   onClick={() => {
-                                    setIsEditMode(true);
-                                    setReconcileTransaction(tx);
+                                    setTellerTx(tx);
+                                    setTellerMode("transaction");
+                                    setTellerOpen(true);
                                   }}
-                                  data-testid={`button-edit-${tx.id}`}
                                 >
-                                  <Pencil className="h-3 w-3" />
-                                  <span className="hidden sm:inline">Edit</span>
+                                  <MessageCircle className="h-3 w-3" />
                                 </Button>
-                              ) : (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3"
-                                  onClick={() => {
-                                    setIsEditMode(false);
-                                    setReconcileTransaction(tx);
-                                  }}
-                                  data-testid={`button-reconcile-${tx.id}`}
-                                >
-                                  <span className="hidden sm:inline">Reconcile</span>
-                                  <span className="sm:hidden">Match</span>
-                                </Button>
-                              )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -2651,6 +2703,23 @@ export default function BankAccounts() {
         onOpenChange={setShowConnectWizard}
         onSuccess={handleAccountConnected}
         initialCountry={session?.country || ""}
+      />
+
+      {/* AI Bank Teller — controlled floating chatbot */}
+      <FloatingChatbot
+        externalOpen={tellerOpen}
+        onExternalClose={() => { setTellerOpen(false); setTellerTx(null); }}
+        tellerMode={true}
+        tellerApiMode={tellerMode}
+        transactionContext={tellerTx ? {
+          id: (tellerTx as any).transactionId || tellerTx.id,
+          merchant: (tellerTx as any).merchantCleanName || tellerTx.merchantName || tellerTx.name,
+          amount: parseFloat(tellerTx.amount),
+          date: tellerTx.date,
+          category: tellerTx.personalCategory || (tellerTx as any).category || "Other",
+          source: "plaid",
+          isoCurrencyCode: tellerTx.isoCurrencyCode || "CAD",
+        } : null}
       />
 
       {/* Bulk Match to Income / Bill Dialog */}

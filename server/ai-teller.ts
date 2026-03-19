@@ -227,6 +227,287 @@ Rules:
   return { system, suggestedAction };
 }
 
+// ─── Health Summary ───────────────────────────────────────────────────────────
+
+export interface HealthSummaryContext {
+  unmatchedCount: number;
+  unmatchedValue: number;
+  detectedTransferPairs: Array<{ tx1: string; tx2: string; amount: number; merchant1: string; merchant2: string; date1: string; date2: string }>;
+  stalePlaidItems: Array<{ institutionName: string; lastSynced: string | null; errorStatus: string | null }>;
+  duplicates: Array<{ merchant: string; amount: number; date: string; count: number }>;
+  reconciledCount: number;
+  totalCount: number;
+}
+
+export async function buildHealthSummaryContext(userId: string): Promise<HealthSummaryContext> {
+  const plaidItems = await storage.getPlaidItems(userId);
+  const allAccounts = await Promise.all(plaidItems.map((item) => storage.getPlaidAccounts(item.id)));
+  const accountIds = allAccounts.flat().filter((a) => a.isActive === "true").map((a) => a.id);
+
+  const ninetyDaysAgo = format(subDays(new Date(), 90), "yyyy-MM-dd");
+  const allTxs = accountIds.length > 0
+    ? await storage.getPlaidTransactions(accountIds, { startDate: ninetyDaysAgo })
+    : [];
+
+  // Unmatched stats
+  const unmatched = allTxs.filter((t) => !t.matchType || t.matchType === "unmatched");
+  const unmatchedValue = unmatched.reduce((s, t) => s + Math.abs(parseFloat(t.amount)), 0);
+
+  // Detect transfer pairs (same abs amount, opposite sign, within 3 days, different account, not already transfer)
+  const detectedTransferPairs: HealthSummaryContext["detectedTransferPairs"] = [];
+  const pairedIds = new Set<string>();
+  for (const tx of allTxs) {
+    if (pairedIds.has(tx.transactionId)) continue;
+    if (tx.isTransfer === true || tx.matchType === "transfer") continue;
+    const amount = parseFloat(tx.amount);
+    const txDate = parseISO(tx.date);
+    const pair = allTxs.find((t) => {
+      if (t.transactionId === tx.transactionId) return false;
+      if (pairedIds.has(t.transactionId)) return false;
+      if (t.isTransfer === true || t.matchType === "transfer") return false;
+      const tAmount = parseFloat(t.amount);
+      const amountMatch = Math.abs(Math.abs(tAmount) - Math.abs(amount)) < 0.02;
+      const oppositeSign = (tAmount > 0) !== (amount > 0);
+      const withinDays = Math.abs(differenceInDays(parseISO(t.date), txDate)) <= 3;
+      const differentAccount = t.plaidAccountId !== tx.plaidAccountId;
+      return amountMatch && oppositeSign && withinDays && differentAccount;
+    });
+    if (pair) {
+      pairedIds.add(tx.transactionId);
+      pairedIds.add(pair.transactionId);
+      detectedTransferPairs.push({
+        tx1: tx.transactionId,
+        tx2: pair.transactionId,
+        amount: Math.abs(amount),
+        merchant1: tx.merchantName || tx.name || "Unknown",
+        merchant2: pair.merchantName || pair.name || "Unknown",
+        date1: tx.date,
+        date2: pair.date,
+      });
+    }
+  }
+
+  // Stale Plaid items (no sync in 24h or error status)
+  const stalePlaidItems = plaidItems
+    .filter((item) => {
+      const accs = allAccounts.flat().filter((a) => a.plaidItemId === item.id);
+      const lastSynced = accs[0]?.lastSynced;
+      if (!lastSynced) return true;
+      const hoursSince = (Date.now() - new Date(lastSynced).getTime()) / (1000 * 60 * 60);
+      return hoursSince > 24 || item.status === "error" || item.status === "LOGIN_REQUIRED";
+    })
+    .map((item) => {
+      const accs = allAccounts.flat().filter((a) => a.plaidItemId === item.id);
+      return {
+        institutionName: item.institutionName || "Unknown Bank",
+        lastSynced: accs[0]?.lastSynced || null,
+        errorStatus: item.status === "active" ? null : (item.status || null),
+      };
+    });
+
+  // Duplicate detection (same merchant, same amount, same date, same account)
+  const dupMap = new Map<string, number>();
+  for (const tx of allTxs) {
+    const key = `${(tx.merchantName || tx.name || "").toLowerCase()}|${tx.amount}|${tx.date}|${tx.plaidAccountId}`;
+    dupMap.set(key, (dupMap.get(key) || 0) + 1);
+  }
+  const duplicates: HealthSummaryContext["duplicates"] = [];
+  for (const [key, count] of dupMap.entries()) {
+    if (count > 1) {
+      const [merchant, amount, date] = key.split("|");
+      duplicates.push({ merchant, amount: parseFloat(amount), date, count });
+    }
+  }
+
+  const reconciledCount = allTxs.filter((t) => t.matchType && t.matchType !== "unmatched").length;
+
+  return {
+    unmatchedCount: unmatched.length,
+    unmatchedValue,
+    detectedTransferPairs,
+    stalePlaidItems,
+    duplicates,
+    reconciledCount,
+    totalCount: allTxs.length,
+  };
+}
+
+export function buildHealthSummaryPrompt(ctx: HealthSummaryContext): string {
+  const confidence = ctx.totalCount > 0
+    ? Math.round((ctx.reconciledCount / ctx.totalCount) * 100)
+    : 100;
+
+  return `You are an AI Bank Teller for BudgetSmart AI. The user has opened the Accounts page and wants a quick health check on their accounts.
+
+Here is the current account health data:
+${JSON.stringify({
+  unmatched_transactions: ctx.unmatchedCount,
+  unmatched_combined_value: fmtAmount(ctx.unmatchedValue, false),
+  detected_transfer_pairs_not_yet_matched: ctx.detectedTransferPairs.length,
+  stale_or_errored_accounts: ctx.stalePlaidItems.length,
+  duplicate_transactions_detected: ctx.duplicates.length,
+  reconciliation_confidence_score: `${confidence}%`,
+  reconciled_count: ctx.reconciledCount,
+  total_transactions: ctx.totalCount,
+  stale_items: ctx.stalePlaidItems,
+  transfer_pairs: ctx.detectedTransferPairs.slice(0, 3),
+  duplicates: ctx.duplicates.slice(0, 3),
+}, null, 2)}
+
+Rules:
+- Give a concise account health summary under 200 words
+- Include the reconciliation confidence score (${confidence}%)
+- Mention unmatched count and combined dollar value
+- Mention detected transfer pairs if any
+- Warn about stale/errored accounts if any
+- Mention duplicates if any
+- End with a top recommended action
+- Be friendly and plain English — no accounting jargon
+- Offer to dive into any item`;
+}
+
+// ─── Bulk Triage ──────────────────────────────────────────────────────────────
+
+export interface BulkTriageItem {
+  transaction_id: string;
+  merchant: string;
+  amount: number;
+  date: string;
+  category: string;
+  triage_type: "transfer_pair" | "miscategorized" | "manual_review";
+  reason: string;
+  suggested_match_tx_id?: string;
+  suggested_match_merchant?: string;
+  suggested_match_date?: string;
+  suggested_category?: string;
+}
+
+export async function buildBulkTriageContext(
+  userId: string
+): Promise<{ items: BulkTriageItem[]; prompt: string }> {
+  const plaidItems = await storage.getPlaidItems(userId);
+  const allAccounts = await Promise.all(plaidItems.map((item) => storage.getPlaidAccounts(item.id)));
+  const accountIds = allAccounts.flat().filter((a) => a.isActive === "true").map((a) => a.id);
+
+  const ninetyDaysAgo = format(subDays(new Date(), 90), "yyyy-MM-dd");
+  const allTxs = accountIds.length > 0
+    ? await storage.getPlaidTransactions(accountIds, { startDate: ninetyDaysAgo })
+    : [];
+
+  const unmatchedTxs = allTxs.filter((t) => !t.matchType || t.matchType === "unmatched");
+
+  const items: BulkTriageItem[] = [];
+  const pairedIds = new Set<string>();
+
+  for (const tx of unmatchedTxs) {
+    if (pairedIds.has(tx.transactionId)) continue;
+    const amount = parseFloat(tx.amount);
+    const txDate = parseISO(tx.date);
+    const merchant = tx.merchantName || tx.name || "Unknown";
+    const category = tx.personalCategory || tx.category || "Uncategorized";
+
+    // Check transfer pair
+    const pair = allTxs.find((t) => {
+      if (t.transactionId === tx.transactionId) return false;
+      if (pairedIds.has(t.transactionId)) return false;
+      const tAmount = parseFloat(t.amount);
+      const amountMatch = Math.abs(Math.abs(tAmount) - Math.abs(amount)) < 0.02;
+      const oppositeSign = (tAmount > 0) !== (amount > 0);
+      const withinDays = Math.abs(differenceInDays(parseISO(t.date), txDate)) <= 3;
+      const differentAccount = t.plaidAccountId !== tx.plaidAccountId;
+      return amountMatch && oppositeSign && withinDays && differentAccount;
+    });
+
+    if (pair) {
+      pairedIds.add(tx.transactionId);
+      pairedIds.add(pair.transactionId);
+      items.push({
+        transaction_id: tx.transactionId,
+        merchant,
+        amount: Math.abs(amount),
+        date: tx.date,
+        category,
+        triage_type: "transfer_pair",
+        reason: `Matches ${pair.merchantName || pair.name || "Unknown"} ${fmtAmount(Math.abs(parseFloat(pair.amount)), false)} on ${pair.date} — likely internal transfer`,
+        suggested_match_tx_id: pair.transactionId,
+        suggested_match_merchant: pair.merchantName || pair.name || "Unknown",
+        suggested_match_date: pair.date,
+      });
+      continue;
+    }
+
+    // Check miscategorization
+    const merchantLower = merchant.toLowerCase();
+    const catLower = category.toLowerCase();
+    let miscatSuggestion: string | undefined;
+    if ((merchantLower.includes("paypal") || merchantLower.includes("e-transfer")) && catLower.includes("loan")) {
+      miscatSuggestion = "Transfers";
+    } else if (merchantLower.includes("netflix") || merchantLower.includes("spotify") || merchantLower.includes("apple") || merchantLower.includes("google")) {
+      if (!catLower.includes("subscription") && !catLower.includes("entertainment")) {
+        miscatSuggestion = "Subscriptions";
+      }
+    } else if (merchantLower.includes("uber") || merchantLower.includes("lyft") || merchantLower.includes("taxi")) {
+      if (!catLower.includes("transport") && !catLower.includes("rideshare")) {
+        miscatSuggestion = "Transportation";
+      }
+    }
+
+    if (miscatSuggestion) {
+      items.push({
+        transaction_id: tx.transactionId,
+        merchant,
+        amount: Math.abs(amount),
+        date: tx.date,
+        category,
+        triage_type: "miscategorized",
+        reason: `Merchant "${merchant}" suggests category "${miscatSuggestion}" rather than "${category}"`,
+        suggested_category: miscatSuggestion,
+      });
+      continue;
+    }
+
+    // Manual review
+    items.push({
+      transaction_id: tx.transactionId,
+      merchant,
+      amount: Math.abs(amount),
+      date: tx.date,
+      category,
+      triage_type: "manual_review",
+      reason: "Unclear merchant — needs manual review",
+    });
+  }
+
+  const transferPairs = items.filter((i) => i.triage_type === "transfer_pair");
+  const miscategorized = items.filter((i) => i.triage_type === "miscategorized");
+  const manualReview = items.filter((i) => i.triage_type === "manual_review");
+
+  const prompt = `You are an AI Bank Teller for BudgetSmart AI. The user wants to review all their unmatched transactions in bulk.
+
+Here are the ${unmatchedTxs.length} unmatched transactions I have pre-analyzed:
+
+LIKELY TRANSFER PAIRS (${transferPairs.length}):
+${transferPairs.map((i) => `- ${i.merchant} ${fmtAmount(i.amount, false)} on ${i.date} ↔ ${i.suggested_match_merchant} on ${i.suggested_match_date}`).join("\n") || "None"}
+
+LIKELY MISCATEGORIZED (${miscategorized.length}):
+${miscategorized.map((i) => `- ${i.merchant} ${fmtAmount(i.amount, false)} → should be "${i.suggested_category}" (currently "${i.category}")`).join("\n") || "None"}
+
+NEEDS MANUAL REVIEW (${manualReview.length}):
+${manualReview.map((i) => `- ${i.merchant} ${fmtAmount(i.amount, false)} on ${i.date} — ${i.reason}`).join("\n") || "None"}
+
+Rules:
+- Present this triage analysis clearly and concisely
+- For transfer pairs: show FROM/TO with amounts and dates, offer to match them
+- For miscategorized: show current vs suggested category, offer to fix
+- For manual review: briefly explain why it needs attention
+- Use emoji: 🔄 for transfer pairs, 🏷️ for miscategorized, ❓ for manual review
+- Keep the summary under 300 words
+- Tell the user how many items you found in each category
+- Remind them that all actions require their confirmation`;
+
+  return { items, prompt };
+}
+
 // ─── Phase 2: Proactive Teller Analysis ──────────────────────────────────────
 
 export async function runTellerAnalysis(

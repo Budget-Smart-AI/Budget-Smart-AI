@@ -307,7 +307,7 @@ function ChatMessage({
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface FloatingChatbotProps {
-  /** When provided, the component is controlled externally — the floating
+  /** When provided, the component is controlled externally â€" the floating
    *  trigger button is hidden and the caller manages open/close. */
   externalOpen?: boolean;
   onExternalClose?: () => void;
@@ -315,6 +315,8 @@ interface FloatingChatbotProps {
   transactionContext?: TransactionContext | null;
   /** Whether to operate in teller mode (uses /api/ai/teller) */
   tellerMode?: boolean;
+  /** Which teller API mode to use: "transaction" | "health_summary" | "bulk_triage" */
+  tellerApiMode?: "transaction" | "health_summary" | "bulk_triage";
 }
 
 export function FloatingChatbot({
@@ -322,6 +324,7 @@ export function FloatingChatbot({
   onExternalClose,
   transactionContext,
   tellerMode = false,
+  tellerApiMode = "transaction",
 }: FloatingChatbotProps = {}) {
   const isControlled = externalOpen !== undefined;
   const [isOpen, setIsOpen] = useState(false);
@@ -347,13 +350,13 @@ export function FloatingChatbot({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
-  // Reset messages when transaction context changes (new transaction selected)
+  // Reset messages when transaction context or teller mode changes
   useEffect(() => {
-    if (tellerMode && transactionContext) {
+    if (tellerMode) {
       setMessages([]);
       autoSentRef.current = false;
     }
-  }, [transactionContext?.id, tellerMode]);
+  }, [transactionContext?.id, tellerApiMode, tellerMode]);
 
   // ── Regular chat mutation ──────────────────────────────────────────────────
   const chatMutation = useMutation({
@@ -406,6 +409,7 @@ export function FloatingChatbot({
       conversationHistory: { role: string; content: string }[];
     }) => {
       const res = await apiRequest("POST", "/api/ai/teller", {
+        mode: tellerApiMode,
         transaction_id: transactionContext?.id,
         user_message: userMessage,
         conversation_history: conversationHistory,
@@ -469,18 +473,25 @@ export function FloatingChatbot({
   useEffect(() => {
     if (
       tellerMode &&
-      transactionContext &&
       effectiveOpen &&
       !isMinimized &&
       !autoSentRef.current &&
       messages.length === 0 &&
       !isPending
     ) {
+      // transaction mode requires a transactionContext
+      if (tellerApiMode === "transaction" && !transactionContext) return;
+
       autoSentRef.current = true;
-      const initialMessage = "Explain this transaction to me and tell me if anything looks wrong.";
+      let initialMessage = "Explain this transaction to me and tell me if anything looks wrong.";
+      if (tellerApiMode === "health_summary") {
+        initialMessage = "Give me a full health summary of my accounts and transactions.";
+      } else if (tellerApiMode === "bulk_triage") {
+        initialMessage = "Review all my unmatched transactions and tell me what to do with each one.";
+      }
       sendMessage(initialMessage);
     }
-  }, [tellerMode, transactionContext, effectiveOpen, isMinimized, messages.length, isPending]);
+  }, [tellerMode, tellerApiMode, transactionContext, effectiveOpen, isMinimized, messages.length, isPending]);
 
   const sendMessage = (text: string) => {
     if (!text.trim() || isPending) return;
@@ -490,7 +501,7 @@ export function FloatingChatbot({
     setMessages(updatedMessages);
     setInput("");
 
-    if (tellerMode && transactionContext) {
+    if (tellerMode && (transactionContext || tellerApiMode !== "transaction")) {
       const conversationHistory = messages.map(m => ({ role: m.role, content: m.content }));
       tellerMutation.mutate({ userMessage: text.trim(), conversationHistory });
     } else {
@@ -513,7 +524,11 @@ export function FloatingChatbot({
   ];
 
   // ── Teller header subtitle ─────────────────────────────────────────────────
-  const tellerSubtitle = transactionContext
+  const tellerSubtitle = tellerApiMode === "health_summary"
+    ? "Account Health Check"
+    : tellerApiMode === "bulk_triage"
+    ? "Unmatched Transaction Review"
+    : transactionContext
     ? `${transactionContext.merchant} · ${
         typeof transactionContext.amount === "number"
           ? new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(transactionContext.amount)
