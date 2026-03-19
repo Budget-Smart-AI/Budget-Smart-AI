@@ -16607,17 +16607,24 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // GET /api/user/has-demo-data — Check if user has any manual accounts (demo)
+  // GET /api/user/has-demo-data — Check if user has is_demo=true manual transactions
   // ──────────────────────────────────────────────────────────────────────────
   app.get("/api/user/has-demo-data", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      // Check is_demo column exists first; if not, no demo data
+      const colCheck = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'manual_transactions' AND column_name = 'is_demo' LIMIT 1`
+      );
+      if (colCheck.rows.length === 0) {
+        return res.json({ hasDemo: false });
+      }
       const result = await pool.query(
-        `SELECT COUNT(*) as cnt FROM manual_accounts WHERE user_id = $1`,
+        `SELECT EXISTS(SELECT 1 FROM manual_transactions WHERE user_id = $1 AND is_demo = true) AS has_demo`,
         [userId]
       );
-      const cnt = parseInt(result.rows[0]?.cnt ?? "0", 10);
-      res.json({ hasDemo: cnt > 0 });
+      res.json({ hasDemo: result.rows[0]?.has_demo === true });
     } catch (error: any) {
       console.error("has-demo-data error:", error);
       res.json({ hasDemo: false });
@@ -16626,11 +16633,27 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
 
   // ──────────────────────────────────────────────────────────────────────────
   // POST /api/user/load-demo-data — Seed realistic Canadian household demo data
+  // All records flagged with is_demo = true for easy detection and cleanup.
   // ──────────────────────────────────────────────────────────────────────────
   app.post("/api/user/load-demo-data", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
       const now = new Date();
+
+      // ── 0. Ensure is_demo columns exist (ADD COLUMN IF NOT EXISTS) ─────────
+      await pool.query(`ALTER TABLE manual_transactions ADD COLUMN IF NOT EXISTS is_demo boolean DEFAULT false`);
+      await pool.query(`ALTER TABLE manual_accounts     ADD COLUMN IF NOT EXISTS is_demo boolean DEFAULT false`);
+      await pool.query(`ALTER TABLE budgets             ADD COLUMN IF NOT EXISTS is_demo boolean DEFAULT false`);
+      await pool.query(`ALTER TABLE savings_goals       ADD COLUMN IF NOT EXISTS is_demo boolean DEFAULT false`);
+
+      // ── Check for existing demo data ──────────────────────────────────────
+      const existingCheck = await pool.query(
+        `SELECT EXISTS(SELECT 1 FROM manual_transactions WHERE user_id = $1 AND is_demo = true) AS has_demo`,
+        [userId]
+      );
+      if (existingCheck.rows[0]?.has_demo === true) {
+        return res.status(400).json({ error: "Demo data already loaded" });
+      }
 
       // Helper: date string N days ago (negative = future)
       const daysAgo = (n: number) => {
@@ -16641,11 +16664,11 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
 
       // ── 1. Create 3 demo manual accounts ──────────────────────────────────
       const acctResult = await pool.query(
-        `INSERT INTO manual_accounts (user_id, name, type, subtype, balance, currency, is_active)
+        `INSERT INTO manual_accounts (user_id, name, type, balance, currency, is_active, is_demo)
          VALUES
-           ($1, 'TD Chequing', 'depository', 'checking', '3842.17', 'CAD', true),
-           ($1, 'TD Savings', 'depository', 'savings', '12500.00', 'CAD', true),
-           ($1, 'TD Visa Credit Card', 'credit', 'credit card', '-1247.83', 'CAD', true)
+           ($1, 'TD Chequing',        'depository', '3842.17',  'CAD', true, true),
+           ($1, 'TD Savings',         'depository', '12500.00', 'CAD', true, true),
+           ($1, 'TD Visa Credit Card','credit',     '-1247.83', 'CAD', true, true)
          RETURNING id, name`,
         [userId]
       );
@@ -16659,90 +16682,187 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
       }
 
       // ── 2. Seed 3 months of transactions ──────────────────────────────────
-      const txns = [
-        // Month 1 (60-90 days ago)
-        { accountId: chequingId, amount: "2850.00",  merchant: "Payroll Deposit - Employer Inc",   category: "Income",         date: daysAgo(87) },
-        { accountId: chequingId, amount: "-1650.00", merchant: "Rent Payment - 123 Main St",       category: "Rent",           date: daysAgo(85) },
-        { accountId: chequingId, amount: "-124.50",  merchant: "Hydro One - Electricity",          category: "Electricity",    date: daysAgo(82) },
-        { accountId: chequingId, amount: "-89.99",   merchant: "Rogers - Internet",                category: "Internet",       date: daysAgo(80) },
-        { accountId: visaId,     amount: "-312.47",  merchant: "Loblaws - Groceries",              category: "Groceries",      date: daysAgo(78) },
-        { accountId: visaId,     amount: "-67.23",   merchant: "Shoppers Drug Mart",               category: "Pharmacy",       date: daysAgo(76) },
-        { accountId: visaId,     amount: "-48.50",   merchant: "Tim Hortons",                      category: "Coffee Shops",   date: daysAgo(74) },
-        { accountId: visaId,     amount: "-156.00",  merchant: "Canadian Tire - Auto",             category: "Transportation", date: daysAgo(72) },
-        { accountId: chequingId, amount: "-75.00",   merchant: "Netflix / Spotify / Disney+",      category: "Subscriptions",  date: daysAgo(70) },
-        { accountId: visaId,     amount: "-234.89",  merchant: "Metro - Groceries",                category: "Groceries",      date: daysAgo(68) },
-        { accountId: visaId,     amount: "-42.00",   merchant: "Cineplex - Movies",                category: "Entertainment",  date: daysAgo(65) },
-        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",              category: "Savings",        date: daysAgo(63) },
-        // Month 2 (30-60 days ago)
-        { accountId: chequingId, amount: "2850.00",  merchant: "Payroll Deposit - Employer Inc",   category: "Income",         date: daysAgo(57) },
-        { accountId: chequingId, amount: "-1650.00", merchant: "Rent Payment - 123 Main St",       category: "Rent",           date: daysAgo(55) },
-        { accountId: chequingId, amount: "-118.30",  merchant: "Hydro One - Electricity",          category: "Electricity",    date: daysAgo(52) },
-        { accountId: chequingId, amount: "-89.99",   merchant: "Rogers - Internet",                category: "Internet",       date: daysAgo(50) },
-        { accountId: visaId,     amount: "-289.12",  merchant: "Loblaws - Groceries",              category: "Groceries",      date: daysAgo(48) },
-        { accountId: visaId,     amount: "-85.00",   merchant: "LCBO",                             category: "Food & Dining",  date: daysAgo(46) },
-        { accountId: visaId,     amount: "-52.40",   merchant: "Starbucks",                        category: "Coffee Shops",   date: daysAgo(44) },
-        { accountId: visaId,     amount: "-199.99",  merchant: "Amazon.ca - Shopping",             category: "Shopping",       date: daysAgo(42) },
-        { accountId: chequingId, amount: "-75.00",   merchant: "Netflix / Spotify / Disney+",      category: "Subscriptions",  date: daysAgo(40) },
-        { accountId: visaId,     amount: "-267.45",  merchant: "Costco - Groceries",               category: "Groceries",      date: daysAgo(38) },
-        { accountId: visaId,     amount: "-120.00",  merchant: "Goodlife Fitness",                 category: "Gym",            date: daysAgo(36) },
-        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",              category: "Savings",        date: daysAgo(33) },
-        // Month 3 (0-30 days ago)
-        { accountId: chequingId, amount: "2850.00",  merchant: "Payroll Deposit - Employer Inc",   category: "Income",         date: daysAgo(27) },
-        { accountId: chequingId, amount: "-1650.00", merchant: "Rent Payment - 123 Main St",       category: "Rent",           date: daysAgo(25) },
-        { accountId: chequingId, amount: "-131.20",  merchant: "Hydro One - Electricity",          category: "Electricity",    date: daysAgo(22) },
-        { accountId: chequingId, amount: "-89.99",   merchant: "Rogers - Internet",                category: "Internet",       date: daysAgo(20) },
-        { accountId: visaId,     amount: "-301.78",  merchant: "Loblaws - Groceries",              category: "Groceries",      date: daysAgo(18) },
-        { accountId: visaId,     amount: "-38.50",   merchant: "Tim Hortons",                      category: "Coffee Shops",   date: daysAgo(16) },
-        { accountId: visaId,     amount: "-145.00",  merchant: "Indigo Books & Music",             category: "Shopping",       date: daysAgo(14) },
-        { accountId: chequingId, amount: "-75.00",   merchant: "Netflix / Spotify / Disney+",      category: "Subscriptions",  date: daysAgo(12) },
-        { accountId: visaId,     amount: "-223.60",  merchant: "Metro - Groceries",                category: "Groceries",      date: daysAgo(10) },
-        { accountId: visaId,     amount: "-89.00",   merchant: "Uber Eats",                        category: "Restaurants",    date: daysAgo(8)  },
-        { accountId: visaId,     amount: "-55.00",   merchant: "Cineplex - Movies",                category: "Entertainment",  date: daysAgo(6)  },
-        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",              category: "Savings",        date: daysAgo(4)  },
+      // Transfer pair IDs for the AI Teller demo
+      const transferPairId = crypto.randomUUID();
+
+      interface DemoTxn {
+        accountId: string;
+        amount: string;
+        merchant: string;
+        category: string;
+        date: string;
+        isTransfer?: string;
+        transferPairId?: string;
+        status?: string;
+      }
+
+      const txns: DemoTxn[] = [
+        // ── Month 1 (60-90 days ago) ──────────────────────────────────────
+        // Payroll (1st & 15th)
+        { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(88) },
+        { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(74) },
+        // Mortgage
+        { accountId: chequingId, amount: "-2100.00", merchant: "TD Mortgage Payment",            category: "Mortgage",       date: daysAgo(87) },
+        // Utilities
+        { accountId: chequingId, amount: "-95.00",   merchant: "Hydro One",                      category: "Electricity",    date: daysAgo(83) },
+        { accountId: chequingId, amount: "-110.00",  merchant: "Enbridge Gas",                   category: "Utilities",      date: daysAgo(78) },
+        { accountId: chequingId, amount: "-89.00",   merchant: "Rogers Internet",                category: "Internet",       date: daysAgo(87) },
+        // Groceries
+        { accountId: chequingId, amount: "-145.32",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(86) },
+        { accountId: visaId,     amount: "-78.45",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(82) },
+        { accountId: visaId,     amount: "-230.00",  merchant: "Costco",                         category: "Groceries",      date: daysAgo(79) },
+        { accountId: chequingId, amount: "-162.10",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(75) },
+        { accountId: visaId,     amount: "-88.90",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(71) },
+        { accountId: chequingId, amount: "-155.00",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(67) },
+        { accountId: visaId,     amount: "-72.30",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(63) },
+        // Coffee
+        { accountId: visaId,     amount: "-7.25",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(88) },
+        { accountId: visaId,     amount: "-6.80",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(85) },
+        { accountId: visaId,     amount: "-11.50",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(83) },
+        { accountId: visaId,     amount: "-7.10",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(81) },
+        { accountId: visaId,     amount: "-6.95",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(78) },
+        { accountId: visaId,     amount: "-10.80",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(76) },
+        // Subscriptions
+        { accountId: visaId,     amount: "-19.99",   merchant: "Netflix",                        category: "Subscriptions",  date: daysAgo(87) },
+        { accountId: visaId,     amount: "-10.99",   merchant: "Spotify",                        category: "Subscriptions",  date: daysAgo(87) },
+        { accountId: visaId,     amount: "-9.99",    merchant: "Amazon Prime",                   category: "Subscriptions",  date: daysAgo(87) },
+        // Gas
+        { accountId: visaId,     amount: "-72.40",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(86) },
+        { accountId: visaId,     amount: "-78.10",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(79) },
+        { accountId: visaId,     amount: "-68.90",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(72) },
+        { accountId: visaId,     amount: "-75.50",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(65) },
+        // Dining
+        { accountId: visaId,     amount: "-42.50",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(85) },
+        { accountId: visaId,     amount: "-67.80",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(80) },
+        { accountId: visaId,     amount: "-38.90",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(76) },
+        { accountId: visaId,     amount: "-84.20",   merchant: "The Keg",                        category: "Restaurants",    date: daysAgo(72) },
+        { accountId: visaId,     amount: "-45.00",   merchant: "East Side Marios",               category: "Restaurants",    date: daysAgo(68) },
+        { accountId: visaId,     amount: "-52.30",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(64) },
+
+        // ── Month 2 (30-60 days ago) ──────────────────────────────────────
+        { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(58) },
+        { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(44) },
+        { accountId: chequingId, amount: "-2100.00", merchant: "TD Mortgage Payment",            category: "Mortgage",       date: daysAgo(57) },
+        { accountId: chequingId, amount: "-95.00",   merchant: "Hydro One",                      category: "Electricity",    date: daysAgo(53) },
+        { accountId: chequingId, amount: "-110.00",  merchant: "Enbridge Gas",                   category: "Utilities",      date: daysAgo(48) },
+        { accountId: chequingId, amount: "-89.00",   merchant: "Rogers Internet",                category: "Internet",       date: daysAgo(57) },
+        { accountId: chequingId, amount: "-138.75",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(56) },
+        { accountId: visaId,     amount: "-82.20",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(52) },
+        { accountId: visaId,     amount: "-245.00",  merchant: "Costco",                         category: "Groceries",      date: daysAgo(49) },
+        { accountId: chequingId, amount: "-170.40",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(45) },
+        { accountId: visaId,     amount: "-91.60",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(41) },
+        { accountId: chequingId, amount: "-148.90",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(37) },
+        { accountId: visaId,     amount: "-7.50",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(58) },
+        { accountId: visaId,     amount: "-12.20",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(53) },
+        { accountId: visaId,     amount: "-6.75",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(51) },
+        { accountId: visaId,     amount: "-7.00",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(48) },
+        { accountId: visaId,     amount: "-11.00",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(45) },
+        { accountId: visaId,     amount: "-19.99",   merchant: "Netflix",                        category: "Subscriptions",  date: daysAgo(57) },
+        { accountId: visaId,     amount: "-10.99",   merchant: "Spotify",                        category: "Subscriptions",  date: daysAgo(57) },
+        { accountId: visaId,     amount: "-9.99",    merchant: "Amazon Prime",                   category: "Subscriptions",  date: daysAgo(57) },
+        // Intentionally miscategorized — AI Teller demo (PayPal should be Subscriptions)
+        { accountId: visaId,     amount: "-14.99",   merchant: "PayPal",                         category: "Loan Payments",  date: daysAgo(50) },
+        { accountId: visaId,     amount: "-70.20",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(56) },
+        { accountId: visaId,     amount: "-76.80",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(49) },
+        { accountId: visaId,     amount: "-65.40",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(42) },
+        { accountId: visaId,     amount: "-79.90",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(35) },
+        { accountId: visaId,     amount: "-48.60",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(55) },
+        { accountId: visaId,     amount: "-72.40",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(50) },
+        { accountId: visaId,     amount: "-41.20",   merchant: "East Side Marios",               category: "Restaurants",    date: daysAgo(46) },
+        { accountId: visaId,     amount: "-88.50",   merchant: "The Keg",                        category: "Restaurants",    date: daysAgo(42) },
+        { accountId: visaId,     amount: "-55.00",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(38) },
+        { accountId: visaId,     amount: "-44.80",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(34) },
+
+        // ── Month 3 (0-30 days ago) ───────────────────────────────────────
+        { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(28) },
+        { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(14) },
+        { accountId: chequingId, amount: "-2100.00", merchant: "TD Mortgage Payment",            category: "Mortgage",       date: daysAgo(27) },
+        { accountId: chequingId, amount: "-95.00",   merchant: "Hydro One",                      category: "Electricity",    date: daysAgo(23) },
+        { accountId: chequingId, amount: "-110.00",  merchant: "Enbridge Gas",                   category: "Utilities",      date: daysAgo(18) },
+        { accountId: chequingId, amount: "-89.00",   merchant: "Rogers Internet",                category: "Internet",       date: daysAgo(27) },
+        { accountId: chequingId, amount: "-152.40",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(26) },
+        { accountId: visaId,     amount: "-85.70",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(22) },
+        { accountId: visaId,     amount: "-220.00",  merchant: "Costco",                         category: "Groceries",      date: daysAgo(19) },
+        { accountId: chequingId, amount: "-168.30",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(15) },
+        { accountId: visaId,     amount: "-79.40",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(11) },
+        { accountId: chequingId, amount: "-141.60",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(7)  },
+        { accountId: visaId,     amount: "-7.80",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(28) },
+        { accountId: visaId,     amount: "-6.50",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(25) },
+        { accountId: visaId,     amount: "-11.90",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(23) },
+        { accountId: visaId,     amount: "-7.20",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(21) },
+        { accountId: visaId,     amount: "-6.90",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(18) },
+        { accountId: visaId,     amount: "-10.50",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(16) },
+        { accountId: visaId,     amount: "-19.99",   merchant: "Netflix",                        category: "Subscriptions",  date: daysAgo(27) },
+        { accountId: visaId,     amount: "-10.99",   merchant: "Spotify",                        category: "Subscriptions",  date: daysAgo(27) },
+        { accountId: visaId,     amount: "-9.99",    merchant: "Amazon Prime",                   category: "Subscriptions",  date: daysAgo(27) },
+        { accountId: visaId,     amount: "-73.60",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(26) },
+        { accountId: visaId,     amount: "-77.20",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(19) },
+        { accountId: visaId,     amount: "-69.80",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(12) },
+        { accountId: visaId,     amount: "-80.40",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(5)  },
+        { accountId: visaId,     amount: "-46.30",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(25) },
+        { accountId: visaId,     amount: "-69.90",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(20) },
+        { accountId: visaId,     amount: "-43.50",   merchant: "East Side Marios",               category: "Restaurants",    date: daysAgo(16) },
+        { accountId: visaId,     amount: "-91.00",   merchant: "The Keg",                        category: "Restaurants",    date: daysAgo(12) },
+        { accountId: visaId,     amount: "-50.20",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(8)  },
+        { accountId: visaId,     amount: "-47.60",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(4)  },
+        // Transfer pair (AI Teller demo — Unmatched status)
+        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",            category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
+        { accountId: savingsId,  amount: "500.00",   merchant: "Transfer from Chequing",         category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
+        // Unmatched Debit Memo (reconciliation demo)
+        { accountId: chequingId, amount: "-300.00",  merchant: "Debit Memo",                     category: "Other",          date: daysAgo(10), status: "Unmatched" },
       ];
 
+      let txnCount = 0;
       for (const t of txns) {
         await pool.query(
-          `INSERT INTO manual_transactions (user_id, account_id, date, amount, merchant, category)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [userId, t.accountId, t.date, t.amount, t.merchant, t.category]
+          `INSERT INTO manual_transactions
+             (user_id, account_id, date, amount, merchant, category, is_transfer, is_demo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
+          [userId, t.accountId, t.date, t.amount, t.merchant, t.category, t.isTransfer || "false"]
         );
+        txnCount++;
       }
 
       // ── 3. Seed budgets ───────────────────────────────────────────────────
       const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
       const budgets = [
         { category: "Groceries",     amount: "800.00"  },
-        { category: "Restaurants",   amount: "200.00"  },
-        { category: "Coffee Shops",  amount: "80.00"   },
+        { category: "Dining Out",    amount: "300.00"  },
+        { category: "Gas",           amount: "200.00"  },
         { category: "Entertainment", amount: "150.00"  },
-        { category: "Shopping",      amount: "300.00"  },
-        { category: "Transportation",amount: "200.00"  },
-        { category: "Subscriptions", amount: "100.00"  },
+        { category: "Utilities",     amount: "400.00"  },
+        { category: "Subscriptions", amount: "75.00"   },
       ];
       for (const b of budgets) {
         await pool.query(
-          `INSERT INTO budgets (user_id, category, amount, month)
-           VALUES ($1, $2, $3, $4)`,
+          `INSERT INTO budgets (user_id, category, amount, month, is_demo)
+           VALUES ($1, $2, $3, $4, true)`,
           [userId, b.category, b.amount, currentMonth]
         );
       }
 
       // ── 4. Seed savings goals ─────────────────────────────────────────────
       const goals = [
-        { name: "Emergency Fund",     targetAmount: "10000.00", currentAmount: "4200.00", targetDate: daysAgo(-180) },
-        { name: "Vacation to Europe", targetAmount: "5000.00",  currentAmount: "1800.00", targetDate: daysAgo(-365) },
-        { name: "New Laptop",         targetAmount: "2000.00",  currentAmount: "950.00",  targetDate: daysAgo(-90)  },
+        { name: "Emergency Fund",   targetAmount: "10000.00", currentAmount: "2500.00", targetDate: daysAgo(-365) },
+        { name: "Family Vacation",  targetAmount: "5000.00",  currentAmount: "800.00",  targetDate: daysAgo(-180) },
       ];
       for (const g of goals) {
         await pool.query(
-          `INSERT INTO savings_goals (user_id, name, target_amount, current_amount, target_date)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO savings_goals (user_id, name, target_amount, current_amount, target_date, is_demo)
+           VALUES ($1, $2, $3, $4, $5, true)`,
           [userId, g.name, g.targetAmount, g.currentAmount, g.targetDate]
         );
       }
 
-      res.json({ success: true, message: "Demo data loaded successfully" });
+      res.json({
+        success: true,
+        summary: {
+          transactions: txnCount,
+          accounts: 3,
+          budgets: budgets.length,
+          goals: goals.length,
+        },
+      });
     } catch (error: any) {
       console.error("load-demo-data error:", error);
       res.status(500).json({ error: "Failed to load demo data" });
