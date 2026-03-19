@@ -2277,6 +2277,29 @@ export default function BankAccounts() {
                         Match to Bill
                       </Button>
                       <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs sm:text-sm"
+                        onClick={async () => {
+                          try {
+                            await Promise.all(
+                              Array.from(selectedIds).map(id =>
+                                apiRequest("POST", `/api/plaid/transactions/${id}/reconcile`, { matchType: "transfer" })
+                              )
+                            );
+                            queryClient.invalidateQueries({ predicate: (q) =>
+                              (q.queryKey[0] as string)?.startsWith?.("/api/plaid/transactions") ?? false
+                            });
+                            toast({ title: `${selectedIds.size} transaction${selectedIds.size !== 1 ? "s" : ""} marked as Transfer` });
+                            setSelectedIds(new Set());
+                          } catch {
+                            toast({ title: "Failed to mark as Transfer", variant: "destructive" });
+                          }
+                        }}
+                      >
+                        Mark as Transfer
+                      </Button>
+                      <Button
                         variant="ghost"
                         size="sm"
                         className="text-xs sm:text-sm"

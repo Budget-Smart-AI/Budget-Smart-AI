@@ -146,8 +146,8 @@ interface PlaidLiabilityGroup {
   accounts: PlaidAccount[];
 }
 
-// Subtypes that indicate a line of credit (even when type === "credit")
-const LOC_SUBTYPES = [
+// Keywords that indicate a line of credit — checked against subtype AND account name
+const LOC_KEYWORDS = [
   "line of credit",
   "loc",
   "credit line",
@@ -155,27 +155,31 @@ const LOC_SUBTYPES = [
   "heloc",
   "personal line of credit",
   "business line of credit",
+  "scotialine",
+  "creditline",
+  "overdraft",
 ];
 
-function isLocSubtype(subtype: string | null | undefined): boolean {
-  if (!subtype) return false;
-  const s = subtype.toLowerCase();
-  return LOC_SUBTYPES.some((kw) => s.includes(kw));
+function isLoc(account: PlaidAccount): boolean {
+  const subtype = (account.subtype || "").toLowerCase();
+  const name = (account.name || "").toLowerCase();
+  const officialName = ((account as any).officialName || "").toLowerCase();
+  return LOC_KEYWORDS.some(
+    (kw) => subtype.includes(kw) || name.includes(kw) || officialName.includes(kw)
+  );
 }
 
 function groupPlaidLiabilities(accounts: PlaidAccount[]): PlaidLiabilityGroup[] {
   const mortgages = accounts.filter(
     (a) => a.type === "loan" && a.subtype?.toLowerCase().includes("mortgage")
   );
-  // Lines of credit: loan-type with LOC subtype OR credit-type with LOC subtype
+  // Lines of credit: loan-type or credit-type with LOC keywords in subtype OR name
   const loc = accounts.filter(
-    (a) =>
-      (a.type === "loan" || a.type === "credit") &&
-      isLocSubtype(a.subtype)
+    (a) => (a.type === "loan" || a.type === "credit") && isLoc(a)
   );
   // True credit cards: credit-type accounts that are NOT lines of credit
   const creditCards = accounts.filter(
-    (a) => a.type === "credit" && !isLocSubtype(a.subtype)
+    (a) => a.type === "credit" && !isLoc(a)
   );
   const otherLoans = accounts.filter(
     (a) =>
