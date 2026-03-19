@@ -49,6 +49,7 @@ import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Budget, type Expense } from "@shared/schema";
+import { DemoBanner } from "@/components/demo-banner";
 
 // ════════════════════════════════════════
 // PACE CALCULATION UTILITIES
@@ -549,6 +550,7 @@ export default function BudgetsPage() {
 
   return (
     <div className="space-y-6">
+      <DemoBanner />
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>

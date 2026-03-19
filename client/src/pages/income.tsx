@@ -59,6 +59,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INCOME_CATEGORIES, RECURRENCE_OPTIONS, type Income } from "@shared/schema";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
+import { DemoBanner } from "@/components/demo-banner";
 
 const incomeFormSchema = z.object({
   source: z.string().min(1, "Source is required"),
@@ -797,6 +798,7 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-6">
+      <DemoBanner />
       {/* ── Teller Alert Banner ── */}
       {flagsBannerOpen && tellerFlags.length > 0 && (
         <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 overflow-hidden">

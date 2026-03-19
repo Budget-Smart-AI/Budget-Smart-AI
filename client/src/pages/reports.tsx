@@ -57,6 +57,7 @@ import {
   type PlaidTransaction,
   EXPENSE_CATEGORIES,
 } from "@shared/schema";
+import { DemoBanner } from "@/components/demo-banner";
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -1233,6 +1234,7 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
+      <DemoBanner />
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-2">

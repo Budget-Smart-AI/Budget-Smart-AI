@@ -91,6 +91,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
+import { DemoBanner } from "@/components/demo-banner";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -935,6 +936,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-6">
+      <DemoBanner />
       {/* ── Teller Alert Banner ── */}
       {flagsBannerOpen && tellerFlags.length > 0 && (
         <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 overflow-hidden">

@@ -87,6 +87,7 @@ import { BankProviderSelectionDialog } from "@/components/bank-provider-selectio
 import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
 import { ConnectBankWizard } from "@/components/connect-bank-wizard";
 import { FloatingChatbot } from "@/components/floating-chatbot";
+import { DemoBanner } from "@/components/demo-banner";
 // Category color map mirrors server/merchant-categories.ts CATEGORY_COLORS
 const CATEGORY_COLORS: Record<string, string> = {
   'Food & Dining':    '#f97316',
@@ -1717,6 +1718,7 @@ export default function BankAccounts() {
 
   return (
     <div className="space-y-4 sm:space-y-6 px-1 sm:px-0">
+      <DemoBanner />
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
