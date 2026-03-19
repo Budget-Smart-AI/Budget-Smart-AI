@@ -2823,7 +2823,7 @@ export default function Settings({ onLogout }: SettingsProps) {
               <div>
                 <h4 className="font-semibold text-orange-500 dark:text-orange-400">Fresh Start</h4>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Wipe all your financial data (transactions, bank connections, budgets, bills, goals) while keeping your account and subscription. You'll be taken through onboarding again.
+                  Wipe all your financial data (transactions, bank connections, budgets, bills, goals) while keeping your account and subscription. You'll have the option to load sample demo data or connect a real bank after.
                 </p>
               </div>
               <Button
