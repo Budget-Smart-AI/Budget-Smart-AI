@@ -28,6 +28,7 @@ import {
 import { format, addMonths, setDate, isBefore, isAfter, addDays, parseISO, startOfMonth, endOfMonth, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isEqual, setDay } from "date-fns";
 import type { Bill, Income, Budget, SavingsGoal } from "@shared/schema";
 import { FinancialHealthScore } from "@/components/financial-health-score";
+import { DemoBanner } from "@/components/demo-banner";
 import { CashFlowForecast } from "@/components/cash-flow-forecast";
 import { SmartSavings } from "@/components/smart-savings";
 import { MoneyTimeline } from "@/components/money-timeline";
@@ -792,6 +793,9 @@ export default function Dashboard() {
           </div>
         );
       })()}
+
+      {/* Demo Data Banner */}
+      <DemoBanner />
 
       {/* Header */}
       <div className="flex flex-col gap-1">

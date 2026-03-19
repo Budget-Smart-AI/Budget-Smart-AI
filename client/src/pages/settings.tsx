@@ -21,7 +21,7 @@ import {
   Loader2, Shield, ShieldCheck, ShieldOff, QrCode, LogOut, User, Save, Trash2,
   AlertTriangle, CreditCard, Calendar, Sparkles, ExternalLink, Copy,
   Download, Check, Camera, Globe, Cake, Eye, EyeOff, Mail, Lock, KeyRound, SlidersHorizontal,
-  BellRing, Pencil, X, BarChart3, Zap, Bell,
+  BellRing, Pencil, X, BarChart3, Zap, Bell, FlaskConical,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -45,7 +45,8 @@ import { HouseholdSettings } from "@/components/household-settings";
 import { FeatureGate } from "@/components/FeatureGate";
 import { PWAInstallCard } from "@/components/pwa-install-prompt";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Building2, RefreshCw, Plus, Tag, FileDown, Database } from "lucide-react";
+import { Building2, RefreshCw, Plus, Tag, FileDown, Database, PartyPopper, BanknoteIcon, PlayCircle, SkipForward } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SettingsLayout } from "@/components/settings-layout";
 import MerchantsPage from "@/pages/merchants";
 import EmailSettings from "@/pages/email-settings";
@@ -1726,6 +1727,13 @@ export default function Settings({ onLogout }: SettingsProps) {
   const [deletePasswordInput, setDeletePasswordInput] = useState("");
   const [showDeletePassword, setShowDeletePassword] = useState(false);
 
+  // Fresh Start multi-step state
+  const [freshStartStep, setFreshStartStep] = useState<0 | 1 | 2 | 3>(0);
+  const [freshStartConfirmText, setFreshStartConfirmText] = useState("");
+  const [freshStartChecked, setFreshStartChecked] = useState(false);
+  const [showFreshStartInterstitial, setShowFreshStartInterstitial] = useState(false);
+  const [loadingDemoData, setLoadingDemoData] = useState(false);
+
   // Password visibility toggles for change-password form
   const [showCurrentPw, setShowCurrentPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
@@ -1971,6 +1979,27 @@ export default function Settings({ onLogout }: SettingsProps) {
     },
   });
 
+  const freshStartMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auth/fresh-start", { confirmation: "FRESH START" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to perform fresh start");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setFreshStartStep(0);
+      setFreshStartConfirmText("");
+      setFreshStartChecked(false);
+      queryClient.clear();
+      setShowFreshStartInterstitial(true);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const changePasswordMutation = useMutation({
     mutationFn: async (data: ChangePasswordFormData) => {
       const response = await apiRequest("POST", "/api/auth/change-password", {
@@ -1993,6 +2022,13 @@ export default function Settings({ onLogout }: SettingsProps) {
 
   const { data: prefsData } = useQuery<{ prefNeedsReview: boolean; prefEditPending: boolean; prefMerchantDisplay: string }>({
     queryKey: ["/api/user/preferences"],
+  });
+
+  // Demo data detection (for Clear Demo Data fast path in Danger Zone)
+  const { data: demoDataStatus } = useQuery<{ hasDemo: boolean }>({
+    queryKey: ["/api/user/has-demo-data"],
+    staleTime: 30_000,
+    enabled: location.split("/")[2] === "security",
   });
 
   const [prefNeedsReview, setPrefNeedsReview] = useState<boolean>(true);
@@ -2755,6 +2791,51 @@ export default function Settings({ onLogout }: SettingsProps) {
               Danger Zone
             </h3>
             <div className="rounded-lg border border-destructive/40 p-4 space-y-3">
+              {/* Clear Demo Data fast path — only shown when demo data is present */}
+              {demoDataStatus?.hasDemo && (
+                <>
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                    <FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Demo data detected</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        You have sample Canadian household data loaded. Clear it instantly to start fresh.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-amber-400 text-amber-700 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/40 flex-shrink-0"
+                      disabled={freshStartMutation.isPending}
+                      onClick={() => freshStartMutation.mutate()}
+                    >
+                      {freshStartMutation.isPending ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Clearing…</>
+                      ) : (
+                        <><RefreshCw className="w-3 h-3 mr-1" />Clear Demo Data</>
+                      )}
+                    </Button>
+                  </div>
+                  <Separator />
+                </>
+              )}
+              {/* Fresh Start */}
+              <div>
+                <h4 className="font-semibold text-orange-500 dark:text-orange-400">Fresh Start</h4>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Wipe all your financial data (transactions, bank connections, budgets, bills, goals) while keeping your account and subscription. You'll be taken through onboarding again.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                className="border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white"
+                onClick={() => setFreshStartStep(1)}
+                data-testid="button-fresh-start"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Fresh Start
+              </Button>
+              <Separator />
               <div>
                 <h4 className="font-semibold text-destructive">Delete Account</h4>
                 <p className="text-sm text-muted-foreground mt-1">
@@ -2987,6 +3068,210 @@ export default function Settings({ onLogout }: SettingsProps) {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* ── Fresh Start Multi-Step Dialog ── */}
+      <Dialog
+        open={freshStartStep > 0}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFreshStartStep(0);
+            setFreshStartConfirmText("");
+            setFreshStartChecked(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-orange-500 flex items-center gap-2">
+              <RefreshCw className="w-5 h-5" />
+              {freshStartStep === 1
+                ? "Fresh Start — Step 1 of 3"
+                : freshStartStep === 2
+                ? "Fresh Start — Step 2 of 3"
+                : "Fresh Start — Step 3 of 3"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Step 1: Warning list */}
+          {freshStartStep === 1 && (
+            <div className="space-y-4">
+              <DialogDescription>
+                This will permanently delete <strong>ALL</strong> your financial data. Your account, subscription, and settings will be preserved.
+              </DialogDescription>
+              <div className="rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 p-3 space-y-2">
+                <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">What will be deleted:</p>
+                <ul className="text-sm text-orange-700 dark:text-orange-400 space-y-1">
+                  <li className="flex items-center gap-2"><X className="w-3 h-3 shrink-0" /> All transactions and bank connections</li>
+                  <li className="flex items-center gap-2"><X className="w-3 h-3 shrink-0" /> All budgets, bills, and savings goals</li>
+                  <li className="flex items-center gap-2"><X className="w-3 h-3 shrink-0" /> All receipts, investments, and debt records</li>
+                  <li className="flex items-center gap-2"><X className="w-3 h-3 shrink-0" /> All AI history and sync data</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 p-3 space-y-1">
+                <p className="text-sm font-semibold text-green-700 dark:text-green-400">What will be kept:</p>
+                <ul className="text-sm text-green-700 dark:text-green-400 space-y-1">
+                  <li className="flex items-center gap-2"><Check className="w-3 h-3 shrink-0" /> Your account and login credentials</li>
+                  <li className="flex items-center gap-2"><Check className="w-3 h-3 shrink-0" /> Your subscription and billing</li>
+                  <li className="flex items-center gap-2"><Check className="w-3 h-3 shrink-0" /> Your profile and settings</li>
+                </ul>
+              </div>
+              <div className="flex gap-2 justify-end pt-1">
+                <Button variant="outline" onClick={() => setFreshStartStep(0)}>Cancel</Button>
+                <Button className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => setFreshStartStep(2)}>
+                  Yes, Continue →
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Checkbox acknowledgement */}
+          {freshStartStep === 2 && (
+            <div className="space-y-4">
+              <DialogDescription>
+                Please confirm you understand what this action does before proceeding.
+              </DialogDescription>
+              <div
+                className="flex items-start gap-3 p-4 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 cursor-pointer"
+                onClick={() => setFreshStartChecked(!freshStartChecked)}
+              >
+                <Checkbox
+                  id="fresh-start-confirm-check"
+                  checked={freshStartChecked}
+                  onCheckedChange={(v) => setFreshStartChecked(!!v)}
+                  className="mt-0.5 border-orange-400 data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500"
+                />
+                <label htmlFor="fresh-start-confirm-check" className="text-sm text-orange-700 dark:text-orange-300 cursor-pointer leading-relaxed">
+                  I understand that this will <strong>permanently delete all my financial data</strong> including transactions, bank connections, budgets, bills, savings goals, receipts, and AI history. This action cannot be undone.
+                </label>
+              </div>
+              <div className="flex gap-2 justify-end pt-1">
+                <Button variant="outline" onClick={() => setFreshStartStep(1)}>← Back</Button>
+                <Button
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
+                  disabled={!freshStartChecked}
+                  onClick={() => setFreshStartStep(3)}
+                >
+                  Continue →
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Type confirmation */}
+          {freshStartStep === 3 && (
+            <div className="space-y-4">
+              <DialogDescription>
+                Type <strong className="text-orange-500">FRESH START</strong> in the box below to confirm you want to permanently delete all financial data.
+              </DialogDescription>
+              <Input
+                value={freshStartConfirmText}
+                onChange={(e) => setFreshStartConfirmText(e.target.value)}
+                placeholder="Type FRESH START"
+                autoFocus
+                className="font-mono tracking-wider"
+              />
+              {freshStartConfirmText.length > 0 && freshStartConfirmText !== "FRESH START" && (
+                <p className="text-xs text-destructive">Must be exactly: FRESH START</p>
+              )}
+              <div className="flex gap-2 justify-end pt-1">
+                <Button variant="outline" onClick={() => { setFreshStartStep(2); setFreshStartConfirmText(""); }}>← Back</Button>
+                <Button
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
+                  disabled={freshStartConfirmText !== "FRESH START" || freshStartMutation.isPending}
+                  onClick={() => freshStartMutation.mutate()}
+                >
+                  {freshStartMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deleting all data…</>
+                  ) : (
+                    <><RefreshCw className="w-4 h-4 mr-2" />Delete My Data and Start Fresh</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Fresh Start Post-Completion Interstitial ── */}
+      {showFreshStartInterstitial && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
+          <div className="w-full max-w-lg mx-4 space-y-6 text-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-950/50 flex items-center justify-center">
+                <PartyPopper className="w-8 h-8 text-green-600 dark:text-green-400" />
+              </div>
+              <h2 className="text-2xl font-bold">Fresh Start Complete!</h2>
+              <p className="text-muted-foreground text-sm max-w-sm">
+                All your financial data has been wiped. Your account and subscription are intact. What would you like to do next?
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Connect My Bank */}
+              <button
+                className="group flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-primary/30 hover:border-primary bg-card hover:bg-primary/5 transition-all text-left"
+                onClick={() => {
+                  setShowFreshStartInterstitial(false);
+                  navigate("/onboarding");
+                }}
+              >
+                <div className="w-12 h-12 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                  <BanknoteIcon className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Connect My Bank</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Link your real accounts and start tracking</p>
+                </div>
+              </button>
+
+              {/* Load Demo Data */}
+              <button
+                className="group flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-amber-300 dark:border-amber-700 hover:border-amber-500 bg-card hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-all text-left"
+                disabled={loadingDemoData}
+                onClick={async () => {
+                  setLoadingDemoData(true);
+                  try {
+                    const res = await apiRequest("POST", "/api/user/load-demo-data");
+                    if (!res.ok) throw new Error("Failed to load demo data");
+                    queryClient.invalidateQueries();
+                    setShowFreshStartInterstitial(false);
+                    navigate("/dashboard");
+                    toast({ title: "Demo data loaded!", description: "Explore BudgetSmart with sample Canadian household data." });
+                  } catch {
+                    toast({ title: "Failed to load demo data", variant: "destructive" });
+                  } finally {
+                    setLoadingDemoData(false);
+                  }
+                }}
+              >
+                <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-950/50 group-hover:bg-amber-200 dark:group-hover:bg-amber-900/50 flex items-center justify-center transition-colors">
+                  {loadingDemoData ? (
+                    <Loader2 className="w-6 h-6 text-amber-600 animate-spin" />
+                  ) : (
+                    <PlayCircle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                  )}
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Load Demo Data</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Explore with sample Canadian household finances</p>
+                </div>
+              </button>
+            </div>
+
+            {/* Skip link */}
+            <button
+              className="flex items-center gap-1.5 mx-auto text-sm text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => {
+                setShowFreshStartInterstitial(false);
+                navigate("/dashboard");
+              }}
+            >
+              <SkipForward className="w-4 h-4" />
+              Skip — Take me to the dashboard
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Delete Account Multi-Step Dialog ── */}
       <Dialog

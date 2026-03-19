@@ -1232,11 +1232,6 @@ The Budget Smart AI Team`;
 }
 
 /**
- * Check all free users for feature usage milestones (80% warning, 100% limit hit)
- * and send notification emails if not already sent this month.
- * Runs daily from the email scheduler.
- */
-/**
  * Send a spending alert email when a user's spending threshold is exceeded.
  */
 export async function sendSpendingAlertEmail(user: any, alert: any, currentSpend: number): Promise<boolean> {
@@ -1274,6 +1269,122 @@ Budget Smart AI`;
     return true;
   } catch (err) {
     console.error("[SpendingAlert] Failed to send alert email:", err);
+    return false;
+  }
+}
+
+/**
+ * Send a confirmation email after a user performs a Fresh Start (wipes all
+ * financial data but keeps their account and subscription).
+ */
+export async function sendFreshStartEmail(
+  toEmail: string,
+  firstName: string,
+): Promise<boolean> {
+  if (!process.env.POSTMARK_USERNAME) {
+    console.warn("[Email] Postmark not configured, skipping fresh start email");
+    return false;
+  }
+  const fromEmail = process.env.ALERT_EMAIL_FROM;
+  const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
+
+  if (!fromEmail) {
+    console.log("[Email] ALERT_EMAIL_FROM missing, skipping fresh start email");
+    return false;
+  }
+
+  const displayName = firstName || "there";
+  const subject = "Your Budget Smart AI data has been reset";
+
+  const textBody = `Hi ${displayName},
+
+Your Fresh Start is complete. All of your financial data has been permanently deleted:
+
+  • All transactions (expenses and income)
+  • All bank account connections
+  • All budgets and budget alert rules
+  • All savings goals
+  • All bills and bill reminders
+  • All tracked subscriptions
+  • All receipts
+  • All debt payoff records
+  • All AI conversation history
+
+Your account, subscription, and security settings (2FA, password) are unchanged.
+
+You can now connect your bank accounts and start fresh from your dashboard:
+${appUrl}/dashboard
+
+If you did not request this action, please contact support immediately at support@budgetsmart.io.
+
+Best regards,
+The Budget Smart AI Team`;
+
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9fafb;">
+  <div style="background: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="color: #059669; font-size: 24px; margin: 0;">Fresh Start Complete ✓</h1>
+      <p style="color: #6b7280; font-size: 15px; margin-top: 8px;">Hi ${displayName}, your financial data has been reset.</p>
+    </div>
+    <p style="color: #374151; font-size: 15px;">The following data has been permanently deleted from your account:</p>
+    <ul style="color: #374151; font-size: 14px; line-height: 1.9;">
+      <li>All transactions (expenses and income)</li>
+      <li>All bank account connections</li>
+      <li>All budgets and budget alert rules</li>
+      <li>All savings goals</li>
+      <li>All bills and bill reminders</li>
+      <li>All tracked subscriptions</li>
+      <li>All receipts</li>
+      <li>All debt payoff records</li>
+      <li>All AI conversation history</li>
+    </ul>
+    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+      <p style="color: #166534; font-size: 14px; margin: 0;">
+        <strong>Preserved:</strong> Your account, subscription, 2FA settings, and password are unchanged.
+      </p>
+    </div>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="${appUrl}/dashboard" style="background: #059669; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 15px;">
+        Go to Dashboard →
+      </a>
+    </div>
+    <hr style="margin: 28px 0; border: none; border-top: 1px solid #e5e7eb;">
+    <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+      If you did not request this action, please contact
+      <a href="mailto:support@budgetsmart.io" style="color: #059669;">support@budgetsmart.io</a> immediately.
+    </p>
+    <p style="color: #9ca3af; font-size: 12px; text-align: center;">© ${new Date().getFullYear()} Budget Smart AI</p>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping fresh start email.");
+      return false;
+    }
+    const result = await client.sendEmail({
+      From: fromEmail,
+      To: toEmail,
+      Subject: subject,
+      TextBody: textBody,
+      HtmlBody: htmlBody,
+    });
+    logEmail({
+      userId: null,
+      recipientEmail: toEmail,
+      subject,
+      type: "fresh_start",
+      status: "sent",
+      postmarkMessageId: (result as any)?.MessageID ?? null,
+    }).catch(() => {});
+    console.log(`[FreshStart] Confirmation email sent to: ${toEmail}`);
+    return true;
+  } catch (error) {
+    console.error("[FreshStart] Failed to send confirmation email:", error);
     return false;
   }
 }

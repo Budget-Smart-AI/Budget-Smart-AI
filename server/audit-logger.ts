@@ -42,7 +42,8 @@ export type AuditEventType =
   | "email.trial_reminder_failed"
   | "data.ai_coach_run"
   | "billing.upgrade_cta_click"
-  | "data.ai_teller_action";
+  | "data.ai_teller_action"
+  | "data.fresh_start";
 
 export type AuditOutcome = "success" | "failure" | "blocked";
 

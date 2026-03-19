@@ -3433,6 +3433,213 @@ Return JSON: { "income": [...] }`;
   });
 
   // ──────────────────────────────────────────────────────────────────────────
+  // POST /api/auth/fresh-start — Wipe all financial data, keep account/sub
+  // Rate-limited to 3 attempts per 24 hours per user (in-memory store).
+  // ──────────────────────────────────────────────────────────────────────────
+  const freshStartAttempts = new Map<string, { count: number; resetAt: number }>();
+  app.post("/api/auth/fresh-start", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+
+      // ── Per-user rate limit: max 3 per 24 hours ──────────────────────────
+      const now = Date.now();
+      const windowMs = 24 * 60 * 60 * 1000;
+      let rl = freshStartAttempts.get(userId);
+      if (!rl || rl.resetAt < now) {
+        rl = { count: 0, resetAt: now + windowMs };
+        freshStartAttempts.set(userId, rl);
+      }
+      rl.count++;
+      if (rl.count > 3) {
+        return res.status(429).json({ error: "Too many Fresh Start attempts. Please wait 24 hours before trying again." });
+      }
+
+      // ── Require exact confirmation string ────────────────────────────────
+      const { confirmation } = req.body as { confirmation?: string };
+      if (confirmation !== "FRESH START") {
+        return res.status(400).json({ error: 'Confirmation must be exactly "FRESH START"' });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      console.log(`[FreshStart] Starting fresh start for user ${userId}`);
+
+      // 1. Plaid: call /item/remove for each active item, then delete DB rows
+      try {
+        const plaidItemsList = await storage.getPlaidItems(userId);
+        if (plaidItemsList.length > 0) {
+          const { plaidClient } = await import("./plaid");
+          for (const item of plaidItemsList) {
+            try {
+              await plaidClient.itemRemove({ access_token: decrypt(item.accessToken) });
+            } catch (plaidErr) {
+              console.warn(`[FreshStart] Plaid itemRemove failed for ${item.id}:`, plaidErr);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[FreshStart] Plaid item removal step failed:", err);
+      }
+
+      // 2. MX: call deleteMember for each member, then delete DB rows
+      try {
+        const mxMembersList = await storage.getMxMembers(userId);
+        if (mxMembersList.length > 0 && user.mxUserGuid) {
+          const { deleteMember: deleteMxMember } = await import("./mx");
+          for (const member of mxMembersList) {
+            try {
+              await deleteMxMember(user.mxUserGuid, member.memberGuid);
+            } catch (mxErr) {
+              console.warn(`[FreshStart] MX deleteMember failed for ${member.id}:`, mxErr);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[FreshStart] MX member removal step failed:", err);
+      }
+
+      // 3. Receipts: delete R2 objects for any receipt with an imageUrl
+      try {
+        const userReceipts = await storage.getReceipts(userId);
+        if (userReceipts.length > 0) {
+          const { S3Client, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+          const r2AccessKey = process.env.R2_ACCESS_KEY_ID;
+          const r2SecretKey = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_TOKEN_VALUE;
+          const r2Endpoint = process.env.R2_ENDPOINT;
+          const r2Bucket = process.env.R2_BUCKET_NAME;
+          if (r2AccessKey && r2SecretKey && r2Endpoint && r2Bucket) {
+            const stripped = r2Endpoint.replace(/^["']+|["']+$/g, "");
+            let endpoint = stripped;
+            try { endpoint = new URL(stripped).origin; } catch { endpoint = stripped; }
+            const r2Client = new S3Client({
+              region: "auto", endpoint, forcePathStyle: true,
+              credentials: { accessKeyId: r2AccessKey, secretAccessKey: r2SecretKey },
+            });
+            for (const receipt of userReceipts) {
+              if (receipt.imageUrl) {
+                try {
+                  await r2Client.send(new DeleteObjectCommand({ Bucket: r2Bucket, Key: receipt.imageUrl }));
+                } catch (r2Err) {
+                  console.warn(`[FreshStart] R2 delete failed for key ${receipt.imageUrl}:`, r2Err);
+                }
+              }
+            }
+          }
+          for (const receipt of userReceipts) {
+            await storage.deleteReceipt(receipt.id);
+          }
+        }
+      } catch (err) {
+        console.warn("[FreshStart] Receipt deletion step failed:", err);
+      }
+
+      // 4. Delete all financial data (FK-safe order)
+      await storage.deleteAllManualTransactionsByUser(userId);
+      await storage.deleteAllManualAccountsByUser(userId);
+      await storage.deleteAllPlaidTransactionsByUser(userId);
+      await storage.deleteAllPlaidAccountsByUser(userId);
+      await storage.deleteAllPlaidItemsByUser(userId);
+
+      // MX DB cleanup
+      try {
+        const mxMembersRemaining = await storage.getMxMembers(userId);
+        for (const member of mxMembersRemaining) {
+          const mxAccounts = await storage.getMxAccountsByMemberId(member.id);
+          for (const acct of mxAccounts) {
+            await storage.deleteMxTransactionsByAccountId(acct.id);
+          }
+          await storage.deleteMxAccountsByMemberId(member.id);
+          await storage.deleteMxMember(member.id);
+        }
+      } catch (err) {
+        console.warn("[FreshStart] MX DB cleanup failed:", err);
+      }
+
+      await storage.deleteAllReconciliationRulesByUser(userId);
+      await storage.deleteAllExpensesByUser(userId);
+      await storage.deleteAllBillsByUser(userId);
+      await storage.deleteAllIncomesByUser(userId);
+      await storage.deleteAllBudgetsByUser(userId);
+      await storage.deleteAllSavingsGoalsByUser(userId);
+      await storage.deleteAllRecurringExpensesByUser(userId);
+      await storage.deleteAllBudgetAlertsByUser(userId);
+      await storage.deleteAllSpendingAlertsByUser(userId);
+      await storage.deleteAllDebtDetailsByUser(userId);
+      await storage.deleteAllHoldingsByUser(userId);
+      await storage.deleteAllInvestmentAccountsByUser(userId);
+      await storage.deleteAllAssetsByUser(userId);
+      await storage.deleteAllNetWorthSnapshotsByUser(userId);
+      await storage.deleteAllSyncSchedulesByUser(userId);
+      await storage.deleteAllOnboardingAnalysisByUser(userId);
+      await storage.deleteAllNotificationsByUser(userId);
+
+      // Split expenses (raw SQL)
+      try {
+        await pool.query(`DELETE FROM split_participants WHERE split_expense_id IN (SELECT id FROM split_expenses WHERE user_id = $1)`, [userId]);
+        await pool.query(`DELETE FROM split_expenses WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] Split expense cleanup failed:", err);
+      }
+
+      // Teller flags
+      try {
+        await pool.query(`DELETE FROM teller_flags WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] Teller flags cleanup failed:", err);
+      }
+
+      // AI usage logs
+      try {
+        await pool.query(`DELETE FROM ai_usage_log WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] AI usage log cleanup failed:", err);
+      }
+
+      // Merchant enrichment cache
+      try {
+        await pool.query(`DELETE FROM merchant_enrichment_cache WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        // Table may not exist — non-fatal
+      }
+
+      // Anomaly alerts
+      try {
+        await pool.query(`DELETE FROM anomaly_alerts WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] Anomaly alerts cleanup failed:", err);
+      }
+
+      // 5. Reset onboarding
+      await storage.updateUserOnboarding(userId, false, {});
+
+      // 6. Send confirmation email (fire-and-forget)
+      if (user.email) {
+        const { sendFreshStartEmail } = await import("./email");
+        sendFreshStartEmail(user.email, user.firstName || user.username || "").catch((err) => {
+          console.warn("[FreshStart] Confirmation email failed:", err);
+        });
+      }
+
+      // 7. Audit log
+      auditLogFromRequest(req, {
+        eventType: "data.fresh_start",
+        eventCategory: "data",
+        actorId: userId,
+        action: "fresh_start",
+        outcome: "success",
+        metadata: { userId },
+      });
+
+      console.log(`[FreshStart] Complete for user ${userId}`);
+      res.json({ success: true, message: "Fresh start complete. All financial data has been deleted." });
+    } catch (error) {
+      console.error("[FreshStart] Error:", error);
+      res.status(500).json({ error: "Failed to perform fresh start" });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
   // POST /api/user/delete-account — GDPR / privacy-compliant soft-delete
   // Verifies password, cancels Stripe subscription, disconnects all bank
   // accounts, anonymises the user record, wipes sessions/alerts/notifications/
@@ -7716,7 +7923,31 @@ Provide clear, specific, and actionable financial advice based on the data above
 
       // ── Default: single transaction mode ────────────────────────────────
       const { buildTellerSystemPrompt } = await import("./ai-teller");
-      const { system, suggestedAction } = await buildTellerSystemPrompt(userId, transaction_context || null);
+
+      // Map client-side TransactionContext { id, merchant, amount, ... }
+      // to server-side TransactionContext { transaction_id, merchant_name, raw_amount, ... }
+      let mappedTxCtx = null;
+      if (transaction_context) {
+        const tc = transaction_context as any;
+        const rawAmt = typeof tc.amount === "number" ? tc.amount : parseFloat(tc.amount ?? "0");
+        mappedTxCtx = {
+          transaction_id: tc.transaction_id || tc.id || transaction_id || "",
+          source: tc.source || "manual",
+          merchant_name: tc.merchant_name || tc.merchant || "Unknown",
+          amount: tc.amount_formatted || (rawAmt < 0 ? `-$${Math.abs(rawAmt).toFixed(2)}` : `+$${rawAmt.toFixed(2)}`),
+          raw_amount: rawAmt,
+          date: tc.date || "",
+          category: tc.category || "Uncategorized",
+          status: tc.status || "cleared",
+          payment_channel: tc.payment_channel || tc.paymentChannel || null,
+          personal_finance_category: tc.personal_finance_category || tc.personalCategory || null,
+          account_name: tc.account_name || tc.accountName || null,
+          is_transfer: tc.is_transfer || tc.isTransfer || false,
+          transfer_pair_id: tc.transfer_pair_id || tc.transferPairId || null,
+        };
+      }
+
+      const { system, suggestedAction } = await buildTellerSystemPrompt(userId, mappedTxCtx);
 
       const chatMessages = [
         ...(conversation_history as Array<{ role: string; content: string }>),
@@ -16372,6 +16603,149 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
       res.json({ success: true, feature, modelId, modelKey, content, latencyMs });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /api/user/has-demo-data — Check if user has any manual accounts (demo)
+  // ──────────────────────────────────────────────────────────────────────────
+  app.get("/api/user/has-demo-data", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const result = await pool.query(
+        `SELECT COUNT(*) as cnt FROM manual_accounts WHERE user_id = $1`,
+        [userId]
+      );
+      const cnt = parseInt(result.rows[0]?.cnt ?? "0", 10);
+      res.json({ hasDemo: cnt > 0 });
+    } catch (error: any) {
+      console.error("has-demo-data error:", error);
+      res.json({ hasDemo: false });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /api/user/load-demo-data — Seed realistic Canadian household demo data
+  // ──────────────────────────────────────────────────────────────────────────
+  app.post("/api/user/load-demo-data", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const now = new Date();
+
+      // Helper: date string N days ago (negative = future)
+      const daysAgo = (n: number) => {
+        const d = new Date(now);
+        d.setDate(d.getDate() - n);
+        return d.toISOString().split("T")[0];
+      };
+
+      // ── 1. Create 3 demo manual accounts ──────────────────────────────────
+      const acctResult = await pool.query(
+        `INSERT INTO manual_accounts (user_id, name, type, subtype, balance, currency, is_active)
+         VALUES
+           ($1, 'TD Chequing', 'depository', 'checking', '3842.17', 'CAD', true),
+           ($1, 'TD Savings', 'depository', 'savings', '12500.00', 'CAD', true),
+           ($1, 'TD Visa Credit Card', 'credit', 'credit card', '-1247.83', 'CAD', true)
+         RETURNING id, name`,
+        [userId]
+      );
+      const accounts = acctResult.rows as { id: string; name: string }[];
+      const chequingId = accounts.find(a => a.name.includes("Chequing"))?.id;
+      const savingsId  = accounts.find(a => a.name.includes("Savings"))?.id;
+      const visaId     = accounts.find(a => a.name.includes("Visa"))?.id;
+
+      if (!chequingId || !savingsId || !visaId) {
+        return res.status(500).json({ error: "Failed to create demo accounts" });
+      }
+
+      // ── 2. Seed 3 months of transactions ──────────────────────────────────
+      const txns = [
+        // Month 1 (60-90 days ago)
+        { accountId: chequingId, amount: "2850.00",  merchant: "Payroll Deposit - Employer Inc",   category: "Income",         date: daysAgo(87) },
+        { accountId: chequingId, amount: "-1650.00", merchant: "Rent Payment - 123 Main St",       category: "Rent",           date: daysAgo(85) },
+        { accountId: chequingId, amount: "-124.50",  merchant: "Hydro One - Electricity",          category: "Electricity",    date: daysAgo(82) },
+        { accountId: chequingId, amount: "-89.99",   merchant: "Rogers - Internet",                category: "Internet",       date: daysAgo(80) },
+        { accountId: visaId,     amount: "-312.47",  merchant: "Loblaws - Groceries",              category: "Groceries",      date: daysAgo(78) },
+        { accountId: visaId,     amount: "-67.23",   merchant: "Shoppers Drug Mart",               category: "Pharmacy",       date: daysAgo(76) },
+        { accountId: visaId,     amount: "-48.50",   merchant: "Tim Hortons",                      category: "Coffee Shops",   date: daysAgo(74) },
+        { accountId: visaId,     amount: "-156.00",  merchant: "Canadian Tire - Auto",             category: "Transportation", date: daysAgo(72) },
+        { accountId: chequingId, amount: "-75.00",   merchant: "Netflix / Spotify / Disney+",      category: "Subscriptions",  date: daysAgo(70) },
+        { accountId: visaId,     amount: "-234.89",  merchant: "Metro - Groceries",                category: "Groceries",      date: daysAgo(68) },
+        { accountId: visaId,     amount: "-42.00",   merchant: "Cineplex - Movies",                category: "Entertainment",  date: daysAgo(65) },
+        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",              category: "Savings",        date: daysAgo(63) },
+        // Month 2 (30-60 days ago)
+        { accountId: chequingId, amount: "2850.00",  merchant: "Payroll Deposit - Employer Inc",   category: "Income",         date: daysAgo(57) },
+        { accountId: chequingId, amount: "-1650.00", merchant: "Rent Payment - 123 Main St",       category: "Rent",           date: daysAgo(55) },
+        { accountId: chequingId, amount: "-118.30",  merchant: "Hydro One - Electricity",          category: "Electricity",    date: daysAgo(52) },
+        { accountId: chequingId, amount: "-89.99",   merchant: "Rogers - Internet",                category: "Internet",       date: daysAgo(50) },
+        { accountId: visaId,     amount: "-289.12",  merchant: "Loblaws - Groceries",              category: "Groceries",      date: daysAgo(48) },
+        { accountId: visaId,     amount: "-85.00",   merchant: "LCBO",                             category: "Food & Dining",  date: daysAgo(46) },
+        { accountId: visaId,     amount: "-52.40",   merchant: "Starbucks",                        category: "Coffee Shops",   date: daysAgo(44) },
+        { accountId: visaId,     amount: "-199.99",  merchant: "Amazon.ca - Shopping",             category: "Shopping",       date: daysAgo(42) },
+        { accountId: chequingId, amount: "-75.00",   merchant: "Netflix / Spotify / Disney+",      category: "Subscriptions",  date: daysAgo(40) },
+        { accountId: visaId,     amount: "-267.45",  merchant: "Costco - Groceries",               category: "Groceries",      date: daysAgo(38) },
+        { accountId: visaId,     amount: "-120.00",  merchant: "Goodlife Fitness",                 category: "Gym",            date: daysAgo(36) },
+        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",              category: "Savings",        date: daysAgo(33) },
+        // Month 3 (0-30 days ago)
+        { accountId: chequingId, amount: "2850.00",  merchant: "Payroll Deposit - Employer Inc",   category: "Income",         date: daysAgo(27) },
+        { accountId: chequingId, amount: "-1650.00", merchant: "Rent Payment - 123 Main St",       category: "Rent",           date: daysAgo(25) },
+        { accountId: chequingId, amount: "-131.20",  merchant: "Hydro One - Electricity",          category: "Electricity",    date: daysAgo(22) },
+        { accountId: chequingId, amount: "-89.99",   merchant: "Rogers - Internet",                category: "Internet",       date: daysAgo(20) },
+        { accountId: visaId,     amount: "-301.78",  merchant: "Loblaws - Groceries",              category: "Groceries",      date: daysAgo(18) },
+        { accountId: visaId,     amount: "-38.50",   merchant: "Tim Hortons",                      category: "Coffee Shops",   date: daysAgo(16) },
+        { accountId: visaId,     amount: "-145.00",  merchant: "Indigo Books & Music",             category: "Shopping",       date: daysAgo(14) },
+        { accountId: chequingId, amount: "-75.00",   merchant: "Netflix / Spotify / Disney+",      category: "Subscriptions",  date: daysAgo(12) },
+        { accountId: visaId,     amount: "-223.60",  merchant: "Metro - Groceries",                category: "Groceries",      date: daysAgo(10) },
+        { accountId: visaId,     amount: "-89.00",   merchant: "Uber Eats",                        category: "Restaurants",    date: daysAgo(8)  },
+        { accountId: visaId,     amount: "-55.00",   merchant: "Cineplex - Movies",                category: "Entertainment",  date: daysAgo(6)  },
+        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",              category: "Savings",        date: daysAgo(4)  },
+      ];
+
+      for (const t of txns) {
+        await pool.query(
+          `INSERT INTO manual_transactions (user_id, account_id, date, amount, merchant, category)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [userId, t.accountId, t.date, t.amount, t.merchant, t.category]
+        );
+      }
+
+      // ── 3. Seed budgets ───────────────────────────────────────────────────
+      const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
+      const budgets = [
+        { category: "Groceries",     amount: "800.00"  },
+        { category: "Restaurants",   amount: "200.00"  },
+        { category: "Coffee Shops",  amount: "80.00"   },
+        { category: "Entertainment", amount: "150.00"  },
+        { category: "Shopping",      amount: "300.00"  },
+        { category: "Transportation",amount: "200.00"  },
+        { category: "Subscriptions", amount: "100.00"  },
+      ];
+      for (const b of budgets) {
+        await pool.query(
+          `INSERT INTO budgets (user_id, category, amount, month)
+           VALUES ($1, $2, $3, $4)`,
+          [userId, b.category, b.amount, currentMonth]
+        );
+      }
+
+      // ── 4. Seed savings goals ─────────────────────────────────────────────
+      const goals = [
+        { name: "Emergency Fund",     targetAmount: "10000.00", currentAmount: "4200.00", targetDate: daysAgo(-180) },
+        { name: "Vacation to Europe", targetAmount: "5000.00",  currentAmount: "1800.00", targetDate: daysAgo(-365) },
+        { name: "New Laptop",         targetAmount: "2000.00",  currentAmount: "950.00",  targetDate: daysAgo(-90)  },
+      ];
+      for (const g of goals) {
+        await pool.query(
+          `INSERT INTO savings_goals (user_id, name, target_amount, current_amount, target_date)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [userId, g.name, g.targetAmount, g.currentAmount, g.targetDate]
+        );
+      }
+
+      res.json({ success: true, message: "Demo data loaded successfully" });
+    } catch (error: any) {
+      console.error("load-demo-data error:", error);
+      res.status(500).json({ error: "Failed to load demo data" });
     }
   });
 
