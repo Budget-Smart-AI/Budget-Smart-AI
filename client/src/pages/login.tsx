@@ -140,6 +140,15 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         });
         return;
       }
+      // Google OAuth users must sign in with Google — not username/password
+      if (anyError.googleAuthRequired) {
+        toast({
+          title: "Use Google Sign-In",
+          description: "This account was created with Google. Please click 'Continue with Google' to sign in.",
+          variant: "destructive",
+        });
+        return;
+      }
       if (error.message.includes("verify your email")) {
         toast({
           title: "Email Verification Required",

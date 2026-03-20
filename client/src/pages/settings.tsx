@@ -2799,7 +2799,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Demo data detected</p>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                        You have sample Canadian household data loaded. Clear it instantly to start fresh.
+                        You have sample household data loaded. Clear it instantly to start fresh.
                       </p>
                     </div>
                     <Button
@@ -3236,7 +3236,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                     queryClient.invalidateQueries();
                     setShowFreshStartInterstitial(false);
                     navigate("/dashboard");
-                    toast({ title: "Demo data loaded!", description: "Explore BudgetSmart with sample Canadian household data." });
+                    toast({ title: "Demo data loaded!", description: "Explore BudgetSmart with sample household data." });
                   } catch {
                     toast({ title: "Failed to load demo data", variant: "destructive" });
                   } finally {
@@ -3253,7 +3253,7 @@ export default function Settings({ onLogout }: SettingsProps) {
                 </div>
                 <div>
                   <p className="font-semibold text-sm">Load Demo Data</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Explore with sample Canadian household finances</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Explore with sample household finances</p>
                 </div>
               </button>
             </div>

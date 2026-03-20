@@ -2883,8 +2883,12 @@ Return JSON: { "income": [...] }`;
       }
 
       const { username, password } = parsed.data;
-      const user = await storage.getUserByUsername(username);
-      
+      // Support login by username OR email address
+      let user = await storage.getUserByUsername(username);
+      if (!user && username.includes("@")) {
+        user = await storage.getUserByEmail(username);
+      }
+
       if (!user) {
         auditLogFromRequest(req, {
           eventType: "auth.login_failed",
@@ -2896,6 +2900,40 @@ Return JSON: { "income": [...] }`;
           errorMessage: "User not found",
         });
         return res.status(401).json({ error: "Invalid username or password" });
+      }
+
+      // SECURITY: Block Google OAuth users from using password login.
+      // Google OAuth users have no password set — they must authenticate via Google Sign-In only.
+      if (user.googleId && !user.password) {
+        auditLogFromRequest(req, {
+          eventType: "auth.login_failed",
+          eventCategory: "auth",
+          actorId: user.id,
+          action: "login",
+          outcome: "failure",
+          metadata: { username },
+          errorMessage: "Google OAuth user attempted password login",
+        });
+        return res.status(403).json({
+          error: "This account uses Google Sign-In. Please click 'Continue with Google' to sign in.",
+          googleAuthRequired: true,
+        });
+      }
+
+      // SECURITY: Block password login if user has no password at all (safety net).
+      if (!user.password) {
+        auditLogFromRequest(req, {
+          eventType: "auth.login_failed",
+          eventCategory: "auth",
+          actorId: user.id,
+          action: "login",
+          outcome: "failure",
+          metadata: { username },
+          errorMessage: "No password set on account",
+        });
+        return res.status(403).json({
+          error: "This account does not have a password. Please use your original sign-in method.",
+        });
       }
 
       // Check account lockout before validating password
@@ -16426,6 +16464,119 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     } catch (error: any) {
       console.error("PATCH /api/admin/ai-models error:", error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── TaxSmart: Fetch vault tax documents (T4, W-2, etc.) ─────────────────
+  app.get("/api/tax/vault-documents", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { Pool } = await import("pg");
+      const vaultPool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const result = await vaultPool.query(
+        `SELECT id, display_name, file_name, category, subcategory, ai_summary,
+                extracted_data, tags, ai_processing_status, uploaded_at, file_type
+         FROM vault_documents
+         WHERE user_id = $1
+           AND (category = 'tax' OR subcategory ILIKE '%T4%' OR subcategory ILIKE '%W-2%'
+                OR subcategory ILIKE '%W2%' OR subcategory ILIKE '%1099%'
+                OR tags && ARRAY['T4','W-2','W2','1099','tax','income']::text[]
+                OR display_name ILIKE '%T4%' OR display_name ILIKE '%W-2%'
+                OR file_name ILIKE '%T4%' OR file_name ILIKE '%W-2%')
+         ORDER BY uploaded_at DESC`,
+        [userId]
+      );
+      await vaultPool.end();
+      res.json({ success: true, data: result.rows });
+    } catch (error: any) {
+      console.error("[TaxSmart] vault-documents error:", error);
+      res.status(500).json({ error: "Failed to fetch tax documents", details: error.message });
+    }
+  });
+
+  // ─── TaxSmart: Analyze a T4/W-2 vault document with AI ───────────────────
+  app.post("/api/tax/analyze-document", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const plan = await getEffectivePlan(userId);
+      const gateResult = await checkAndConsume(userId, plan, "tax_reporting");
+      if (!gateResult.allowed) {
+        return res.status(402).json({
+          feature: "tax_reporting",
+          remaining: gateResult.remaining,
+          resetDate: gateResult.resetDate?.toISOString() ?? null,
+          upgradeRequired: gateResult.upgradeRequired,
+        });
+      }
+
+      const { documentId, country, taxYear } = req.body as {
+        documentId: string;
+        country: "US" | "CA";
+        taxYear: number;
+      };
+
+      if (!documentId) return res.status(400).json({ error: "documentId is required" });
+
+      const { Pool } = await import("pg");
+      const vaultPool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const result = await vaultPool.query(
+        "SELECT * FROM vault_documents WHERE id=$1",
+        [documentId]
+      );
+      await vaultPool.end();
+
+      const doc = result.rows[0];
+      if (!doc || doc.user_id !== String(userId)) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      // Build context from extracted data
+      let docContext = `Document: ${doc.display_name || doc.file_name}\n`;
+      docContext += `Category: ${doc.category} / ${doc.subcategory || ""}\n`;
+      if (doc.ai_summary) docContext += `Summary: ${doc.ai_summary}\n`;
+      if (doc.extracted_data) {
+        try {
+          const data = typeof doc.extracted_data === "string"
+            ? JSON.parse(doc.extracted_data)
+            : doc.extracted_data;
+          docContext += `\nExtracted fields:\n`;
+          for (const [k, v] of Object.entries(data)) {
+            docContext += `  ${k}: ${v}\n`;
+          }
+        } catch { /* ignore */ }
+      }
+
+      const countryCtx = country === "CA"
+        ? `Canadian CRA tax context. Tax year: ${taxYear}. Focus on T4 boxes (Box 14 employment income, Box 22 income tax deducted, Box 16/17 CPP, Box 18 EI, Box 52 pension adjustment, Box 40 other taxable allowances, Box 46 charitable donations). Identify RRSP room (18% of Box 14), potential deductions, and any notable items.`
+        : `US IRS tax context. Tax year: ${taxYear}. Focus on W-2 boxes (Box 1 wages, Box 2 federal tax withheld, Box 4 social security tax, Box 6 Medicare tax, Box 12 codes, Box 14 other). Identify potential deductions and any notable items.`;
+
+      const systemPrompt = `You are TaxSmart AI, a tax document analyzer. Analyze the provided tax document data and give the user:
+1. A clear summary of their key income and tax figures
+2. 3-5 specific, actionable observations or potential deductions to discuss with their accountant
+3. Any red flags or items that need attention
+4. Estimated RRSP contribution room (for Canadian T4s)
+
+${countryCtx}
+
+IMPORTANT: You are NOT providing tax advice. Always remind the user to consult a CPA. Keep response under 300 words. Use bullet points for clarity.`;
+
+      const { routeAI } = await import("./ai-router");
+      const aiResult = await routeAI({
+        taskSlot: "taxsmart_analysis",
+        userId,
+        featureContext: "taxsmart_analysis",
+        maxTokens: 600,
+        temperature: 0.4,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Please analyze this tax document:\n\n${docContext}` },
+        ],
+      });
+
+      res.json({ success: true, analysis: aiResult.content ?? "Unable to analyze document." });
+    } catch (error: any) {
+      console.error("[TaxSmart] analyze-document error:", error);
+      res.status(500).json({ error: "Failed to analyze document", details: error.message });
     }
   });
 

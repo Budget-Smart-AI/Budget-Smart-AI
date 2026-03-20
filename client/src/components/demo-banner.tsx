@@ -3,13 +3,14 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { FlaskConical, X, Loader2, RefreshCw } from "lucide-react";
+import { FlaskConical, X, Loader2, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /**
  * DemoBanner — shown on financial pages when the user has demo data loaded.
  * Detects demo data via GET /api/user/has-demo-data.
- * "Clear Demo Data" calls POST /api/auth/fresh-start silently (no modal).
+ * "Connect Bank" navigates to /onboarding.
+ * "Clear Demo Data" calls POST /api/auth/fresh-start silently (no modal), then redirects to /onboarding.
  */
 export function DemoBanner() {
   const { toast } = useToast();
@@ -32,8 +33,8 @@ export function DemoBanner() {
         confirmation: "FRESH START",
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to clear demo data");
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to clear demo data");
       }
       return res.json();
     },
@@ -41,48 +42,66 @@ export function DemoBanner() {
       queryClient.clear();
       toast({
         title: "Demo data cleared",
-        description: "Your account is now empty. Connect your bank to get started.",
+        description: "Your account has been reset. Connect a bank to get started.",
       });
-      navigate("/dashboard");
+      navigate("/onboarding");
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
     },
   });
 
+  // Don't render while loading, if no demo data, or if dismissed
   if (isLoading || !data?.hasDemo || dismissed) return null;
 
   return (
-    <div className="w-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 flex items-center justify-between gap-3 mb-4">
-      <div className="flex items-center gap-2 min-w-0">
-        <FlaskConical className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-        <p className="text-sm text-amber-800 dark:text-amber-300 font-medium truncate">
-          You're viewing <span className="font-semibold">demo data</span> — sample Canadian household finances.
-        </p>
-      </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
+    <div className="mb-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+      {/* Icon */}
+      <FlaskConical className="h-4 w-4 shrink-0 text-blue-500 dark:text-blue-400" />
+
+      {/* Message */}
+      <p className="flex-1 text-sm font-medium">
+        You're viewing <span className="font-semibold">demo data</span>. Connect a real bank account to see your actual finances.
+      </p>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 shrink-0">
         <Button
           size="sm"
           variant="outline"
-          className="h-7 text-xs border-amber-400 text-amber-700 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/40"
-          disabled={clearMutation.isPending}
+          className="h-7 border-blue-300 bg-white text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-blue-700 dark:bg-transparent dark:text-blue-300 dark:hover:bg-blue-900"
+          onClick={() => navigate("/onboarding")}
+        >
+          <Building2 className="mr-1.5 h-3.5 w-3.5" />
+          Connect Bank
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 border-blue-300 bg-white text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-blue-700 dark:bg-transparent dark:text-blue-300 dark:hover:bg-blue-900"
           onClick={() => clearMutation.mutate()}
+          disabled={clearMutation.isPending}
         >
           {clearMutation.isPending ? (
-            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-          ) : (
-            <RefreshCw className="w-3 h-3 mr-1" />
-          )}
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : null}
           Clear Demo Data
         </Button>
-        <button
-          className="text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-200 transition-colors"
-          onClick={() => setDismissed(true)}
-          aria-label="Dismiss demo banner"
-        >
-          <X className="w-4 h-4" />
-        </button>
       </div>
+
+      {/* Dismiss */}
+      <button
+        onClick={() => setDismissed(true)}
+        className="ml-1 shrink-0 rounded p-0.5 text-blue-400 hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-900 dark:hover:text-blue-200"
+        aria-label="Dismiss"
+      >
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }
