@@ -395,13 +395,17 @@ export function findNextIncomeDate(incomes: Income[]): { date: Date; amount: num
 
 /**
  * Generate full cash flow forecast
+ * @param historicalDays - The actual number of days of transactions provided.
+ *   Used to correctly calculate the average daily spending baseline.
+ *   Defaults to 30. Pass 60 if you fetched 60 days of transactions, etc.
  */
 export function generateCashFlowForecast(
   currentBalance: number,
   bills: Bill[],
   incomes: Income[],
   transactions: PlaidTransaction[],
-  days: number = 30
+  days: number = 30,
+  historicalDays: number = 30
 ): CashFlowForecast {
   const today = startOfDay(new Date());
   const endDate = addDays(today, days);
@@ -411,7 +415,9 @@ export function generateCashFlowForecast(
   const incomeEvents = getIncomeInRange(incomes, today, endDate);
 
   // Calculate daily spending prediction (in dollars)
-  const avgDailySpending = calculateAverageDailySpending(transactions, 30);
+  // Use historicalDays so we divide by the actual window of data provided,
+  // not a hardcoded 30 (which would inflate the average if more days were fetched).
+  const avgDailySpending = calculateAverageDailySpending(transactions, historicalDays);
   const spendingByDay = getSpendingByDayOfWeek(transactions);
 
   // Convert everything to cents for precise arithmetic

@@ -10731,13 +10731,17 @@ ${JSON.stringify(txSummary)}`;
         return true;
       });
 
-      // Generate 90-day forecast
+      // Generate 90-day forecast.
+      // We fetched 60 days of transactions above, so we pass historicalDays=60
+      // so calculateAverageDailySpending divides by 60 (not the hardcoded 30),
+      // giving the correct daily average. The forecast horizon is still `days` (90).
       const forecast = generateCashFlowForecast(
         currentBalance,
         activeBills,
         activeIncomes,
         transactions,
-        days
+        days,
+        60
       );
 
       // Find danger day (first day balance goes negative)
@@ -13040,7 +13044,7 @@ The Budget Smart AI Team`,
           notes: null,
           source: "plaid" as const,
           accountId: tx.plaidAccountId,
-          isTransfer: false,
+          isTransfer: tx.isTransfer === "true",
           pending: tx.pending === "true",
         })),
         ...manualTransactions.map(tx => ({

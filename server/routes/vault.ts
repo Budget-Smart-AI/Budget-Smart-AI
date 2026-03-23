@@ -13,7 +13,7 @@ import { Pool } from "pg";
 import { sendEmailViaPostmark } from "../email";
 import { withTimeout } from "../timeout";
 import { checkAndConsume } from "../lib/featureGate";
-import { storage } from "../storage";
+import { getEffectivePlan } from "../lib/planResolver";
 
 const router = express.Router();
 
@@ -167,8 +167,7 @@ router.post("/upload", requireAuth, uploadRateLimiter, upload.array("file", 10),
     }
 
     const userId = String(req.session.userId ?? "");
-    const user = await storage.getUser(userId);
-    const plan = user?.plan || "free";
+    const plan = await getEffectivePlan(userId);
     const gateResult = await checkAndConsume(userId, plan, "financial_vault");
     if (!gateResult.allowed) {
       return res.status(402).json({
@@ -421,8 +420,7 @@ router.patch("/documents/:id", requireAuth, vaultRateLimiter, async (req, res) =
 router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res) => {
   try {
     const userId = String(req.session.userId ?? "");
-    const user = await storage.getUser(userId);
-    const plan = user?.plan || "free";
+    const plan = await getEffectivePlan(userId);
     const gateResult = await checkAndConsume(userId, plan, "vault_ai_search");
     if (!gateResult.allowed) {
       return res.status(402).json({
