@@ -1,0 +1,23 @@
+fix(debt-payoff): Fix Issues #10 & #11 - APR warnings, debt ratio, calc bugs
+
+- Add BLOCKING red warning banner when ALL debts have 0% APR with prominent
+  Set Interest Rates button (destructive styling, data-testid added)
+- Add yellow partial warning when SOME debts are missing APR with Set Rates CTA
+- Add SetAprDialog: shows all manual debts with suggested APRs by account type
+  Mortgage 4-7%, Credit Card 19.99-22.99%, LoC 7-12%, Auto Loan 5-9%,
+  Student Loan 5-8%, Personal Loan 9-18% -- user can edit and confirm
+- Add Set Interest Rates button inside debts list panel for quick access
+- Fix Debt Ratio: was ambiguous (showed 50.0x but no unit documented).
+  Now correctly labeled as Monthly ratio (Total Debt / Monthly Payments).
+  Shows both monthly and annual equivalent in subtitle and tooltip.
+  Fixed thresholds: under 20x green, 20-36x amber, over 36x red
+- Fix calculateAvalanche: extraPayment was applied using wrong variable.
+  Rewrote cleanly: identify highest-rate debt, apply min(extra, remaining)
+- Fix calculateSnowball: restructured for clarity and parity with avalanche
+- Add First payoff row in Avalanche vs Snowball comparison cards
+- Add payoff order subtitle showing highest rate first vs smallest balance first
+- Extra Payment Impact table: add note when APR missing
+- Replace incorrect useMemo side-effect with useEffect for dialog row init
+- Remove unused imports: useMutation, Progress, mostAprMissing variable
+
+UAT: Ryan.Mahabir@outlook.com - Prompt 7

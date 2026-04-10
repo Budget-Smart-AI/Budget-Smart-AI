@@ -1,0 +1,17 @@
+fix(routes): Fix 404 broken route links - /savings-goals → /savings
+
+Investigation found the sidebar navigation was already correct (uses /savings,
+/simulator, /receipts, /vault, /tax-smart, /anomalies). The actual broken links
+were in dashboard.tsx and UsageSummaryWidget.tsx which still referenced the
+old /savings-goals path that has no route definition.
+
+Fixes:
+- dashboard.tsx: 3 Link href="/savings-goals" changed to "/savings"
+  (Manage link, + Add Goal button, View all goals button)
+- UsageSummaryWidget.tsx: 2 route map entries changed to "/savings"
+  (ai_savings_advisor and savings_goals keys)
+
+The actual Savings Goals page lives at /savings (savings-goals.tsx component,
+Route path="/savings" in App.tsx). No new pages needed to be built.
+
+UAT: Ryan.Mahabir@outlook.com - Prompt 8

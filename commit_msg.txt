@@ -1,1 +1,10 @@
-fix: add timeframe to dashboard cards; fix subscriptions modal scrollbar and Uncheck All visibility
+fix(investments): Fix Return % showing 0.00% when cost basis is 0, add Edit Cost Basis action, fix 0 holdings display
+
+- Return % card now shows N/A with tooltip when total cost basis is 0/null
+- Holdings table Gain/Loss column shows N/A with tooltip when cost basis is missing
+- Added DollarSign button per holding row to open Edit Cost Basis dialog (orange when missing)
+- EditCostBasisDialog: focused single-field dialog to enter/update cost basis
+- Investment account cards now show Add Holdings button when 0 holdings
+- Added HelpCircle and DollarSign icons from lucide-react
+
+Resolves Issue #9 (UAT: Ryan.Mahabir)
