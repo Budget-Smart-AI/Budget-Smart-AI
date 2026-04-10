@@ -113,7 +113,7 @@ export default function FinancialCalendar() {
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(monthlyBills)}</div>
             <p className="text-sm text-muted-foreground">
-              {events.filter(e => e.type === "bill").length} bills this month
+              {events.filter(e => e.type === "bill").length} bill{events.filter(e => e.type === "bill").length !== 1 ? "s" : ""} · {format(monthStart, "MMM d")}–{format(monthEnd, "MMM d, yyyy")}
             </p>
           </CardContent>
         </Card>

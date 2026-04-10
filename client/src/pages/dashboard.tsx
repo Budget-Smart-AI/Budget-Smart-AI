@@ -25,7 +25,8 @@ import {
   UtensilsCrossed, ShoppingCart, Car, Lightbulb, Tv, ShoppingBag, Heart, Shield, X,
   BarChart3, ShieldAlert, type LucideIcon
 } from "lucide-react";
-import { format, addMonths, setDate, isBefore, isAfter, addDays, parseISO, startOfMonth, endOfMonth, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isEqual, setDay } from "date-fns";
+import { format, setDate, setDay, addMonths, isBefore, isAfter, addDays, parseISO, startOfMonth, endOfMonth, getDaysInMonth, eachDayOfInterval, getDay, addWeeks } from "date-fns";
+import { getBillsForPeriod, sumBillOccurrences } from "@/lib/bill-utils";
 import type { Bill, Income, Budget, SavingsGoal } from "@shared/schema";
 import { FinancialHealthScore } from "@/components/financial-health-score";
 import { DemoBanner } from "@/components/demo-banner";
@@ -696,7 +697,24 @@ export default function Dashboard() {
   // Net Cash Flow (Bank Balance Change)
   const bankBalanceChange = realIncomeFromBank - realSpendingFromBank;
 
-  // Get upcoming bills (next 30 days)
+  // ============================================
+  // SECTION B: YOUR FINANCIAL PLAN CALCULATIONS
+  // (Budget-based data only)
+  // ============================================
+
+  // monthStart/monthEnd used by both sections — defined once here
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+
+  // ── Bills This Month (same calendar-month window as the Calendar page) ──
+  // Uses getBillsForPeriod from bill-utils.ts so both pages share one algorithm.
+  // This is the authoritative bill total shown in the stat card — it will match
+  // the "Bills Due" total on the Calendar page exactly.
+  const thisMonthBillOccurrences = getBillsForPeriod(bills, monthStart, monthEnd);
+  const thisMonthBillsTotal = sumBillOccurrences(thisMonthBillOccurrences);
+
+  // ── Upcoming Payments list (rolling next-30-days, for the preview card) ──
+  // Kept separate so the "Upcoming Payments" card still shows what's due soon.
   const upcomingBills = bills
     .filter((bill) => bill.isPaused !== "true")
     .map((bill) => ({
@@ -708,19 +726,6 @@ export default function Dashboard() {
       return isBefore(bill.nextDue, thirtyDaysFromNow) && isAfter(bill.nextDue, addDays(now, -1));
     })
     .sort((a, b) => a.nextDue.getTime() - b.nextDue.getTime());
-
-  const upcomingBillsTotal = upcomingBills.reduce(
-    (sum, bill) => sum + parseFloat(bill.amount),
-    0
-  );
-
-  // ============================================
-  // SECTION B: YOUR FINANCIAL PLAN CALCULATIONS
-  // (Budget-based data only)
-  // ============================================
-  
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
   
   // Budgeted Income (from income table - planned income)
   const budgetedIncome = income.reduce(
@@ -952,10 +957,10 @@ export default function Dashboard() {
               isWarning={bankBalanceChange < 0}
             />
             <RealCashFlowCard
-              title="Upcoming Bills"
-              value={formatCurrency(upcomingBillsTotal)}
+              title="Bills Due This Month"
+              value={formatCurrency(thisMonthBillsTotal)}
               icon={Calendar}
-              description={`${upcomingBills.length} bills in 30 days`}
+              description={`${thisMonthBillOccurrences.length} bill${thisMonthBillOccurrences.length !== 1 ? "s" : ""} · ${format(monthStart, "MMM d")}–${format(monthEnd, "MMM d, yyyy")}`}
               isLoading={isLoading}
             />
           </div>
@@ -1154,10 +1159,10 @@ export default function Dashboard() {
               variant="spending"
             />
             <PlanStatCard
-              title="Planned Bills"
+              title="Monthly Bill Budget"
               value={formatCurrency(monthlyBillsPlanned)}
               icon={Calendar}
-              description="Recurring monthly bills"
+              description={`Budget estimate · ${format(now, "MMM yyyy")} (not actual dates)`}
               isLoading={isLoading}
             />
             <PlanStatCard
