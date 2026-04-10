@@ -1207,7 +1207,7 @@ export default function Dashboard() {
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     <DataSourceLabel type="plan" />
-                    <Link href="/savings-goals">
+                    <Link href="/savings">
                       <Button variant="ghost" size="sm" className="text-xs h-7">
                         Manage <ChevronRight className="h-3 w-3 ml-1" />
                       </Button>
@@ -1231,7 +1231,7 @@ export default function Dashboard() {
                     <p className="text-sm text-muted-foreground">
                       Set a savings goal to track your progress
                     </p>
-                    <Link href="/savings-goals">
+                    <Link href="/savings">
                       <Button size="sm" className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
                         <PiggyBank className="h-4 w-4" />
                         + Add Goal
@@ -1273,7 +1273,7 @@ export default function Dashboard() {
                       );
                     })}
                     {savingsGoals.length > 4 && (
-                      <Link href="/savings-goals">
+                      <Link href="/savings">
                         <Button variant="ghost" size="sm" className="w-full gap-1 text-xs">
                           View all {savingsGoals.length} goals
                           <ArrowRight className="h-3 w-3" />
