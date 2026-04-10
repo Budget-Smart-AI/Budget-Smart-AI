@@ -1,15 +1,22 @@
 // FEATURE: DEBT_PAYOFF_PLANNER | tier: pro | limit: unlimited
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HelpTooltip } from "@/components/help-tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -41,10 +48,11 @@ import {
   BarChart3,
   TrendingUp,
   ShieldCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { format, addMonths } from "date-fns";
 import { Link, useLocation } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { DebtDetails, PlaidAccount } from "@shared/schema";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
@@ -146,6 +154,7 @@ function calculateAvalanche(
     return { months: 0, totalInterest: 0, payoffOrder: [], schedule: [] };
   }
 
+  // Avalanche: sort by highest interest rate first
   const sortedDebts = [...debts].sort((a, b) => b.interestRate - a.interestRate);
   const balances = new Map(sortedDebts.map(d => [d.id, d.balance]));
   const schedule: PayoffScheduleItem[] = [];
@@ -153,12 +162,15 @@ function calculateAvalanche(
 
   let month = 0;
   let totalInterest = 0;
-  const totalMinPayment = debts.reduce((sum, d) => sum + d.minimumPayment, 0);
-  let availableExtra = extraPayment;
 
   while (Array.from(balances.values()).some(b => b > 0) && month < 360) {
     month++;
     const date = addMonths(new Date(), month);
+
+    // Identify the highest-rate debt that still has a balance
+    const highestRateDebtId = sortedDebts
+      .filter(d => (balances.get(d.id) || 0) > 0)
+      .sort((a, b) => b.interestRate - a.interestRate)[0]?.id;
 
     for (const debt of sortedDebts) {
       const balance = balances.get(debt.id) || 0;
@@ -168,15 +180,13 @@ function calculateAvalanche(
       const interest = balance * monthlyRate;
       totalInterest += interest;
 
+      // Base payment: minimum payment, but don't overpay
       let payment = Math.min(debt.minimumPayment, balance + interest);
 
-      const isHighestRemainingDebt = sortedDebts
-        .filter(d => (balances.get(d.id) || 0) > 0)
-        .sort((a, b) => b.interestRate - a.interestRate)[0]?.id === debt.id;
-
-      if (isHighestRemainingDebt && availableExtra > 0) {
-        const extraForThisDebt = Math.min(availableExtra + (totalMinPayment - debts.filter(d => (balances.get(d.id) || 0) > 0).reduce((sum, d) => sum + d.minimumPayment, 0)), balance + interest - payment);
-        payment += Math.max(0, extraPayment);
+      // Apply extra payment to highest-rate remaining debt
+      if (debt.id === highestRateDebtId && extraPayment > 0) {
+        const remaining = balance + interest - payment;
+        payment += Math.min(extraPayment, remaining);
       }
 
       const principal = Math.min(payment - interest, balance);
@@ -210,6 +220,7 @@ function calculateSnowball(
     return { months: 0, totalInterest: 0, payoffOrder: [], schedule: [] };
   }
 
+  // Snowball: sort by smallest balance first
   const sortedDebts = [...debts].sort((a, b) => a.balance - b.balance);
   const balances = new Map(sortedDebts.map(d => [d.id, d.balance]));
   const schedule: PayoffScheduleItem[] = [];
@@ -223,6 +234,11 @@ function calculateSnowball(
     month++;
     const date = addMonths(new Date(), month);
 
+    // Identify the smallest-balance debt that still has a balance
+    const smallestBalanceDebtId = sortedDebts
+      .filter(d => (balances.get(d.id) || 0) > 0)
+      .sort((a, b) => (balances.get(a.id) || 0) - (balances.get(b.id) || 0))[0]?.id;
+
     for (const debt of sortedDebts) {
       const balance = balances.get(debt.id) || 0;
       if (balance <= 0) continue;
@@ -233,11 +249,8 @@ function calculateSnowball(
 
       let payment = debt.minimumPayment;
 
-      const isSmallestRemainingDebt = sortedDebts
-        .filter(d => (balances.get(d.id) || 0) > 0)
-        .sort((a, b) => (balances.get(a.id) || 0) - (balances.get(b.id) || 0))[0]?.id === debt.id;
-
-      if (isSmallestRemainingDebt) {
+      // Apply rolling snowball to smallest-balance debt
+      if (debt.id === smallestBalanceDebtId) {
         payment += snowball;
       }
 
@@ -258,12 +271,35 @@ function calculateSnowball(
 
       if (newBalance === 0 && balance > 0) {
         payoffOrder.push(debt.name);
+        // Roll freed minimum payment into the snowball
         snowball += debt.minimumPayment;
       }
     }
   }
 
   return { months: month, totalInterest, payoffOrder, schedule };
+}
+
+// ── Default APR ranges by account type ──────────────────────────────────────
+// These are realistic market ranges as of 2024-2025
+const DEFAULT_APR_RANGES: Record<string, { min: number; max: number; suggested: number; label: string }> = {
+  "Mortgage":        { min: 4.0,  max: 7.0,   suggested: 6.0,   label: "4–7%" },
+  "Credit Card":     { min: 19.99, max: 22.99, suggested: 21.99, label: "19.99–22.99%" },
+  "Line of Credit":  { min: 7.0,  max: 12.0,  suggested: 9.5,   label: "7–12%" },
+  "HELOC":           { min: 7.0,  max: 12.0,  suggested: 9.5,   label: "7–12%" },
+  "Auto Loan":       { min: 5.0,  max: 9.0,   suggested: 7.0,   label: "5–9%" },
+  "Student Loan":    { min: 5.0,  max: 8.0,   suggested: 6.5,   label: "5–8%" },
+  "Personal Loan":   { min: 9.0,  max: 18.0,  suggested: 12.0,  label: "9–18%" },
+  "Medical Debt":    { min: 0.0,  max: 8.0,   suggested: 0.0,   label: "0–8%" },
+  "Other":           { min: 8.0,  max: 20.0,  suggested: 10.0,  label: "8–20%" },
+};
+
+function getSuggestedApr(category: string): number {
+  return DEFAULT_APR_RANGES[category]?.suggested ?? 10.0;
+}
+
+function getAprRangeLabel(category: string): string {
+  return DEFAULT_APR_RANGES[category]?.label ?? "8–20%";
 }
 
 // ─── Debt Payoff Upgrade Gate ─────────────────────────────────────────────────
@@ -410,12 +446,194 @@ function DebtPayoffGate({ children }: { children: React.ReactNode }) {
 
 const DEBT_CATEGORIES = ["Credit Card", "Line of Credit", "Loans", "Mortgage", "Student Loans", "Auto Loan", "Other"];
 
+// ── Set Interest Rates Dialog ─────────────────────────────────────────────────
+interface AprEditRow {
+  id: string;
+  name: string;
+  category: string;
+  currentApr: number;
+  suggestedApr: number;
+  editedApr: string;
+  isPlaid: boolean;
+}
+
+interface SetAprDialogProps {
+  open: boolean;
+  onClose: () => void;
+  debts: DebtItem[];
+  onSaved: () => void;
+}
+
+function SetAprDialog({ open, onClose, debts, onSaved }: SetAprDialogProps) {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<AprEditRow[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Initialize rows when dialog opens
+  useEffect(() => {
+    if (open) {
+      setRows(
+        debts
+          .filter(d => !d.id.startsWith("plaid-")) // only manual debts can be saved via API
+          .map(d => ({
+            id: d.id,
+            name: d.name,
+            category: d.category,
+            currentApr: d.interestRate,
+            suggestedApr: getSuggestedApr(d.category),
+            editedApr: d.interestRate > 0 ? String(d.interestRate) : String(getSuggestedApr(d.category)),
+            isPlaid: false,
+          }))
+      );
+    }
+  }, [open, debts]);
+
+  const updateRow = (id: string, value: string) => {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, editedApr: value } : r));
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    const results: { success: boolean; name: string }[] = [];
+
+    for (const row of rows) {
+      const apr = parseFloat(row.editedApr);
+      if (isNaN(apr) || apr < 0 || apr > 100) {
+        results.push({ success: false, name: row.name });
+        continue;
+      }
+      // Only save if the value actually changed
+      if (apr === row.currentApr) continue;
+
+      try {
+        await apiRequest("PUT", `/api/debts/${row.id}`, { apr: apr.toFixed(2) });
+        results.push({ success: true, name: row.name });
+      } catch {
+        results.push({ success: false, name: row.name });
+      }
+    }
+
+    setIsSaving(false);
+    const saved = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+
+    if (failed > 0) {
+      toast({
+        title: "Some rates could not be saved",
+        description: `${saved} updated, ${failed} failed. You can edit rates directly on the Debts page.`,
+        variant: "destructive",
+      });
+    } else if (saved > 0) {
+      toast({
+        title: "Interest rates saved",
+        description: `Updated APR for ${saved} debt${saved !== 1 ? "s" : ""}. Payoff projections now reflect accurate rates.`,
+      });
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["/api/debts"] });
+    onSaved();
+    onClose();
+  };
+
+  const plaidOnly = debts.every(d => d.id.startsWith("plaid-"));
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Percent className="h-5 w-5 text-primary" />
+            Set Interest Rates (APR)
+          </DialogTitle>
+          <DialogDescription>
+            Review and confirm the APR for each debt. Suggested rates are based on typical market ranges
+            for each debt type. You can edit any value before saving.
+          </DialogDescription>
+        </DialogHeader>
+
+        {plaidOnly ? (
+          <div className="py-4 text-center text-muted-foreground">
+            <AlertCircle className="h-8 w-8 mx-auto mb-2 text-yellow-500" />
+            <p className="font-medium">Plaid-linked accounts cannot be edited here.</p>
+            <p className="text-sm mt-1">
+              Interest rates for bank-connected accounts are read-only. To set rates, add the debts
+              manually on the <Link href="/debts" className="text-primary underline">Debts page</Link>.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {rows.map(row => (
+              <div key={row.id} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center p-3 rounded-lg border bg-card">
+                <div>
+                  <p className="font-medium text-sm">{row.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {row.category} · Typical range: {getAprRangeLabel(row.category)}
+                  </p>
+                </div>
+                <div className="text-right text-xs text-muted-foreground">
+                  <p>Suggested</p>
+                  <p className="font-medium text-foreground">{row.suggestedApr}%</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={row.editedApr}
+                    onChange={e => updateRow(row.id, e.target.value)}
+                    className="w-24 text-right"
+                  />
+                  <span className="text-sm text-muted-foreground">%</span>
+                </div>
+              </div>
+            ))}
+
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-3 text-xs text-blue-700 dark:text-blue-300">
+              <p className="font-medium mb-1">Suggested APR ranges (2024–2025 market rates):</p>
+              <ul className="space-y-0.5">
+                <li>• <strong>Mortgage:</strong> 4–7% · <strong>Credit Card:</strong> 19.99–22.99%</li>
+                <li>• <strong>Line of Credit:</strong> 7–12% · <strong>Auto Loan:</strong> 5–9%</li>
+                <li>• <strong>Student Loan:</strong> 5–8% · <strong>Personal Loan:</strong> 9–18%</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="flex gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </Button>
+          {!plaidOnly && (
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Save Interest Rates"
+              )}
+            </Button>
+          )}
+          {plaidOnly && (
+            <Button asChild>
+              <Link href="/debts">Go to Debts Page</Link>
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function DebtPayoff() {
   const { toast } = useToast();
   const [extraPayment, setExtraPayment] = useState<number>(0);
   const [selectedMethod, setSelectedMethod] = useState<"avalanche" | "snowball">("avalanche");
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showAprDialog, setShowAprDialog] = useState(false);
 
   const { data: debtDetails = [], isLoading: isLoadingDebts } = useQuery<DebtDetails[]>({
     queryKey: ["/api/debts"],
@@ -491,6 +709,16 @@ export default function DebtPayoff() {
   }, [allDebts, totalDebt]);
 
   const debtsWithoutApr = allDebts.filter(d => d.interestRate === 0).length;
+  // "All debts missing APR" = every debt is at 0% — this is the blocking state
+  const allAprMissing = allDebts.length > 0 && debtsWithoutApr === allDebts.length;
+  // Debt-to-Payment ratio (monthly):
+  // Formula: Total Debt ÷ Total Monthly Minimum Payments
+  // Interpretation: How many months of minimum payments equal your total debt.
+  // E.g., 72x means it would take 72 months (6 years) of minimums to clear the principal alone.
+  // Thresholds: <20x = manageable, 20-36x = caution, 36-60x = high, >60x = critical
+  const debtToPaymentRatioMonthly = totalMinPayments > 0 ? totalDebt / totalMinPayments : null;
+  // Annual equivalent = monthly ratio ÷ 12 (total debt vs annual payments)
+  const debtToPaymentRatioAnnual = debtToPaymentRatioMonthly !== null ? debtToPaymentRatioMonthly / 12 : null;
 
   const handleAiAnalysis = async () => {
     if (allDebts.length === 0) {
@@ -588,7 +816,40 @@ Keep the response concise and actionable.`;
         </div>
       </div>
 
-      {debtsWithoutApr > 0 && (
+      {/* ── BLOCKING APR Warning ── */}
+      {allAprMissing && (
+        <Card className="border-destructive/60 bg-destructive/5 shadow-sm">
+          <CardContent className="py-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="flex items-start gap-3 flex-1">
+                <AlertTriangle className="h-6 w-6 text-destructive flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-destructive text-sm">
+                    Interest rates are required for accurate payoff calculations
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Without APR, projections assume 0% interest which is unrealistic. All{" "}
+                    <strong>{allDebts.length} debt{allDebts.length !== 1 ? "s" : ""}</strong> are currently
+                    missing interest rates — payoff dates, total interest, and extra payment savings shown
+                    below are not meaningful until rates are set.
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={() => setShowAprDialog(true)}
+                className="shrink-0 bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                data-testid="button-set-interest-rates"
+              >
+                <Percent className="h-4 w-4 mr-2" />
+                Set Interest Rates
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Partial APR warning (some missing, but not all) ── */}
+      {!allAprMissing && debtsWithoutApr > 0 && (
         <Card className="border-yellow-500/50 bg-yellow-500/5">
           <CardContent className="flex items-center gap-3 py-3">
             <AlertCircle className="h-5 w-5 text-yellow-500 flex-shrink-0" />
@@ -597,9 +858,18 @@ Keep the response concise and actionable.`;
                 {debtsWithoutApr} debt{debtsWithoutApr > 1 ? "s are" : " is"} missing APR information
               </p>
               <p className="text-xs text-muted-foreground">
-                Add interest rates in the <Link href="/debts" className="text-primary underline">Debts page</Link> for accurate payoff calculations
+                Projections for these debts assume 0% interest. Add interest rates for accurate calculations.
               </p>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-yellow-500/50 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/10"
+              onClick={() => setShowAprDialog(true)}
+            >
+              <Percent className="h-3 w-3 mr-1" />
+              Set Rates
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -658,20 +928,32 @@ Keep the response concise and actionable.`;
               </div>
               <div className="min-w-0">
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
+                  {/* FIX: Label explicitly documents "Monthly" ratio so it's unambiguous.
+                      Formula: Total Debt ÷ Monthly Minimum Payments.
+                      E.g., $87,500 ÷ $1,200/mo = 72.9x means 72.9 months of minimums to clear principal.
+                      Annual equivalent = Monthly ratio ÷ 12 (shown in tooltip). */}
                   Debt Ratio
                   <HelpTooltip
-                    title="Debt-to-Payment Ratio"
-                    content="Total debt divided by monthly payments. Lower is better. Under 20x is manageable, 20-36x needs attention, over 36x is high-risk."
+                    title="Monthly Debt-to-Payment Ratio"
+                    content={`Total debt ÷ monthly minimum payments.\n\nCurrent: ${debtToPaymentRatioMonthly !== null ? debtToPaymentRatioMonthly.toFixed(1) : "N/A"}x monthly (${debtToPaymentRatioAnnual !== null ? debtToPaymentRatioAnnual.toFixed(1) : "N/A"}x annual).\n\nThis shows how many months of minimum payments equal your total debt (ignoring interest). Lower is better.\n\nUnder 20x = manageable · 20–36x = needs attention · 36–60x = high risk · Over 60x = critical`}
                   />
                 </p>
-                <p className={`text-2xl font-bold ${
-                  totalMinPayments === 0 ? "" :
-                  totalDebt / totalMinPayments <= 20 ? "text-green-600" :
-                  totalDebt / totalMinPayments <= 36 ? "text-amber-600" :
-                  "text-red-600"
-                }`}>
-                  {totalMinPayments > 0 ? `${(totalDebt / totalMinPayments).toFixed(1)}x` : "N/A"}
-                </p>
+                {debtToPaymentRatioMonthly !== null ? (
+                  <div>
+                    <p className={`text-2xl font-bold ${
+                      debtToPaymentRatioMonthly <= 20 ? "text-green-600" :
+                      debtToPaymentRatioMonthly <= 36 ? "text-amber-600" :
+                      "text-red-600"
+                    }`}>
+                      {debtToPaymentRatioMonthly.toFixed(1)}x
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      monthly · {debtToPaymentRatioAnnual!.toFixed(1)}x annual
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold">N/A</p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -757,7 +1039,7 @@ Keep the response concise and actionable.`;
                         </Badge>
                       </div>
                       {debt.interestRate === 0 && (
-                        <Badge variant="outline" className="text-xs text-yellow-600">
+                        <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-400">
                           Missing APR
                         </Badge>
                       )}
@@ -781,6 +1063,18 @@ Keep the response concise and actionable.`;
                   </div>
                 ))}
               </div>
+            )}
+            {debtsWithoutApr > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => setShowAprDialog(true)}
+                data-testid="button-set-apr-inline"
+              >
+                <Percent className="h-3 w-3 mr-1" />
+                Set Interest Rates
+              </Button>
             )}
           </CardContent>
         </Card>
@@ -884,6 +1178,12 @@ Keep the response concise and actionable.`;
                       <span className="text-muted-foreground">Debt-free</span>
                       <span className="font-medium">{format(addMonths(new Date(), avalancheResult.months), "MMM yyyy")}</span>
                     </div>
+                    {avalancheResult.payoffOrder.length > 0 && (
+                      <div className="pt-1 border-t border-dashed">
+                        <p className="text-muted-foreground text-xs mb-1">First payoff:</p>
+                        <p className="text-xs font-medium truncate">{avalancheResult.payoffOrder[0]}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -905,6 +1205,12 @@ Keep the response concise and actionable.`;
                       <span className="text-muted-foreground">Debt-free</span>
                       <span className="font-medium">{format(addMonths(new Date(), snowballResult.months), "MMM yyyy")}</span>
                     </div>
+                    {snowballResult.payoffOrder.length > 0 && (
+                      <div className="pt-1 border-t border-dashed">
+                        <p className="text-muted-foreground text-xs mb-1">First payoff:</p>
+                        <p className="text-xs font-medium truncate">{snowballResult.payoffOrder[0]}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -927,7 +1233,7 @@ Keep the response concise and actionable.`;
               <div>
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Target className="w-4 h-4" />
-                  Payoff Order
+                  Payoff Order ({selectedMethod === "avalanche" ? "highest rate first" : "smallest balance first"})
                 </h4>
                 <div className="flex flex-wrap items-center gap-2">
                   {selectedResult.payoffOrder.map((name, index) => (
@@ -967,6 +1273,11 @@ Keep the response concise and actionable.`;
             </CardTitle>
             <CardDescription>
               See how additional payments accelerate your payoff
+              {allAprMissing && (
+                <span className="ml-1 text-destructive font-medium">
+                  — set interest rates above for accurate projections
+                </span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1024,6 +1335,14 @@ Keep the response concise and actionable.`;
           </CardContent>
         </Card>
       )}
+
+      {/* Set APR Dialog */}
+      <SetAprDialog
+        open={showAprDialog}
+        onClose={() => setShowAprDialog(false)}
+        debts={allDebts}
+        onSaved={() => {}}
+      />
     </div>
     </DebtPayoffGate>
   );
