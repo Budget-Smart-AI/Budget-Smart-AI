@@ -353,11 +353,17 @@ export default function ReportsPage() {
   const totalExpenses = periodExpenses?.total ?? monthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
   const prevTotalExpenses = prevPeriodExpenses?.total ?? prevMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
 
-  // Calculate income: recurring income entries + Plaid credits
-  const recurringIncome = income.reduce((sum, inc) => sum + calculateMonthlyIncomeTotal(inc, monthStart, monthEnd), 0);
-  const plaidIncome = getPlaidIncomeForMonth(plaidTransactions, monthStart, monthEnd);
-  const totalIncome = Math.max(recurringIncome, plaidIncome); // Use the higher of the two to avoid double-counting
+  // Two clearly-separated income figures:
+  // actualIncome  = real bank deposits (Plaid credits) within the month — the ground truth
+  // plannedIncome = what the user configured as expected recurring income for the month
+  const actualIncome = getPlaidIncomeForMonth(plaidTransactions, monthStart, monthEnd);
+  const plannedIncome = income.reduce((sum, inc) => sum + calculateMonthlyIncomeTotal(inc, monthStart, monthEnd), 0);
+  // Use actualIncome when Plaid data is available; fall back to plannedIncome only when there
+  // are no linked bank accounts (no Plaid transactions at all for any month)
+  const hasAnyPlaidData = plaidTransactions.length > 0;
+  const totalIncome = hasAnyPlaidData ? actualIncome : plannedIncome;
 
+  // Net Cash Flow is always based on actual figures
   const netCashFlow = totalIncome - totalExpenses - monthlyBillsTotal;
 
   // Expense change percentage
@@ -387,7 +393,8 @@ export default function ReportsPage() {
     const monthExp = mExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const monthRecurringInc = income.reduce((sum, inc) => sum + calculateMonthlyIncomeTotal(inc, start, end), 0);
     const monthPlaidInc = getPlaidIncomeForMonth(plaidTransactions, start, end);
-    const monthInc = Math.max(monthRecurringInc, monthPlaidInc);
+    // Use actual Plaid deposits when available; fall back to planned income only if no Plaid data for that month
+    const monthInc = monthPlaidInc > 0 ? monthPlaidInc : (hasAnyPlaidData ? 0 : monthRecurringInc);
 
     return {
       month: format(month, "MMM"),
@@ -600,7 +607,8 @@ export default function ReportsPage() {
       const monthExp = mExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
       const monthRecurringInc = income.reduce((sum, inc) => sum + calculateMonthlyIncomeTotal(inc, start, end), 0);
       const monthPlaidInc = getPlaidIncomeForMonth(plaidTransactions, start, end);
-      const monthInc = Math.max(monthRecurringInc, monthPlaidInc);
+      // Use actual Plaid deposits when available; fall back to planned income only if no Plaid data for that month
+      const monthInc = monthPlaidInc > 0 ? monthPlaidInc : (hasAnyPlaidData ? 0 : monthRecurringInc);
       const totalSpend = monthExp + monthlyBillsTotal;
       const saved = monthInc - totalSpend;
       const rate = monthInc > 0 ? (saved / monthInc) * 100 : 0;
@@ -922,7 +930,8 @@ export default function ReportsPage() {
       const monthExp = mExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
       const monthRecurringInc = income.reduce((sum, inc) => sum + calculateMonthlyIncomeTotal(inc, start, end), 0);
       const monthPlaidInc = getPlaidIncomeForMonth(plaidTransactions, start, end);
-      const monthInc = Math.max(monthRecurringInc, monthPlaidInc);
+      // Use actual Plaid deposits when available; fall back to planned income only if no Plaid data for that month
+      const monthInc = monthPlaidInc > 0 ? monthPlaidInc : (hasAnyPlaidData ? 0 : monthRecurringInc);
       ytdIncome += monthInc;
       ytdExpenses += monthExp;
       return { month: format(month, "MMM"), income: monthInc, expenses: monthExp };
@@ -1302,11 +1311,16 @@ export default function ReportsPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Total Income
+                  {hasAnyPlaidData ? "Actual Income" : "Planned Income"}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold text-green-600">{formatCurrency(totalIncome)}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {hasAnyPlaidData
+                    ? "Bank deposits received this month"
+                    : "Expected income (no bank linked)"}
+                </p>
               </CardContent>
             </Card>
 

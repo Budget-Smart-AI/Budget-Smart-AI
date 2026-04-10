@@ -1697,8 +1697,16 @@ export default function BankAccounts() {
     })
     .reduce((sum, tx) => sum + parseFloat(tx.amount), 0);
 
+  // Use isTransfer flag (same logic as Dashboard "Bank Deposits") with matchType as fallback.
+  // This ensures "Income" here matches "Bank Deposits" on the dashboard exactly.
   const monthlyIncome = transactions
-    .filter(tx => parseFloat(tx.amount) < 0 && tx.matchType !== "transfer")
+    .filter(tx => {
+      if (parseFloat(tx.amount) >= 0) return false;
+      if ((tx as any).isTransfer === true || (tx as any).isTransfer === "true") return false;
+      if (tx.matchType === "transfer") return false;
+      if ((tx as any).pending === true || (tx as any).pending === "true") return false;
+      return true;
+    })
     .reduce((sum, tx) => sum + Math.abs(parseFloat(tx.amount)), 0);
 
   const unmatchedCount = transactions.filter(tx => tx.matchType === "unmatched").length;
@@ -2013,11 +2021,12 @@ export default function BankAccounts() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 sm:pb-2 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium">Income</CardTitle>
+              <CardTitle className="text-xs sm:text-sm font-medium">Actual Income</CardTitle>
               <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-green-500" />
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="text-lg sm:text-2xl font-bold text-green-600">{formatCurrency(monthlyIncome)}</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">Bank deposits received</p>
             </CardContent>
           </Card>
           <Card>

@@ -750,11 +750,12 @@ export default function IncomePage() {
   const filteredIncome = allIncome
     .filter((inc) => {
       const incomeDate = parseISO(inc.date);
-      // For recurring income, show if the start date is on or before the end of the month
-      // For one-time income, check if it falls within this month
-      const isRelevantToMonth = inc.isRecurring === "true" 
-        ? incomeDate <= monthEnd  // Recurring: started on or before end of month
-        : (incomeDate >= monthStart && incomeDate <= monthEnd);  // One-time: in this month
+      // For recurring income: show only if it started on or before end of selected month
+      // AND the recurrence means it actually occurs in this month
+      // For one-time income: must fall exactly within this month
+      const contributionThisMonth = calculateMonthlyIncomeTotal(inc, monthStart, monthEnd);
+      // Only include if this entry actually contributes income this month
+      const isRelevantToMonth = contributionThisMonth > 0;
       const matchesSearch = inc.source.toLowerCase().includes(search.toLowerCase());
       const matchesCategory = categoryFilter === "all" || inc.category === categoryFilter;
       return isRelevantToMonth && matchesSearch && matchesCategory;
@@ -1076,10 +1077,20 @@ export default function IncomePage() {
               </div>
             </div>
           </div>
-          <div className="text-2xl font-bold text-green-600">
-            {formatCurrency(monthlyTotal)}
-            <span className="text-sm font-normal text-muted-foreground ml-2">
-              total for {format(currentMonth, "MMMM")}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div>
+              <div className="text-2xl font-bold text-green-600">
+                {formatCurrency(monthlyTotal)}
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  planned for {format(currentMonth, "MMMM")}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Expected income based on your income entries — see Bank Accounts for actual deposits received
+              </p>
+            </div>
+            <span className="inline-flex items-center rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              Planned / Expected
             </span>
           </div>
         </CardHeader>
