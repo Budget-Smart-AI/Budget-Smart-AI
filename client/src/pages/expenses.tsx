@@ -626,9 +626,31 @@ export default function ExpensesPage() {
   // bulk select
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // These must be declared before the useQuery hooks that reference them
+  const now = new Date();
+  const thisMonthRange = getMonthRange(now);
+  const lastMonthRange = getMonthRange(subMonths(now, 1));
+
   // fetch
   const { data: expenses = [], isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
+  });
+
+  // Unified total from server (deduped, transfers excluded) — used for "Total This Month" card
+  const { data: unifiedPeriodData } = useQuery<{ total: number; count: number }>({
+    queryKey: ["/api/expenses/for-period", format(thisMonthRange.start, "yyyy-MM-dd"), format(thisMonthRange.end, "yyyy-MM-dd")],
+    queryFn: async () => {
+      const res = await fetch(`/api/expenses/for-period?startDate=${format(thisMonthRange.start, "yyyy-MM-dd")}&endDate=${format(thisMonthRange.end, "yyyy-MM-dd")}`);
+      return res.json();
+    },
+  });
+
+  const { data: unifiedPrevPeriodData } = useQuery<{ total: number; count: number }>({
+    queryKey: ["/api/expenses/for-period", format(lastMonthRange.start, "yyyy-MM-dd"), format(lastMonthRange.end, "yyyy-MM-dd")],
+    queryFn: async () => {
+      const res = await fetch(`/api/expenses/for-period?startDate=${format(lastMonthRange.start, "yyyy-MM-dd")}&endDate=${format(lastMonthRange.end, "yyyy-MM-dd")}`);
+      return res.json();
+    },
   });
 
   // ── mutations ──────────────────────────────────────────────────────────────
@@ -721,10 +743,6 @@ export default function ExpensesPage() {
   });
 
   // ── computed stats ─────────────────────────────────────────────────────────
-
-  const now = new Date();
-  const thisMonthRange = getMonthRange(now);
-  const lastMonthRange = getMonthRange(subMonths(now, 1));
 
   const thisMonthExpenses = useMemo(
     () =>
@@ -1045,8 +1063,8 @@ export default function ExpensesPage() {
               <Skeleton className="h-8 w-32" />
             ) : (
               <>
-                <p className="text-2xl font-bold text-red-500">{formatCurrency(totalThisMonth)}</p>
-                <p className="text-xs text-muted-foreground mt-1">{thisMonthExpenses.length} transactions</p>
+                <p className="text-2xl font-bold text-red-500">{formatCurrency(unifiedPeriodData?.total ?? totalThisMonth)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{unifiedPeriodData?.count ?? thisMonthExpenses.length} transactions</p>
               </>
             )}
           </CardContent>
@@ -1062,8 +1080,8 @@ export default function ExpensesPage() {
               <Skeleton className="h-8 w-32" />
             ) : (
               <>
-                <p className="text-2xl font-bold text-muted-foreground">{formatCurrency(totalLastMonth)}</p>
-                <p className="text-xs text-muted-foreground mt-1">{lastMonthExpenses.length} transactions</p>
+                <p className="text-2xl font-bold text-muted-foreground">{formatCurrency(unifiedPrevPeriodData?.total ?? totalLastMonth)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{unifiedPrevPeriodData?.count ?? lastMonthExpenses.length} transactions</p>
               </>
             )}
           </CardContent>

@@ -1677,9 +1677,24 @@ export default function BankAccounts() {
     .filter(acc => acc.isActive !== "false")
     .reduce((sum, acc) => sum + parseFloat(acc.balance || "0"), 0);
 
-  // Exclude transfers from income and spending summaries
+  // Exclude transfers from income and spending summaries.
+  // Use isTransfer flag (consistent with dashboard) with matchType as fallback.
+  const TRANSFER_CATEGORIES = new Set([
+    "transfer", "transfers", "transfer_in", "transfer_out",
+    "transfer_credit_card_payment", "transfer_deposit",
+    "loan_payments", "credit card payment", "credit card",
+    "payment", "income", "payroll", "wages",
+  ]);
   const monthlySpending = transactions
-    .filter(tx => parseFloat(tx.amount) > 0 && tx.matchType !== "transfer")
+    .filter(tx => {
+      const amt = parseFloat(tx.amount);
+      if (amt <= 0) return false;
+      if ((tx as any).isTransfer === true || (tx as any).isTransfer === "true") return false;
+      if (tx.matchType === "transfer") return false;
+      const cat = (tx.personalCategory || tx.category || "").toLowerCase();
+      if (TRANSFER_CATEGORIES.has(cat)) return false;
+      return true;
+    })
     .reduce((sum, tx) => sum + parseFloat(tx.amount), 0);
 
   const monthlyIncome = transactions

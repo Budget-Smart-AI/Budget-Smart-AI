@@ -644,6 +644,19 @@ export default function Dashboard() {
     queryKey: ["/api/savings-goals"],
   });
 
+  // Unified expense total from server — deduped, transfers excluded. This is
+  // the single source of truth shared by Dashboard, Reports, Accounts, and Expenses page.
+  const { data: unifiedPeriodData } = useQuery<{ total: number; count: number }>({
+    queryKey: ["/api/expenses/for-period", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/expenses/for-period?startDate=${startDate}&endDate=${endDate}`, {
+        credentials: "include",
+      });
+      if (!res.ok) return { total: 0, count: 0 };
+      return res.json();
+    },
+  });
+
   const isLoading = billsLoading || incomeLoading || transactionsLoading || budgetsLoading || savingsGoalsLoading;
 
   // ============================================
@@ -923,7 +936,7 @@ export default function Dashboard() {
             />
             <RealCashFlowCard
               title="Total Outgoing"
-              value={formatCurrency(realSpendingFromBank)}
+              value={formatCurrency(unifiedPeriodData?.total ?? realSpendingFromBank)}
               icon={TrendingDown}
               description={`All spending · ${format(now, "MMM yyyy")}`}
               isLoading={isLoading}

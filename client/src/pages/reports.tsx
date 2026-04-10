@@ -266,6 +266,29 @@ export default function ReportsPage() {
     queryKey: ["/api/plaid/transactions"],
   });
 
+  // These must be declared before the useQuery hooks that reference them
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const prevMonthStart = startOfMonth(subMonths(currentMonth, 1));
+  const prevMonthEnd = endOfMonth(subMonths(currentMonth, 1));
+
+  // Unified expense totals from the server's de-duplicated, transfer-filtered endpoint
+  const { data: periodExpenses } = useQuery<{ total: number; count: number }>({
+    queryKey: ["/api/expenses/for-period", format(monthStart, "yyyy-MM-dd"), format(monthEnd, "yyyy-MM-dd")],
+    queryFn: async () => {
+      const res = await fetch(`/api/expenses/for-period?startDate=${format(monthStart, "yyyy-MM-dd")}&endDate=${format(monthEnd, "yyyy-MM-dd")}`);
+      return res.json();
+    },
+  });
+
+  const { data: prevPeriodExpenses } = useQuery<{ total: number; count: number }>({
+    queryKey: ["/api/expenses/for-period", format(prevMonthStart, "yyyy-MM-dd"), format(prevMonthEnd, "yyyy-MM-dd")],
+    queryFn: async () => {
+      const res = await fetch(`/api/expenses/for-period?startDate=${format(prevMonthStart, "yyyy-MM-dd")}&endDate=${format(prevMonthEnd, "yyyy-MM-dd")}`);
+      return res.json();
+    },
+  });
+
   const { data: categoryComparison } = useQuery<{
     month: string;
     previousMonth: string;
@@ -306,11 +329,6 @@ export default function ReportsPage() {
 
   const isLoading = expensesLoading || incomeLoading || billsLoading || plaidLoading;
 
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const prevMonthStart = startOfMonth(subMonths(currentMonth, 1));
-  const prevMonthEnd = endOfMonth(subMonths(currentMonth, 1));
-
   // Merge manual expenses with Plaid transactions (avoiding double-counting)
   const monthExpenses = mergeExpensesWithTransactions(expenses, plaidTransactions, monthStart, monthEnd);
   const prevMonthExpenses = mergeExpensesWithTransactions(expenses, plaidTransactions, prevMonthStart, prevMonthEnd);
@@ -330,9 +348,10 @@ export default function ReportsPage() {
     return sum;
   }, 0);
 
-  // Totals
-  const totalExpenses = monthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-  const prevTotalExpenses = prevMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+  // Totals — use server-side unified endpoint (deduped, transfers excluded) when available,
+  // fall back to client-side merge while endpoint is loading
+  const totalExpenses = periodExpenses?.total ?? monthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+  const prevTotalExpenses = prevPeriodExpenses?.total ?? prevMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
 
   // Calculate income: recurring income entries + Plaid credits
   const recurringIncome = income.reduce((sum, inc) => sum + calculateMonthlyIncomeTotal(inc, monthStart, monthEnd), 0);

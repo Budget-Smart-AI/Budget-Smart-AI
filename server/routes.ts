@@ -13008,6 +13008,125 @@ The Budget Smart AI Team`,
     }
   });
 
+  // ============ UNIFIED EXPENSE CALCULATION ENDPOINT ============
+  // Single source of truth for expense totals used by Dashboard, Reports,
+  // Accounts, and Expenses pages. Applies consistent filtering:
+  //   - Only transactions with amount > 0 (outflows)
+  //   - Excludes transfers (isTransfer === "true")
+  //   - Excludes pending transactions
+  //   - Deduplicates: if same amount+date+merchant appears in both source
+  //     and destination account, only counts it once
+  app.get("/api/expenses/for-period", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { startDate, endDate } = req.query;
+
+      // Only include explicitly ACTIVE Plaid accounts
+      const plaidAccounts = await storage.getAllPlaidAccounts(userId);
+      const activePlaidAccounts = plaidAccounts.filter((a: any) => a.isActive === "true");
+      const plaidAccountIds = activePlaidAccounts.map((a: any) => a.id);
+
+      const plaidTransactions = plaidAccountIds.length > 0
+        ? await storage.getPlaidTransactions(plaidAccountIds, {
+            startDate: startDate as string | undefined,
+            endDate: endDate as string | undefined,
+          })
+        : [];
+
+      const manualTransactions = await storage.getManualTransactionsByUser(userId, {
+        startDate: startDate as string | undefined,
+        endDate: endDate as string | undefined,
+      });
+
+      // CLASSIFICATION: only count genuine expenses
+      // - amount > 0 = money leaving the account (Plaid sign convention)
+      // - isTransfer !== "true" = not a transfer between own accounts
+      // - pending !== "true" = settled transactions only
+      // - Skip categories that indicate transfers/income even if isTransfer isn't set
+      const TRANSFER_CATEGORIES = new Set([
+        "transfer", "transfers", "transfer_in", "transfer_out",
+        "transfer_credit_card_payment", "transfer_deposit",
+        "loan_payments", "credit card payment", "credit card", "payment",
+        "income", "payroll", "wages",
+      ]);
+
+      function isTransferTx(tx: { isTransfer?: string | boolean; category?: string | null; personalCategory?: string | null }): boolean {
+        if (tx.isTransfer === "true" || tx.isTransfer === true) return true;
+        const cat = ((tx.personalCategory || tx.category) ?? "").toLowerCase();
+        return TRANSFER_CATEGORIES.has(cat);
+      }
+
+      // Filter Plaid transactions to only genuine expenses
+      const plaidExpenses = plaidTransactions
+        .filter((tx: any) =>
+          parseFloat(tx.amount) > 0 &&
+          !isTransferTx(tx) &&
+          tx.pending !== "true" && tx.pending !== true
+        )
+        .map((tx: any) => ({
+          id: tx.id,
+          date: tx.date,
+          amount: tx.amount,
+          merchant: tx.merchantName || tx.name,
+          category: tx.personalCategory || tx.category || "Other",
+          source: "plaid" as const,
+          accountId: tx.plaidAccountId,
+        }));
+
+      // Filter manual transactions to only genuine expenses
+      const manualExpenses = manualTransactions
+        .filter((tx: any) =>
+          parseFloat(tx.amount) > 0 &&
+          !isTransferTx(tx)
+        )
+        .map((tx: any) => ({
+          id: tx.id,
+          date: tx.date,
+          amount: tx.amount,
+          merchant: tx.merchant,
+          category: tx.category || "Other",
+          source: "manual" as const,
+          accountId: tx.accountId,
+        }));
+
+      // DEDUPLICATION: Remove duplicate transactions that appear in both
+      // source and destination accounts (e.g. same amount+date across linked accounts).
+      // Strategy: build a fingerprint of (date, rounded-amount) for Plaid transactions
+      // and deduplicate when the same fingerprint appears more than once within a
+      // narrow merchant-similarity window.
+      const seen = new Map<string, number>(); // fingerprint -> count
+      const deduped: typeof plaidExpenses = [];
+
+      for (const tx of plaidExpenses) {
+        // Round to nearest cent to avoid float precision issues
+        const roundedAmt = Math.round(parseFloat(tx.amount) * 100);
+        const fingerprint = `${tx.date}|${roundedAmt}|${(tx.merchant || "").toLowerCase().slice(0, 20)}`;
+        const count = seen.get(fingerprint) ?? 0;
+        if (count === 0) {
+          deduped.push(tx);
+        }
+        // If count > 0, this is a duplicate — skip it
+        seen.set(fingerprint, count + 1);
+      }
+
+      const allExpenses = [...deduped, ...manualExpenses];
+
+      // Sort by date descending
+      allExpenses.sort((a, b) => b.date.localeCompare(a.date));
+
+      const total = allExpenses.reduce((sum, tx) => sum + parseFloat(tx.amount), 0);
+
+      res.json({
+        transactions: allExpenses,
+        total: Math.round(total * 100) / 100,
+        count: allExpenses.length,
+      });
+    } catch (error) {
+      console.error("Error fetching expenses for period:", error);
+      res.status(500).json({ error: "Failed to fetch expenses for period" });
+    }
+  });
+
   // Get ALL transactions (Plaid + Manual combined) for date range
   app.get("/api/transactions/all", requireAuth, async (req, res) => {
     try {
