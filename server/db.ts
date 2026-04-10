@@ -672,6 +672,21 @@ export async function ensureUserFeatureUsageTable(): Promise<void> {
   // Add milestone notification tracking columns (idempotent)
   await pool.query(`ALTER TABLE user_feature_usage ADD COLUMN IF NOT EXISTS warning_sent_at TIMESTAMP`);
   await pool.query(`ALTER TABLE user_feature_usage ADD COLUMN IF NOT EXISTS limit_sent_at TIMESTAMP`);
+  // Fix: if user_id was previously created as UUID type, cast it to VARCHAR so it can be
+  // compared to users.id (which is varchar). This is idempotent — altering varchar→varchar is a no-op.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_feature_usage'
+          AND column_name = 'user_id'
+          AND data_type = 'uuid'
+      ) THEN
+        ALTER TABLE user_feature_usage ALTER COLUMN user_id TYPE VARCHAR(255) USING user_id::VARCHAR(255);
+      END IF;
+    END$$;
+  `);
 }
 
 /**
