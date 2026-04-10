@@ -92,7 +92,7 @@ export function SpendabilityWidget() {
           </Badge>
         </div>
         <CardDescription className="text-xs">
-          How much you can safely spend today
+          Based on balance minus bills due this week
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -126,12 +126,12 @@ export function SpendabilityWidget() {
           <div className="p-2 rounded-lg bg-muted/50">
             <div className="flex items-center gap-1 text-muted-foreground mb-1">
               <DollarSign className="h-3 w-3" />
-              <span className="text-xs">Upcoming Bills</span>
+              <span className="text-xs">Bills (Next 7 Days)</span>
             </div>
             <p className="font-medium">
               {formatCurrency(data.upcomingBillsTotal)}
               <span className="text-xs text-muted-foreground ml-1">
-                ({data.upcomingBillsCount})
+                ({data.upcomingBillsCount} bill{data.upcomingBillsCount !== 1 ? "s" : ""})
               </span>
             </p>
           </div>

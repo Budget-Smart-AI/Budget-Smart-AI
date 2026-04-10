@@ -98,6 +98,13 @@ type AccountFormValues = z.infer<typeof accountFormSchema>;
 type HoldingFormValues = z.infer<typeof holdingFormSchema>;
 
 // ── New advisor data types ────────────────────────────────────────────────────
+interface InvestmentsSummary {
+  totalValue: number;
+  totalCostBasis: number;
+  totalGainLoss: number;
+  totalGainLossPct: number;
+}
+
 interface EnrichedHolding {
   symbol: string;
   shares: number;
@@ -1194,6 +1201,10 @@ export default function Investments() {
     queryKey: ["/api/holdings"],
   });
 
+  const { data: investmentsSummary } = useQuery<InvestmentsSummary>({
+    queryKey: ["/api/engine/investments"],
+  });
+
   const deleteMutation = useMutation({
     mutationFn: ({ id, type }: { id: string; type: "account" | "holding" }) => {
       if (!id) {
@@ -1221,16 +1232,10 @@ export default function Investments() {
     onError: () => toast({ title: "Failed to refresh prices", variant: "destructive" }),
   });
 
-  const totalValue = accounts.reduce((sum, account) => {
-    const accountHoldings = holdings.filter(h => h.investmentAccountId === account.id);
-    if (accountHoldings.length > 0) {
-      return sum + accountHoldings.reduce((s, h) => s + parseFloat(h.currentValue || "0"), 0);
-    }
-    return sum + parseFloat((account as any).balance || "0");
-  }, 0);
-  const totalCost = holdings.reduce((sum, h) => sum + parseFloat(h.costBasis || "0"), 0);
-  const totalGain = totalValue - totalCost;
-  const gainPercent = totalCost > 0 ? (totalGain / totalCost) * 100 : 0;
+  const totalValue = investmentsSummary?.totalValue ?? 0;
+  const totalCost = investmentsSummary?.totalCostBasis ?? 0;
+  const totalGain = investmentsSummary?.totalGainLoss ?? 0;
+  const gainPercent = investmentsSummary?.totalGainLossPct ?? 0;
 
   if (accountsLoading || holdingsLoading) {
     return (

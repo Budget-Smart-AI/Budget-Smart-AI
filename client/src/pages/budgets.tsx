@@ -48,74 +48,8 @@ import { Plus, Pencil, Trash2, PieChart, ChevronLeft, ChevronRight, Sparkles, Lo
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Budget, type Expense } from "@shared/schema";
+import { EXPENSE_CATEGORIES, type Budget } from "@shared/schema";
 import { DemoBanner } from "@/components/demo-banner";
-
-// ════════════════════════════════════════
-// PACE CALCULATION UTILITIES
-// ════════════════════════════════════════
-
-function monthProgress(): number {
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  return now.getDate() / daysInMonth;
-}
-
-function expectedSpend(budget: number): number {
-  return budget * monthProgress();
-}
-
-function projectedSpend(spent: number, budget: number): number {
-  const progress = monthProgress();
-  if (progress === 0) return 0;
-  return spent / progress;
-}
-
-function getPaceStatus(
-  spent: number,
-  budget: number
-): "under" | "on-pace" | "over-pace" | "over-budget" {
-  if (spent > budget) return "over-budget";
-  const expected = expectedSpend(budget);
-  if (expected === 0) return "on-pace";
-  const ratio = spent / expected;
-  if (ratio <= 0.85) return "under";
-  if (ratio <= 1.15) return "on-pace";
-  return "over-pace";
-}
-
-function getPaceLabel(spent: number, budget: number): string {
-  const status = getPaceStatus(spent, budget);
-  const projected = projectedSpend(spent, budget);
-  const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dayOfMonth = now.getDate();
-
-  switch (status) {
-    case "over-budget":
-      return `Over by ${formatCurrency(spent - budget)}`;
-    case "over-pace":
-      return `Over pace — projected ${formatCurrency(projected)}`;
-    case "on-pace":
-      return `On pace — Day ${dayOfMonth} of ${daysInMonth}`;
-    case "under":
-      return `Under pace ✓`;
-  }
-}
-
-function getPaceColor(spent: number, budget: number): string {
-  const status = getPaceStatus(spent, budget);
-  switch (status) {
-    case "over-budget":
-      return "text-red-500";
-    case "over-pace":
-      return "text-amber-500";
-    case "on-pace":
-      return "text-green-500";
-    case "under":
-      return "text-green-500";
-  }
-}
 
 // ════════════════════════════════════════
 // HELPERS
@@ -154,18 +88,41 @@ const budgetFormSchema = z.object({
 
 type BudgetFormValues = z.infer<typeof budgetFormSchema>;
 
-interface BudgetWithSpent extends Budget {
-  spent: number;
-  percentage: number;
-  lastMonthSpent?: number;
-}
-
 interface AiBudgetSuggestion {
   category: string;
   suggestedAmount: number;
   reasoning: string;
   confidence: "high" | "medium" | "low";
   type: "necessity" | "discretionary" | "savings-opportunity";
+}
+
+// API Response Types
+interface BudgetItem {
+  id: string;
+  category: string;
+  amount: number;
+  spent: number;
+  percentage: number;
+  paceStatus: "under" | "on-pace" | "over-pace" | "over-budget";
+  paceLabel: string;
+  projected: number;
+  lastMonthSpent?: number;
+}
+
+interface BudgetsResult {
+  items: BudgetItem[];
+  totalBudget: number;
+  totalSpent: number;
+  overallPercentage: number;
+  monthProgress: number;
+  totalDaysInMonth: number;
+  totalPaceStatus: "under" | "on-pace" | "over-pace" | "over-budget";
+  healthCounts: {
+    overBudget: number;
+    overPace: number;
+    onPace: number;
+    under: number;
+  };
 }
 
 // ════════════════════════════════════════
@@ -355,24 +312,17 @@ export default function BudgetsPage() {
   const now = new Date();
   const monthStr = format(currentMonth, "yyyy-MM");
 
+  // Fetch all budgets (raw list) for determining existing categories
   const { data: allBudgets = [], isLoading: budgetsLoading } = useQuery<Budget[]>({
     queryKey: ["/api/budgets"],
   });
 
-  const { data: allExpenses = [], isLoading: expensesLoading } = useQuery<Expense[]>({
-    queryKey: ["/api/expenses"],
-  });
-
-  // Fetch last month's spending for MoM comparison
-  const lastMonthDate = new Date(currentMonth);
-  lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
-  const lastMonthStr = format(lastMonthDate, "yyyy-MM");
-
-  const { data: lastMonthSpending = {} } = useQuery<Record<string, number>>({
-    queryKey: ["/api/budgets/spending", lastMonthStr],
+  // Fetch budgets with calculations from the engine
+  const { data: budgetsData, isLoading: budgetsDataLoading } = useQuery<BudgetsResult>({
+    queryKey: ["/api/engine/budgets", monthStr],
     queryFn: async () => {
-      const res = await fetch(`/api/budgets/spending?month=${lastMonthStr}`);
-      if (!res.ok) return {};
+      const res = await fetch(`/api/engine/budgets?month=${monthStr}`);
+      if (!res.ok) throw new Error("Failed to fetch budget data");
       return res.json();
     },
   });
@@ -383,6 +333,7 @@ export default function BudgetsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/budgets"] });
       toast({ title: "Budget deleted successfully" });
       setDeletingBudget(undefined);
     },
@@ -422,6 +373,7 @@ export default function BudgetsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/budgets"] });
       toast({ title: "Budgets created from AI suggestions" });
       setAiDialogOpen(false);
       setAiSuggestions([]);
@@ -470,57 +422,37 @@ export default function BudgetsPage() {
 
   // Filter budgets for current month
   const monthBudgets = allBudgets.filter((b) => b.month === monthStr);
-
-  // Calculate spent per category for current month
-  const monthExpenses = allExpenses.filter((exp) => {
-    const expDate = parseISO(exp.date);
-    return expDate >= monthStart && expDate <= monthEnd;
-  });
-
-  const spentByCategory: Record<string, number> = {};
-  monthExpenses.forEach((exp) => {
-    spentByCategory[exp.category] = (spentByCategory[exp.category] || 0) + parseFloat(exp.amount);
-  });
-
-  // Combine budgets with spent amounts + last month data
-  const budgetsWithSpent: BudgetWithSpent[] = monthBudgets.map((budget) => {
-    const spent = spentByCategory[budget.category] || 0;
-    const budgetAmount = parseFloat(budget.amount);
-    const percentage = budgetAmount > 0 ? Math.min((spent / budgetAmount) * 100, 100) : 0;
-    const lastMonthSpent = lastMonthSpending[budget.category];
-    return { ...budget, spent, percentage, lastMonthSpent };
-  });
-
   const existingCategories = monthBudgets.map((b) => b.category);
-  const totalBudget = budgetsWithSpent.reduce((sum, b) => sum + parseFloat(b.amount), 0);
-  const totalSpent = budgetsWithSpent.reduce((sum, b) => sum + b.spent, 0);
 
-  const isLoading = budgetsLoading || expensesLoading;
+  const isLoading = budgetsLoading || budgetsDataLoading;
 
-  // ── Pace / health counts ──────────────────────────────────────────────────
-  const healthCounts = {
-    overBudget: budgetsWithSpent.filter(b => b.spent > parseFloat(b.amount)).length,
-    overPace: budgetsWithSpent.filter(b => getPaceStatus(b.spent, parseFloat(b.amount)) === "over-pace").length,
-    onPace: budgetsWithSpent.filter(b => getPaceStatus(b.spent, parseFloat(b.amount)) === "on-pace").length,
-    under: budgetsWithSpent.filter(b => getPaceStatus(b.spent, parseFloat(b.amount)) === "under").length,
+  // Extract data from engine or provide defaults
+  const engineData = budgetsData || {
+    items: [],
+    totalBudget: 0,
+    totalSpent: 0,
+    overallPercentage: 0,
+    monthProgress: 0,
+    totalDaysInMonth: 0,
+    totalPaceStatus: "on-pace" as const,
+    healthCounts: { overBudget: 0, overPace: 0, onPace: 0, under: 0 },
   };
 
   // ── Filter + sort ─────────────────────────────────────────────────────────
-  const overBudgetCount = healthCounts.overBudget;
+  const overBudgetCount = engineData.healthCounts.overBudget;
 
-  const filteredBudgets = budgetsWithSpent
+  const filteredBudgets = engineData.items
     .filter(b => {
       if (filterStatus === "all") return true;
-      const status = getPaceStatus(b.spent, parseFloat(b.amount));
-      if (filterStatus === "over") return status === "over-budget";
-      if (filterStatus === "on-pace") return status === "on-pace";
-      if (filterStatus === "under") return status === "under";
+      if (filterStatus === "over") return b.paceStatus === "over-budget";
+      if (filterStatus === "on-pace") return b.paceStatus === "on-pace";
+      if (filterStatus === "under") return b.paceStatus === "under";
       return true;
     })
     .sort((a, b) => {
       if (sortBy === "over-first") {
-        const aOver = a.spent > parseFloat(a.amount) ? 1 : 0;
-        const bOver = b.spent > parseFloat(b.amount) ? 1 : 0;
+        const aOver = a.paceStatus === "over-budget" ? 1 : 0;
+        const bOver = b.paceStatus === "over-budget" ? 1 : 0;
         return bOver - aOver;
       }
       if (sortBy === "spent-desc") {
@@ -532,18 +464,12 @@ export default function BudgetsPage() {
       return 0;
     });
 
-  // ── Overview bar calculations ─────────────────────────────────────────────
-  const totalProgress = monthProgress();
-  const totalProjected = projectedSpend(totalSpent, totalBudget);
-  const totalDaysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const totalPaceStatus = getPaceStatus(totalSpent, totalBudget);
-
   // ── Paycheck-aligned calculations ─────────────────────────────────────────
   const daysUntilPayday = getDaysUntilPayday(
     userBudgetSettings?.nextPayday ?? null,
     userBudgetSettings?.budgetPeriod || 'monthly'
   );
-  const remaining = Math.max(totalBudget - totalSpent, 0);
+  const remaining = Math.max(engineData.totalBudget - engineData.totalSpent, 0);
   const safePerDay = daysUntilPayday && daysUntilPayday > 0
     ? remaining / daysUntilPayday
     : null;
@@ -620,24 +546,24 @@ export default function BudgetsPage() {
       </div>
 
       {/* ── ENHANCED OVERVIEW BAR ── */}
-      {budgetsWithSpent.length > 0 && (
+      {engineData.items.length > 0 && (
         <div className="rounded-xl border border-border p-5">
           {/* Top row: Budget and Spent */}
           <div className="flex items-center justify-between mb-3 flex-wrap gap-4">
             <div>
               <p className="text-xs text-muted-foreground mb-0.5">Total Budget</p>
-              <p className="text-2xl font-bold">{formatCurrency(totalBudget)}</p>
+              <p className="text-2xl font-bold">{formatCurrency(engineData.totalBudget)}</p>
             </div>
             <div className="text-center hidden sm:block">
               <p className="text-xs text-muted-foreground mb-0.5">Spent</p>
               <p className="text-lg font-semibold text-muted-foreground">
-                {totalBudget > 0 ? `${Math.min((totalSpent / totalBudget) * 100, 100).toFixed(1)}%` : "0%"}
+                {engineData.totalBudget > 0 ? `${Math.min(engineData.overallPercentage, 100).toFixed(1)}%` : "0%"}
               </p>
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground mb-0.5">Total Spent</p>
-              <p className={`text-2xl font-bold ${totalSpent > totalBudget ? "text-red-500" : "text-green-500"}`}>
-                {formatCurrency(totalSpent)}
+              <p className={`text-2xl font-bold ${engineData.totalSpent > engineData.totalBudget ? "text-red-500" : "text-green-500"}`}>
+                {formatCurrency(engineData.totalSpent)}
               </p>
             </div>
           </div>
@@ -646,16 +572,16 @@ export default function BudgetsPage() {
           <div className="relative h-3 bg-muted rounded-full overflow-hidden mb-2">
             <div
               className={`absolute left-0 top-0 h-full rounded-full transition-all ${
-                totalSpent > totalBudget ? "bg-red-500" : "bg-primary"
+                engineData.totalSpent > engineData.totalBudget ? "bg-red-500" : "bg-primary"
               }`}
-              style={{ width: `${Math.min((totalSpent / totalBudget) * 100, 100)}%` }}
+              style={{ width: `${Math.min(engineData.overallPercentage, 100)}%` }}
             />
             {/* Pace marker line */}
-            {totalBudget > 0 && (
+            {engineData.totalBudget > 0 && (
               <div
                 className="absolute top-0 h-full w-0.5 bg-white/60"
-                style={{ left: `${Math.min(totalProgress * 100, 99)}%` }}
-                title={`Expected pace: Day ${now.getDate()} of ${totalDaysInMonth}`}
+                style={{ left: `${Math.min(engineData.monthProgress * 100, 99)}%` }}
+                title={`Expected pace: Day ${now.getDate()} of ${engineData.totalDaysInMonth}`}
               />
             )}
           </div>
@@ -663,22 +589,24 @@ export default function BudgetsPage() {
           {/* Bottom row: remaining + pace */}
           <div className="flex items-center justify-between text-sm flex-wrap gap-2">
             <span className="text-muted-foreground">
-              {formatCurrency(Math.max(totalBudget - totalSpent, 0))} remaining
+              {formatCurrency(Math.max(engineData.totalBudget - engineData.totalSpent, 0))} remaining
             </span>
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-xs text-muted-foreground">
-                Day {now.getDate()} of {totalDaysInMonth}
+                Day {now.getDate()} of {engineData.totalDaysInMonth}
               </span>
-              {totalBudget > 0 && (
-                <span className={`text-xs font-medium flex items-center gap-1 ${getPaceColor(totalSpent, totalBudget)}`}>
-                  {(totalPaceStatus === "over-budget" || totalPaceStatus === "over-pace") && "⚠️"}
-                  {(totalPaceStatus === "on-pace" || totalPaceStatus === "under") && "✓"}
-                  {getPaceLabel(totalSpent, totalBudget)}
-                </span>
-              )}
-              {totalBudget > 0 && totalProjected < totalBudget * 1.05 && totalSpent > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  Projected: {formatCurrency(totalProjected)}
+              {engineData.totalBudget > 0 && (
+                <span className={`text-xs font-medium flex items-center gap-1 ${
+                  engineData.totalPaceStatus === "over-budget" || engineData.totalPaceStatus === "over-pace"
+                    ? "text-amber-500"
+                    : "text-green-500"
+                }`}>
+                  {(engineData.totalPaceStatus === "over-budget" || engineData.totalPaceStatus === "over-pace") && "⚠️"}
+                  {(engineData.totalPaceStatus === "on-pace" || engineData.totalPaceStatus === "under") && "✓"}
+                  {engineData.totalPaceStatus === "over-budget" ? "Over budget"
+                    : engineData.totalPaceStatus === "over-pace" ? "Over pace"
+                    : engineData.totalPaceStatus === "on-pace" ? "On pace"
+                    : "Under pace"}
                 </span>
               )}
             </div>
@@ -716,33 +644,33 @@ export default function BudgetsPage() {
       )}
 
       {/* ── HEALTH SUMMARY ── */}
-      {budgetsWithSpent.length > 0 && (
+      {engineData.items.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/5 border border-red-500/20">
             <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
             <div>
-              <p className="text-xs font-medium text-red-500">{healthCounts.overBudget} Over Budget</p>
+              <p className="text-xs font-medium text-red-500">{engineData.healthCounts.overBudget} Over Budget</p>
               <p className="text-xs text-muted-foreground">Need attention</p>
             </div>
           </div>
           <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
             <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
             <div>
-              <p className="text-xs font-medium text-amber-500">{healthCounts.overPace} Over Pace</p>
+              <p className="text-xs font-medium text-amber-500">{engineData.healthCounts.overPace} Over Pace</p>
               <p className="text-xs text-muted-foreground">Watch closely</p>
             </div>
           </div>
           <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/5 border border-green-500/20">
             <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
             <div>
-              <p className="text-xs font-medium text-green-500">{healthCounts.onPace} On Pace</p>
+              <p className="text-xs font-medium text-green-500">{engineData.healthCounts.onPace} On Pace</p>
               <p className="text-xs text-muted-foreground">Looking good</p>
             </div>
           </div>
           <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border">
             <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
             <div>
-              <p className="text-xs font-medium">{healthCounts.under} Under Pace</p>
+              <p className="text-xs font-medium">{engineData.healthCounts.under} Under Pace</p>
               <p className="text-xs text-muted-foreground">Ahead of budget</p>
             </div>
           </div>
@@ -750,7 +678,7 @@ export default function BudgetsPage() {
       )}
 
       {/* ── FILTER + SORT BAR ── */}
-      {budgetsWithSpent.length > 0 && (
+      {engineData.items.length > 0 && (
         <div className="flex items-center justify-between flex-wrap gap-3">
           {/* Filter chips */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -801,7 +729,7 @@ export default function BudgetsPage() {
               </CardContent>
             </Card>
           ))
-        ) : budgetsWithSpent.length === 0 ? (
+        ) : engineData.items.length === 0 ? (
           <div className="col-span-full rounded-xl border border-border p-12 text-center">
             <PieChart className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p className="text-muted-foreground mb-4">No budgets set for this month</p>
@@ -823,14 +751,13 @@ export default function BudgetsPage() {
         ) : (
           filteredBudgets.map((budget) => {
             const spent = budget.spent;
-            const limit = parseFloat(budget.amount);
+            const limit = budget.amount;
             const remaining = Math.max(limit - spent, 0);
             const percentage = budget.percentage;
-            const paceStatus = getPaceStatus(spent, limit);
-            const projected = projectedSpend(spent, limit);
+            const paceStatus = budget.paceStatus;
+            const projected = budget.projected;
             const isOverBudget = spent > limit;
             const isOverPace = paceStatus === "over-pace";
-            const progress = monthProgress();
 
             return (
               <div
@@ -859,14 +786,14 @@ export default function BudgetsPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => handleEdit(budget)}
+                      onClick={() => handleEdit(monthBudgets.find(b => b.id === budget.id)!)}
                       className="p-1.5 hover:bg-muted rounded-md transition-colors"
                       title="Edit budget"
                     >
                       <Pencil size={13} className="text-muted-foreground" />
                     </button>
                     <button
-                      onClick={() => setDeletingBudget(budget)}
+                      onClick={() => setDeletingBudget(monthBudgets.find(b => b.id === budget.id))}
                       className="p-1.5 hover:bg-muted rounded-md transition-colors"
                       title="Delete budget"
                     >
@@ -901,14 +828,18 @@ export default function BudgetsPage() {
                   {!isOverBudget && limit > 0 && (
                     <div
                       className="absolute top-0 h-full w-0.5 bg-white/50"
-                      style={{ left: `${Math.min(progress * 100, 99)}%` }}
+                      style={{ left: `${Math.min(engineData.monthProgress * 100, 99)}%` }}
                     />
                   )}
                 </div>
 
                 {/* Status row */}
                 <div className="flex items-center justify-between text-xs">
-                  <span className={getPaceColor(spent, limit)}>
+                  <span className={
+                    isOverBudget ? "text-red-500"
+                      : paceStatus === "over-pace" ? "text-amber-500"
+                      : "text-green-500"
+                  }>
                     {isOverBudget
                       ? `⚠️ Over by ${formatCurrency(spent - limit)}`
                       : paceStatus === "over-pace"
@@ -996,144 +927,94 @@ export default function BudgetsPage() {
             <div>
               <label className="text-sm font-medium mb-2.5 block">Budget Period</label>
               <div className="grid grid-cols-3 gap-2">
-                {[
-                  { value: 'monthly', label: 'Monthly', desc: 'Resets 1st of month' },
-                  { value: 'biweekly', label: 'Bi-weekly', desc: 'Every 2 weeks' },
-                  { value: 'weekly', label: 'Weekly', desc: 'Every Monday' },
-                ].map(opt => (
+                {["monthly", "biweekly", "weekly"].map((period) => (
                   <button
-                    key={opt.value}
-                    onClick={() => setBudgetPeriodSetting(opt.value)}
-                    className={`p-3 rounded-lg border text-left transition-all ${
-                      budgetPeriodSetting === opt.value
-                        ? 'border-primary bg-primary/10'
-                        : 'border-border hover:bg-muted'
+                    key={period}
+                    onClick={() => setBudgetPeriodSetting(period)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      budgetPeriodSetting === period
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
                     }`}
                   >
-                    <p className="text-sm font-medium">{opt.label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{opt.desc}</p>
+                    {period.charAt(0).toUpperCase() + period.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
-            {budgetPeriodSetting !== 'monthly' && (
+            {budgetPeriodSetting !== "monthly" && (
               <div>
-                <label className="text-sm font-medium mb-1.5 block">Next Payday</label>
-                <input
+                <label className="text-sm font-medium mb-2.5 block">Next Payday</label>
+                <Input
                   type="date"
                   value={nextPaydaySetting}
-                  onChange={e => setNextPaydaySetting(e.target.value)}
-                  className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background"
+                  onChange={(e) => setNextPaydaySetting(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground mt-1.5">
-                  We'll calculate future paydays automatically from this date.
-                </p>
               </div>
             )}
-            <button
-              onClick={saveBudgetSettings}
-              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90">
-              Save Settings
-            </button>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowBudgetSettings(false)}>
+                Cancel
+              </Button>
+              <Button onClick={saveBudgetSettings}>
+                Save Settings
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* ── AI SUGGESTIONS DIALOG ── */}
       <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              AI Budget Suggestions
-            </DialogTitle>
+            <DialogTitle>Budget Suggestions</DialogTitle>
+            <DialogDescription>Review and customize AI-suggested budgets</DialogDescription>
           </DialogHeader>
-          {aiAdvice && (
-            <p className="text-sm text-muted-foreground border-l-2 border-primary pl-3">{aiAdvice}</p>
-          )}
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-            {aiSuggestions.map((suggestion) => (
-              <div
-                key={suggestion.category}
-                className={`p-3 rounded-lg border transition-colors ${
-                  selectedSuggestions.has(suggestion.category)
-                    ? "border-primary/50 bg-primary/5"
-                    : "opacity-60"
-                }`}
-              >
-                <div className="flex items-start gap-3">
+          {aiSuggestions.length > 0 && (
+            <div className="space-y-4 max-h-[400px] overflow-y-auto">
+              {aiAdvice && (
+                <p className="text-sm text-muted-foreground italic">{aiAdvice}</p>
+              )}
+              {aiSuggestions.map((suggestion) => (
+                <div key={suggestion.category} className="flex items-start gap-3 p-3 rounded-lg bg-muted/40">
                   <Checkbox
                     checked={selectedSuggestions.has(suggestion.category)}
                     onCheckedChange={() => toggleSuggestion(suggestion.category)}
                     className="mt-1"
                   />
-                  <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-sm">{suggestion.category}</span>
-                      <div className="flex items-center gap-1.5">
-                        <Badge
-                          variant={
-                            suggestion.confidence === "high" ? "default" :
-                            suggestion.confidence === "medium" ? "secondary" : "outline"
-                          }
-                          className="text-xs"
-                        >
+                      <p className="font-medium text-sm">{suggestion.category}</p>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={adjustedAmounts[suggestion.category] || suggestion.suggestedAmount.toFixed(2)}
+                          onChange={(e) => setAdjustedAmounts(prev => ({
+                            ...prev,
+                            [suggestion.category]: e.target.value
+                          }))}
+                          className="w-24 h-8 text-xs"
+                        />
+                        <Badge variant={suggestion.confidence === "high" ? "default" : "secondary"}>
                           {suggestion.confidence}
-                        </Badge>
-                        <Badge
-                          variant="outline"
-                          className={`text-xs ${
-                            suggestion.type === "necessity" ? "border-blue-300 text-blue-700" :
-                            suggestion.type === "savings-opportunity" ? "border-green-300 text-green-700" :
-                            "border-orange-300 text-orange-700"
-                          }`}
-                        >
-                          {suggestion.type === "savings-opportunity" ? "save" : suggestion.type}
                         </Badge>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">$</span>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={adjustedAmounts[suggestion.category] || ""}
-                        onChange={(e) => setAdjustedAmounts(prev => ({
-                          ...prev,
-                          [suggestion.category]: e.target.value,
-                        }))}
-                        className="h-7 w-28 text-sm"
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">{suggestion.reasoning}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{suggestion.reasoning}</p>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center justify-between pt-3 border-t">
-            <Button variant="ghost" size="sm" onClick={() => setAiDialogOpen(false)}>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setAiDialogOpen(false)}>
               Cancel
             </Button>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedSuggestions(new Set(aiSuggestions.map(s => s.category)))}
-              >
-                Select All
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleAcceptSuggestions}
-                disabled={selectedSuggestions.size === 0 || bulkCreateMutation.isPending}
-              >
-                {bulkCreateMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : null}
-                Accept {selectedSuggestions.size > 0 ? `(${selectedSuggestions.size})` : ""}
-              </Button>
-            </div>
+            <Button onClick={handleAcceptSuggestions} disabled={bulkCreateMutation.isPending}>
+              {bulkCreateMutation.isPending ? "Creating..." : "Create Selected"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -40,6 +40,7 @@ import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
 import adminCommunicationsRouter from "./routes/admin-communications";
+import engineRouter from "./routes/engine";
 import { registerPasswordResetRoutes } from "./routes/auth-password-reset";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt, decrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
@@ -113,6 +114,9 @@ export async function registerRoutes(
   if (!process.env.SALES_EMAIL && !process.env.ALERT_EMAIL_TO) {
     console.warn("[CONFIG] Neither SALES_EMAIL nor ALERT_EMAIL_TO is set. Sales-lead notification emails will not be delivered.");
   }
+
+  // Centralized financial engine routes (single source of truth for all calculations)
+  app.use("/api/engine", engineRouter);
 
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
@@ -10340,8 +10344,8 @@ ${JSON.stringify(txSummary)}`;
       // Total planned expenses (budgets + bills)
       const totalPlannedExpenses = totalBudgetedSpending + monthlyBillsEstimate;
 
-      // 1. SAVINGS RATE SCORE (0-25 points) - PLAN-BASED
-      // Based on planned income vs planned expenses
+      // 1. SAVINGS RATE SCORE (0-25 points) - ACTUAL (month-to-date)
+      // Based on actual income vs actual expenses this month
       // Ideal: 20%+ of income saved = 25 points
       // Good: 10-20% = 15-25 points
       // Poor: 0-10% = 0-15 points
@@ -10349,8 +10353,8 @@ ${JSON.stringify(txSummary)}`;
       let savingsRateScore = 0;
       let savingsRate = 0;
       if (totalIncome > 0) {
-        // Use PLANNED expenses instead of actual
-        savingsRate = ((totalIncome - totalPlannedExpenses) / totalIncome) * 100;
+        // Use ACTUAL expenses (month-to-date transactions) instead of planned
+        savingsRate = ((totalIncome - totalExpenses) / totalIncome) * 100;
         if (savingsRate >= 20) {
           savingsRateScore = 25;
         } else if (savingsRate >= 10) {
@@ -10533,10 +10537,11 @@ ${JSON.stringify(txSummary)}`;
         },
         tips: tips.slice(0, 3), // Max 3 tips
         monthlyStats: {
-          income: totalIncome, // Budgeted/planned income
-          expenses: totalPlannedExpenses, // Budgeted spending + planned bills
-          savings: totalIncome - totalPlannedExpenses, // Planned savings
+          income: totalIncome, // Actual income (month-to-date)
+          expenses: totalExpenses, // Actual expenses (month-to-date transactions)
+          savings: totalIncome - totalExpenses, // Actual savings (month-to-date)
           savingsRate: savingsRate.toFixed(1),
+          isMonthToDate: true, // Indicates this is partial-month actual data
         },
         aiExplanation: generateAIExplanation(),
       });

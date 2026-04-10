@@ -234,21 +234,22 @@ export default function LiabilitiesPage() {
     [plaidLiabilityAccounts]
   );
 
-  const plaidTotal = useMemo(
-    () =>
-      plaidLiabilityAccounts.reduce(
-        (sum, a) => sum + Math.abs(parseFloat(a.balanceCurrent || "0")),
-        0
-      ),
-    [plaidLiabilityAccounts]
-  );
+  // Interface for net worth engine API response (used for liability totals)
+  interface NetWorthEngineResult {
+    plaidTotal: number;
+    manualTotal: number;
+    grandTotal: number;
+  }
 
-  const manualTotal = useMemo(
-    () => debts.reduce((sum, d) => sum + parseFloat(d.currentBalance), 0),
-    [debts]
-  );
+  // Fetch liability totals from engine API (replaces local calculations)
+  const { data: engineData = { plaidTotal: 0, manualTotal: 0, grandTotal: 0 } } = useQuery<NetWorthEngineResult>({
+    queryKey: ["/api/engine/net-worth"],
+  });
 
-  const grandTotal = plaidTotal + manualTotal;
+  // Extract computed values from engine response, with fallback defaults
+  const plaidTotal = engineData?.plaidTotal ?? 0;
+  const manualTotal = engineData?.manualTotal ?? 0;
+  const grandTotal = engineData?.grandTotal ?? 0;
 
   // ── Auto-import helpers ───────────────────────────────────────────────────
   const linkedPlaidAccountIds = useMemo(
@@ -305,6 +306,7 @@ export default function LiabilitiesPage() {
         imported++;
       }
       queryClient.invalidateQueries({ queryKey: ["/api/debts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth"] });
       toast({
         title: `Imported ${imported} debt${imported !== 1 ? "s" : ""}`,
         description: "Please add APR rates for accurate payoff calculations.",
@@ -361,6 +363,7 @@ export default function LiabilitiesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth"] });
       toast({ title: "Debt added successfully" });
       setIsDialogOpen(false);
       form.reset();
@@ -394,6 +397,7 @@ export default function LiabilitiesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth"] });
       toast({ title: "Debt updated successfully" });
       setIsDialogOpen(false);
       setEditingDebt(null);
@@ -410,6 +414,7 @@ export default function LiabilitiesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/debts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth"] });
       toast({ title: "Debt deleted successfully" });
       setDeletingDebtId(null);
     },

@@ -18,16 +18,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { 
-  DollarSign, Receipt, CreditCard, Calendar, TrendingUp, TrendingDown, 
+import {
+  DollarSign, Receipt, CreditCard, Calendar, TrendingUp, TrendingDown,
   Wallet, AlertTriangle, PiggyBank, Target, Sparkles, Brain, ChevronRight,
   Building2, ArrowRight, Info, CircleDollarSign, AlertCircle, Home, Smartphone,
   UtensilsCrossed, ShoppingCart, Car, Lightbulb, Tv, ShoppingBag, Heart, Shield, X,
   BarChart3, ShieldAlert, type LucideIcon
 } from "lucide-react";
-import { format, setDate, setDay, addMonths, isBefore, isAfter, addDays, parseISO, startOfMonth, endOfMonth, getDaysInMonth, eachDayOfInterval, getDay, addWeeks } from "date-fns";
-import { getBillsForPeriod, sumBillOccurrences } from "@/lib/bill-utils";
-import type { Bill, Income, Budget, SavingsGoal } from "@shared/schema";
+import { format, parseISO } from "date-fns";
+import type { SavingsGoal } from "@shared/schema";
 import { FinancialHealthScore } from "@/components/financial-health-score";
 import { DemoBanner } from "@/components/demo-banner";
 import { CashFlowForecast } from "@/components/cash-flow-forecast";
@@ -38,144 +37,91 @@ import { SpendabilityWidget } from "@/components/spendability-widget";
 import { FeatureGate } from "@/components/FeatureGate";
 import { Link } from "wouter";
 
+// Dashboard data type from the centralized financial engine
+interface DashboardData {
+  income: {
+    budgetedIncome: number;
+    actualIncome: number;
+    effectiveIncome: number;
+    hasBankData: boolean;
+    bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean }>;
+  };
+  expenses: {
+    total: number;
+    count: number;
+    previousTotal: number;
+    momChangePercent: number;
+    byCategory: Record<string, number>;
+    topCategories: Array<{ category: string; amount: number; percentage: number }>;
+    topMerchants: Array<{ merchant: string; amount: number; count: number }>;
+    dailyAverage: number;
+    projectedMonthly: number;
+    dailyTotals: Record<string, number>;
+  };
+  bills: {
+    thisMonthBills: Array<{ billId: string; billName: string; amount: number; category: string; dueDate: string; recurrence: string; isPaused: boolean }>;
+    thisMonthTotal: number;
+    upcomingBills: Array<{ billId: string; billName: string; amount: number; category: string; dueDate: string; recurrence: string; isPaused: boolean; daysUntil: number }>;
+    monthlyEstimate: number;
+    annualEstimate: number;
+  };
+  cashFlow: {
+    realCashFlow: number;
+    realIncome: number;
+    realSpending: number;
+    plannedCashFlow: number;
+    plannedSavings: number;
+  };
+  netWorth: {
+    netWorth: number;
+    totalAssets: number;
+    totalLiabilities: number;
+    assetPercent: number;
+    latestChange: number;
+    assetBreakdown: Record<string, number>;
+    liabilityBreakdown: Record<string, number>;
+  };
+  savingsGoals: {
+    totalSaved: number;
+    totalTarget: number;
+    overallProgress: number;
+    goals: Array<{ id: string; name: string; current: number; target: number; percentage: number; remaining: number; isComplete: boolean; daysLeft: number | null }>;
+  };
+  healthScore: {
+    totalScore: number;
+    savingsRateScore: number;
+    budgetScore: number;
+    savingsGoalScore: number;
+    billScore: number;
+    savingsRate: number;
+    budgetCount: number;
+    billCount: number;
+    avgGoalProgress: number;
+  };
+  safeToSpend: {
+    safeToSpend: number;
+    dailyAllowance: number;
+    daysRemaining: number;
+  };
+  gaps: {
+    incomeGap: number;
+    spendingGap: number;
+    savingsGap: number;
+  };
+  alerts: {
+    negativeCashFlow: boolean;
+    budgetOverage: boolean;
+    budgetOveragePercent: number;
+    planVsRealityMismatch: boolean;
+  };
+}
+
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
   }).format(num);
-}
-
-function getNextDueDate(dueDay: number, recurrence: string, customDates?: string | null, startDate?: string | null): Date {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  if (recurrence === "one_time") {
-    if (startDate) {
-      return parseISO(startDate);
-    }
-    let nextDue = setDate(today, dueDay);
-    if (isBefore(nextDue, today)) {
-      nextDue = addMonths(nextDue, 1);
-    }
-    return nextDue;
-  }
-
-  if (recurrence === "custom" && customDates) {
-    try {
-      const dates: string[] = JSON.parse(customDates);
-      const futureDates = dates
-        .map(d => parseISO(d))
-        .filter(d => !isBefore(d, today))
-        .sort((a, b) => a.getTime() - b.getTime());
-      if (futureDates.length > 0) {
-        return futureDates[0];
-      }
-      const allDates = dates.map(d => parseISO(d)).sort((a, b) => b.getTime() - a.getTime());
-      return allDates[0] || today;
-    } catch {
-      return today;
-    }
-  }
-
-  if (recurrence === "weekly") {
-    let nextDue = setDay(today, dueDay, { weekStartsOn: 0 });
-    if (isBefore(nextDue, today) || nextDue.getTime() === today.getTime()) {
-      nextDue = addWeeks(nextDue, 1);
-    }
-    return nextDue;
-  }
-
-  let nextDue = setDate(today, dueDay);
-
-  if (isBefore(nextDue, today)) {
-    if (recurrence === "monthly") {
-      nextDue = addMonths(nextDue, 1);
-    } else if (recurrence === "yearly") {
-      nextDue = addMonths(nextDue, 12);
-    } else if (recurrence === "biweekly") {
-      while (isBefore(nextDue, today)) {
-        nextDue = addDays(nextDue, 14);
-      }
-    }
-  }
-
-  return nextDue;
-}
-
-function calculateMonthlyIncomeTotal(income: Income, monthStart: Date, monthEnd: Date): number {
-  const amount = parseFloat(income.amount);
-  if (isNaN(amount)) return 0;
-
-  const incomeStartDate = parseISO(income.date);
-
-  // Non-recurring: only count if the exact date falls within this month
-  if (income.isRecurring !== "true") {
-    if (incomeStartDate >= monthStart && incomeStartDate <= monthEnd) {
-      return amount;
-    }
-    return 0;
-  }
-
-  // Recurring: must have started on or before the end of this month
-  if (isAfter(incomeStartDate, monthEnd)) {
-    return 0;
-  }
-
-  const recurrence = income.recurrence;
-
-  if (recurrence === "custom" && income.customDates) {
-    try {
-      const customDays: number[] = JSON.parse(income.customDates);
-      const daysInMonth = getDaysInMonth(monthStart);
-      const validDays = customDays.filter(day => day <= daysInMonth);
-      return amount * validDays.length;
-    } catch {
-      return amount;
-    }
-  }
-
-  if (recurrence === "monthly") {
-    return amount;
-  }
-
-  if (recurrence === "yearly") {
-    // Only counts if the income's start month matches the selected month
-    if (incomeStartDate.getMonth() === monthStart.getMonth()) {
-      return amount;
-    }
-    return 0;
-  }
-
-  if (recurrence === "weekly") {
-    const dayOfWeek = getDay(incomeStartDate);
-    let count = 0;
-    const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
-    for (const day of allDays) {
-      if (getDay(day) === dayOfWeek && !isBefore(day, incomeStartDate)) {
-        count++;
-      }
-    }
-    return amount * count;
-  }
-
-  if (recurrence === "biweekly") {
-    let count = 0;
-    let payDate = incomeStartDate;
-    // Advance to first occurrence on or after monthStart
-    while (isBefore(payDate, monthStart)) {
-      payDate = addWeeks(payDate, 2);
-    }
-    // Count all occurrences within the month
-    while (!isAfter(payDate, monthEnd)) {
-      count++;
-      payDate = addWeeks(payDate, 2);
-    }
-    return amount * count;
-  }
-
-  // Default fallback: treat as monthly
-  return amount;
 }
 
 // Section Header Component
@@ -553,12 +499,12 @@ export default function Dashboard() {
     queryKey: ["/api/anomalies"],
   });
 
-  const { data: netWorthData, isLoading: netWorthLoading } = useQuery<{
-    netWorth: number;
-    totalAssets: number;
-    totalLiabilities: number;
-  }>({
-    queryKey: ["/api/net-worth"],
+  // ============================================
+  // CENTRALIZED FINANCIAL ENGINE
+  // Single API call replaces all client-side calculations
+  // ============================================
+  const { data: dashboard, isLoading: dashboardLoading } = useQuery<DashboardData>({
+    queryKey: ["/api/engine/dashboard"],
   });
 
   const dismissAnomalyMutation = useMutation({
@@ -601,166 +547,28 @@ export default function Dashboard() {
     }
   }, [toast]);
 
-  const { data: bills = [], isLoading: billsLoading } = useQuery<Bill[]>({
-    queryKey: ["/api/bills"],
-  });
-
-  const { data: income = [], isLoading: incomeLoading } = useQuery<Income[]>({
-    queryKey: ["/api/income"],
-  });
-
-  const { data: budgets = [], isLoading: budgetsLoading } = useQuery<Budget[]>({
-    queryKey: ["/api/budgets"],
-  });
-
-  // Use unified transactions endpoint for accurate spending totals
   const now = new Date();
-  const startDate = format(startOfMonth(now), "yyyy-MM-dd");
-  const endDate = format(endOfMonth(now), "yyyy-MM-dd");
 
-  interface UnifiedTransaction {
-    id: string;
-    date: string;
-    amount: string;
-    merchant: string;
-    category: string | null;
-    personalCategory: string | null;
-    source: "plaid" | "manual";
-    isTransfer: boolean;
-    pending: boolean;
-  }
-
-  const { data: allTransactions = [], isLoading: transactionsLoading, refetch: refetchTransactions } = useQuery<UnifiedTransaction[]>({
-    queryKey: ["/api/transactions/all", startDate, endDate],
-    queryFn: async () => {
-      const res = await fetch(`/api/transactions/all?startDate=${startDate}&endDate=${endDate}`, {
-        credentials: "include",
-      });
-      if (!res.ok) return [];
-      return res.json();
-    },
-  });
-
+  // Keep query for CRUD operations on bills and goals that are used elsewhere
+  // but the dashboard itself doesn't need to fetch these separately anymore
   const { data: savingsGoals = [], isLoading: savingsGoalsLoading } = useQuery<SavingsGoal[]>({
     queryKey: ["/api/savings-goals"],
   });
 
-  // Unified expense total from server — deduped, transfers excluded. This is
-  // the single source of truth shared by Dashboard, Reports, Accounts, and Expenses page.
-  const { data: unifiedPeriodData } = useQuery<{ total: number; count: number }>({
-    queryKey: ["/api/expenses/for-period", startDate, endDate],
-    queryFn: async () => {
-      const res = await fetch(`/api/expenses/for-period?startDate=${startDate}&endDate=${endDate}`, {
-        credentials: "include",
-      });
-      if (!res.ok) return { total: 0, count: 0 };
-      return res.json();
-    },
-  });
-
-  const isLoading = billsLoading || incomeLoading || transactionsLoading || budgetsLoading || savingsGoalsLoading;
-
-  // ============================================
-  // Fix 7: Processing banner — show when onboarding just completed
-  // but no transactions have synced yet. Auto-refresh every 15s.
-  // ============================================
-  const transactionCount = allTransactions.length;
+  // For the processing banner, we need onboarding state
   const isProcessing =
-    !transactionsLoading &&
+    !dashboardLoading &&
     sessionData?.onboardingComplete === true &&
-    transactionCount === 0;
+    !dashboard?.expenses?.count;
 
   useEffect(() => {
     if (!isProcessing) return;
     const interval = setInterval(() => {
-      refetchTransactions();
+      qc.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       qc.invalidateQueries({ queryKey: ["/api/reports/money-timeline"] });
     }, 15000);
     return () => clearInterval(interval);
-  }, [isProcessing, refetchTransactions, qc]);
-
-  // ============================================
-  // SECTION A: REAL CASH FLOW CALCULATIONS
-  // (Bank-derived data only)
-  // ============================================
-  
-  // Real income from bank transactions (deposits)
-  const realIncomeFromBank = allTransactions
-    .filter((tx) => parseFloat(tx.amount) < 0 && !tx.isTransfer && !tx.pending)
-    .reduce((sum, tx) => sum + Math.abs(parseFloat(tx.amount)), 0);
-
-  // Real spending from bank transactions (withdrawals/purchases)
-  const realSpendingFromBank = allTransactions
-    .filter((tx) => parseFloat(tx.amount) > 0 && !tx.isTransfer && !tx.pending)
-    .reduce((sum, tx) => sum + parseFloat(tx.amount), 0);
-
-  // Net Cash Flow (Bank Balance Change)
-  const bankBalanceChange = realIncomeFromBank - realSpendingFromBank;
-
-  // ============================================
-  // SECTION B: YOUR FINANCIAL PLAN CALCULATIONS
-  // (Budget-based data only)
-  // ============================================
-
-  // monthStart/monthEnd used by both sections — defined once here
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
-
-  // ── Bills This Month (same calendar-month window as the Calendar page) ──
-  // Uses getBillsForPeriod from bill-utils.ts so both pages share one algorithm.
-  // This is the authoritative bill total shown in the stat card — it will match
-  // the "Bills Due" total on the Calendar page exactly.
-  const thisMonthBillOccurrences = getBillsForPeriod(bills, monthStart, monthEnd);
-  const thisMonthBillsTotal = sumBillOccurrences(thisMonthBillOccurrences);
-
-  // ── Upcoming Payments list (rolling next-30-days, for the preview card) ──
-  // Kept separate so the "Upcoming Payments" card still shows what's due soon.
-  const upcomingBills = bills
-    .filter((bill) => bill.isPaused !== "true")
-    .map((bill) => ({
-      ...bill,
-      nextDue: getNextDueDate(bill.dueDay, bill.recurrence, bill.customDates, bill.startDate),
-    }))
-    .filter((bill) => {
-      const thirtyDaysFromNow = addDays(now, 30);
-      return isBefore(bill.nextDue, thirtyDaysFromNow) && isAfter(bill.nextDue, addDays(now, -1));
-    })
-    .sort((a, b) => a.nextDue.getTime() - b.nextDue.getTime());
-  
-  // Budgeted Income (from income table - planned income)
-  const budgetedIncome = income.reduce(
-    (sum, inc) => sum + calculateMonthlyIncomeTotal(inc, monthStart, monthEnd),
-    0
-  );
-
-  // Budgeted Spending (from budgets table — current month only)
-  const currentMonth = format(now, "yyyy-MM");
-  const budgetedSpending = budgets
-    .filter((budget) => budget.month === currentMonth)
-    .reduce(
-    (sum, budget) => sum + parseFloat(budget.amount),
-    0
-  );
-
-  // Monthly bills total (for plan section)
-  // Annualized-then-divided approach for accuracy:
-  //   weekly:    amount × 52 / 12  ≈ 4.333 payments/month
-  //   biweekly:  amount × 26 / 12  ≈ 2.167 payments/month
-  //   monthly:   amount × 1
-  //   yearly:    amount / 12
-  const monthlyBillsPlanned = bills
-    .filter((bill) => bill.isPaused !== "true")
-    .reduce((sum, bill) => {
-      const amount = parseFloat(bill.amount);
-      if (bill.recurrence === "monthly") return sum + amount;
-      if (bill.recurrence === "weekly") return sum + (amount * 52) / 12;
-      if (bill.recurrence === "biweekly") return sum + (amount * 26) / 12;
-      if (bill.recurrence === "yearly") return sum + amount / 12;
-      return sum;
-    }, 0);
-
-  // Planned Savings (budgeted income - budgeted spending - planned bills)
-  const plannedSavings = budgetedIncome - budgetedSpending - monthlyBillsPlanned;
+  }, [isProcessing, qc]);
 
   // ============================================
   // Handle AI Helper Modal
@@ -851,12 +659,14 @@ export default function Dashboard() {
       )}
 
       {/* Mismatch Alerts */}
-      <MismatchAlert
-        planSavings={plannedSavings}
-        realCashflow={bankBalanceChange}
-        budgetSpending={budgetedSpending}
-        realSpending={realSpendingFromBank}
-      />
+      {dashboard && (
+        <MismatchAlert
+          planSavings={dashboard.cashFlow.plannedSavings}
+          realCashflow={dashboard.cashFlow.realCashFlow}
+          budgetSpending={dashboard.expenses.total}
+          realSpending={dashboard.income.actualIncome}
+        />
+      )}
 
       {/* ============================================ */}
       {/* ANOMALY ALERTS WIDGET                        */}
@@ -934,34 +744,34 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <RealCashFlowCard
               title="Bank Deposits"
-              value={formatCurrency(realIncomeFromBank)}
+              value={formatCurrency(dashboard?.income.actualIncome ?? 0)}
               icon={TrendingUp}
               description={`Actual income received · ${format(now, "MMM yyyy")}`}
-              isLoading={isLoading}
+              isLoading={dashboardLoading}
             />
             <RealCashFlowCard
               title="Total Outgoing"
-              value={formatCurrency(unifiedPeriodData?.total ?? realSpendingFromBank)}
+              value={formatCurrency(dashboard?.expenses.total ?? 0)}
               icon={TrendingDown}
               description={`All spending · ${format(now, "MMM yyyy")}`}
-              isLoading={isLoading}
+              isLoading={dashboardLoading}
               isNegative
             />
             <RealCashFlowCard
               title="Bank Balance Change"
-              value={formatCurrency(bankBalanceChange)}
+              value={formatCurrency(dashboard?.cashFlow.realCashFlow ?? 0)}
               icon={Wallet}
-              description={bankBalanceChange >= 0 ? "Net surplus" : "Net deficit"}
-              isLoading={isLoading}
-              isNegative={bankBalanceChange < 0}
-              isWarning={bankBalanceChange < 0}
+              description={(dashboard?.cashFlow.realCashFlow ?? 0) >= 0 ? "Net surplus" : "Net deficit"}
+              isLoading={dashboardLoading}
+              isNegative={(dashboard?.cashFlow.realCashFlow ?? 0) < 0}
+              isWarning={(dashboard?.cashFlow.realCashFlow ?? 0) < 0}
             />
             <RealCashFlowCard
               title="Bills Due This Month"
-              value={formatCurrency(thisMonthBillsTotal)}
+              value={formatCurrency(dashboard?.bills.thisMonthTotal ?? 0)}
               icon={Calendar}
-              description={`${thisMonthBillOccurrences.length} bill${thisMonthBillOccurrences.length !== 1 ? "s" : ""} · ${format(monthStart, "MMM d")}–${format(monthEnd, "MMM d, yyyy")}`}
-              isLoading={isLoading}
+              description={`${dashboard?.bills.thisMonthBills.length ?? 0} bill${(dashboard?.bills.thisMonthBills.length ?? 0) !== 1 ? "s" : ""} · ${format(now, "MMM d")}–${format(new Date(now.getFullYear(), now.getMonth() + 1, 0), "MMM d, yyyy")}`}
+              isLoading={dashboardLoading}
             />
           </div>
 
@@ -985,30 +795,30 @@ export default function Dashboard() {
               <CardDescription className="text-xs">Total Assets minus Total Liabilities</CardDescription>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              {netWorthLoading ? (
+              {dashboardLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-5 w-40" />
                   <Skeleton className="h-5 w-40" />
                   <Skeleton className="h-8 w-48" />
                 </div>
-              ) : netWorthData ? (
+              ) : dashboard?.netWorth ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Total Assets</span>
                     <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                      {formatCurrency(netWorthData.totalAssets)}
+                      {formatCurrency(dashboard.netWorth.totalAssets)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Total Liabilities</span>
                     <span className="text-sm font-semibold text-red-600 dark:text-red-400">
-                      -{formatCurrency(netWorthData.totalLiabilities)}
+                      -{formatCurrency(dashboard.netWorth.totalLiabilities)}
                     </span>
                   </div>
                   <div className="border-t pt-2 flex items-center justify-between">
                     <span className="text-sm font-medium">Net Worth</span>
-                    <span className={`text-xl font-bold ${netWorthData.netWorth >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
-                      {formatCurrency(netWorthData.netWorth)}
+                    <span className={`text-xl font-bold ${dashboard.netWorth.netWorth >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                      {formatCurrency(dashboard.netWorth.netWorth)}
                     </span>
                   </div>
                 </div>
@@ -1021,18 +831,82 @@ export default function Dashboard() {
           </Card>
 
           {/* Fix My Cashflow CTA */}
-          <FixMyCashflowCTA 
-            cashflowAmount={bankBalanceChange} 
-            onOpen={handleOpenAIHelper} 
+          <FixMyCashflowCTA
+            cashflowAmount={dashboard?.cashFlow.realCashFlow ?? 0}
+            onOpen={handleOpenAIHelper}
           />
 
           {/* Where Your Money Went + Upcoming Bills */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-            <WhereYourMoneyWent 
-              transactions={allTransactions} 
-              isLoading={isLoading} 
-            />
-            
+            {/* Where Your Money Went - now use dashboard.expenses.topCategories */}
+            <Card className="border-orange-200 dark:border-orange-800">
+              <CardHeader className="px-4 py-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <CreditCard className="h-4 w-4 text-orange-500" />
+                    Where Your Money Went
+                  </CardTitle>
+                  <DataSourceLabel type="bank" />
+                </div>
+                <CardDescription className="text-xs">Top spending categories this month</CardDescription>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                {dashboardLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4, 5].map(i => (
+                      <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                  </div>
+                ) : !dashboard?.expenses.topCategories || dashboard.expenses.topCategories.length === 0 ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map(i => (
+                      <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {dashboard.expenses.topCategories.map((item) => {
+                      const categoryIcons: Record<string, LucideIcon> = {
+                        "Credit Cards": CreditCard,
+                        "Rent": Home,
+                        "Mortgage": Home,
+                        "Subscriptions": Smartphone,
+                        "Food": UtensilsCrossed,
+                        "Groceries": ShoppingCart,
+                        "Transportation": Car,
+                        "Utilities": Lightbulb,
+                        "Entertainment": Tv,
+                        "Shopping": ShoppingBag,
+                        "Healthcare": Heart,
+                        "Insurance": Shield,
+                      };
+                      const IconComponent = categoryIcons[item.category] || BarChart3;
+                      const maxAmount = dashboard.expenses.topCategories[0]?.amount || item.amount;
+                      return (
+                        <div key={item.category} className="space-y-1">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-md bg-orange-100 dark:bg-orange-950/50">
+                                <IconComponent className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                              </div>
+                              <span className="font-medium">{item.category}</span>
+                            </div>
+                            <span className="font-semibold text-red-600 dark:text-red-400">
+                              {formatCurrency(item.amount)}
+                            </span>
+                          </div>
+                          <Progress
+                            value={(item.amount / maxAmount) * 100}
+                            className="h-2"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Upcoming Payments Preview */}
             <Card className="border-orange-200 dark:border-orange-800">
               <CardHeader className="px-4 py-4">
@@ -1045,20 +919,18 @@ export default function Dashboard() {
                 </div>
               </CardHeader>
               <CardContent className="px-4 pb-4">
-                {isLoading ? (
+                {dashboardLoading ? (
                   <div className="space-y-2">
                     {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
                   </div>
-                ) : upcomingBills.length === 0 ? (
+                ) : !dashboard?.bills.upcomingBills || dashboard.bills.upcomingBills.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No bills due in the next 30 days
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {upcomingBills.slice(0, 5).map((bill) => {
-                      const daysUntil = Math.ceil(
-                        (bill.nextDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-                      );
+                    {dashboard.bills.upcomingBills.slice(0, 5).map((bill) => {
+                      const daysUntil = bill.daysUntil;
                       const daysColor =
                         daysUntil < 0 || daysUntil < 3
                           ? "text-red-600 dark:text-red-400"
@@ -1072,9 +944,9 @@ export default function Dashboard() {
                           ? "bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800"
                           : "bg-muted/50";
                       return (
-                        <div key={bill.id} className={`flex items-center justify-between p-2 rounded-lg ${rowBg}`}>
+                        <div key={bill.billId} className={`flex items-center justify-between p-2 rounded-lg ${rowBg}`}>
                           <div>
-                            <p className="font-medium text-sm">{bill.name}</p>
+                            <p className="font-medium text-sm">{bill.billName}</p>
                             <p className={`text-xs font-medium ${daysColor}`}>
                               {daysUntil < 0
                                 ? `Overdue by ${Math.abs(daysUntil)} day${Math.abs(daysUntil) !== 1 ? "s" : ""}`
@@ -1091,10 +963,10 @@ export default function Dashboard() {
                         </div>
                       );
                     })}
-                    {upcomingBills.length > 5 && (
+                    {(dashboard.bills.upcomingBills.length ?? 0) > 5 && (
                       <Link href="/bills">
                         <Button variant="ghost" size="sm" className="w-full gap-1">
-                          View all {upcomingBills.length} bills
+                          View all {dashboard.bills.upcomingBills.length} bills
                           <ArrowRight className="h-3 w-3" />
                         </Button>
                       </Link>
@@ -1105,8 +977,8 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* Money Timeline - 90 Day Forecast (Fix 8: only render when transactions exist) */}
-          {transactionCount > 0 && (
+          {/* Money Timeline - 90 Day Forecast (only render when transactions exist) */}
+          {(dashboard?.expenses?.count ?? 0) > 0 && (
             <div className="mt-4">
               <MoneyTimeline />
             </div>
@@ -1144,33 +1016,33 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <PlanStatCard
               title="Budgeted Income"
-              value={formatCurrency(budgetedIncome)}
+              value={formatCurrency(dashboard?.income.budgetedIncome ?? 0)}
               icon={TrendingUp}
               description="Expected income this month"
-              isLoading={isLoading}
+              isLoading={dashboardLoading}
               variant="income"
             />
             <PlanStatCard
               title="Budgeted Spending"
-              value={formatCurrency(budgetedSpending)}
+              value={formatCurrency(dashboard?.expenses.total ?? 0)}
               icon={Receipt}
               description="Planned spending limits"
-              isLoading={isLoading}
+              isLoading={dashboardLoading}
               variant="spending"
             />
             <PlanStatCard
               title="Monthly Bill Budget"
-              value={formatCurrency(monthlyBillsPlanned)}
+              value={formatCurrency(dashboard?.bills.monthlyEstimate ?? 0)}
               icon={Calendar}
               description={`Budget estimate · ${format(now, "MMM yyyy")} (not actual dates)`}
-              isLoading={isLoading}
+              isLoading={dashboardLoading}
             />
             <PlanStatCard
               title="Planned Savings"
-              value={formatCurrency(Math.max(0, plannedSavings))}
+              value={formatCurrency(Math.max(0, dashboard?.cashFlow.plannedSavings ?? 0))}
               icon={PiggyBank}
               description="Target savings this month"
-              isLoading={isLoading}
+              isLoading={dashboardLoading}
               variant="savings"
             />
           </div>
@@ -1217,11 +1089,11 @@ export default function Dashboard() {
                 <CardDescription className="text-xs">Track progress toward your financial goals</CardDescription>
               </CardHeader>
               <CardContent className="px-4 pb-4">
-                {isLoading ? (
+                {dashboardLoading || savingsGoalsLoading ? (
                   <div className="space-y-3">
                     {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
                   </div>
-                ) : savingsGoals.length === 0 ? (
+                ) : !dashboard?.savingsGoals.goals || dashboard.savingsGoals.goals.length === 0 ? (
                   <div className="text-center py-6 space-y-3">
                     <div className="flex justify-center">
                       <div className="p-3 rounded-full bg-emerald-100 dark:bg-emerald-950/50">
@@ -1240,16 +1112,14 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {savingsGoals.slice(0, 4).map((goal: SavingsGoal) => {
-                      const current = parseFloat(String(goal.currentAmount ?? "0"));
-                      const target = parseFloat(String(goal.targetAmount ?? "0"));
-                      const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
+                    {dashboard.savingsGoals.goals.slice(0, 4).map((goal) => {
+                      const pct = goal.percentage;
                       return (
                         <div key={goal.id} className="space-y-1.5">
                           <div className="flex items-center justify-between text-sm">
                             <span className="font-medium truncate">{goal.name}</span>
                             <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                              {formatCurrency(current)} / {formatCurrency(target)}
+                              {formatCurrency(goal.current)} / {formatCurrency(goal.target)}
                             </span>
                           </div>
                           <Progress value={pct} className="h-2" />
@@ -1263,19 +1133,19 @@ export default function Dashboard() {
                             }`}>
                               {pct >= 100 ? "🎉 Goal reached!" : `${pct}% complete`}
                             </span>
-                            {goal.targetDate && (
+                            {goal.daysLeft !== null && (
                               <span className="text-xs text-muted-foreground">
-                                By {format(parseISO(String(goal.targetDate)), "MMM yyyy")}
+                                {goal.daysLeft} days left
                               </span>
                             )}
                           </div>
                         </div>
                       );
                     })}
-                    {savingsGoals.length > 4 && (
+                    {(dashboard.savingsGoals.goals.length ?? 0) > 4 && (
                       <Link href="/savings">
                         <Button variant="ghost" size="sm" className="w-full gap-1 text-xs">
-                          View all {savingsGoals.length} goals
+                          View all {dashboard.savingsGoals.goals.length} goals
                           <ArrowRight className="h-3 w-3" />
                         </Button>
                       </Link>
@@ -1349,45 +1219,67 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="text-center p-4 rounded-lg bg-muted/30">
               <p className="text-xs text-muted-foreground mb-1">Income Gap</p>
-              <p className={`text-xl font-bold ${realIncomeFromBank >= budgetedIncome ? "text-emerald-600" : "text-red-600"}`}>
-                {realIncomeFromBank >= budgetedIncome ? "+" : ""}{formatCurrency(realIncomeFromBank - budgetedIncome)}
+              <p className={`text-xl font-bold ${(dashboard?.income.actualIncome ?? 0) >= (dashboard?.income.budgetedIncome ?? 0) ? "text-emerald-600" : "text-red-600"}`}>
+                {(dashboard?.income.actualIncome ?? 0) >= (dashboard?.income.budgetedIncome ?? 0) ? "+" : ""}{formatCurrency((dashboard?.gaps.incomeGap ?? 0))}
               </p>
               <p className="text-[10px] text-muted-foreground mt-1">
-                {realIncomeFromBank >= budgetedIncome ? "Over plan" : "Under plan"}
+                {(dashboard?.income.actualIncome ?? 0) >= (dashboard?.income.budgetedIncome ?? 0) ? "Over plan" : "Under plan"}
               </p>
             </div>
             <div className="text-center p-4 rounded-lg bg-muted/30">
               <p className="text-xs text-muted-foreground mb-1">Spending Gap</p>
-              <p className={`text-xl font-bold ${realSpendingFromBank <= budgetedSpending ? "text-emerald-600" : "text-red-600"}`}>
-                {realSpendingFromBank > budgetedSpending ? "+" : ""}{formatCurrency(realSpendingFromBank - budgetedSpending)}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {realSpendingFromBank <= budgetedSpending ? "Under budget" : "Over budget"}
-              </p>
+              {(dashboard?.income.budgetedIncome ?? 0) === 0 ? (
+                <>
+                  <p className="text-sm font-semibold text-muted-foreground">No budget set</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    <a href="/budgets" className="underline underline-offset-2 hover:text-primary">Create a budget</a> to track gaps
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className={`text-xl font-bold ${(dashboard?.expenses.total ?? 0) <= (dashboard?.income.budgetedIncome ?? 0) ? "text-emerald-600" : "text-red-600"}`}>
+                    {(dashboard?.expenses.total ?? 0) > (dashboard?.income.budgetedIncome ?? 0) ? "+" : ""}{formatCurrency((dashboard?.gaps.spendingGap ?? 0))}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {(dashboard?.expenses.total ?? 0) <= (dashboard?.income.budgetedIncome ?? 0) ? "Under budget" : "Over budget"}
+                  </p>
+                </>
+              )}
             </div>
             <div className="text-center p-4 rounded-lg bg-muted/30">
               <p className="text-xs text-muted-foreground mb-1">Savings Gap</p>
-              <p className={`text-xl font-bold ${bankBalanceChange >= plannedSavings ? "text-emerald-600" : "text-red-600"}`}>
-                {bankBalanceChange >= plannedSavings ? "+" : ""}{formatCurrency(bankBalanceChange - plannedSavings)}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {bankBalanceChange >= plannedSavings ? "Ahead of plan" : "Behind plan"}
-              </p>
+              {(dashboard?.income.budgetedIncome ?? 0) === 0 && (dashboard?.income.actualIncome ?? 0) === 0 ? (
+                <>
+                  <p className="text-sm font-semibold text-muted-foreground">No plan set</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Add income &amp; budgets to see your savings gap
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className={`text-xl font-bold ${(dashboard?.cashFlow.realCashFlow ?? 0) >= (dashboard?.cashFlow.plannedSavings ?? 0) ? "text-emerald-600" : "text-red-600"}`}>
+                    {(dashboard?.cashFlow.realCashFlow ?? 0) >= (dashboard?.cashFlow.plannedSavings ?? 0) ? "+" : ""}{formatCurrency((dashboard?.gaps.savingsGap ?? 0))}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {(dashboard?.cashFlow.realCashFlow ?? 0) >= (dashboard?.cashFlow.plannedSavings ?? 0) ? "Ahead of plan" : "Behind plan"}
+                  </p>
+                </>
+              )}
             </div>
           </div>
-          
+
           {/* Summary Message */}
           <div className="mt-4 p-3 rounded-lg bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20">
             <div className="flex items-start gap-2">
               <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
               <p className="text-sm">
-                {bankBalanceChange >= plannedSavings ? (
+                {(dashboard?.cashFlow.realCashFlow ?? 0) >= (dashboard?.cashFlow.plannedSavings ?? 0) ? (
                   <span className="text-emerald-600 dark:text-emerald-400">
                     Great job! Your actual savings exceed your plan. Keep up the good work!
                   </span>
-                ) : bankBalanceChange >= 0 ? (
+                ) : (dashboard?.cashFlow.realCashFlow ?? 0) >= 0 ? (
                   <span className="text-yellow-600 dark:text-yellow-400">
-                    You're saving money, but {formatCurrency(plannedSavings - bankBalanceChange)} less than planned. Review your spending to get back on track.
+                    You're saving money, but {formatCurrency((dashboard?.cashFlow.plannedSavings ?? 0) - (dashboard?.cashFlow.realCashFlow ?? 0))} less than planned. Review your spending to get back on track.
                   </span>
                 ) : (
                   <span className="text-red-600 dark:text-red-400">

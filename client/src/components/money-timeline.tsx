@@ -134,10 +134,12 @@ export function MoneyTimeline() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-sm">
               <Wallet className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Safe to spend today:</span>
-              <span className="font-semibold text-foreground" data-testid="safe-to-spend">
-                {formatCurrency(data.safeToSpend)}
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="font-semibold text-foreground" data-testid="safe-to-spend">
+                  {formatCurrency(data.safeToSpend)}
+                </span>
+                <span className="text-xs text-muted-foreground">Safe to spend · 7-day forecast</span>
+              </div>
             </div>
           </div>
         </div>

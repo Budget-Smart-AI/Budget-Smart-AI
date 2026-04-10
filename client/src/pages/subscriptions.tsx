@@ -593,9 +593,10 @@ function CancelReminderDialog({
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const existingReminder = getCancelReminderDate(bill);
-  const nextDue = getBillNextDueDate(bill.dueDay, bill.recurrence, bill.customDates);
+  // NOTE: dueDate is provided by the engine API
+  const nextDueDate = bill.dueDate ? parseISO(bill.dueDate) : new Date();
   // Default reminder: 3 days before next billing date
-  const defaultReminderDate = format(addDays(nextDue, -3), "yyyy-MM-dd");
+  const defaultReminderDate = format(addDays(nextDueDate, -3), "yyyy-MM-dd");
   const [reminderDate, setReminderDate] = useState(existingReminder || defaultReminderDate);
 
   const updateMutation = useMutation({
@@ -738,37 +739,24 @@ export default function Subscriptions() {
     },
   });
 
-  // Separate active and paused subscriptions
-  const activeSubscriptions = subscriptions.filter(sub => sub.isPaused !== "true");
-  const pausedSubscriptions = subscriptions.filter(sub => sub.isPaused === "true");
-
-  // Auto-detected count
-  const autoDetectedCount = subscriptions.filter(isAutoDetected).length;
-
-  // Calculate totals from active subscriptions only
-  const monthlyTotal = activeSubscriptions.reduce((sum, sub) => {
-    const amount = parseFloat(sub.amount);
-    switch (sub.recurrence) {
-      case "weekly": return sum + (amount * 52 / 12);
-      case "biweekly": return sum + (amount * 26 / 12);
-      case "monthly": return sum + amount;
-      case "yearly": return sum + (amount / 12);
-      default: return sum + amount;
-    }
-  }, 0);
-
-  const yearlyTotal = monthlyTotal * 12;
-
-  // Upcoming renewals in next 7 days
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const in7Days = addDays(today, 7);
-  const upcomingRenewals = activeSubscriptions.filter(sub => {
-    const nextDue = getBillNextDueDate(sub.dueDay, sub.recurrence, sub.customDates);
-    return nextDue >= today && nextDue <= in7Days;
+  // Fetch subscription summary data from the centralized financial engine
+  const { data: engineData, isLoading: engineLoading } = useQuery({
+    queryKey: ["/api/engine/subscriptions"],
   });
 
-  if (isLoading) {
+  // Extract data from engine response, with fallbacks to empty state
+  const activeSubscriptions = engineData?.active || [];
+  const pausedSubscriptions = engineData?.paused || [];
+  const monthlyTotal = engineData?.monthlyTotal || 0;
+  const yearlyTotal = engineData?.yearlyTotal || 0;
+  const upcomingRenewals = engineData?.upcomingRenewals || [];
+  const autoDetectedCount = engineData?.autoDetectedCount || 0;
+
+  // Helper date references
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (isLoading || engineLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -871,10 +859,10 @@ export default function Subscriptions() {
             ) : (
               <div className="space-y-3">
                 {activeSubscriptions.map((sub) => {
-                  const nextDue = getBillNextDueDate(sub.dueDay, sub.recurrence, sub.customDates);
+                  // NOTE: nextDue and daysUntil are provided by the engine API
                   const autoDetected = isAutoDetected(sub);
                   const cancelReminder = getCancelReminderDate(sub);
-                  const isDueSoon = nextDue >= today && nextDue <= in7Days;
+                  const isDueSoon = sub.daysUntil !== undefined && sub.daysUntil >= 0 && sub.daysUntil <= 7;
 
                   return (
                     <div
@@ -901,7 +889,7 @@ export default function Subscriptions() {
                         <div className="flex items-center gap-2 sm:gap-4 mt-1 text-xs sm:text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {format(nextDue, "MMM d")}
+                            {sub.dueDate ? format(parseISO(sub.dueDate), "MMM d") : "-"}
                           </span>
                           {sub.merchant && <span className="hidden sm:inline">{sub.merchant}</span>}
                           {cancelReminder && (

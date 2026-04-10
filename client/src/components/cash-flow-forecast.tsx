@@ -277,7 +277,7 @@ export function CashFlowForecast() {
           <div className="text-center p-2 rounded-lg bg-muted/50">
             <div className="flex items-center justify-center gap-1 text-red-600 dark:text-red-400">
               <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="text-[10px] sm:text-xs">Upcoming Bills</span>
+              <span className="text-[10px] sm:text-xs">Bills (30-Day Forecast)</span>
             </div>
             <p className="font-semibold text-sm sm:text-base">{formatCurrency(data.summary.totalExpectedBills)}</p>
           </div>

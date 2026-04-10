@@ -24,25 +24,14 @@ import {
 import type { NetWorthSnapshot } from "@shared/schema";
 import { useChartColors } from "@/hooks/useChartColors";
 
-interface NetWorthData {
+interface NetWorthResult {
   netWorth: number;
   totalAssets: number;
   totalLiabilities: number;
-  breakdown: {
-    assets: {
-      cashAndBank: number;
-      investments: number;
-      realEstate: number;
-      vehicles: number;
-      otherAssets: number;
-    };
-    liabilities: {
-      creditCards: number;
-      loans: number;
-      mortgages: number;
-      otherLiabilities: number;
-    };
-  };
+  assetPercent: number;
+  latestChange: number;
+  assetBreakdown: Record<string, number>;
+  liabilityBreakdown: Record<string, number>;
 }
 
 function formatCurrency(amount: number) {
@@ -70,8 +59,8 @@ export default function NetWorth() {
   const ASSET_COLORS = [colors.chart1, colors.chart2, colors.chart3, colors.chart4, colors.muted];
   const LIABILITY_COLORS = [colors.danger, colors.chart4, colors.chart5, colors.muted];
 
-  const { data: netWorth, isLoading: netWorthLoading } = useQuery<NetWorthData>({
-    queryKey: ["/api/net-worth"],
+  const { data: netWorth, isLoading: netWorthLoading } = useQuery<NetWorthResult>({
+    queryKey: ["/api/engine/net-worth"],
   });
 
   const { data: history = [], isLoading: historyLoading } = useQuery<NetWorthSnapshot[]>({
@@ -107,20 +96,46 @@ export default function NetWorth() {
     );
   }
 
-  const assetData = [
-    { name: "Chequing & Savings", value: netWorth.breakdown.assets.cashAndBank, icon: Wallet },
-    { name: "Investments", value: netWorth.breakdown.assets.investments, icon: TrendingUp },
-    { name: "Real Estate", value: netWorth.breakdown.assets.realEstate, icon: Home },
-    { name: "Vehicles", value: netWorth.breakdown.assets.vehicles, icon: Car },
-    { name: "Other Assets", value: netWorth.breakdown.assets.otherAssets, icon: Building2 },
-  ].filter(d => d.value > 0);
+  // Map asset breakdown from engine response
+  const assetData = Object.entries(netWorth.assetBreakdown)
+    .filter(([, value]) => value > 0)
+    .map(([key, value]) => {
+      const iconMap: Record<string, any> = {
+        cashAndBank: Wallet,
+        investments: TrendingUp,
+        realEstate: Home,
+        vehicles: Car,
+        otherAssets: Building2,
+      };
+      const Icon = iconMap[key] || Building2;
+      const nameMap: Record<string, string> = {
+        cashAndBank: "Chequing & Savings",
+        investments: "Investments",
+        realEstate: "Real Estate",
+        vehicles: "Vehicles",
+        otherAssets: "Other Assets",
+      };
+      return { name: nameMap[key] || key, value, icon: Icon };
+    });
 
-  const liabilityData = [
-    { name: "Credit Cards", value: netWorth.breakdown.liabilities.creditCards, icon: CreditCard },
-    { name: "Mortgages", value: netWorth.breakdown.liabilities.mortgages, icon: Home },
-    { name: "Other Loans", value: netWorth.breakdown.liabilities.loans, icon: Landmark },
-    { name: "Other", value: netWorth.breakdown.liabilities.otherLiabilities, icon: Building2 },
-  ].filter(d => d.value > 0);
+  const liabilityData = Object.entries(netWorth.liabilityBreakdown)
+    .filter(([, value]) => value > 0)
+    .map(([key, value]) => {
+      const iconMap: Record<string, any> = {
+        creditCards: CreditCard,
+        mortgages: Home,
+        loans: Landmark,
+        otherLiabilities: Building2,
+      };
+      const Icon = iconMap[key] || Building2;
+      const nameMap: Record<string, string> = {
+        creditCards: "Credit Cards",
+        mortgages: "Mortgages",
+        loans: "Other Loans",
+        otherLiabilities: "Other",
+      };
+      return { name: nameMap[key] || key, value, icon: Icon };
+    });
 
   const chartData = history
     .slice()
@@ -132,13 +147,8 @@ export default function NetWorth() {
       liabilities: parseFloat(h.totalLiabilities),
     }));
 
-  const latestChange = history.length >= 2
-    ? parseFloat(history[0].netWorth) - parseFloat(history[1].netWorth)
-    : 0;
-
   const isPositive = netWorth.netWorth >= 0;
-  const totalCombined = netWorth.totalAssets + netWorth.totalLiabilities;
-  const assetPct = totalCombined > 0 ? (netWorth.totalAssets / totalCombined) * 100 : 100;
+  const assetPct = netWorth.assetPercent;
 
   return (
     <div className="space-y-6">
@@ -178,10 +188,10 @@ export default function NetWorth() {
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-base font-semibold">Net Worth</span>
-                {latestChange !== 0 && (
-                  <div className={`flex items-center gap-1 text-xs mt-0.5 ${latestChange >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    {latestChange >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                    {formatCurrency(Math.abs(latestChange))} vs last snapshot
+                {netWorth.latestChange !== 0 && (
+                  <div className={`flex items-center gap-1 text-xs mt-0.5 ${netWorth.latestChange >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {netWorth.latestChange >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                    {formatCurrency(Math.abs(netWorth.latestChange))} vs last snapshot
                   </div>
                 )}
               </div>
@@ -206,52 +216,17 @@ export default function NetWorth() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {netWorth.breakdown.assets.cashAndBank > 0 && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Wallet className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Chequing & Savings</span>
+              {assetData.length > 0 ? (
+                assetData.map((asset) => (
+                  <div key={asset.name} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <asset.icon className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">{asset.name}</span>
+                    </div>
+                    <span className="font-medium text-sm">{formatCurrencyFull(asset.value)}</span>
                   </div>
-                  <span className="font-medium text-sm">{formatCurrencyFull(netWorth.breakdown.assets.cashAndBank)}</span>
-                </div>
-              )}
-              {netWorth.breakdown.assets.investments > 0 && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Investments</span>
-                  </div>
-                  <span className="font-medium text-sm">{formatCurrencyFull(netWorth.breakdown.assets.investments)}</span>
-                </div>
-              )}
-              {netWorth.breakdown.assets.realEstate > 0 && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Home className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Real Estate</span>
-                  </div>
-                  <span className="font-medium text-sm">{formatCurrencyFull(netWorth.breakdown.assets.realEstate)}</span>
-                </div>
-              )}
-              {netWorth.breakdown.assets.vehicles > 0 && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Car className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Vehicles</span>
-                  </div>
-                  <span className="font-medium text-sm">{formatCurrencyFull(netWorth.breakdown.assets.vehicles)}</span>
-                </div>
-              )}
-              {netWorth.breakdown.assets.otherAssets > 0 && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">Other Assets</span>
-                  </div>
-                  <span className="font-medium text-sm">{formatCurrencyFull(netWorth.breakdown.assets.otherAssets)}</span>
-                </div>
-              )}
-              {assetData.length === 0 && (
+                ))
+              ) : (
                 <p className="text-sm text-muted-foreground">No assets recorded</p>
               )}
             </div>
@@ -277,42 +252,15 @@ export default function NetWorth() {
               <p className="text-sm text-muted-foreground">No liabilities recorded</p>
             ) : (
               <div className="space-y-3">
-                {netWorth.breakdown.liabilities.creditCards > 0 && (
-                  <div className="flex items-center justify-between">
+                {liabilityData.map((liability) => (
+                  <div key={liability.name} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">Credit Cards</span>
+                      <liability.icon className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">{liability.name}</span>
                     </div>
-                    <span className="font-medium text-sm text-red-600">-{formatCurrencyFull(netWorth.breakdown.liabilities.creditCards)}</span>
+                    <span className="font-medium text-sm text-red-600">-{formatCurrencyFull(liability.value)}</span>
                   </div>
-                )}
-                {netWorth.breakdown.liabilities.mortgages > 0 && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Home className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">Mortgages</span>
-                    </div>
-                    <span className="font-medium text-sm text-red-600">-{formatCurrencyFull(netWorth.breakdown.liabilities.mortgages)}</span>
-                  </div>
-                )}
-                {netWorth.breakdown.liabilities.loans > 0 && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Landmark className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">Other Loans</span>
-                    </div>
-                    <span className="font-medium text-sm text-red-600">-{formatCurrencyFull(netWorth.breakdown.liabilities.loans)}</span>
-                  </div>
-                )}
-                {netWorth.breakdown.liabilities.otherLiabilities > 0 && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">Other</span>
-                    </div>
-                    <span className="font-medium text-sm text-red-600">-{formatCurrencyFull(netWorth.breakdown.liabilities.otherLiabilities)}</span>
-                  </div>
-                )}
+                ))}
               </div>
             )}
           </CardContent>

@@ -1442,6 +1442,9 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+      });
       toast({ title: "Balances refreshed" });
     },
     onError: () => {
@@ -1457,6 +1460,9 @@ export default function BankAccounts() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+      });
       toast({ title: `Synced: ${data.added} new, ${data.modified} updated, ${data.removed} removed` });
     },
     onError: () => {
@@ -1472,6 +1478,9 @@ export default function BankAccounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+      });
       toast({ title: "Bank account disconnected" });
       setDisconnectItemId(null);
     },
@@ -1487,6 +1496,9 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+      });
     },
     onError: () => {
       toast({ title: "Failed to update account status", variant: "destructive" });
@@ -1500,6 +1512,9 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+      });
     },
     onError: () => {
       toast({ title: "Failed to update account status", variant: "destructive" });
@@ -1514,6 +1529,9 @@ export default function BankAccounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
       queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+      });
       toast({ title: "Bank account disconnected" });
       setDisconnectMxMemberId(null);
     },
@@ -1608,6 +1626,9 @@ export default function BankAccounts() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+      });
       toast({ title: `${selectedIds.size} transactions matched` });
       setSelectedIds(new Set());
       setBulkMatchType(null);
@@ -1650,66 +1671,25 @@ export default function BankAccounts() {
       }
     });
 
-  // Calculate net worth: assets - liabilities (only active accounts)
-  // Liability account types: credit, loan, mortgage
-  const liabilityTypes = ["credit", "loan", "mortgage", "credit_card"];
-  
-  const totalBalance = accountGroups.reduce((sum, group) => {
-    return sum + group.accounts
-      .filter(acc => acc.isActive !== "false") // Only active accounts
-      .reduce((accSum, acc) => {
-        const balance = acc.balanceCurrent ? parseFloat(acc.balanceCurrent) : 0;
-        // Liabilities (credit cards, loans, mortgages) should be subtracted
-        const isLiability = liabilityTypes.includes(acc.type.toLowerCase());
-        return accSum + (isLiability ? -balance : balance);
-      }, 0);
-  }, 0)
-  + mxMembers.reduce((sum, member) => {
-    return sum + member.accounts
-      .filter(acc => acc.isActive !== "false")
-      .reduce((accSum, acc) => {
-        const balance = acc.balance ? parseFloat(acc.balance) : 0;
-        const isLiability = liabilityTypes.includes(acc.type.toLowerCase());
-        return accSum + (isLiability ? -balance : balance);
-      }, 0);
-  }, 0)
-  + manualAccounts
-    .filter(acc => acc.isActive !== "false")
-    .reduce((sum, acc) => sum + parseFloat(acc.balance || "0"), 0);
+  // Interface for bank accounts engine API response
+  interface BankAccountsEngineResult {
+    totalBalance: number;
+    monthlySpending: number;
+    monthlyIncome: number;
+    unmatchedCount: number;
+  }
 
-  // Exclude transfers from income and spending summaries.
-  // Use isTransfer flag (consistent with dashboard) with matchType as fallback.
-  const TRANSFER_CATEGORIES = new Set([
-    "transfer", "transfers", "transfer_in", "transfer_out",
-    "transfer_credit_card_payment", "transfer_deposit",
-    "loan_payments", "credit card payment", "credit card",
-    "payment", "income", "payroll", "wages",
-  ]);
-  const monthlySpending = transactions
-    .filter(tx => {
-      const amt = parseFloat(tx.amount);
-      if (amt <= 0) return false;
-      if ((tx as any).isTransfer === true || (tx as any).isTransfer === "true") return false;
-      if (tx.matchType === "transfer") return false;
-      const cat = (tx.personalCategory || tx.category || "").toLowerCase();
-      if (TRANSFER_CATEGORIES.has(cat)) return false;
-      return true;
-    })
-    .reduce((sum, tx) => sum + parseFloat(tx.amount), 0);
+  // Fetch bank accounts summary from engine API (replaces local calculations)
+  const monthStr = format(currentMonth, "yyyy-MM");
+  const { data: engineData = { totalBalance: 0, monthlySpending: 0, monthlyIncome: 0, unmatchedCount: 0 } } = useQuery<BankAccountsEngineResult>({
+    queryKey: ["/api/engine/bank-accounts", monthStr],
+  });
 
-  // Use isTransfer flag (same logic as Dashboard "Bank Deposits") with matchType as fallback.
-  // This ensures "Income" here matches "Bank Deposits" on the dashboard exactly.
-  const monthlyIncome = transactions
-    .filter(tx => {
-      if (parseFloat(tx.amount) >= 0) return false;
-      if ((tx as any).isTransfer === true || (tx as any).isTransfer === "true") return false;
-      if (tx.matchType === "transfer") return false;
-      if ((tx as any).pending === true || (tx as any).pending === "true") return false;
-      return true;
-    })
-    .reduce((sum, tx) => sum + Math.abs(parseFloat(tx.amount)), 0);
-
-  const unmatchedCount = transactions.filter(tx => tx.matchType === "unmatched").length;
+  // Extract computed values from engine response, with fallback defaults
+  const totalBalance = engineData?.totalBalance ?? 0;
+  const monthlySpending = engineData?.monthlySpending ?? 0;
+  const monthlyIncome = engineData?.monthlyIncome ?? 0;
+  const unmatchedCount = engineData?.unmatchedCount ?? 0;
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredTransactions.length && filteredTransactions.length > 0) {

@@ -1,5 +1,5 @@
 // FEATURE: DEBT_PAYOFF_PLANNER | tier: pro | limit: unlimited
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,46 +54,39 @@ import { format, addMonths } from "date-fns";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { DebtDetails, PlaidAccount } from "@shared/schema";
+import type { DebtDetails } from "@shared/schema";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 
-interface DebtItem {
-  id: string;
-  name: string;
-  balance: number;
-  interestRate: number;
-  minimumPayment: number;
-  category: string;
-}
-
-// Convert payment amount to monthly equivalent based on frequency
-const toMonthlyPayment = (amount: number, frequency: string | null | undefined): number => {
-  switch (frequency) {
-    case "Weekly":
-      return amount * 52 / 12;
-    case "Biweekly":
-      return amount * 26 / 12;
-    case "Semi-monthly":
-      return amount * 2;
-    case "Quarterly":
-      return amount / 3;
-    case "Annually":
-      return amount / 12;
-    case "Monthly":
-    default:
-      return amount;
-  }
-};
-
-interface PayoffScheduleItem {
+interface DebtPayoffScheduleItem {
   month: number;
-  date: Date;
-  debtName: string;
+  date: string;
   payment: number;
   principal: number;
   interest: number;
   remainingBalance: number;
+}
+
+interface DebtPayoffResult {
+  totalDebt: number;
+  totalMinPayments: number;
+  weightedAvgApr: number;
+  avalanche: {
+    months: number;
+    totalInterest: number;
+    totalPaid: number;
+    payoffOrder: string[];
+    schedule: DebtPayoffScheduleItem[];
+  };
+  snowball: {
+    months: number;
+    totalInterest: number;
+    totalPaid: number;
+    payoffOrder: string[];
+    schedule: DebtPayoffScheduleItem[];
+  };
+  interestSaved: number;
+  payoffDate: string;
 }
 
 function formatCurrency(amount: number): string {
@@ -110,174 +103,6 @@ function formatCurrencyPrecise(amount: number): string {
     style: "currency",
     currency: "USD",
   }).format(amount);
-}
-
-function calculateDebtPayoff(
-  balance: number,
-  interestRate: number,
-  monthlyPayment: number,
-  startDate: Date = new Date()
-): { months: number; totalInterest: number; schedule: PayoffScheduleItem[] } {
-  const schedule: PayoffScheduleItem[] = [];
-  let remainingBalance = balance;
-  let month = 0;
-  let totalInterest = 0;
-  const monthlyRate = interestRate / 100 / 12;
-
-  while (remainingBalance > 0 && month < 360) {
-    month++;
-    const interest = remainingBalance * monthlyRate;
-    const payment = Math.min(monthlyPayment, remainingBalance + interest);
-    const principal = payment - interest;
-    remainingBalance = Math.max(0, remainingBalance - principal);
-    totalInterest += interest;
-
-    schedule.push({
-      month,
-      date: addMonths(startDate, month),
-      debtName: "",
-      payment,
-      principal,
-      interest,
-      remainingBalance,
-    });
-  }
-
-  return { months: month, totalInterest, schedule };
-}
-
-function calculateAvalanche(
-  debts: DebtItem[],
-  extraPayment: number = 0
-): { months: number; totalInterest: number; payoffOrder: string[]; schedule: PayoffScheduleItem[] } {
-  if (debts.length === 0) {
-    return { months: 0, totalInterest: 0, payoffOrder: [], schedule: [] };
-  }
-
-  // Avalanche: sort by highest interest rate first
-  const sortedDebts = [...debts].sort((a, b) => b.interestRate - a.interestRate);
-  const balances = new Map(sortedDebts.map(d => [d.id, d.balance]));
-  const schedule: PayoffScheduleItem[] = [];
-  const payoffOrder: string[] = [];
-
-  let month = 0;
-  let totalInterest = 0;
-
-  while (Array.from(balances.values()).some(b => b > 0) && month < 360) {
-    month++;
-    const date = addMonths(new Date(), month);
-
-    // Identify the highest-rate debt that still has a balance
-    const highestRateDebtId = sortedDebts
-      .filter(d => (balances.get(d.id) || 0) > 0)
-      .sort((a, b) => b.interestRate - a.interestRate)[0]?.id;
-
-    for (const debt of sortedDebts) {
-      const balance = balances.get(debt.id) || 0;
-      if (balance <= 0) continue;
-
-      const monthlyRate = debt.interestRate / 100 / 12;
-      const interest = balance * monthlyRate;
-      totalInterest += interest;
-
-      // Base payment: minimum payment, but don't overpay
-      let payment = Math.min(debt.minimumPayment, balance + interest);
-
-      // Apply extra payment to highest-rate remaining debt
-      if (debt.id === highestRateDebtId && extraPayment > 0) {
-        const remaining = balance + interest - payment;
-        payment += Math.min(extraPayment, remaining);
-      }
-
-      const principal = Math.min(payment - interest, balance);
-      const newBalance = Math.max(0, balance - principal);
-      balances.set(debt.id, newBalance);
-
-      schedule.push({
-        month,
-        date,
-        debtName: debt.name,
-        payment,
-        principal,
-        interest,
-        remainingBalance: newBalance,
-      });
-
-      if (newBalance === 0 && balance > 0) {
-        payoffOrder.push(debt.name);
-      }
-    }
-  }
-
-  return { months: month, totalInterest, payoffOrder, schedule };
-}
-
-function calculateSnowball(
-  debts: DebtItem[],
-  extraPayment: number = 0
-): { months: number; totalInterest: number; payoffOrder: string[]; schedule: PayoffScheduleItem[] } {
-  if (debts.length === 0) {
-    return { months: 0, totalInterest: 0, payoffOrder: [], schedule: [] };
-  }
-
-  // Snowball: sort by smallest balance first
-  const sortedDebts = [...debts].sort((a, b) => a.balance - b.balance);
-  const balances = new Map(sortedDebts.map(d => [d.id, d.balance]));
-  const schedule: PayoffScheduleItem[] = [];
-  const payoffOrder: string[] = [];
-
-  let month = 0;
-  let totalInterest = 0;
-  let snowball = extraPayment;
-
-  while (Array.from(balances.values()).some(b => b > 0) && month < 360) {
-    month++;
-    const date = addMonths(new Date(), month);
-
-    // Identify the smallest-balance debt that still has a balance
-    const smallestBalanceDebtId = sortedDebts
-      .filter(d => (balances.get(d.id) || 0) > 0)
-      .sort((a, b) => (balances.get(a.id) || 0) - (balances.get(b.id) || 0))[0]?.id;
-
-    for (const debt of sortedDebts) {
-      const balance = balances.get(debt.id) || 0;
-      if (balance <= 0) continue;
-
-      const monthlyRate = debt.interestRate / 100 / 12;
-      const interest = balance * monthlyRate;
-      totalInterest += interest;
-
-      let payment = debt.minimumPayment;
-
-      // Apply rolling snowball to smallest-balance debt
-      if (debt.id === smallestBalanceDebtId) {
-        payment += snowball;
-      }
-
-      payment = Math.min(payment, balance + interest);
-      const principal = payment - interest;
-      const newBalance = Math.max(0, balance - principal);
-      balances.set(debt.id, newBalance);
-
-      schedule.push({
-        month,
-        date,
-        debtName: debt.name,
-        payment,
-        principal,
-        interest,
-        remainingBalance: newBalance,
-      });
-
-      if (newBalance === 0 && balance > 0) {
-        payoffOrder.push(debt.name);
-        // Roll freed minimum payment into the snowball
-        snowball += debt.minimumPayment;
-      }
-    }
-  }
-
-  return { months: month, totalInterest, payoffOrder, schedule };
 }
 
 // ── Default APR ranges by account type ──────────────────────────────────────
@@ -460,7 +285,7 @@ interface AprEditRow {
 interface SetAprDialogProps {
   open: boolean;
   onClose: () => void;
-  debts: DebtItem[];
+  debts: DebtDetails[];
   onSaved: () => void;
 }
 
@@ -635,82 +460,24 @@ export default function DebtPayoff() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAprDialog, setShowAprDialog] = useState(false);
 
-  const { data: debtDetails = [], isLoading: isLoadingDebts } = useQuery<DebtDetails[]>({
+  const { data: debts = [] } = useQuery<DebtDetails[]>({
     queryKey: ["/api/debts"],
   });
 
-  type GroupedAccounts = {
-    id: string;
-    institutionName: string;
-    accounts: PlaidAccount[];
-  };
-
-  const { data: groupedAccounts = [], isLoading: isLoadingAccounts } = useQuery<GroupedAccounts[]>({
-    queryKey: ["/api/plaid/accounts"],
+  const { data: payoffData, isLoading } = useQuery<DebtPayoffResult>({
+    queryKey: ["/api/engine/debts", { extraPayment }],
   });
 
-  const plaidAccounts = useMemo(() => {
-    return groupedAccounts.flatMap(group => group.accounts || []);
-  }, [groupedAccounts]);
+  const selectedResult = selectedMethod === "avalanche" ? payoffData?.avalanche : payoffData?.snowball;
+  const totalDebt = payoffData?.totalDebt ?? 0;
+  const totalMinPayments = payoffData?.totalMinPayments ?? 0;
+  const interestSaved = payoffData?.interestSaved ?? 0;
+  const payoffDate = payoffData?.payoffDate ? parseISO(payoffData.payoffDate) : new Date();
+  const weightedAvgApr = payoffData?.weightedAvgApr ?? 0;
 
-  const debtItems: DebtItem[] = useMemo(() => {
-    return debtDetails.map(debt => ({
-      id: debt.id,
-      name: debt.name,
-      balance: parseFloat(debt.currentBalance),
-      interestRate: parseFloat(debt.apr),
-      minimumPayment: toMonthlyPayment(parseFloat(debt.minimumPayment), debt.paymentFrequency),
-      category: debt.debtType,
-    }));
-  }, [debtDetails]);
+  const avalancheResult = payoffData?.avalanche;
+  const snowballResult = payoffData?.snowball;
 
-  const linkedPlaidAccountIds = useMemo(() => {
-    return new Set(debtDetails.filter(d => d.linkedPlaidAccountId).map(d => d.linkedPlaidAccountId));
-  }, [debtDetails]);
-
-  const unlinkedPlaidDebts: DebtItem[] = useMemo(() => {
-    return plaidAccounts
-      .filter(account =>
-        ["credit", "loan"].includes(account.type) &&
-        account.isActive !== "false" &&
-        !linkedPlaidAccountIds.has(account.id) &&
-        account.balanceCurrent &&
-        parseFloat(account.balanceCurrent) > 0
-      )
-      .map(account => ({
-        id: `plaid-${account.id}`,
-        name: `${account.name}${account.mask ? ` (${account.mask})` : ""}`,
-        balance: Math.abs(parseFloat(account.balanceCurrent || "0")),
-        interestRate: 0,
-        minimumPayment: Math.abs(parseFloat(account.balanceCurrent || "0")) * 0.02,
-        category: account.type === "credit" ? "Credit Card" : "Loans",
-      }));
-  }, [plaidAccounts, linkedPlaidAccountIds]);
-
-  const allDebts = useMemo(() => {
-    return [...debtItems, ...unlinkedPlaidDebts];
-  }, [debtItems, unlinkedPlaidDebts]);
-
-  const isLoading = isLoadingDebts || isLoadingAccounts;
-
-  const avalancheResult = useMemo(() => calculateAvalanche(allDebts, extraPayment), [allDebts, extraPayment]);
-  const snowballResult = useMemo(() => calculateSnowball(allDebts, extraPayment), [allDebts, extraPayment]);
-
-  const selectedResult = selectedMethod === "avalanche" ? avalancheResult : snowballResult;
-
-  const totalDebt = allDebts.reduce((sum, d) => sum + d.balance, 0);
-  const totalMinPayments = allDebts.reduce((sum, d) => sum + d.minimumPayment, 0);
-  const interestSaved = snowballResult.totalInterest - avalancheResult.totalInterest;
-  const payoffDate = addMonths(new Date(), selectedResult.months);
-
-  const weightedAvgApr = useMemo(() => {
-    if (totalDebt === 0) return 0;
-    return allDebts.reduce((sum, d) => sum + (d.interestRate * d.balance), 0) / totalDebt;
-  }, [allDebts, totalDebt]);
-
-  const debtsWithoutApr = allDebts.filter(d => d.interestRate === 0).length;
-  // "All debts missing APR" = every debt is at 0% — this is the blocking state
-  const allAprMissing = allDebts.length > 0 && debtsWithoutApr === allDebts.length;
   // Debt-to-Payment ratio (monthly):
   // Formula: Total Debt ÷ Total Monthly Minimum Payments
   // Interpretation: How many months of minimum payments equal your total debt.
@@ -721,7 +488,7 @@ export default function DebtPayoff() {
   const debtToPaymentRatioAnnual = debtToPaymentRatioMonthly !== null ? debtToPaymentRatioMonthly / 12 : null;
 
   const handleAiAnalysis = async () => {
-    if (allDebts.length === 0) {
+    if (totalDebt === 0) {
       toast({ title: "No debts to analyze", description: "Add some debts first to get AI recommendations.", variant: "destructive" });
       return;
     }
@@ -730,21 +497,15 @@ export default function DebtPayoff() {
     setAiAnalysis(null);
 
     try {
-      const debtSummary = allDebts.map(d =>
-        `${d.name}: Balance $${d.balance.toFixed(0)}, APR ${d.interestRate}%, Min Payment $${d.minimumPayment.toFixed(0)}`
-      ).join("; ");
-
       const prompt = `As a financial advisor, analyze these debts and provide a personalized payoff strategy:
-
-Debts: ${debtSummary}
 
 Total Debt: $${totalDebt.toFixed(0)}
 Monthly Minimum Payments: $${totalMinPayments.toFixed(0)}
 Weighted Average APR: ${weightedAvgApr.toFixed(1)}%
 Extra Monthly Payment Available: $${extraPayment}
 
-Avalanche Method: ${avalancheResult.months} months, $${avalancheResult.totalInterest.toFixed(0)} total interest
-Snowball Method: ${snowballResult.months} months, $${snowballResult.totalInterest.toFixed(0)} total interest
+Avalanche Method: ${avalancheResult?.months} months, $${avalancheResult?.totalInterest.toFixed(0)} total interest
+Snowball Method: ${snowballResult?.months} months, $${snowballResult?.totalInterest.toFixed(0)} total interest
 
 Provide:
 1. Which strategy is best for this person and why
@@ -797,7 +558,7 @@ Keep the response concise and actionable.`;
           <Button
             variant="outline"
             onClick={handleAiAnalysis}
-            disabled={isAnalyzing || allDebts.length === 0}
+            disabled={isAnalyzing || totalDebt === 0}
             data-testid="button-ai-analyze"
           >
             {isAnalyzing ? (
@@ -816,63 +577,6 @@ Keep the response concise and actionable.`;
         </div>
       </div>
 
-      {/* ── BLOCKING APR Warning ── */}
-      {allAprMissing && (
-        <Card className="border-destructive/60 bg-destructive/5 shadow-sm">
-          <CardContent className="py-5">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <div className="flex items-start gap-3 flex-1">
-                <AlertTriangle className="h-6 w-6 text-destructive flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-destructive text-sm">
-                    Interest rates are required for accurate payoff calculations
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    Without APR, projections assume 0% interest which is unrealistic. All{" "}
-                    <strong>{allDebts.length} debt{allDebts.length !== 1 ? "s" : ""}</strong> are currently
-                    missing interest rates — payoff dates, total interest, and extra payment savings shown
-                    below are not meaningful until rates are set.
-                  </p>
-                </div>
-              </div>
-              <Button
-                onClick={() => setShowAprDialog(true)}
-                className="shrink-0 bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                data-testid="button-set-interest-rates"
-              >
-                <Percent className="h-4 w-4 mr-2" />
-                Set Interest Rates
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Partial APR warning (some missing, but not all) ── */}
-      {!allAprMissing && debtsWithoutApr > 0 && (
-        <Card className="border-yellow-500/50 bg-yellow-500/5">
-          <CardContent className="flex items-center gap-3 py-3">
-            <AlertCircle className="h-5 w-5 text-yellow-500 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-medium">
-                {debtsWithoutApr} debt{debtsWithoutApr > 1 ? "s are" : " is"} missing APR information
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Projections for these debts assume 0% interest. Add interest rates for accurate calculations.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="shrink-0 border-yellow-500/50 text-yellow-700 dark:text-yellow-400 hover:bg-yellow-500/10"
-              onClick={() => setShowAprDialog(true)}
-            >
-              <Percent className="h-3 w-3 mr-1" />
-              Set Rates
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
       {aiAnalysis && (
         <Card className="border-primary/30 bg-primary/5">
@@ -968,7 +672,7 @@ Keep the response concise and actionable.`;
               <div>
                 <p className="text-sm text-muted-foreground">Debt-Free Date</p>
                 <p className="text-2xl font-bold">
-                  {allDebts.length > 0 ? format(payoffDate, "MMM yyyy") : "N/A"}
+                  {totalDebt > 0 ? format(payoffDate, "MMM yyyy") : "N/A"}
                 </p>
               </div>
             </div>
@@ -992,33 +696,24 @@ Keep the response concise and actionable.`;
 
       {/* Main Content */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Debts List */}
+        {/* Summary Card */}
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2">
                 <CreditCard className="w-5 h-5" />
-                Your Debts
+                Summary
               </span>
-              <Button size="sm" variant="outline" asChild data-testid="button-add-debt-link">
+              <Button size="sm" variant="outline" asChild data-testid="button-manage-debts-card">
                 <Link href="/debts">
                   <Edit className="h-3 w-3 mr-1" />
-                  Edit
+                  Manage
                 </Link>
               </Button>
             </CardTitle>
-            <CardDescription className="flex items-center gap-2">
-              {allDebts.length} debt{allDebts.length !== 1 ? "s" : ""} tracked
-              {weightedAvgApr > 0 && (
-                <Badge variant="outline" className="text-xs">
-                  <Percent className="h-3 w-3 mr-1" />
-                  {weightedAvgApr.toFixed(1)}% avg APR
-                </Badge>
-              )}
-            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {allDebts.length === 0 ? (
+            {totalDebt === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <CreditCard className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p>No debts tracked yet.</p>
@@ -1028,53 +723,20 @@ Keep the response concise and actionable.`;
                 </Button>
               </div>
             ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto">
-                {allDebts.map((debt) => (
-                  <div key={debt.id} className="p-3 rounded-lg border bg-card">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="font-medium">{debt.name}</p>
-                        <Badge variant="secondary" className="text-xs mt-1">
-                          {debt.category}
-                        </Badge>
-                      </div>
-                      {debt.interestRate === 0 && (
-                        <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-400">
-                          Missing APR
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>
-                        <p className="text-muted-foreground">Balance</p>
-                        <p className="font-medium">{formatCurrency(debt.balance)}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Rate</p>
-                        <p className={`font-medium ${debt.interestRate === 0 ? "text-yellow-600" : ""}`}>
-                          {debt.interestRate}%
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Min.</p>
-                        <p className="font-medium">{formatCurrency(debt.minimumPayment)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-3">
+                <div className="p-3 rounded-lg border bg-muted/30">
+                  <p className="text-sm text-muted-foreground">Total Debt</p>
+                  <p className="text-2xl font-bold text-red-600">{formatCurrency(totalDebt)}</p>
+                </div>
+                <div className="p-3 rounded-lg border bg-muted/30">
+                  <p className="text-sm text-muted-foreground">Minimum Monthly</p>
+                  <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalMinPayments)}</p>
+                </div>
+                <div className="p-3 rounded-lg border bg-muted/30">
+                  <p className="text-sm text-muted-foreground">Avg Interest Rate</p>
+                  <p className="text-2xl font-bold text-amber-600">{weightedAvgApr.toFixed(1)}%</p>
+                </div>
               </div>
-            )}
-            {debtsWithoutApr > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                onClick={() => setShowAprDialog(true)}
-                data-testid="button-set-apr-inline"
-              >
-                <Percent className="h-3 w-3 mr-1" />
-                Set Interest Rates
-              </Button>
             )}
           </CardContent>
         </Card>
@@ -1158,7 +820,7 @@ Keep the response concise and actionable.`;
             </Tabs>
 
             {/* Comparison Table */}
-            {allDebts.length > 0 && (
+            {totalDebt > 0 && (
               <div className="grid grid-cols-2 gap-4">
                 <div className={`p-4 rounded-lg border-2 ${selectedMethod === "avalanche" ? "border-primary bg-primary/5" : "border-muted"}`}>
                   <div className="flex items-center gap-2 mb-3">
@@ -1168,22 +830,22 @@ Keep the response concise and actionable.`;
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Time to payoff</span>
-                      <span className="font-medium">{avalancheResult.months} months</span>
+                      <span className="font-medium">{avalancheResult?.months} months</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Total interest</span>
-                      <span className="font-medium">{formatCurrency(avalancheResult.totalInterest)}</span>
+                      <span className="font-medium">{formatCurrency(avalancheResult?.totalInterest ?? 0)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Debt-free</span>
-                      <span className="font-medium">{format(addMonths(new Date(), avalancheResult.months), "MMM yyyy")}</span>
+                      <span className="font-medium">{avalancheResult ? format(addMonths(new Date(), avalancheResult.months), "MMM yyyy") : "N/A"}</span>
                     </div>
-                    {avalancheResult.payoffOrder.length > 0 && (
+                    {avalancheResult?.payoffOrder.length ? (
                       <div className="pt-1 border-t border-dashed">
                         <p className="text-muted-foreground text-xs mb-1">First payoff:</p>
                         <p className="text-xs font-medium truncate">{avalancheResult.payoffOrder[0]}</p>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
@@ -1195,22 +857,22 @@ Keep the response concise and actionable.`;
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Time to payoff</span>
-                      <span className="font-medium">{snowballResult.months} months</span>
+                      <span className="font-medium">{snowballResult?.months} months</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Total interest</span>
-                      <span className="font-medium">{formatCurrency(snowballResult.totalInterest)}</span>
+                      <span className="font-medium">{formatCurrency(snowballResult?.totalInterest ?? 0)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Debt-free</span>
-                      <span className="font-medium">{format(addMonths(new Date(), snowballResult.months), "MMM yyyy")}</span>
+                      <span className="font-medium">{snowballResult ? format(addMonths(new Date(), snowballResult.months), "MMM yyyy") : "N/A"}</span>
                     </div>
-                    {snowballResult.payoffOrder.length > 0 && (
+                    {snowballResult?.payoffOrder.length ? (
                       <div className="pt-1 border-t border-dashed">
                         <p className="text-muted-foreground text-xs mb-1">First payoff:</p>
                         <p className="text-xs font-medium truncate">{snowballResult.payoffOrder[0]}</p>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1229,7 +891,7 @@ Keep the response concise and actionable.`;
             )}
 
             {/* Payoff Order */}
-            {selectedResult.payoffOrder.length > 0 && (
+            {selectedResult?.payoffOrder.length ? (
               <div>
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Target className="w-4 h-4" />
@@ -1258,13 +920,13 @@ Keep the response concise and actionable.`;
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       </div>
 
       {/* Extra Payment Impact */}
-      {allDebts.length > 0 && (
+      {totalDebt > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1272,56 +934,37 @@ Keep the response concise and actionable.`;
               Extra Payment Impact
             </CardTitle>
             <CardDescription>
-              See how additional payments accelerate your payoff
-              {allAprMissing && (
-                <span className="ml-1 text-destructive font-medium">
-                  — set interest rates above for accurate projections
-                </span>
-              )}
+              See how additional payments accelerate your payoff (Avalanche method)
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Extra Payment</TableHead>
-                  <TableHead>Months to Payoff</TableHead>
-                  <TableHead>Total Interest</TableHead>
-                  <TableHead>Interest Saved</TableHead>
-                  <TableHead>Debt-Free Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[0, 50, 100, 200, 500].map((extra) => {
-                  const result = calculateAvalanche(allDebts, extra);
-                  const baseResult = calculateAvalanche(allDebts, 0);
-                  const saved = baseResult.totalInterest - result.totalInterest;
-
-                  return (
-                    <TableRow key={extra} className={extra === extraPayment ? "bg-primary/5" : ""}>
-                      <TableCell className="font-medium">
-                        {extra === 0 ? "Minimum only" : `+${formatCurrency(extra)}/mo`}
-                        {extra === extraPayment && extra > 0 && (
-                          <Badge variant="outline" className="ml-2 text-xs">Current</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>{result.months} months</TableCell>
-                      <TableCell>{formatCurrency(result.totalInterest)}</TableCell>
-                      <TableCell className={saved > 0 ? "text-green-600 font-medium" : ""}>
-                        {saved > 0 ? formatCurrency(saved) : "-"}
-                      </TableCell>
-                      <TableCell>{format(addMonths(new Date(), result.months), "MMM yyyy")}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <div className="text-sm text-muted-foreground mb-4">
+              Current extra payment: <span className="font-semibold text-foreground">{formatCurrency(extraPayment)}</span>
+            </div>
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="p-4 rounded-lg border bg-muted/30">
+                <p className="text-xs text-muted-foreground">Months to Payoff</p>
+                <p className="text-2xl font-bold mt-1">{avalancheResult?.months} months</p>
+              </div>
+              <div className="p-4 rounded-lg border bg-muted/30">
+                <p className="text-xs text-muted-foreground">Total Interest</p>
+                <p className="text-2xl font-bold mt-1">{formatCurrency(avalancheResult?.totalInterest ?? 0)}</p>
+              </div>
+              <div className="p-4 rounded-lg border bg-muted/30">
+                <p className="text-xs text-muted-foreground">Interest Saved vs Min</p>
+                <p className="text-2xl font-bold mt-1 text-green-600">{formatCurrency(snowballResult?.totalInterest ? snowballResult.totalInterest - (avalancheResult?.totalInterest ?? 0) : 0)}</p>
+              </div>
+              <div className="p-4 rounded-lg border bg-muted/30">
+                <p className="text-xs text-muted-foreground">Debt-Free Date</p>
+                <p className="text-lg font-bold mt-1">{avalancheResult ? format(addMonths(new Date(), avalancheResult.months), "MMM yyyy") : "N/A"}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
 
       {/* Empty State */}
-      {allDebts.length === 0 && (
+      {totalDebt === 0 && (
         <Card>
           <CardContent className="py-12 text-center">
             <AlertCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
@@ -1340,8 +983,8 @@ Keep the response concise and actionable.`;
       <SetAprDialog
         open={showAprDialog}
         onClose={() => setShowAprDialog(false)}
-        debts={allDebts}
-        onSaved={() => {}}
+        debts={debts}
+        onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/engine/debts"] })}
       />
     </div>
     </DebtPayoffGate>

@@ -54,7 +54,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Pencil, Trash2, DollarSign, ChevronLeft, ChevronRight, Search, Filter, ArrowUpDown, Sparkles, Loader2, CheckCircle2, Calendar, X, AlertTriangle, ShieldCheck, MessageCircle, ChevronDown, ChevronUp } from "lucide-react";
-import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO, getDaysInMonth, eachDayOfInterval, getDay, addWeeks, isBefore, isAfter, isEqual } from "date-fns";
+import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INCOME_CATEGORIES, RECURRENCE_OPTIONS, type Income } from "@shared/schema";
@@ -84,98 +84,20 @@ type SortConfig = {
   direction: "asc" | "desc";
 };
 
+interface IncomeResult {
+  budgetedIncome: number;
+  actualIncome: number;
+  effectiveIncome: number;
+  hasBankData: boolean;
+  bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean }>;
+}
+
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
   }).format(num);
-}
-
-// Calculate total monthly income accounting for recurrence
-function calculateMonthlyIncomeTotal(income: Income, monthStart: Date, monthEnd: Date): number {
-  const amount = parseFloat(income.amount);
-  if (isNaN(amount)) return 0;
-
-  const incomeStartDate = parseISO(income.date);
-
-  // Non-recurring income: only count if the exact date falls within this month
-  if (income.isRecurring !== "true") {
-    if (incomeStartDate >= monthStart && incomeStartDate <= monthEnd) {
-      return amount;
-    }
-    return 0;
-  }
-
-  // Recurring income: must have started on or before the end of this month
-  if (isAfter(incomeStartDate, monthEnd)) {
-    return 0;
-  }
-
-  const recurrence = income.recurrence;
-
-  if (recurrence === "custom" && income.customDates) {
-    // Custom dates: count how many custom days fall in this month
-    try {
-      const customDays: number[] = JSON.parse(income.customDates);
-      const daysInMonth = getDaysInMonth(monthStart);
-      const validDays = customDays.filter(day => day <= daysInMonth);
-      return amount * validDays.length;
-    } catch {
-      return amount;
-    }
-  }
-
-  if (recurrence === "monthly") {
-    // Monthly: exactly 1 payment per month (regardless of which month)
-    return amount;
-  }
-
-  if (recurrence === "yearly") {
-    // Yearly: only counts if the income's start month matches the selected month
-    // Must match BOTH month AND year (or be a future occurrence in the same month)
-    const startMonth = incomeStartDate.getMonth(); // 0-11
-    const selectedMonth = monthStart.getMonth();
-    if (startMonth === selectedMonth) {
-      return amount;
-    }
-    return 0;
-  }
-
-  if (recurrence === "weekly") {
-    // Weekly: count how many matching weekdays fall in this month on/after start date
-    const dayOfWeek = getDay(incomeStartDate);
-    let count = 0;
-    const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
-    for (const day of allDays) {
-      if (getDay(day) === dayOfWeek && !isBefore(day, incomeStartDate)) {
-        count++;
-      }
-    }
-    return amount * count;
-  }
-
-  if (recurrence === "biweekly") {
-    // Biweekly: walk forward from start date in 2-week steps, count hits in month
-    let count = 0;
-    let payDate = incomeStartDate;
-
-    // Advance to first occurrence on or after monthStart
-    while (isBefore(payDate, monthStart)) {
-      payDate = addWeeks(payDate, 2);
-    }
-
-    // Count all occurrences within the month
-    while (!isAfter(payDate, monthEnd)) {
-      count++;
-      payDate = addWeeks(payDate, 2);
-    }
-
-    return amount * count;
-  }
-
-  // Default fallback: treat as monthly (1 payment)
-  return amount;
 }
 
 function IncomeForm({
@@ -305,51 +227,37 @@ function IncomeForm({
 
           <FormField
             control={form.control}
-            name="date"
+            name="category"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Date</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
+                <FormLabel>Category</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {INCOME_CATEGORIES.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
 
-        {isEditing && (income as any)?.autoDetected && (
-          <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium text-primary">Auto-detected</span>
-            {(income as any)?.recurrence && (
-              <Badge variant="secondary" className="text-xs ml-auto">
-                Detected as {(income as any).recurrence}
-              </Badge>
-            )}
-          </div>
-        )}
-
         <FormField
           control={form.control}
-          name="category"
+          name="date"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Category</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {INCOME_CATEGORIES.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FormLabel>Date</FormLabel>
+              <FormControl>
+                <Input type="date" {...field} />
+              </FormControl>
               <FormMessage />
             </FormItem>
           )}
@@ -359,43 +267,61 @@ function IncomeForm({
           control={form.control}
           name="isRecurring"
           render={({ field }) => (
-            <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+            <FormItem className="flex items-center gap-2 space-y-0">
               <FormControl>
-                <Checkbox
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
+                <Checkbox checked={field.value} onCheckedChange={field.onChange} />
               </FormControl>
-              <div className="space-y-1 leading-none">
-                <FormLabel>Recurring Income</FormLabel>
-                <FormDescription>
-                  Mark if this is a regular recurring income
-                </FormDescription>
-              </div>
+              <FormLabel className="cursor-pointer">This is recurring income</FormLabel>
             </FormItem>
           )}
         />
 
         {isRecurring && (
-          <>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-4 pl-4 border-l-2 border-primary/30">
+            <FormField
+              control={form.control}
+              name="recurrence"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Recurrence Pattern</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value || "monthly"}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {RECURRENCE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt} value={opt}>
+                          {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {recurrence !== "custom" && (
               <FormField
                 control={form.control}
-                name="recurrence"
+                name="dueDay"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Recurrence</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value || "monthly"}>
+                    <FormLabel>Due Day of Month (1-31)</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(parseInt(v))}
+                      defaultValue={field.value?.toString() || "1"}
+                    >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select recurrence" />
+                          <SelectValue />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {RECURRENCE_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option.charAt(0).toUpperCase() + option.slice(1)}
-                          </SelectItem>
+                        {DAY_OPTIONS.map((day) => (
+                          <SelectItem key={day} value={day.toString()}>{day}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -403,31 +329,7 @@ function IncomeForm({
                   </FormItem>
                 )}
               />
-
-              {recurrence !== "custom" && recurrence !== "weekly" && recurrence !== "biweekly" && (
-                <FormField
-                  control={form.control}
-                  name="dueDay"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Pay Day (1-31)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={31}
-                          placeholder="e.g., 15"
-                          {...field}
-                          value={field.value || ""}
-                          onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : null)}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-            </div>
+            )}
 
             {recurrence === "custom" && (
               <FormField
@@ -435,68 +337,43 @@ function IncomeForm({
                 name="customDates"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Select Payment Days</FormLabel>
-                    <FormDescription>
-                      Click on the days of the month when you receive this income
-                    </FormDescription>
-                    <div className="grid grid-cols-7 gap-1 mt-2">
-                      {DAY_OPTIONS.map((day) => {
-                        const isSelected = customDates.includes(day);
-                        return (
-                          <Button
-                            key={day}
-                            type="button"
-                            variant={isSelected ? "default" : "outline"}
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => {
-                              const newDates = isSelected
-                                ? customDates.filter((d) => d !== day)
-                                : [...customDates, day].sort((a, b) => a - b);
-                              field.onChange(newDates);
-                            }}
-                          >
-                            {day}
-                          </Button>
-                        );
-                      })}
+                    <FormLabel>Days of Month</FormLabel>
+                    <div className="grid grid-cols-7 gap-2">
+                      {DAY_OPTIONS.map((day) => (
+                        <Button
+                          key={day}
+                          type="button"
+                          variant={customDates.includes(day) ? "default" : "outline"}
+                          className="h-8"
+                          onClick={() => {
+                            const updated = customDates.includes(day)
+                              ? customDates.filter(d => d !== day)
+                              : [...customDates, day].sort((a, b) => a - b);
+                            field.onChange(updated);
+                          }}
+                        >
+                          {day}
+                        </Button>
+                      ))}
                     </div>
-                    {customDates.length > 0 && (
-                      <p className="text-sm text-muted-foreground mt-2">
-                        Selected: {customDates.join(", ")}
-                      </p>
-                    )}
                     <FormMessage />
                   </FormItem>
                 )}
               />
             )}
-          </>
-        )}
 
-        {/* Scheduled Amount Change - only for recurring income */}
-        {isRecurring && (
-          <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-lg p-4 space-y-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Scheduled Amount Change</span>
-              <span className="text-xs text-muted-foreground">(optional)</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Use this for income that changes on a specific date (e.g., after tax bracket changes, raises, or seasonal adjustments).
-            </p>
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}
                 name="futureAmount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>New Amount ($)</FormLabel>
+                    <FormLabel>Future Amount (optional)</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
                         step="0.01"
-                        placeholder="e.g., 4100.00"
+                        placeholder="Leave blank if amount won't change"
                         {...field}
                         value={field.value || ""}
                         onChange={(e) => field.onChange(e.target.value || null)}
@@ -559,7 +436,7 @@ export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDetectDialogOpen, setIsDetectDialogOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | undefined>();
-  const [deletingIncome, setDeletingIncome] = useState<Income | undefined>();
+  const [deletingIncome, setDeleteingIncome] = useState<Income | undefined>();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -720,7 +597,7 @@ export default function IncomePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
       toast({ title: "Income deleted successfully" });
-      setDeletingIncome(undefined);
+      setDeleteingIncome(undefined);
     },
     onError: () => {
       toast({ title: "Failed to delete income", variant: "destructive" });
@@ -747,18 +624,21 @@ export default function IncomePage() {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
 
+  // Fetch income stats from the centralized financial engine
+  const { data: incomeStats, isLoading: statsLoading } = useQuery<IncomeResult>({
+    queryKey: ["/api/engine/income", format(monthStart, "yyyy-MM-dd"), format(monthEnd, "yyyy-MM-dd")],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/engine/income?startDate=${format(monthStart, "yyyy-MM-dd")}&endDate=${format(monthEnd, "yyyy-MM-dd")}`);
+      return response.json();
+    },
+  });
+
+  // Filter income list based on search and category (for the data table)
   const filteredIncome = allIncome
     .filter((inc) => {
-      const incomeDate = parseISO(inc.date);
-      // For recurring income: show only if it started on or before end of selected month
-      // AND the recurrence means it actually occurs in this month
-      // For one-time income: must fall exactly within this month
-      const contributionThisMonth = calculateMonthlyIncomeTotal(inc, monthStart, monthEnd);
-      // Only include if this entry actually contributes income this month
-      const isRelevantToMonth = contributionThisMonth > 0;
       const matchesSearch = inc.source.toLowerCase().includes(search.toLowerCase());
       const matchesCategory = categoryFilter === "all" || inc.category === categoryFilter;
-      return isRelevantToMonth && matchesSearch && matchesCategory;
+      return matchesSearch && matchesCategory;
     })
     .sort((a, b) => {
       let valA: any = a[sortConfig.key];
@@ -776,14 +656,6 @@ export default function IncomePage() {
       if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
     });
-
-  // Calculate total for the selected month — use filteredIncome so it respects
-  // the month filter, search, and category filter (matching what's shown in the table).
-  // calculateMonthlyIncomeTotal handles recurrence multipliers correctly.
-  const monthlyTotal = filteredIncome.reduce(
-    (sum, inc) => sum + calculateMonthlyIncomeTotal(inc, monthStart, monthEnd),
-    0
-  );
 
   const SortHeader = ({ label, sortKey }: { label: string; sortKey: SortConfig["key"] }) => (
     <TableHead 
@@ -1078,17 +950,21 @@ export default function IncomePage() {
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <div>
-              <div className="text-2xl font-bold text-green-600">
-                {formatCurrency(monthlyTotal)}
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  planned for {format(currentMonth, "MMMM")}
-                </span>
+            {statsLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <div>
+                <div className="text-2xl font-bold text-green-600">
+                  {formatCurrency(incomeStats?.budgetedIncome || 0)}
+                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                    planned for {format(currentMonth, "MMMM")}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Expected income based on your income entries — see Bank Accounts for actual deposits received
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Expected income based on your income entries — see Bank Accounts for actual deposits received
-              </p>
-            </div>
+            )}
             <span className="inline-flex items-center rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
               Planned / Expected
             </span>
@@ -1173,7 +1049,7 @@ export default function IncomePage() {
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(inc)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeletingIncome(inc)}>
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteingIncome(inc)}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
@@ -1194,113 +1070,80 @@ export default function IncomePage() {
         tellerMode={true}
       />
 
-      <AlertDialog open={!!deletingIncome} onOpenChange={() => setDeletingIncome(undefined)}>
+      <AlertDialog open={!!deletingIncome} onOpenChange={() => setDeleteingIncome(undefined)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Income</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deletingIncome?.source}"? This action cannot be undone.
+              Are you sure you want to delete the income entry for {deletingIncome?.source}?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deletingIncome && deleteMutation.mutate(deletingIncome.id)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate(deletingIncome?.id || "")}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
             >
-              Delete
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Clean Duplicates Review Dialog */}
+      {/* Dedup Review Dialog */}
       <Dialog open={isDedupReviewOpen} onOpenChange={setIsDedupReviewOpen}>
-        <DialogContent className="sm:max-w-[560px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-              Clean Duplicates — Results
+              <Trash2 className="h-5 w-5" />
+              Duplicate Cleanup Results
             </DialogTitle>
           </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Exact duplicates removed */}
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
-              <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
-              <div>
+          {dedupReviewData ? (
+            <div className="space-y-4">
+              <div className="p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
                 <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                  {dedupReviewData?.removed ?? 0} exact duplicate{(dedupReviewData?.removed ?? 0) !== 1 ? "s" : ""} removed
+                  Removed {dedupReviewData.removed} duplicate income entrie{dedupReviewData.removed === 1 ? "s" : ""}
                 </p>
-                <p className="text-xs text-green-700 dark:text-green-400 mt-0.5">
-                  {(dedupReviewData?.removed ?? 0) > 0
-                    ? "Records where source, date, amount, category, and notes all matched — safest to remove."
-                    : "No exact duplicates found in your income records."}
+                <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                  {dedupReviewData.message}
                 </p>
               </div>
-            </div>
 
-            {/* Manual/auto-import conflicts */}
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
-              <CheckCircle2 className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium">
-                  0 manual / auto-import conflicts found
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  No auto-imported records had a matching manual entry within ±1 day and 1% amount.
-                </p>
-              </div>
-            </div>
-
-            {/* Flagged for review */}
-            {(dedupReviewData?.flaggedForReview?.length ?? 0) > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <p className="text-sm font-medium">
-                    {dedupReviewData!.flaggedForReview.length} group{dedupReviewData!.flaggedForReview.length !== 1 ? "s" : ""} flagged for your review
+              {dedupReviewData.flaggedForReview.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-3">
+                    Flagged for Review ({dedupReviewData.flaggedForReview.length})
+                  </p>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {dedupReviewData.flaggedForReview.map((item, idx) => (
+                      <div key={idx} className="p-3 border rounded-lg bg-muted/50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-sm">{item.source}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {format(parseISO(item.date), "MMM d, yyyy")} • {formatCurrency(item.amount)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.count} similar entries detected
+                            </p>
+                          </div>
+                          <Badge variant="outline">Review</Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Please review these entries to confirm if any should be kept as recurring income.
                   </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  These entries appear 3+ times on the same day with the same amount. They may be legitimate (e.g., 3 separate client payments) — review before deleting.
-                </p>
-                <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                  {dedupReviewData!.flaggedForReview.map((group, i) => (
-                    <div key={i} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{group.source}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {format(parseISO(group.date), "MMM d, yyyy")} · {formatCurrency(group.amount)} · appears {group.count}×
-                        </p>
-                      </div>
-                      <Badge variant="outline" className="text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700 shrink-0 text-xs">
-                        Keep all
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground italic">
-                  To remove any of these, use the delete (🗑) button on the income row directly.
-                </p>
-              </div>
-            )}
-
-            {/* All clear message when nothing flagged */}
-            {(dedupReviewData?.flaggedForReview?.length ?? 0) === 0 && (dedupReviewData?.removed ?? 0) === 0 && (
-              <div className="text-center py-4">
-                <ShieldCheck className="h-10 w-10 mx-auto text-green-500 mb-2" />
-                <p className="text-sm font-medium">Your income records look clean!</p>
-                <p className="text-xs text-muted-foreground mt-1">No duplicates or suspicious entries were found.</p>
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end pt-2 border-t">
-            <Button onClick={() => setIsDedupReviewOpen(false)}>
-              Done
-            </Button>
-          </div>
+              )}
+            </div>
+          ) : null}
+          <Button onClick={() => setIsDedupReviewOpen(false)} className="w-full">
+            Done
+          </Button>
         </DialogContent>
       </Dialog>
     </div>

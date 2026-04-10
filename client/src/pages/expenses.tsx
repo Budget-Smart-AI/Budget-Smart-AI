@@ -86,32 +86,33 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { format, parseISO, startOfMonth, endOfMonth, startOfMonth as startOfLastMonth, subMonths } from "date-fns";
+import { format, parseISO, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
 
+// ─── types ──────────────────────────────────────────────────────────────────
+
+interface ExpenseResult {
+  total: number;
+  count: number;
+  previousTotal: number;
+  momChangePercent: number;
+  byCategory: Record<string, number>;
+  topCategories: Array<{ category: string; amount: number; percentage: number }>;
+  topMerchants: Array<{ merchant: string; amount: number; count: number }>;
+  dailyAverage: number;
+  projectedMonthly: number;
+  dailyTotals: Record<string, number>;
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(num);
-}
-
-/**
- * Returns the effective CAD amount for an expense.
- * If the expense has a cadEquivalent field (set by auto-reconciler for foreign
- * currency transactions), use that. Otherwise fall back to amount.
- */
-function effectiveCadAmount(expense: Expense): number {
-  const cadEquiv = (expense as any).cadEquivalent;
-  if (cadEquiv !== null && cadEquiv !== undefined && cadEquiv !== "") {
-    const parsed = parseFloat(cadEquiv);
-    if (!isNaN(parsed)) return parsed;
-  }
-  return parseFloat(expense.amount as string);
 }
 
 /** Returns true if this expense was originally in a foreign currency. */
@@ -631,24 +632,21 @@ export default function ExpensesPage() {
   const thisMonthRange = getMonthRange(now);
   const lastMonthRange = getMonthRange(subMonths(now, 1));
 
-  // fetch
+  const monthStart = format(thisMonthRange.start, "yyyy-MM-dd");
+  const monthEnd = format(thisMonthRange.end, "yyyy-MM-dd");
+  const prevMonthStart = format(lastMonthRange.start, "yyyy-MM-dd");
+  const prevMonthEnd = format(lastMonthRange.end, "yyyy-MM-dd");
+
+  // fetch raw expense list for table display and filtering
   const { data: expenses = [], isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
   });
 
-  // Unified total from server (deduped, transfers excluded) — used for "Total This Month" card
-  const { data: unifiedPeriodData } = useQuery<{ total: number; count: number }>({
-    queryKey: ["/api/expenses/for-period", format(thisMonthRange.start, "yyyy-MM-dd"), format(thisMonthRange.end, "yyyy-MM-dd")],
+  // fetch financial engine stats for summary cards
+  const { data: expenseStats } = useQuery<ExpenseResult>({
+    queryKey: ["/api/engine/expenses", { startDate: monthStart, endDate: monthEnd }],
     queryFn: async () => {
-      const res = await fetch(`/api/expenses/for-period?startDate=${format(thisMonthRange.start, "yyyy-MM-dd")}&endDate=${format(thisMonthRange.end, "yyyy-MM-dd")}`);
-      return res.json();
-    },
-  });
-
-  const { data: unifiedPrevPeriodData } = useQuery<{ total: number; count: number }>({
-    queryKey: ["/api/expenses/for-period", format(lastMonthRange.start, "yyyy-MM-dd"), format(lastMonthRange.end, "yyyy-MM-dd")],
-    queryFn: async () => {
-      const res = await fetch(`/api/expenses/for-period?startDate=${format(lastMonthRange.start, "yyyy-MM-dd")}&endDate=${format(lastMonthRange.end, "yyyy-MM-dd")}`);
+      const res = await fetch(`/api/engine/expenses?startDate=${monthStart}&endDate=${monthEnd}`);
       return res.json();
     },
   });
@@ -742,7 +740,7 @@ export default function ExpensesPage() {
     onError: () => toast({ title: "Failed to reconcile expenses", variant: "destructive" }),
   });
 
-  // ── computed stats ─────────────────────────────────────────────────────────
+  // ── computed stats (filtered by date range, used for table display) ────────
 
   const thisMonthExpenses = useMemo(
     () =>
@@ -752,48 +750,6 @@ export default function ExpensesPage() {
       }),
     [expenses, thisMonthRange.start, thisMonthRange.end]
   );
-
-  const lastMonthExpenses = useMemo(
-    () =>
-      expenses.filter((e) => {
-        const d = parseISO(e.date);
-        return d >= lastMonthRange.start && d <= lastMonthRange.end;
-      }),
-    [expenses, lastMonthRange.start, lastMonthRange.end]
-  );
-
-  // Part 2: All financial totals use effectiveCadAmount so foreign currency
-  // transactions are converted to CAD before summing.
-  const totalThisMonth = useMemo(
-    () => thisMonthExpenses.reduce((sum, e) => sum + effectiveCadAmount(e), 0),
-    [thisMonthExpenses]
-  );
-
-  const totalLastMonth = useMemo(
-    () => lastMonthExpenses.reduce((sum, e) => sum + effectiveCadAmount(e), 0),
-    [lastMonthExpenses]
-  );
-
-  const largestExpense = useMemo(
-    () =>
-      thisMonthExpenses.length > 0
-        ? thisMonthExpenses.reduce((max, e) =>
-            effectiveCadAmount(e) > effectiveCadAmount(max) ? e : max
-          )
-        : null,
-    [thisMonthExpenses]
-  );
-
-  const topCategory = useMemo(() => {
-    const totals: Record<string, number> = {};
-    thisMonthExpenses.forEach((e) => {
-      totals[e.category] = (totals[e.category] ?? 0) + effectiveCadAmount(e);
-    });
-    const entries = Object.entries(totals);
-    if (entries.length === 0) return null;
-    const [cat, total] = entries.reduce((max, cur) => (cur[1] > max[1] ? cur : max));
-    return { category: cat, total };
-  }, [thisMonthExpenses]);
 
   // ── filtering & sorting ────────────────────────────────────────────────────
 
@@ -1063,8 +1019,8 @@ export default function ExpensesPage() {
               <Skeleton className="h-8 w-32" />
             ) : (
               <>
-                <p className="text-2xl font-bold text-red-500">{formatCurrency(unifiedPeriodData?.total ?? totalThisMonth)}</p>
-                <p className="text-xs text-muted-foreground mt-1">{unifiedPeriodData?.count ?? thisMonthExpenses.length} transactions</p>
+                <p className="text-2xl font-bold text-red-500">{formatCurrency(expenseStats?.total ?? 0)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{expenseStats?.count ?? 0} transactions</p>
               </>
             )}
           </CardContent>
@@ -1080,28 +1036,30 @@ export default function ExpensesPage() {
               <Skeleton className="h-8 w-32" />
             ) : (
               <>
-                <p className="text-2xl font-bold text-muted-foreground">{formatCurrency(unifiedPrevPeriodData?.total ?? totalLastMonth)}</p>
-                <p className="text-xs text-muted-foreground mt-1">{unifiedPrevPeriodData?.count ?? lastMonthExpenses.length} transactions</p>
+                <p className="text-2xl font-bold text-muted-foreground">{formatCurrency(expenseStats?.previousTotal ?? 0)}</p>
+                <p className="text-xs text-muted-foreground mt-1">Previous period</p>
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* Card 3 – Largest Expense */}
+        {/* Card 3 – Month-over-Month Change */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Largest Expense</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">MoM Change</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-8 w-32" />
-            ) : largestExpense ? (
-              <>
-                <p className="text-2xl font-bold text-orange-500">{formatCurrency(largestExpense.amount)}</p>
-                <p className="text-xs text-muted-foreground mt-1 truncate">{largestExpense.merchant}</p>
-              </>
             ) : (
-              <p className="text-2xl font-bold text-muted-foreground">—</p>
+              <>
+                <p className={`text-2xl font-bold ${(expenseStats?.momChangePercent ?? 0) > 0 ? "text-red-500" : "text-green-500"}`}>
+                  {expenseStats?.momChangePercent?.toFixed(1)}%
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {(expenseStats?.momChangePercent ?? 0) > 0 ? "Increase" : "Decrease"}
+                </p>
+              </>
             )}
           </CardContent>
         </Card>
@@ -1114,10 +1072,10 @@ export default function ExpensesPage() {
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-8 w-32" />
-            ) : topCategory ? (
+            ) : expenseStats?.topCategories && expenseStats.topCategories.length > 0 ? (
               <>
-                <p className="text-2xl font-bold">{formatCurrency(topCategory.total)}</p>
-                <p className="text-xs text-muted-foreground mt-1 truncate">{topCategory.category}</p>
+                <p className="text-2xl font-bold">{formatCurrency(expenseStats.topCategories[0].amount)}</p>
+                <p className="text-xs text-muted-foreground mt-1 truncate">{expenseStats.topCategories[0].category}</p>
               </>
             ) : (
               <p className="text-2xl font-bold text-muted-foreground">—</p>

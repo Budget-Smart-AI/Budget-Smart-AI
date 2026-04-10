@@ -1,0 +1,210 @@
+/**
+ * Net Worth Calculator
+ *
+ * Calculates total net worth as the difference between assets and liabilities.
+ * Uses NormalizedAccount for all bank accounts (provider-agnostic).
+ * All monetary values are in dollars.
+ */
+
+import { NetWorthResult, Cents } from './types';
+import type { NormalizedAccount } from './normalized-types';
+
+// ─── Supporting Types (not provider-specific) ─────────────────────────────
+
+export interface Asset {
+  id: string;
+  category: string;
+  currentValue: number;
+  purchasePrice?: number;
+}
+
+export interface Debt {
+  id: string;
+  currentBalance: number;
+  debtType: string;
+}
+
+export interface InvestmentAccount {
+  id: string;
+  balance: number;
+}
+
+export interface Holding {
+  id: string;
+  currentValue: number;
+  costBasis: number;
+}
+
+export interface NetWorthSnapshot {
+  netWorth: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  date: string;
+}
+
+export interface NetWorthParams {
+  /** All bank accounts from all providers, pre-normalized */
+  bankAccounts: NormalizedAccount[];
+  assets: Asset[];
+  debts: Debt[];
+  investmentAccounts: InvestmentAccount[];
+  holdings: Holding[];
+  history: NetWorthSnapshot[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+const DEPOSITORY_TYPES = new Set(['checking', 'savings', 'depository']);
+const LIABILITY_TYPES = new Set(['credit', 'loan', 'mortgage', 'credit_card', 'line_of_credit']);
+
+/**
+ * Calculate total assets from all sources
+ */
+function calculateTotalAssets(
+  bankAccounts: NormalizedAccount[],
+  assets: Asset[],
+  investmentAccounts: InvestmentAccount[],
+  holdings: Holding[]
+): { total: Cents; breakdown: Record<string, Cents> } {
+  const breakdown: Record<string, Cents> = {};
+  let total: Cents = 0;
+
+  // Bank accounts (depository types only) — provider-agnostic
+  const depositoryAccounts = bankAccounts.filter(
+    (acc) => acc.isActive && DEPOSITORY_TYPES.has(acc.accountType)
+  );
+
+  const bankTotal = depositoryAccounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
+
+  if (bankTotal > 0) {
+    breakdown['Bank Accounts'] = bankTotal;
+    total += bankTotal;
+  }
+
+  // Investment accounts and holdings
+  let investmentTotal: Cents = 0;
+
+  const holdingsByAccount: Record<string, Cents> = {};
+  holdings.forEach((holding) => {
+    if (!holdingsByAccount[holding.id]) {
+      holdingsByAccount[holding.id] = 0;
+    }
+    holdingsByAccount[holding.id] += holding.currentValue || 0;
+  });
+
+  investmentAccounts.forEach((account) => {
+    const value = holdingsByAccount[account.id] || account.balance || 0;
+    investmentTotal += value;
+  });
+
+  if (investmentTotal > 0) {
+    breakdown['Investments'] = investmentTotal;
+    total += investmentTotal;
+  }
+
+  // Manual assets
+  const manualAssetsTotal = assets.reduce(
+    (sum, asset) => sum + (asset.currentValue || 0),
+    0
+  );
+
+  if (manualAssetsTotal > 0) {
+    breakdown['Assets'] = manualAssetsTotal;
+    total += manualAssetsTotal;
+  }
+
+  return { total, breakdown };
+}
+
+/**
+ * Calculate total liabilities from all sources
+ */
+function calculateTotalLiabilities(
+  bankAccounts: NormalizedAccount[],
+  debts: Debt[]
+): { total: Cents; breakdown: Record<string, Cents> } {
+  const breakdown: Record<string, Cents> = {};
+  let total: Cents = 0;
+
+  // Credit cards, loans, mortgages from any bank provider — provider-agnostic
+  const liabilityAccounts = bankAccounts.filter(
+    (acc) => acc.isActive && LIABILITY_TYPES.has(acc.accountType)
+  );
+
+  const bankLiabilitiesTotal = liabilityAccounts.reduce(
+    (sum, acc) => sum + Math.abs(acc.balance || 0),
+    0
+  );
+
+  if (bankLiabilitiesTotal > 0) {
+    breakdown['Bank Debts'] = bankLiabilitiesTotal;
+    total += bankLiabilitiesTotal;
+  }
+
+  // Manual debts
+  const manualDebtsTotal = debts.reduce(
+    (sum, debt) => sum + (debt.currentBalance || 0),
+    0
+  );
+
+  if (manualDebtsTotal > 0) {
+    breakdown['Manual Debts'] = manualDebtsTotal;
+    total += manualDebtsTotal;
+  }
+
+  return { total, breakdown };
+}
+
+// ─── Main Export ──────────────────────────────────────────────────────────
+
+/**
+ * Calculate net worth from comprehensive account data
+ *
+ * All bank accounts are pre-normalized by the adapter layer, so this function
+ * never needs to know whether data came from Plaid, MX, or any other provider.
+ *
+ * @param params - Object containing all account and debt data
+ * @returns NetWorthResult with net worth, assets, liabilities, and breakdown
+ */
+export function calculateNetWorth(params: NetWorthParams): NetWorthResult {
+  const {
+    bankAccounts = [],
+    assets = [],
+    debts = [],
+    investmentAccounts = [],
+    holdings = [],
+    history = [],
+  } = params;
+
+  const assetsCalc = calculateTotalAssets(
+    bankAccounts,
+    assets,
+    investmentAccounts,
+    holdings
+  );
+
+  const liabilitiesCalc = calculateTotalLiabilities(bankAccounts, debts);
+
+  const totalAssets = assetsCalc.total;
+  const totalLiabilities = liabilitiesCalc.total;
+  const netWorth = totalAssets - totalLiabilities;
+
+  const totalCombined = totalAssets + totalLiabilities;
+  const assetPercent =
+    totalCombined > 0 ? (totalAssets / totalCombined) * 100 : 100;
+
+  let latestChange: Cents = 0;
+  if (history.length >= 2) {
+    latestChange = history[0].netWorth - history[1].netWorth;
+  }
+
+  return {
+    netWorth,
+    totalAssets,
+    totalLiabilities,
+    assetPercent: Math.round(assetPercent * 100) / 100,
+    latestChange,
+    assetBreakdown: assetsCalc.breakdown,
+    liabilityBreakdown: liabilitiesCalc.breakdown,
+  };
+}

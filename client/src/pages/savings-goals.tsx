@@ -101,6 +101,7 @@ function SavingsGoalForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/savings-goals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/savings-goals"] });
       toast({ title: "Savings goal created successfully" });
       onClose();
     },
@@ -122,6 +123,7 @@ function SavingsGoalForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/savings-goals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/savings-goals"] });
       toast({ title: "Savings goal updated successfully" });
       onClose();
     },
@@ -265,6 +267,7 @@ function AddMoneyDialog({ goal, onClose }: { goal: SavingsGoal; onClose: () => v
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/savings-goals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/savings-goals"] });
       toast({ title: "Savings updated successfully" });
       onClose();
     },
@@ -322,6 +325,14 @@ interface AiSavingsAdvice {
   financialSnapshot: { monthlyIncome: number; monthlySpending: number; monthlySurplus: number };
 }
 
+// API Response Types
+interface SavingsGoalEngineResult {
+  totalSaved: number;
+  totalTarget: number;
+  overallProgress: number;
+  goals: SavingsGoal[];
+}
+
 export default function SavingsGoalsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<SavingsGoal | undefined>();
@@ -334,9 +345,18 @@ export default function SavingsGoalsPage() {
   const [selectedGoalForAi, setSelectedGoalForAi] = useState<SavingsGoal | null>(null);
   const { toast } = useToast();
 
-  const { data: goals = [], isLoading } = useQuery<SavingsGoal[]>({
-    queryKey: ["/api/savings-goals"],
+  const { data: goalsData, isLoading } = useQuery<SavingsGoalEngineResult>({
+    queryKey: ["/api/engine/savings-goals"],
+    queryFn: async () => {
+      const res = await fetch("/api/engine/savings-goals");
+      if (!res.ok) throw new Error("Failed to fetch savings goals");
+      return res.json();
+    },
   });
+
+  const goals = goalsData?.goals || [];
+  const totalSaved = goalsData?.totalSaved || 0;
+  const totalTarget = goalsData?.totalTarget || 0;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -344,6 +364,7 @@ export default function SavingsGoalsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/savings-goals"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/savings-goals"] });
       toast({ title: "Savings goal deleted successfully" });
       setDeletingGoal(undefined);
     },
@@ -406,9 +427,6 @@ export default function SavingsGoalsPage() {
     setIsDialogOpen(false);
     setEditingGoal(undefined);
   };
-
-  const totalSaved = goals.reduce((sum, g) => sum + parseFloat(g.currentAmount), 0);
-  const totalTarget = goals.reduce((sum, g) => sum + parseFloat(g.targetAmount), 0);
 
   return (
     <div className="space-y-6">

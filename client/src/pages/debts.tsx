@@ -417,34 +417,18 @@ export default function DebtsPage() {
     }
   };
 
-  const toMonthlyPayment = (amount: number, frequency: string | null | undefined): number => {
-    switch (frequency) {
-      case "Weekly": return amount * 52 / 12;
-      case "Biweekly": return amount * 26 / 12;
-      case "Semi-monthly": return amount * 2;
-      case "Quarterly": return amount / 3;
-      case "Annually": return amount / 12;
-      case "Monthly":
-      default: return amount;
-    }
-  };
+  // Summary stats now come from engine API
+  const { data: debtSummary, isLoading: summaryLoading } = useQuery<{
+    totalDebt: number;
+    totalMinPayments: number;
+    avgApr: number;
+  }>({
+    queryKey: ["/api/engine/debts"],
+  });
 
-  const totalDebt = useMemo(() => {
-    return debts.reduce((sum, d) => sum + parseFloat(d.currentBalance), 0);
-  }, [debts]);
-
-  const totalMinPayments = useMemo(() => {
-    return debts.reduce((sum, d) => {
-      const payment = parseFloat(d.minimumPayment);
-      return sum + toMonthlyPayment(payment, d.paymentFrequency);
-    }, 0);
-  }, [debts]);
-
-  const avgApr = useMemo(() => {
-    if (debts.length === 0) return 0;
-    const totalApr = debts.reduce((sum, d) => sum + parseFloat(d.apr), 0);
-    return totalApr / debts.length;
-  }, [debts]);
+  const totalDebt = debtSummary?.totalDebt ?? 0;
+  const totalMinPayments = debtSummary?.totalMinPayments ?? 0;
+  const avgApr = debtSummary?.avgApr ?? 0;
 
   const selectedDebtType = form.watch("debtType");
   const isRevolvingCredit = ["Credit Card", "Line of Credit", "HELOC"].includes(selectedDebtType);
@@ -492,7 +476,7 @@ export default function DebtsPage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || summaryLoading) {
     return (
       <div className="space-y-6">
         <div>
