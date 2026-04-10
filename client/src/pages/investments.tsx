@@ -68,7 +68,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
-import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, Building2, Wallet, PiggyBank, Bitcoin, RefreshCw, Link2, Brain, Send, Loader2, BarChart3, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, Building2, Wallet, PiggyBank, Bitcoin, RefreshCw, Link2, Brain, Send, Loader2, BarChart3, AlertTriangle, HelpCircle, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INVESTMENT_ACCOUNT_TYPES, HOLDING_TYPES, type InvestmentAccount, type Holding, type PlaidAccount } from "@shared/schema";
@@ -1126,11 +1126,62 @@ function AIAdvisor({ holdings }: { holdings: Holding[] }) {
   );
 }
 
+// ── Edit Cost Basis Dialog ────────────────────────────────────────────────────
+function EditCostBasisDialog({ holding, onClose }: { holding: Holding; onClose: () => void }) {
+  const { toast } = useToast();
+  const [costBasis, setCostBasis] = useState(holding.costBasis || "");
+
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("PATCH", `/api/holdings/${holding.id}`, { costBasis }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/holdings"] });
+      toast({ title: "Cost basis updated" });
+      onClose();
+    },
+    onError: () => toast({ title: "Failed to update cost basis", variant: "destructive" }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Enter the total amount you paid for <strong>{holding.symbol}</strong> ({parseFloat(holding.quantity).toLocaleString()} shares).
+      </p>
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Total Cost Basis ($)</label>
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder="e.g. 15000.00"
+          value={costBasis}
+          onChange={(e) => setCostBasis(e.target.value)}
+          autoFocus
+        />
+        <p className="text-xs text-muted-foreground">
+          What you paid in total (not per share). Used to calculate your return %.
+        </p>
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button
+          onClick={() => updateMutation.mutate()}
+          disabled={updateMutation.isPending || !costBasis}
+        >
+          {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Investments() {
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [holdingDialogOpen, setHoldingDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<InvestmentAccount | undefined>();
   const [editingHolding, setEditingHolding] = useState<Holding | undefined>();
+  const [editingCostBasisHolding, setEditingCostBasisHolding] = useState<Holding | undefined>();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteType, setDeleteType] = useState<"account" | "holding">("account");
   const { toast } = useToast();
@@ -1285,9 +1336,23 @@ export default function Investments() {
         <Card>
           <CardHeader className="p-3 sm:pb-2 sm:p-6">
             <CardDescription className="text-xs sm:text-sm">Return %</CardDescription>
-            <CardTitle className={`text-lg sm:text-2xl ${gainPercent >= 0 ? "text-green-600" : "text-red-600"}`}>
-              {gainPercent >= 0 ? "+" : ""}{gainPercent.toFixed(2)}%
-            </CardTitle>
+            {totalCost > 0 ? (
+              <CardTitle className={`text-lg sm:text-2xl ${gainPercent >= 0 ? "text-green-600" : "text-red-600"}`}>
+                {gainPercent >= 0 ? "+" : ""}{gainPercent.toFixed(2)}%
+              </CardTitle>
+            ) : (
+              <div className="flex items-center gap-1.5 mt-1">
+                <CardTitle className="text-lg sm:text-2xl text-muted-foreground">N/A</CardTitle>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help flex-shrink-0" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[200px] text-xs">
+                    Enter cost basis on your holdings to calculate returns.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            )}
           </CardHeader>
         </Card>
       </div>
@@ -1340,7 +1405,24 @@ export default function Investments() {
                         </CardHeader>
                         <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                           <div className="text-xl sm:text-2xl font-bold">{formatCurrency(accountValue)}</div>
-                          <p className="text-xs sm:text-sm text-muted-foreground">{accountHoldings.length} holdings</p>
+                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                            <p className="text-xs sm:text-sm text-muted-foreground">{accountHoldings.length} holdings</p>
+                            {accountHoldings.length === 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 text-xs px-2 py-0"
+                                onClick={() => {
+                                  setEditingHolding(undefined);
+                                  // Pre-select this account in the form
+                                  setEditingHolding({ investmentAccountId: account.id } as any);
+                                  setHoldingDialogOpen(true);
+                                }}
+                              >
+                                <Plus className="h-3 w-3 mr-1" />Add Holdings
+                              </Button>
+                            )}
+                          </div>
                           {account.notes?.includes("Linked from Plaid") && (
                             <Badge variant="secondary" className="mt-2 text-xs"><Link2 className="h-3 w-3 mr-1" />Linked</Badge>
                           )}
@@ -1398,11 +1480,40 @@ export default function Investments() {
                             <TableCell className="text-right hidden sm:table-cell text-xs sm:text-sm p-2 sm:p-4">{parseFloat(holding.quantity).toLocaleString()}</TableCell>
                             <TableCell className="text-right hidden md:table-cell text-xs sm:text-sm p-2 sm:p-4">{formatCurrency(holding.currentPrice)}</TableCell>
                             <TableCell className="text-right font-medium text-xs sm:text-sm p-2 sm:p-4">{formatCurrency(value)}</TableCell>
-                            <TableCell className={`text-right text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap ${gain >= 0 ? "text-green-600" : "text-red-600"}`}>
-                              <span className="hidden sm:inline">{formatCurrency(gain)} </span>({gainPct >= 0 ? "+" : ""}{gainPct.toFixed(1)}%)
+                            <TableCell className={`text-right text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap ${cost > 0 ? (gain >= 0 ? "text-green-600" : "text-red-600") : "text-muted-foreground"}`}>
+                              {cost > 0 ? (
+                                <>
+                                  <span className="hidden sm:inline">{formatCurrency(gain)} </span>
+                                  ({gainPct >= 0 ? "+" : ""}{gainPct.toFixed(1)}%)
+                                </>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="cursor-help underline decoration-dotted">N/A</span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs max-w-[180px]">
+                                    Enter cost basis to calculate returns
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                             </TableCell>
                             <TableCell className="p-2 sm:p-4">
                               <div className="flex gap-1">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className={`h-7 w-7 sm:h-9 sm:w-9 ${!cost ? "text-orange-500 hover:text-orange-600" : ""}`}
+                                      onClick={() => setEditingCostBasisHolding(holding)}
+                                    >
+                                      <DollarSign className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="text-xs">
+                                    {cost ? "Edit cost basis" : "Enter cost basis to calculate returns"}
+                                  </TooltipContent>
+                                </Tooltip>
                                 <Button size="icon" variant="ghost" className="h-7 w-7 sm:h-9 sm:w-9" onClick={() => {
                                   setEditingHolding(holding);
                                   setHoldingDialogOpen(true);
@@ -1438,6 +1549,21 @@ export default function Investments() {
           </FeatureGate>
         </TabsContent>
       </Tabs>
+
+      {/* Edit Cost Basis Dialog */}
+      <Dialog open={!!editingCostBasisHolding} onOpenChange={(open) => { if (!open) setEditingCostBasisHolding(undefined); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Cost Basis</DialogTitle>
+          </DialogHeader>
+          {editingCostBasisHolding && (
+            <EditCostBasisDialog
+              holding={editingCostBasisHolding}
+              onClose={() => setEditingCostBasisHolding(undefined)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
