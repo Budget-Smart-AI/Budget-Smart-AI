@@ -260,7 +260,7 @@ export function MoneyTimeline() {
             <div className="text-lg font-semibold">
               {formatCurrency(data.summary.totalExpectedIncome)}
             </div>
-            <div className="text-xs text-muted-foreground">Expected Income</div>
+            <div className="text-xs text-muted-foreground">Income (Next 30 Days)</div>
           </div>
           
           <div className="text-center">
@@ -270,7 +270,7 @@ export function MoneyTimeline() {
             <div className="text-lg font-semibold">
               {formatCurrency(data.summary.totalExpectedBills)}
             </div>
-            <div className="text-xs text-muted-foreground">Expected Bills</div>
+            <div className="text-xs text-muted-foreground">Bills (Next 30 Days)</div>
           </div>
           
           <div className="text-center">

@@ -30,7 +30,7 @@ import crypto from "crypto";
 import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPassword, generateMfaSecretKey, verifyMfaToken, generateMfaQrCode, generateBackupCodes, loadHouseholdIntoSession, setupGoogleOAuth } from "./auth";
 import passport from "passport";
 import { authRateLimiter, apiRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
-import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending } from "./cash-flow";
+import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending, getBillsInRange, getIncomeInRange } from "./cash-flow";
 import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
@@ -10744,6 +10744,18 @@ ${JSON.stringify(txSummary)}`;
         60
       );
 
+      // Compute SEPARATE 30-day bill/income totals for the summary cards.
+      // The main 90-day forecast totals are 3x too large for a "next 30 days" display,
+      // so we generate a dedicated 30-day window here to power the stat tiles.
+      const today30 = new Date();
+      today30.setHours(0, 0, 0, 0);
+      const end30 = new Date(today30);
+      end30.setDate(end30.getDate() + 30);
+      const bills30 = getBillsInRange(activeBills, today30, end30);
+      const income30 = getIncomeInRange(activeIncomes, today30, end30);
+      const thirtyDayBills = Math.abs(bills30.reduce((sum, e) => sum + e.amount, 0));
+      const thirtyDayIncome = income30.reduce((sum, e) => sum + e.amount, 0);
+
       // Find danger day (first day balance goes negative)
       let dangerDate: string | null = null;
       let daysUntilDanger: number | null = null;
@@ -10813,6 +10825,8 @@ ${JSON.stringify(txSummary)}`;
         hookSeverity,
         summary: {
           ...forecast.summary,
+          totalExpectedBills: Math.round(thirtyDayBills * 100) / 100,
+          totalExpectedIncome: Math.round(thirtyDayIncome * 100) / 100,
           totalDays: days,
           hasLinkedAccounts: plaidItems.length > 0 || activeManualAccounts.length > 0,
         },
