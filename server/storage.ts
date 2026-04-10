@@ -83,7 +83,7 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, and, gte, lte, inArray, desc, like } from "drizzle-orm";
+import { eq, and, gte, lte, inArray, desc, like, sql } from "drizzle-orm";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
 
 export interface IStorage {
@@ -1784,11 +1784,18 @@ export class DatabaseStorage implements IStorage {
         amount: transaction.amount,
         date: transaction.date,
         name: transaction.name,
-        merchantName: transaction.merchantName || null,
-        category: transaction.category || null,
+        // Preserve enrichment fields on upsert — use COALESCE so existing data is not overwritten with null
+        merchantName: sql`COALESCE(${transaction.merchantName || null}, plaid_transactions.merchant_name)`,
+        logoUrl: sql`COALESCE(${transaction.logoUrl || null}, plaid_transactions.logo_url)`,
+        category: sql`COALESCE(${transaction.category || null}, plaid_transactions.category)`,
+        personalFinanceCategoryDetailed: sql`COALESCE(${(transaction as any).personalFinanceCategoryDetailed || null}, plaid_transactions.personal_finance_category_detailed)`,
+        personalFinanceCategoryConfidence: sql`COALESCE(${(transaction as any).personalFinanceCategoryConfidence || null}, plaid_transactions.personal_finance_category_confidence)`,
+        paymentChannel: sql`COALESCE(${(transaction as any).paymentChannel || null}, plaid_transactions.payment_channel)`,
+        merchantEntityId: sql`COALESCE(${(transaction as any).merchantEntityId || null}, plaid_transactions.merchant_entity_id)`,
         pending: transaction.pending || "false",
       }
     }).returning();
+
     const saved = result[0];
     // Fire-and-forget enrichment
     import('./merchant-enricher').then(({ enrichTransaction }) => {
