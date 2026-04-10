@@ -742,9 +742,6 @@ export default function Dashboard() {
     0
   );
 
-  // Planned Savings (budgeted income - budgeted spending)
-  const plannedSavings = budgetedIncome - budgetedSpending;
-
   // Monthly bills total (for plan section)
   // Annualized-then-divided approach for accuracy:
   //   weekly:    amount × 52 / 12  ≈ 4.333 payments/month
@@ -761,6 +758,9 @@ export default function Dashboard() {
       if (bill.recurrence === "yearly") return sum + amount / 12;
       return sum;
     }, 0);
+
+  // Planned Savings (budgeted income - budgeted spending - planned bills)
+  const plannedSavings = budgetedIncome - budgetedSpending - monthlyBillsPlanned;
 
   // ============================================
   // Handle AI Helper Modal
