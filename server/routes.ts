@@ -6344,9 +6344,11 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       console.log("[Plaid] Creating link token for user:", userId);
       console.log("[Plaid] Country codes:", PLAID_COUNTRY_CODES);
 
-      // Per Plaid docs: Transactions, Auth, and Liabilities should all be in primary products
-      const primaryProducts = [Products.Transactions, Products.Auth, Products.Liabilities];
-      const additionalProducts: any[] = [];
+      // Per Plaid docs: Transactions and Auth as primary, Liabilities and Investments as
+      // additional_consented_products. This avoids INVALID_PRODUCT errors for institutions
+      // that don't support Liabilities/Investments while still surfacing those account types.
+      const primaryProducts = [Products.Transactions, Products.Auth];
+      const additionalProducts = [Products.Liabilities, Products.Investments];
 
       console.log("[Plaid] Primary products:", primaryProducts);
       console.log("[Plaid] Additional products:", additionalProducts);
@@ -6366,8 +6368,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           account_filters: PLAID_ACCOUNT_FILTERS as any,
         });
 
-        console.log("[Plaid] Link token created successfully with liabilities + additional products");
-        return res.json({ 
+        console.log("[Plaid] Link token created successfully (products: transactions, auth; additional: liabilities, investments)");
+        return res.json({
           link_token: response.data.link_token,
           currentBankCount,
           maxBankAccounts,
@@ -6378,17 +6380,18 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         const errorCode = plaidError?.response?.data?.error_code;
         const errorMessage = plaidError?.response?.data?.error_message || '';
         const errorType = plaidError?.response?.data?.error_type || '';
-        
+
         console.log("[Plaid] First attempt failed:", {
           error_type: errorType,
           error_code: errorCode,
           error_message: errorMessage
         });
-        
-        // If liabilities fails, try with transactions as primary
-        if (errorCode === 'INVALID_PRODUCT' || errorMessage.includes('liabilities')) {
-          console.log("[Plaid] Retrying with transactions as primary...");
-          
+
+        // If additional_consented_products fails, try with just transactions + auth
+        // but KEEP account_filters so loan/investment accounts still appear
+        if (errorCode === 'INVALID_PRODUCT' || errorMessage.includes('liabilities') || errorMessage.includes('investments')) {
+          console.log("[Plaid] Retrying without additional_consented_products...");
+
           const fallbackResponse = await plaidClient.linkTokenCreate({
             user: { client_user_id: String(userId) },
             client_name: "Budget Smart AI",
@@ -6397,18 +6400,18 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             language: PLAID_LANGUAGE,
             webhook: process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`,
             transactions: {
-              days_requested: 730,  // Request up to 2 years of transaction history
+              days_requested: 730,
             },
             account_filters: PLAID_ACCOUNT_FILTERS as any,
           });
 
-          console.log("[Plaid] Link token created successfully without liabilities");
-          return res.json({ 
+          console.log("[Plaid] Link token created (fallback: transactions + auth only, with account_filters)");
+          return res.json({
             link_token: fallbackResponse.data.link_token,
             currentBankCount,
             maxBankAccounts,
             canAddMore: hasUnlimitedBanks || currentBankCount < maxBankAccounts,
-            warning: "Connected without liabilities product"
+            warning: "Connected without liabilities/investments products"
           });
         }
         

@@ -417,7 +417,9 @@ export function ConnectBankWizard({
     }
   }, [open]);
 
-  // Load providers + Plaid link token when dialog opens
+  // Load providers when dialog opens — but do NOT create link token yet.
+  // Link token creation is deferred to handleReady (Step 2) so Plaid's
+  // SMS verification doesn't fire before the user is ready.
   useEffect(() => {
     if (!open) return;
     async function init() {
@@ -429,12 +431,6 @@ export function ConnectBankWizard({
         const preferred = wizardProviders[0]?.providerId as "plaid" | "mx" | null ?? null;
         setPreferredProvider(preferred);
         setProvidersLoaded(true);
-
-        if (preferred === "plaid" || !preferred) {
-          const tokenRes = await apiRequest("POST", "/api/plaid/create-link-token");
-          const tokenData = await tokenRes.json();
-          setLinkToken(tokenData.link_token);
-        }
       } catch (err) {
         console.error("[ConnectBankWizard] init error:", err);
       } finally {
@@ -546,15 +542,40 @@ export function ConnectBankWizard({
   );
 
   // Step 2 → open bank connection
-  const handleReady = useCallback(() => {
+  // For Plaid: fetch link token NOW (deferred from dialog open), then auto-open
+  // via the effect below once usePlaidLink is ready with the new token.
+  const handleReady = useCallback(async () => {
     if (preferredProvider === "mx") {
       setShowMxConsent(true);
     } else {
-      // Default to Plaid
+      // Default to Plaid — fetch link token first
       setPlaidIsOpen(true);
+      if (linkToken) {
+        openPlaid();
+      } else {
+        setTokenLoading(true);
+        try {
+          const tokenRes = await apiRequest("POST", "/api/plaid/create-link-token");
+          const tokenData = await tokenRes.json();
+          if (tokenData.link_token) {
+            setLinkToken(tokenData.link_token);
+            // openPlaid() will be called by the auto-open effect once ready
+          }
+        } catch (err) {
+          console.error("[ConnectBankWizard] Failed to create link token:", err);
+        } finally {
+          setTokenLoading(false);
+        }
+      }
+    }
+  }, [preferredProvider, openPlaid, linkToken]);
+
+  // Auto-open Plaid once link token arrives and we're in "plaidIsOpen" state
+  useEffect(() => {
+    if (plaidIsOpen && linkToken && plaidReady) {
       openPlaid();
     }
-  }, [preferredProvider, openPlaid]);
+  }, [plaidIsOpen, linkToken, plaidReady, openPlaid]);
 
   const handleSkip = useCallback(() => {
     onOpenChange(false);

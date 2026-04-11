@@ -208,6 +208,7 @@ function ConnectBankStep({
   const [stateProvince, setStateProvince] = useState("");
   // Sub-step: 'connect-bank' | 'phone-ready'
   const [subStep, setSubStep] = useState<"connect-bank" | "phone-ready">("connect-bank");
+  const [pendingPlaidOpen, setPendingPlaidOpen] = useState(false);
 
   const { toast } = useToast();
 
@@ -220,19 +221,22 @@ function ConnectBankStep({
   const mxEnabled = wizardEnabledProviders.some((p) => p.providerId === "mx");
   const preferredProvider = wizardEnabledProviders[0]?.providerId ?? null;
 
-  useEffect(() => {
-    if (providersLoading || !plaidEnabled) return;
-    async function fetchLinkToken() {
-      try {
-        const res = await apiRequest("POST", "/api/plaid/create-link-token");
-        const data = await res.json();
+  // Link token creation is deferred — NOT fetched on mount.
+  // It's fetched when the user clicks "I'm Ready — Connect My Bank" in the
+  // phone-ready sub-step, so Plaid's SMS verification doesn't fire early.
+  const fetchLinkToken = useCallback(async () => {
+    try {
+      const res = await apiRequest("POST", "/api/plaid/create-link-token");
+      const data = await res.json();
+      if (data.link_token) {
         setLinkToken(data.link_token);
-      } catch (error) {
-        console.error("Error fetching link token:", error);
+        return data.link_token;
       }
+    } catch (error) {
+      console.error("Error fetching link token:", error);
     }
-    fetchLinkToken();
-  }, [plaidEnabled, providersLoading]);
+    return null;
+  }, []);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -319,10 +323,26 @@ function ConnectBankStep({
     onExit: onPlaidExit,
   });
 
-  const openPlaidLink = useCallback(() => {
-    onPlaidOpen?.(true);
-    open();
-  }, [open, onPlaidOpen]);
+  // Auto-open Plaid once link token arrives after user clicked connect
+  useEffect(() => {
+    if (pendingPlaidOpen && linkToken && ready) {
+      setPendingPlaidOpen(false);
+      onPlaidOpen?.(true);
+      open();
+    }
+  }, [pendingPlaidOpen, linkToken, ready, open, onPlaidOpen]);
+
+  const openPlaidLink = useCallback(async () => {
+    if (linkToken && ready) {
+      // Token already available — open immediately
+      onPlaidOpen?.(true);
+      open();
+    } else {
+      // Fetch token now, auto-open via effect above
+      setPendingPlaidOpen(true);
+      await fetchLinkToken();
+    }
+  }, [open, ready, onPlaidOpen, linkToken, fetchLinkToken]);
 
   // Save country/state to DB then show phone-ready screen
   const handleConnectBank = useCallback(async () => {

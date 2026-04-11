@@ -188,6 +188,7 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const [limitError, setLimitError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isPendingWebhook, setIsPendingWebhook] = useState(false);
+  const [pendingPlaidOpen, setPendingPlaidOpen] = useState(false);
   const autoOpenConsentShown = useRef(false);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollAttemptsRef = useRef(0);
@@ -200,28 +201,27 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
     };
   }, []);
 
-  // Fetch link token
-  useEffect(() => {
-    async function fetchLinkToken() {
-      try {
-        const res = await apiRequest("POST", "/api/plaid/create-link-token");
-        const data = await res.json();
-        if (data.link_token) {
-          setLinkToken(data.link_token);
-          setLimitError(null);
-        } else if (data.error) {
-          setLimitError(data.message || data.error);
-        }
-      } catch (error: any) {
-        // Handle 403 limit error
-        if (error?.message?.includes("limit")) {
-          setLimitError(error.message);
-        } else {
-          console.error("Error fetching link token:", error);
-        }
+  // Fetch link token — only called when user accepts consent, NOT on mount.
+  // Creating the link token early triggers Plaid's SMS verification prematurely.
+  const fetchLinkToken = useCallback(async () => {
+    try {
+      const res = await apiRequest("POST", "/api/plaid/create-link-token");
+      const data = await res.json();
+      if (data.link_token) {
+        setLinkToken(data.link_token);
+        setLimitError(null);
+        return data.link_token;
+      } else if (data.error) {
+        setLimitError(data.message || data.error);
+      }
+    } catch (error: any) {
+      if (error?.message?.includes("limit")) {
+        setLimitError(error.message);
+      } else {
+        console.error("Error fetching link token:", error);
       }
     }
-    fetchLinkToken();
+    return null;
   }, []);
 
   const startPollingForTransactions = useCallback(() => {
@@ -297,9 +297,27 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
     onSuccess: onPlaidSuccess,
   });
 
-  const handleConsentAccept = () => {
+  // Auto-open Plaid Link once token arrives after consent was accepted
+  useEffect(() => {
+    if (pendingPlaidOpen && linkToken && ready) {
+      setPendingPlaidOpen(false);
+      open();
+    }
+  }, [pendingPlaidOpen, linkToken, ready, open]);
+
+  const handleConsentAccept = async () => {
     setShowConsent(false);
-    open();
+    if (linkToken) {
+      // Token already exists (e.g. re-opening after cancel) — open immediately
+      open();
+    } else {
+      // Fetch link token now (deferred from mount) — this is when Plaid
+      // initiates the connection and may send an SMS verification.
+      // usePlaidLink needs a re-render with the new token before open() works,
+      // so we fetch the token and set pendingPlaidOpen to auto-open via effect.
+      setPendingPlaidOpen(true);
+      await fetchLinkToken();
+    }
   };
 
   const handleConsentDialogChange = (isOpen: boolean) => {
@@ -329,7 +347,7 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
     <>
       <Button 
         onClick={() => setShowConsent(true)} 
-        disabled={!ready || !linkToken || isSyncing || isPendingWebhook} 
+        disabled={isSyncing || isPendingWebhook}
         className="gap-2"
       >
         {isPendingWebhook ? (
