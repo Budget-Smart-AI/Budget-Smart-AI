@@ -6344,11 +6344,13 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       console.log("[Plaid] Creating link token for user:", userId);
       console.log("[Plaid] Country codes:", PLAID_COUNTRY_CODES);
 
-      // Per Plaid docs: Transactions and Auth as primary, Liabilities and Investments as
-      // additional_consented_products. This avoids INVALID_PRODUCT errors for institutions
-      // that don't support Liabilities/Investments while still surfacing those account types.
-      const primaryProducts = [Products.Transactions, Products.Auth];
-      const additionalProducts = [Products.Liabilities, Products.Investments];
+      // Liabilities MUST be in primary products so Plaid Link surfaces mortgage/loan
+      // accounts in the account-selection screen. Moving it to additional_consented_products
+      // causes those accounts to disappear (confirmed: regressed in 93ddc71).
+      // Investments stays as additional_consented_products to avoid INVALID_PRODUCT errors
+      // on institutions that don't support the Investments product.
+      const primaryProducts = [Products.Transactions, Products.Auth, Products.Liabilities];
+      const additionalProducts = [Products.Investments];
 
       console.log("[Plaid] Primary products:", primaryProducts);
       console.log("[Plaid] Additional products:", additionalProducts);
