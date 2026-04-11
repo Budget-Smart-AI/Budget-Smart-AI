@@ -14,6 +14,7 @@ const configuration = new Configuration({
     headers: {
       "PLAID-CLIENT-ID": process.env.PLAID_CLIENT_ID,
       "PLAID-SECRET": process.env.PLAID_SECRET,
+      "Plaid-Version": "2020-09-14", // Pin API version for stability
     },
   },
 });
@@ -28,10 +29,189 @@ export const PLAID_LANGUAGE = "en";
 export { Products };
 
 /**
- * Map Plaid personal_finance_category.primary to Budget Smart AI category.
- * Plaid returns values like "FOOD_AND_DRINK", "TRANSPORTATION", etc.
+ * Map Plaid personal_finance_category to Budget Smart AI internal categories.
+ *
+ * Plaid provides two levels:
+ *   - primary: e.g. "FOOD_AND_DRINK", "TRANSPORTATION"
+ *   - detailed: e.g. "FOOD_AND_DRINK_GROCERIES", "TRANSPORTATION_GAS"
+ *
+ * We try the detailed category first for precision, then fall back to primary.
+ * This eliminates the need for AI re-categorization — Plaid's ML is more accurate
+ * for known merchants than our own classification.
  */
-function mapPlaidCategory(plaidPrimary: string | null | undefined): string | null {
+export function mapPlaidCategoryDetailed(detailed: string | null | undefined): string | null {
+  if (!detailed) return null;
+  const map: Record<string, string> = {
+    // ── Food & Drink ─────────────────────────────────────────────────────
+    FOOD_AND_DRINK_GROCERIES: "Groceries",
+    FOOD_AND_DRINK_RESTAURANT: "Restaurant & Bars",
+    FOOD_AND_DRINK_FAST_FOOD: "Restaurant & Bars",
+    FOOD_AND_DRINK_COFFEE: "Restaurant & Bars",
+    FOOD_AND_DRINK_BAR: "Restaurant & Bars",
+    FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR: "Restaurant & Bars",
+    FOOD_AND_DRINK_FOOD_DELIVERY: "Restaurant & Bars",
+    FOOD_AND_DRINK_OTHER: "Restaurant & Bars",
+    FOOD_AND_DRINK_VENDING_MACHINES: "Restaurant & Bars",
+
+    // ── Transportation ───────────────────────────────────────────────────
+    TRANSPORTATION_GAS: "Transportation",
+    TRANSPORTATION_PARKING: "Transportation",
+    TRANSPORTATION_PUBLIC_TRANSIT: "Transportation",
+    TRANSPORTATION_TAXIS_AND_RIDE_SHARES: "Transportation",
+    TRANSPORTATION_TOLLS: "Transportation",
+    TRANSPORTATION_CAR_INSURANCE: "Insurance",
+    TRANSPORTATION_CAR_DEALER_AND_LEASING: "Transportation",
+    TRANSPORTATION_OTHER: "Transportation",
+
+    // ── Travel ───────────────────────────────────────────────────────────
+    TRAVEL_FLIGHTS: "Travel",
+    TRAVEL_LODGING: "Travel",
+    TRAVEL_RENTAL_CARS: "Travel",
+    TRAVEL_OTHER: "Travel",
+
+    // ── Shopping / Merchandise ────────────────────────────────────────────
+    GENERAL_MERCHANDISE_CLOTHING_AND_ACCESSORIES: "Clothing",
+    GENERAL_MERCHANDISE_DEPARTMENT_STORES: "Shopping",
+    GENERAL_MERCHANDISE_DISCOUNT_STORES: "Shopping",
+    GENERAL_MERCHANDISE_ELECTRONICS: "Shopping",
+    GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES: "Shopping",
+    GENERAL_MERCHANDISE_OFFICE_SUPPLIES: "Shopping",
+    GENERAL_MERCHANDISE_ONLINE_MARKETPLACES: "Shopping",
+    GENERAL_MERCHANDISE_PET_SUPPLIES: "Shopping",
+    GENERAL_MERCHANDISE_SPORTING_GOODS: "Shopping",
+    GENERAL_MERCHANDISE_SUPERSTORES: "Shopping",
+    GENERAL_MERCHANDISE_TOBACCO_AND_VAPE: "Shopping",
+    GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS: "Shopping",
+    GENERAL_MERCHANDISE_OTHER: "Shopping",
+
+    // ── Rent & Utilities ─────────────────────────────────────────────────
+    RENT_AND_UTILITIES_RENT: "Housing",
+    RENT_AND_UTILITIES_GAS_AND_ELECTRICITY: "Utilities",
+    RENT_AND_UTILITIES_INTERNET_AND_CABLE: "Utilities",
+    RENT_AND_UTILITIES_PHONE: "Utilities",
+    RENT_AND_UTILITIES_WATER: "Utilities",
+    RENT_AND_UTILITIES_SEWAGE_AND_WASTE_MANAGEMENT: "Utilities",
+    RENT_AND_UTILITIES_STORAGE: "Housing",
+    RENT_AND_UTILITIES_OTHER: "Utilities",
+    RENT_AND_UTILITIES_TELEPHONE: "Utilities",
+
+    // ── Medical ──────────────────────────────────────────────────────────
+    MEDICAL_DENTIST: "Healthcare",
+    MEDICAL_EYE_CARE: "Healthcare",
+    MEDICAL_HOSPITAL_AND_CLINICS: "Healthcare",
+    MEDICAL_PHARMACIES_AND_SUPPLEMENTS: "Healthcare",
+    MEDICAL_VETERINARY_SERVICES: "Healthcare",
+    MEDICAL_OTHER: "Healthcare",
+
+    // ── Personal Care ────────────────────────────────────────────────────
+    PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS: "Healthcare",
+    PERSONAL_CARE_HAIR_AND_BEAUTY: "Personal",
+    PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING: "Personal",
+    PERSONAL_CARE_OTHER: "Personal",
+
+    // ── Entertainment ────────────────────────────────────────────────────
+    ENTERTAINMENT_CASINOS_AND_GAMBLING: "Entertainment",
+    ENTERTAINMENT_MUSIC_AND_AUDIO: "Entertainment",
+    ENTERTAINMENT_SPORTING_EVENTS_AMUSEMENT_PARKS_AND_MUSEUMS: "Entertainment",
+    ENTERTAINMENT_TV_AND_MOVIES: "Entertainment",
+    ENTERTAINMENT_VIDEO_GAMES: "Entertainment",
+    ENTERTAINMENT_OTHER: "Entertainment",
+    ENTERTAINMENT_AND_RECREATION: "Entertainment",
+
+    // ── Home Improvement ─────────────────────────────────────────────────
+    HOME_IMPROVEMENT_FURNITURE: "Maintenance",
+    HOME_IMPROVEMENT_HARDWARE: "Maintenance",
+    HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE: "Maintenance",
+    HOME_IMPROVEMENT_SECURITY: "Maintenance",
+    HOME_IMPROVEMENT_OTHER: "Maintenance",
+
+    // ── Education ────────────────────────────────────────────────────────
+    EDUCATION_TUITION_AND_FEES: "Education",
+    EDUCATION_BOOKS_AND_SUPPLIES: "Education",
+    EDUCATION_OTHER: "Education",
+
+    // ── Loan Payments ────────────────────────────────────────────────────
+    LOAN_PAYMENTS_CAR_PAYMENT: "Loans",
+    LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: "Transfers",
+    LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT: "Loans",
+    LOAN_PAYMENTS_MORTGAGE_PAYMENT: "Housing",
+    LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT: "Loans",
+    LOAN_PAYMENTS_OTHER: "Loans",
+
+    // ── Bank Fees ────────────────────────────────────────────────────────
+    BANK_FEES_ATM_FEES: "Financial",
+    BANK_FEES_FOREIGN_TRANSACTION_FEES: "Financial",
+    BANK_FEES_INSUFFICIENT_FUNDS: "Financial",
+    BANK_FEES_INTEREST_CHARGE: "Financial",
+    BANK_FEES_OVERDRAFT_FEES: "Financial",
+    BANK_FEES_OTHER: "Financial",
+
+    // ── Income (PFC v2 expanded) ──────────────────────────────────────────
+    INCOME_DIVIDENDS: "Income",
+    INCOME_INTEREST_EARNED: "Income",
+    INCOME_RETIREMENT_PENSION: "Income",
+    INCOME_TAX_REFUND: "Income",
+    INCOME_UNEMPLOYMENT: "Income",
+    INCOME_WAGES: "Salary",
+    INCOME_OTHER: "Income",
+    // PFC v2 new income subcategories
+    INCOME_BENEFITS: "Income",             // Government benefits (SSI, disability, etc.)
+    INCOME_GIG_ECONOMY: "Income",          // Uber, DoorDash, freelance platforms
+    INCOME_RENTAL_INCOME: "Income",        // Rental property income
+    INCOME_CHILD_SUPPORT: "Income",        // Child support payments received
+    INCOME_ALIMONY: "Income",              // Alimony payments received
+    INCOME_MILITARY: "Salary",             // Military pay / VA benefits
+
+    // ── Loan Disbursement (PFC v2 new) ──────────────────────────────────
+    LOAN_DISBURSEMENT_PERSONAL_LOAN: "Transfers",
+    LOAN_DISBURSEMENT_STUDENT_LOAN: "Transfers",
+    LOAN_DISBURSEMENT_MORTGAGE: "Transfers",
+    LOAN_DISBURSEMENT_AUTO_LOAN: "Transfers",
+    LOAN_DISBURSEMENT_HOME_EQUITY: "Transfers",
+    LOAN_DISBURSEMENT_OTHER: "Transfers",
+
+    // ── Loan Repayment (PFC v2 expanded) ────────────────────────────────
+    LOAN_REPAYMENT_HOME_EQUITY_LOAN: "Housing",
+    LOAN_REPAYMENT_BUY_NOW_PAY_LATER: "Loans",
+    LOAN_REPAYMENT_COLLECTIONS: "Loans",
+
+    // ── Bank Fees (PFC v2 expanded) ─────────────────────────────────────
+    BANK_FEES_WIRE_TRANSFER_FEE: "Financial",
+    BANK_FEES_ACCOUNT_MAINTENANCE: "Financial",
+
+    // ── Transfers ────────────────────────────────────────────────────────
+    TRANSFER_IN_ACCOUNT_TRANSFER: "Transfers",
+    TRANSFER_IN_CASH_ADVANCES_AND_LOANS: "Transfers",
+    TRANSFER_IN_DEPOSIT: "Transfers",
+    TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS: "Transfers",
+    TRANSFER_IN_SAVINGS: "Transfers",
+    TRANSFER_IN_OTHER: "Transfers",
+    TRANSFER_OUT_ACCOUNT_TRANSFER: "Transfers",
+    TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS: "Transfers",
+    TRANSFER_OUT_SAVINGS: "Transfers",
+    TRANSFER_OUT_WITHDRAWAL: "Transfers",
+    TRANSFER_OUT_OTHER: "Transfers",
+
+    // ── Government ───────────────────────────────────────────────────────
+    GOVERNMENT_AND_NON_PROFIT_DONATIONS: "Other",
+    GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES: "Other",
+    GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT: "Financial",
+    GOVERNMENT_AND_NON_PROFIT_OTHER: "Other",
+
+    // ── General Services ─────────────────────────────────────────────────
+    GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING: "Financial",
+    GENERAL_SERVICES_AUTOMOTIVE: "Transportation",
+    GENERAL_SERVICES_CHILDCARE: "Education",
+    GENERAL_SERVICES_CONSULTING_AND_LEGAL: "Other",
+    GENERAL_SERVICES_INSURANCE: "Insurance",
+    GENERAL_SERVICES_POSTAGE_AND_SHIPPING: "Other",
+    GENERAL_SERVICES_STORAGE: "Housing",
+    GENERAL_SERVICES_OTHER: "Other",
+  };
+  return map[detailed] ?? null;
+}
+
+export function mapPlaidCategory(plaidPrimary: string | null | undefined): string | null {
   if (!plaidPrimary) return null;
   const map: Record<string, string> = {
     FOOD_AND_DRINK: "Restaurant & Bars",
@@ -45,8 +225,8 @@ function mapPlaidCategory(plaidPrimary: string | null | undefined): string | nul
     MEDICAL: "Healthcare",
     PERSONAL_CARE: "Personal",
     EDUCATION: "Education",
-    RENT_AND_UTILITIES: "Housing",
-    LOAN_PAYMENTS: "Credit Card",
+    RENT_AND_UTILITIES: "Utilities",
+    LOAN_PAYMENTS: "Loans",
     BANK_FEES: "Financial",
     GOVERNMENT_AND_NON_PROFIT: "Other",
     INCOME: "Income",
@@ -77,17 +257,29 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
   const pfcDetailed = tx.personal_finance_category?.detailed || null;
   const pfcConfidence = tx.personal_finance_category?.confidence_level || null; // VERY_HIGH | HIGH | LOW
 
+  // PFC icon for UI display (v2+)
+  const pfcIconUrl = tx.personal_finance_category?.icon_url || null;
+
+  // Counterparty enrichment (Plaid returns an array, primary is index 0)
+  const counterparty = tx.counterparties?.[0] || null;
+
   // Logo: prefer counterparties[0].logo_url (Plaid enriched), fall back to tx.logo_url
-  const logoUrl = tx.counterparties?.[0]?.logo_url || tx.logo_url || null;
+  const logoUrl = counterparty?.logo_url || tx.logo_url || null;
 
   // Merchant entity ID for stable cross-transaction merchant linking
-  const merchantEntityId = tx.counterparties?.[0]?.entity_id || null;
+  const merchantEntityId = counterparty?.entity_id || null;
+
+  // Counterparty name, type, website — PFC v2 adds INCOME_SOURCE type for employers
+  const counterpartyName = counterparty?.name || null;
+  const counterpartyType = counterparty?.type || null; // MERCHANT | FINANCIAL_INSTITUTION | PAYMENT_PROCESSOR | MARKETPLACE | INCOME_SOURCE
+  const counterpartyWebsite = counterparty?.website || null;
 
   // Payment channel: online | in store | other
   const paymentChannel = tx.payment_channel || null;
 
   // Map Plaid category to our internal category system
-  const mappedCategory = mapPlaidCategory(pfcPrimary);
+  // Try detailed category first (more accurate), then fall back to primary
+  const mappedCategory = mapPlaidCategoryDetailed(pfcDetailed) || mapPlaidCategory(pfcPrimary);
 
   // Auto-reconcile threshold based on Plaid confidence:
   // VERY_HIGH / HIGH → auto-reconcile (reconciled = "true")
@@ -113,6 +305,11 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       personalFinanceCategoryConfidence: pfcConfidence,
       paymentChannel: paymentChannel,
       merchantEntityId: merchantEntityId,
+      // PFC v2 + counterparty fields
+      personalFinanceCategoryIconUrl: pfcIconUrl,
+      counterpartyName: counterpartyName,
+      counterpartyType: counterpartyType,
+      counterpartyWebsite: counterpartyWebsite,
     });
   } else {
     // Fetch reconciliation context
@@ -159,6 +356,11 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       personalFinanceCategoryConfidence: pfcConfidence,
       paymentChannel: paymentChannel,
       merchantEntityId: merchantEntityId,
+      // PFC v2 + counterparty fields
+      personalFinanceCategoryIconUrl: pfcIconUrl,
+      counterpartyName: counterpartyName,
+      counterpartyType: counterpartyType,
+      counterpartyWebsite: counterpartyWebsite,
     });
   }
 }
@@ -435,6 +637,7 @@ export async function syncTransactions(
           options: {
             include_personal_finance_category: true,
             include_logo_and_counterparty_beta: true,
+            personal_finance_category_version: "v2" as any, // PFC v2: adds income, loan, fee subcategories
           },
         });
         data = response.data;

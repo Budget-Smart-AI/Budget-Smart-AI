@@ -127,14 +127,26 @@ function calculateTotalLiabilities(
   let total: Cents = 0;
 
   // Credit cards, loans, mortgages from any bank provider — provider-agnostic
+  // Group by account type for per-category breakdown
   const liabilityAccounts = bankAccounts.filter(
     (acc) => acc.isActive && LIABILITY_TYPES.has(acc.accountType)
   );
 
-  const bankLiabilitiesTotal = liabilityAccounts.reduce(
-    (sum, acc) => sum + Math.abs(parseFloat(String(acc.balance)) || 0),
-    0
-  );
+  const typeLabels: Record<string, string> = {
+    mortgage: 'Mortgages',
+    credit_card: 'Credit Cards',
+    credit: 'Credit Cards',
+    line_of_credit: 'Lines of Credit',
+    loan: 'Other Loans',
+  };
+
+  let bankLiabilitiesTotal = 0;
+  for (const acc of liabilityAccounts) {
+    const amount = Math.abs(parseFloat(String(acc.balance)) || 0);
+    bankLiabilitiesTotal += amount;
+    const label = typeLabels[acc.accountType] || 'Other Debts';
+    breakdown[label] = (breakdown[label] || 0) + amount;
+  }
 
   if (bankLiabilitiesTotal > 0) {
     breakdown['Bank Debts'] = bankLiabilitiesTotal;

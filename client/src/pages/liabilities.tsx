@@ -635,10 +635,12 @@ export default function LiabilitiesPage() {
           </h2>
           {plaidGroups.map((group) => {
             const GroupIcon = group.icon;
-            const groupTotal = group.accounts.reduce(
-              (sum, a) => sum + Math.abs(parseFloat(a.balanceCurrent || "0")),
-              0
-            );
+            // Use engine-computed group total; fall back to local calc only if engine data unavailable
+            const groupTotal = engineData?.liabilityBreakdown?.[group.label]
+              ?? group.accounts.reduce(
+                (sum, a) => sum + Math.abs(parseFloat(a.balanceCurrent || "0")),
+                0
+              );
             return (
               <Card key={group.label}>
                 <CardHeader className="pb-3">

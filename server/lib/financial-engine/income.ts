@@ -158,10 +158,16 @@ export function calculateMonthlyIncomeTotal(
 /**
  * Calculate all income metrics for a period
  *
+ * Income is transaction-first: when any bank transactions exist in the period
+ * (income or not), we know the user has connected accounts and we use actual
+ * deposits as the ground truth. Manual income records are kept as a "budgeted"
+ * reference but never override real bank data.
+ *
  * Results include:
- * - budgetedIncome: sum of all recurring/manual income entries
- * - actualIncome: detected from bank transactions
- * - effectiveIncome: actual if available, else budgeted
+ * - budgetedIncome: sum of all recurring/manual income entries (reference only)
+ * - actualIncome: detected from bank transactions (ground truth)
+ * - effectiveIncome: actual when bank data exists for the period, else budgeted
+ * - hasBankData: true when the user has ANY transactions in the period (not just income)
  * - bySource: breakdown by income source with category and recurrence info
  *
  * @param params Configuration object
@@ -179,7 +185,7 @@ export function calculateIncomeForPeriod(params: {
 }): IncomeResult {
   const { income: incomeRecords = [], transactions = [], monthStart, monthEnd } = params;
 
-  // Calculate budgeted income from user-entered records
+  // Calculate budgeted income from user-entered records (reference/fallback only)
   let budgetedIncomeCents = 0;
   const bySource: Array<{
     source: string;
@@ -207,6 +213,7 @@ export function calculateIncomeForPeriod(params: {
   // The adapter has already resolved provider-specific sign conventions,
   // so we just check the normalized isIncome / isTransfer / isPending flags.
   let actualIncomeCents = 0;
+  let hasAnyTransactions = false;
   const transactionStartDate = startOfMonth(monthStart);
   const transactionEndDate = endOfMonth(monthEnd);
 
@@ -219,7 +226,10 @@ export function calculateIncomeForPeriod(params: {
         continue;
       }
 
-      // Skip pending, transfers, non-income
+      // Any transaction in the period means the user has bank data connected
+      hasAnyTransactions = true;
+
+      // Skip pending, transfers, non-income for the actual income sum
       if (tx.isPending || tx.isTransfer || !tx.isIncome) {
         continue;
       }
@@ -233,7 +243,11 @@ export function calculateIncomeForPeriod(params: {
 
   const budgetedIncome = toDollars(budgetedIncomeCents);
   const actualIncome = toDollars(actualIncomeCents);
-  const hasBankData = actualIncomeCents > 0;
+
+  // Transaction-first: if the user has ANY bank data for this period, trust it.
+  // This means if they have transactions but no income deposits yet (e.g., mid-month
+  // before payday), we show $0 actual rather than a stale manual estimate.
+  const hasBankData = hasAnyTransactions;
   const effectiveIncome = hasBankData ? actualIncome : budgetedIncome;
 
   return {

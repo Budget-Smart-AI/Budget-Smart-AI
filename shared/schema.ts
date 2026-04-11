@@ -243,8 +243,10 @@ export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, us
   customDates: z.string().nullable().optional(),
   isActive: z.string().optional().default("true"),
   linkedPlaidAccountId: z.string().nullable().optional(), // Link to Plaid account for auto-detected income
-  futureAmount: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
-  amountChangeDate: z.string().nullable().optional(), // When the amount changes
+  // futureAmount and amountChangeDate are deprecated — income uses actual transaction amounts only.
+  // DB columns kept for backward compatibility; values are no longer accepted from the client.
+  futureAmount: z.any().transform(() => null).optional(),
+  amountChangeDate: z.any().transform(() => null).optional(),
 });
 
 export const updateIncomeSchema = insertIncomeSchema.partial();
@@ -473,6 +475,11 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   personalFinanceCategoryConfidence: text("personal_finance_category_confidence"), // VERY_HIGH | HIGH | LOW
   paymentChannel: text("payment_channel"), // online | in store | other
   merchantEntityId: text("merchant_entity_id"), // Plaid stable merchant entity ID
+  // PFC v2 + counterparty enrichment fields
+  personalFinanceCategoryIconUrl: text("personal_finance_category_icon_url"), // PFC icon for UI display
+  counterpartyName: text("counterparty_name"), // Plaid counterparty name (more reliable than merchant_name)
+  counterpartyType: text("counterparty_type"), // MERCHANT | FINANCIAL_INSTITUTION | PAYMENT_PROCESSOR | MARKETPLACE | INCOME_SOURCE
+  counterpartyWebsite: text("counterparty_website"), // Merchant website URL
   // Transfer detection fields
   isTransfer: boolean("is_transfer").default(false),
   transferPairId: uuid("transfer_pair_id"), // shared UUID linking matched transfer pairs

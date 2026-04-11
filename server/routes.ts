@@ -1164,17 +1164,22 @@ export async function registerRoutes(
           });
 
           // Get inflow streams (income/deposits)
+          // PFC v2: include early_detection streams (< 3 occurrences) for nascent income
           if (response.data.inflow_streams) {
             for (const stream of response.data.inflow_streams) {
               const amount = Math.abs(stream.average_amount?.amount || 0);
+              const streamStatus = (stream as any).status || "mature"; // "mature" | "early_detection"
+              const isActive = stream.is_active || streamStatus === "early_detection";
               // Only include significant income (above threshold)
-              if (amount >= MIN_INCOME_THRESHOLD && stream.is_active) {
+              if (amount >= MIN_INCOME_THRESHOLD && isActive) {
                 plaidRecurring.push({
                   name: stream.merchant_name || stream.description || "Unknown",
                   amount,
                   frequency: stream.frequency,
                   lastDate: stream.last_date,
                   category: stream.personal_finance_category?.primary || null,
+                  status: streamStatus, // "mature" or "early_detection"
+                  confidence: streamStatus === "early_detection" ? "low" : "high",
                 });
               }
             }
@@ -10780,7 +10785,32 @@ ${JSON.stringify(txSummary)}`;
       const bills30 = getBillsInRange(activeBills, today30, end30);
       const income30 = getIncomeInRange(activeIncomes, today30, end30);
       const thirtyDayBills = Math.abs(bills30.reduce((sum, e) => sum + e.amount, 0));
-      const thirtyDayIncome = income30.reduce((sum, e) => sum + e.amount, 0);
+      let thirtyDayIncome = income30.reduce((sum, e) => sum + e.amount, 0);
+
+      // ── Transaction-based income fallback ──────────────────────────────
+      // If no income records produce projected income for the next 30 days,
+      // estimate from actual bank deposits in the last 30 days.
+      // This ensures the dashboard shows realistic income even before the user
+      // runs "Detect Income" or sets up recurring income records.
+      if (thirtyDayIncome === 0 && transactions.length > 0) {
+        // Sum actual income deposits from the last 30 days of transactions
+        const thirtyDaysAgo = new Date(today30);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const recentIncome = transactions
+          .filter(tx => {
+            if (!tx.date) return false;
+            const txDate = new Date(tx.date);
+            return txDate >= thirtyDaysAgo &&
+              parseFloat(tx.amount?.toString() || "0") < 0 && // Plaid: negative = income
+              !["transfer", "credit card", "payment", "internal account transfer"]
+                .includes((tx.personalCategory || tx.category || "").toLowerCase());
+          })
+          .reduce((sum, tx) => sum + Math.abs(parseFloat(tx.amount?.toString() || "0")), 0);
+
+        if (recentIncome > 0) {
+          thirtyDayIncome = recentIncome;
+        }
+      }
 
       // Find danger day (first day balance goes negative)
       let dangerDate: string | null = null;
@@ -10840,6 +10870,9 @@ ${JSON.stringify(txSummary)}`;
         ? Math.abs(forecast.projectedBalances.find(p => p.date === dangerDate)?.balance || 0)
         : null;
 
+      // Override predicted spending with 30-day value (forecast.summary has the 90-day total)
+      const thirtyDayPredictedSpending = forecast.summary.averageDailySpending * 30;
+
       res.json({
         currentBalance: Math.round(currentBalance * 100) / 100,
         timeline: timelinePoints,
@@ -10853,6 +10886,7 @@ ${JSON.stringify(txSummary)}`;
           ...forecast.summary,
           totalExpectedBills: Math.round(thirtyDayBills * 100) / 100,
           totalExpectedIncome: Math.round(thirtyDayIncome * 100) / 100,
+          totalPredictedSpending: Math.round(thirtyDayPredictedSpending * 100) / 100,
           totalDays: days,
           hasLinkedAccounts: plaidItems.length > 0 || activeManualAccounts.length > 0,
         },
@@ -12055,8 +12089,45 @@ ${JSON.stringify(txSummary)}`;
         }
       }
 
-      // Find next income date
-      const nextIncome = findNextIncomeDate(activeIncomes);
+      // Find next income date (with transaction-based fallback)
+      let nextIncome = findNextIncomeDate(activeIncomes);
+
+      // If no income records, estimate from recent transaction patterns
+      if (!nextIncome && transactions.length > 0) {
+        // Find recent income deposits and estimate next occurrence
+        const incomeTransactions = transactions
+          .filter(tx => {
+            if (!tx.date) return false;
+            const amt = parseFloat(tx.amount?.toString() || "0");
+            if (amt >= 0) return false; // Plaid: negative = money in
+            const cat = ((tx as any).personalCategory || tx.category || "").toLowerCase();
+            return !["transfer", "credit card", "payment", "internal account transfer"].includes(cat);
+          })
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        if (incomeTransactions.length >= 2) {
+          // Detect interval between the two most recent income deposits
+          const latest = new Date(incomeTransactions[0].date);
+          const previous = new Date(incomeTransactions[1].date);
+          const intervalDays = Math.round((latest.getTime() - previous.getTime()) / (1000 * 60 * 60 * 24));
+
+          if (intervalDays > 0 && intervalDays <= 35) {
+            // Estimate next income date based on detected interval
+            const estimatedNext = new Date(latest);
+            estimatedNext.setDate(estimatedNext.getDate() + intervalDays);
+            // If the estimated date is in the past, add another interval
+            if (estimatedNext <= now) {
+              estimatedNext.setDate(estimatedNext.getDate() + intervalDays);
+            }
+            nextIncome = {
+              date: estimatedNext,
+              amount: Math.abs(parseFloat(incomeTransactions[0].amount?.toString() || "0")),
+              source: "Estimated from transactions",
+            };
+          }
+        }
+      }
+
       const daysUntilNextIncome = nextIncome
         ? Math.ceil((nextIncome.date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
         : null;
@@ -14264,14 +14335,8 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
         return dates;
       };
 
-      // Helper to get effective income amount considering scheduled changes
-      const getEffectiveIncomeAmount = (inc: typeof incomes[0], date: Date): string => {
-        if (inc.futureAmount && inc.amountChangeDate) {
-          const changeDate = new Date(inc.amountChangeDate);
-          if (date >= changeDate) {
-            return inc.futureAmount;
-          }
-        }
+      // Helper to get effective income amount — purely based on recorded amount
+      const getEffectiveIncomeAmount = (inc: typeof incomes[0], _date: Date): string => {
         return inc.amount;
       };
 
@@ -14446,7 +14511,16 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       // Sort by date
       events.sort((a, b) => a.date.localeCompare(b.date));
 
-      res.json(events);
+      // Pre-compute totals so the client doesn't need to reduce locally
+      let monthlyBillsTotal = 0;
+      let monthlyIncomeTotal = 0;
+      for (const e of events) {
+        const amt = parseFloat(e.amount) || 0;
+        if (e.type === "bill") monthlyBillsTotal += amt;
+        else if (e.type === "income") monthlyIncomeTotal += amt;
+      }
+
+      res.json({ events, monthlyBillsTotal, monthlyIncomeTotal });
     } catch (error) {
       console.error("Error fetching calendar events:", error);
       res.status(500).json({ error: "Failed to fetch calendar events" });

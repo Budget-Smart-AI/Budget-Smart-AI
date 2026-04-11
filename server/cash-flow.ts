@@ -256,22 +256,11 @@ function getNextIncomeDate(inc: Income, fromDate: Date): Date | null {
 }
 
 /**
- * Get the effective income amount for a given date
- * Considers scheduled amount changes (futureAmount and amountChangeDate)
+ * Get the effective income amount for a given date.
+ * Income is now purely based on actual recorded amounts — no scheduled future changes.
  */
-function getEffectiveIncomeAmount(inc: Income, date: Date): number {
+function getEffectiveIncomeAmount(inc: Income, _date: Date): number {
   const baseAmountCents = Math.abs(toCents(inc.amount));
-
-  // Check if there's a scheduled amount change
-  if (inc.futureAmount && inc.amountChangeDate) {
-    const changeDate = parseISO(inc.amountChangeDate);
-    if (!isBefore(date, changeDate)) {
-      // Date is on or after the change date, use future amount
-      const futureAmountCents = Math.abs(toCents(inc.futureAmount));
-      return toDollars(futureAmountCents);
-    }
-  }
-
   return toDollars(baseAmountCents);
 }
 
@@ -331,10 +320,19 @@ export function getIncomeInRange(incomes: Income[], startDate: Date, endDate: Da
  * Calculate average daily spending from historical transactions
  */
 export function calculateAverageDailySpending(transactions: PlaidTransaction[], days: number = 30): number {
-  // Filter out bill payments to avoid double-counting (bills are tracked separately)
+  // Exclude bill payments (tracked separately), transfers, and large loan/mortgage payments
+  // that inflate the "daily discretionary spending" average.
+  const NON_SPENDING_CATEGORIES = new Set([
+    "transfer", "credit card", "payment", "internal account transfer",
+    "mortgage", "housing", "loan", "loan payment",
+  ]);
   const outflows = transactions.filter(t => {
     const amountCents = toCents(t.amount);
-    return amountCents > 0 && t.matchType !== 'bill';
+    if (amountCents <= 0) return false; // Skip income (negative in Plaid)
+    if (t.matchType === 'bill') return false; // Already tracked as bills
+    const cat = ((t as any).personalCategory || t.category || "").toLowerCase();
+    if (NON_SPENDING_CATEGORIES.has(cat)) return false;
+    return true;
   });
   const totalCents = outflows.reduce((sum, t) => sum + toCents(t.amount), 0);
   const averageCents = totalCents / Math.max(days, 1);
@@ -494,7 +492,7 @@ export function generateCashFlowForecast(
       const projDate = parseISO(proj.date);
       const daysUntilIncome = nextIncome
         ? Math.max(0, differenceInDays(nextIncome.date, projDate))
-        : 999;
+        : 30; // Default to 30 instead of 999 when no income records exist
 
       lowBalanceWarning = {
         date: proj.date,

@@ -71,8 +71,6 @@ const incomeFormSchema = z.object({
   dueDay: z.number().min(1).max(31).nullable().optional(),
   customDates: z.array(z.number()).optional(),
   notes: z.string().optional(),
-  futureAmount: z.string().nullable().optional(),
-  amountChangeDate: z.string().nullable().optional(),
 });
 
 type IncomeFormValues = z.infer<typeof incomeFormSchema>;
@@ -133,8 +131,6 @@ function IncomeForm({
       dueDay: income?.dueDay || 1,
       customDates: parseCustomDates(income?.customDates),
       notes: income?.notes || "",
-      futureAmount: income?.futureAmount || null,
-      amountChangeDate: income?.amountChangeDate || null,
     },
   });
 
@@ -150,8 +146,6 @@ function IncomeForm({
         ? JSON.stringify(values.customDates)
         : null,
       dueDay: values.recurrence === "custom" ? null : values.dueDay,
-      futureAmount: values.futureAmount || null,
-      amountChangeDate: values.amountChangeDate || null,
     };
   };
 
@@ -362,46 +356,6 @@ function IncomeForm({
               />
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="futureAmount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Future Amount (optional)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="Leave blank if amount won't change"
-                        {...field}
-                        value={field.value || ""}
-                        onChange={(e) => field.onChange(e.target.value || null)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="amountChangeDate"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Change Date</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="date"
-                        {...field}
-                        value={field.value || ""}
-                        onChange={(e) => field.onChange(e.target.value || null)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
           </div>
         )}
 

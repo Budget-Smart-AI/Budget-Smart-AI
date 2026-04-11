@@ -769,10 +769,27 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
       getAllNormalizedTransactions(userIds, monthStart, monthEnd),
     ]);
 
-    // Total balance across all active accounts (any provider)
-    const totalBalance = bankAccounts
-      .filter((a) => a.isActive)
-      .reduce((sum, a) => sum + (parseFloat(String(a.balance)) || 0), 0);
+    // ── Net Worth calculation ──────────────────────────────────────────────
+    // Liability accounts (mortgage, credit, loan, LOC) are debts the user OWES.
+    // Their balance represents money owed, so it must be subtracted from net worth.
+    // Asset accounts (checking, savings, investment, brokerage) are money the user HAS.
+    const LIABILITY_TYPES = new Set(["credit", "loan", "mortgage", "credit_card", "line_of_credit"]);
+    const ASSET_TYPES = new Set(["checking", "savings", "depository", "investment"]);
+
+    const activeAccounts = bankAccounts.filter((a) => a.isActive);
+
+    const totalAssets = activeAccounts
+      .filter((a) => ASSET_TYPES.has(a.accountType))
+      .reduce((sum, a) => sum + Math.max(0, parseFloat(String(a.balance)) || 0), 0);
+
+    const totalLiabilities = activeAccounts
+      .filter((a) => LIABILITY_TYPES.has(a.accountType))
+      .reduce((sum, a) => sum + Math.abs(parseFloat(String(a.balance)) || 0), 0);
+
+    // Net worth = assets minus liabilities
+    // Also compute totalBalance (raw sum) for backward compat if needed elsewhere
+    const netWorth = totalAssets - totalLiabilities;
+    const totalBalance = netWorth;
 
     // Monthly spending: sum of debit transactions that aren't transfers or pending
     const monthlySpending = transactions
@@ -791,6 +808,8 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
 
     const result: BankAccountsEngineResult = {
       totalBalance,
+      totalAssets,
+      totalLiabilities,
       monthlySpending,
       monthlyIncome,
       unmatchedCount,
@@ -800,6 +819,52 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[engine.bank-accounts]", error);
     res.status(500).json({ error: "Failed to fetch bank accounts data" });
+  }
+});
+
+/**
+ * GET /api/engine/assets
+ * Asset summary: total value, purchase price, appreciation, grouped by category
+ */
+router.get("/assets", async (req: Request, res: Response) => {
+  try {
+    const userId = req.session.userId!;
+    const rawAssets = await storage.getAssets(userId);
+
+    let totalValue = 0;
+    let totalPurchasePrice = 0;
+    const byCategory: Record<string, { totalValue: number; totalPurchasePrice: number; count: number }> = {};
+
+    for (const a of rawAssets) {
+      const value = parseFloat(String(a.currentValue ?? 0));
+      const purchase = parseFloat(String(a.purchasePrice ?? 0));
+      totalValue += value;
+      totalPurchasePrice += purchase;
+
+      const cat = a.category ?? "Other";
+      if (!byCategory[cat]) {
+        byCategory[cat] = { totalValue: 0, totalPurchasePrice: 0, count: 0 };
+      }
+      byCategory[cat].totalValue += value;
+      byCategory[cat].totalPurchasePrice += purchase;
+      byCategory[cat].count += 1;
+    }
+
+    const appreciation = totalValue - totalPurchasePrice;
+    const appreciationPercent = totalPurchasePrice > 0
+      ? ((appreciation / totalPurchasePrice) * 100)
+      : 0;
+
+    res.json({
+      totalValue,
+      totalPurchasePrice,
+      appreciation,
+      appreciationPercent,
+      byCategory,
+    });
+  } catch (error) {
+    console.error("[engine.assets]", error);
+    res.status(500).json({ error: "Failed to fetch assets data" });
   }
 });
 
@@ -836,11 +901,59 @@ router.get("/investments", async (req: Request, res: Response) => {
       ? ((totalGainLoss / totalCostBasis) * 100)
       : 0;
 
+    // Per-account value breakdown (so the client doesn't need to reduce holdings)
+    const byAccount: Array<{
+      accountId: string;
+      totalValue: number;
+      totalCost: number;
+      gainLoss: number;
+      gainLossPct: number;
+    }> = [];
+    for (const account of rawInvestmentAccounts) {
+      const accHoldings = rawHoldings.filter((h: any) => h.investmentAccountId === account.id);
+      let accValue = 0;
+      let accCost = 0;
+      for (const h of accHoldings) {
+        accValue += parseFloat(String(h.currentValue ?? 0));
+        accCost += parseFloat(String(h.costBasis ?? 0));
+      }
+      // Fall back to account balance if no holdings
+      if (accValue === 0) {
+        accValue = parseFloat(String(account.balance ?? 0)) || 0;
+      }
+      byAccount.push({
+        accountId: account.id,
+        totalValue: accValue,
+        totalCost: accCost,
+        gainLoss: accValue - accCost,
+        gainLossPct: accCost > 0 ? ((accValue - accCost) / accCost) * 100 : 0,
+      });
+    }
+
+    // Best/worst performers across all holdings
+    let bestPerformer: { symbol: string; gainLossPct: number } | null = null;
+    let worstPerformer: { symbol: string; gainLossPct: number } | null = null;
+    for (const h of rawHoldings) {
+      const cost = parseFloat(String(h.costBasis ?? 0));
+      const value = parseFloat(String(h.currentValue ?? 0));
+      const symbol = (h as any).symbol || (h as any).name || "Unknown";
+      const pct = cost > 0 ? ((value - cost) / cost) * 100 : 0;
+      if (!bestPerformer || pct > bestPerformer.gainLossPct) {
+        bestPerformer = { symbol, gainLossPct: pct };
+      }
+      if (!worstPerformer || pct < worstPerformer.gainLossPct) {
+        worstPerformer = { symbol, gainLossPct: pct };
+      }
+    }
+
     res.json({
       totalValue,
       totalCostBasis,
       totalGainLoss,
       totalGainLossPct,
+      byAccount,
+      bestPerformer,
+      worstPerformer,
     });
   } catch (error) {
     console.error("[engine.investments]", error);
@@ -902,14 +1015,8 @@ router.get("/reports", async (req: Request, res: Response) => {
       monthEnd,
     });
 
-    // Build category totals from expenses in the range
-    const categoryTotals: Record<string, number> = {};
-    for (const expense of expensesData) {
-      if (!expense.category) continue;
-      const category = String(expense.category);
-      const amount = parseFloat(String(expense.amount ?? 0));
-      categoryTotals[category] = (categoryTotals[category] ?? 0) + amount;
-    }
+    // Use engine-computed category totals (includes both manual expenses AND bank transactions)
+    const categoryTotals = currentMonthExpenses.byCategory;
 
     // Build daily spending totals
     const dailyTotals: Record<string, number> = {};
@@ -939,12 +1046,16 @@ router.get("/reports", async (req: Request, res: Response) => {
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
 
-    // YTD calculations
+    // YTD calculations from actual transaction data
     const ytdStart = startOfYear(today);
     const ytdTransactions = await getAllNormalizedTransactions(userIds, ytdStart, endDate);
-    const ytdIncome = currentMonthIncome.budgetedIncome; // Simplified: use current month as proxy
-    const ytdExpenses = currentMonthExpenses.total;
-    const ytdBills = currentMonthBills.monthlyEstimate;
+    const ytdIncome = ytdTransactions
+      .filter(tx => tx.direction === "credit" && !tx.isTransfer)
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    const ytdExpenses = ytdTransactions
+      .filter(tx => tx.direction === "debit" && !tx.isTransfer)
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    const ytdBills = currentMonthBills.monthlyEstimate; // Bills are projected, not transactional
 
     // Build 6-month trend
     const monthlyTrend: MonthlyTrendPoint[] = [];
@@ -980,7 +1091,7 @@ router.get("/reports", async (req: Request, res: Response) => {
         totalIncome: currentMonthIncome.actualIncome,
         netCashFlow: currentMonthIncome.actualIncome - currentMonthExpenses.total,
         monthlyBillsTotal: currentMonthBills.monthlyEstimate,
-        expenseChange: currentMonthExpenses.monthOverMonthChange ?? 0,
+        expenseChange: currentMonthExpenses.momChangePercent ?? 0,
       },
       categoryTotals,
       monthlyTrend,
@@ -1002,6 +1113,82 @@ router.get("/reports", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[engine.reports]", error);
     res.status(500).json({ error: "Failed to fetch reports data" });
+  }
+});
+
+// ─── Re-categorization endpoint ─────────────────────────────────────────
+// Applies the expanded Plaid/MX category mappings to ALL existing transactions.
+// This is a one-time migration endpoint to fix old transactions that were mapped
+// with the old, less-detailed mapping tables.
+
+import { mapPlaidCategoryDetailed, mapPlaidCategory } from "../plaid";
+import { mapMXCategory } from "../mx";
+
+router.post("/recategorize", async (req: Request, res: Response) => {
+  try {
+    const userId = req.session.userId!;
+    let plaidUpdated = 0;
+    let mxUpdated = 0;
+    let plaidSkipped = 0;
+    let mxSkipped = 0;
+
+    // ── Plaid Transactions ──
+    const plaidAccounts = await storage.getAllPlaidAccounts(userId);
+    const plaidAccountIds = plaidAccounts.map((a) => a.id);
+
+    if (plaidAccountIds.length > 0) {
+      const plaidTxs = await storage.getPlaidTransactions(plaidAccountIds);
+
+      for (const tx of plaidTxs) {
+        // Re-apply mapping: try detailed first, then primary
+        const detailed = (tx as any).personalFinanceCategoryDetailed || null;
+        const primary = tx.category || null;
+        const newCategory = mapPlaidCategoryDetailed(detailed) || mapPlaidCategory(primary);
+
+        if (newCategory && newCategory !== (tx as any).personalCategory) {
+          await storage.updatePlaidTransaction(tx.id, {
+            personalCategory: newCategory,
+          } as any);
+          plaidUpdated++;
+        } else {
+          plaidSkipped++;
+        }
+      }
+    }
+
+    // ── MX Transactions ──
+    const mxAccounts = await storage.getMxAccountsByUserId(userId);
+    const mxAccountIds = mxAccounts.map((a) => a.id);
+
+    if (mxAccountIds.length > 0) {
+      const mxTxs = await storage.getMxTransactions(mxAccountIds);
+
+      for (const tx of mxTxs) {
+        const topLevel = (tx as any).topLevelCategory || "";
+        const category = (tx as any).category || "";
+        const isIncome = (tx as any).transactionType === "CREDIT";
+        const newCategory = mapMXCategory(topLevel, category, isIncome);
+
+        if (newCategory && newCategory !== (tx as any).personalCategory) {
+          await storage.updateMxTransaction(tx.id, {
+            personalCategory: newCategory,
+          } as any);
+          mxUpdated++;
+        } else {
+          mxSkipped++;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      plaid: { updated: plaidUpdated, unchanged: plaidSkipped },
+      mx: { updated: mxUpdated, unchanged: mxSkipped },
+      totalUpdated: plaidUpdated + mxUpdated,
+    });
+  } catch (error) {
+    console.error("[engine.recategorize]", error);
+    res.status(500).json({ error: "Failed to re-categorize transactions" });
   }
 });
 

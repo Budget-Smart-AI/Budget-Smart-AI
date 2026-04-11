@@ -332,11 +332,19 @@ export function calculateBillsForPeriod(params: {
   );
   const annualEstimate = monthlyEstimate * 12;
 
+  // Per-recurrence breakdown (monthly equivalents) for the reports page
+  const byRecurrence: Record<string, number> = {};
+  for (const bill of activeNonPausedBills) {
+    const rec = bill.recurrence || 'monthly';
+    byRecurrence[rec] = (byRecurrence[rec] || 0) + getMonthlyEstimate(bill);
+  }
+
   return {
     thisMonthBills,
     thisMonthTotal,
     upcomingBills,
     monthlyEstimate,
     annualEstimate,
+    byRecurrence,
   };
 }

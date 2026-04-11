@@ -241,6 +241,17 @@ export default function Assets() {
     queryKey: ["/api/assets"],
   });
 
+  // Engine-computed asset totals
+  const { data: assetsSummary } = useQuery<{
+    totalValue: number;
+    totalPurchasePrice: number;
+    appreciation: number;
+    appreciationPercent: number;
+    byCategory: Record<string, { totalValue: number; totalPurchasePrice: number; count: number }>;
+  }>({
+    queryKey: ["/api/engine/assets"],
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/assets/${deleteId}`),
     onSuccess: () => {
@@ -259,9 +270,10 @@ export default function Assets() {
     return acc;
   }, {} as Record<string, Asset[]>);
 
-  const totalValue = assets.reduce((sum, a) => sum + parseFloat(a.currentValue || "0"), 0);
-  const totalPurchasePrice = assets.reduce((sum, a) => sum + parseFloat(a.purchasePrice || "0"), 0);
-  const appreciation = totalValue - totalPurchasePrice;
+  // Use engine-computed totals
+  const totalValue = assetsSummary?.totalValue ?? 0;
+  const totalPurchasePrice = assetsSummary?.totalPurchasePrice ?? 0;
+  const appreciation = assetsSummary?.appreciation ?? 0;
 
   if (isLoading) {
     return (
@@ -342,7 +354,7 @@ export default function Assets() {
                   {getCategoryIcon(category)}
                   <CardTitle>{formatCategory(category)}</CardTitle>
                   <Badge variant="secondary" className="ml-auto">
-                    {formatCurrency(categoryAssets.reduce((sum, a) => sum + parseFloat(a.currentValue || "0"), 0))}
+                    {formatCurrency(assetsSummary?.byCategory?.[category]?.totalValue ?? 0)}
                   </Badge>
                 </div>
               </CardHeader>

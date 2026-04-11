@@ -134,6 +134,15 @@ export default function ReportsPage() {
     queryKey: ["/api/bills"],
   });
 
+  // Engine-computed bill totals (normalized by recurrence)
+  const { data: billsEngine } = useQuery<{
+    monthlyEstimate: number;
+    annualEstimate: number;
+    byRecurrence: Record<string, number>;
+  }>({
+    queryKey: ["/api/engine/bills"],
+  });
+
   // Main reports data from centralized financial engine
   const { data: reportsData, isLoading: reportsLoading } = useQuery<ReportsData>({
     queryKey: ["/api/engine/reports", format(monthStart, "yyyy-MM-dd"), format(monthEnd, "yyyy-MM-dd")],
@@ -567,11 +576,12 @@ export default function ReportsPage() {
     const biweeklyBills = bills.filter((b) => b.recurrence === "biweekly");
     const yearlyBills = bills.filter((b) => b.recurrence === "yearly");
 
-    const monthlyTotal = monthlyBills.reduce((s, b) => s + parseFloat(b.amount), 0);
-    const weeklyMonthly = weeklyBills.reduce((s, b) => s + (parseFloat(b.amount) * 52) / 12, 0);
-    const biweeklyMonthly = biweeklyBills.reduce((s, b) => s + (parseFloat(b.amount) * 26) / 12, 0);
-    const yearlyMonthly = yearlyBills.reduce((s, b) => s + parseFloat(b.amount) / 12, 0);
-    const annualTotal = monthlyBillsTotal * 12;
+    // Use engine-computed per-recurrence totals (monthly equivalents)
+    const monthlyTotal = billsEngine?.byRecurrence?.monthly ?? 0;
+    const weeklyMonthly = billsEngine?.byRecurrence?.weekly ?? 0;
+    const biweeklyMonthly = billsEngine?.byRecurrence?.biweekly ?? 0;
+    const yearlyMonthly = billsEngine?.byRecurrence?.yearly ?? 0;
+    const annualTotal = (billsEngine?.annualEstimate) ?? monthlyBillsTotal * 12;
 
     return (
       <Card>

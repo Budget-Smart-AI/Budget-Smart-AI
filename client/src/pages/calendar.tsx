@@ -51,7 +51,11 @@ export default function FinancialCalendar() {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
 
-  const { data: events = [], isLoading } = useQuery<CalendarEvent[]>({
+  const { data: calendarData, isLoading } = useQuery<{
+    events: CalendarEvent[];
+    monthlyBillsTotal: number;
+    monthlyIncomeTotal: number;
+  }>({
     queryKey: ["/api/calendar/events", { startDate: format(monthStart, "yyyy-MM-dd"), endDate: format(monthEnd, "yyyy-MM-dd") }],
     queryFn: async () => {
       const res = await fetch(`/api/calendar/events?startDate=${format(monthStart, "yyyy-MM-dd")}&endDate=${format(monthEnd, "yyyy-MM-dd")}`, {
@@ -61,6 +65,7 @@ export default function FinancialCalendar() {
       return res.json();
     },
   });
+  const events = calendarData?.events ?? [];
 
   const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
 
@@ -70,9 +75,9 @@ export default function FinancialCalendar() {
     return events.filter(e => e.date === dateStr);
   };
 
-  // Calculate monthly totals
-  const monthlyBills = events.filter(e => e.type === "bill").reduce((sum, e) => sum + parseFloat(e.amount), 0);
-  const monthlyIncome = events.filter(e => e.type === "income").reduce((sum, e) => sum + parseFloat(e.amount), 0);
+  // Use server-computed monthly totals
+  const monthlyBills = calendarData?.monthlyBillsTotal ?? 0;
+  const monthlyIncome = calendarData?.monthlyIncomeTotal ?? 0;
 
   // Upcoming events (next 7 days from today)
   const today = new Date();

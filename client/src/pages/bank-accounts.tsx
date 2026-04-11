@@ -1674,6 +1674,8 @@ export default function BankAccounts() {
   // Interface for bank accounts engine API response
   interface BankAccountsEngineResult {
     totalBalance: number;
+    totalAssets: number;
+    totalLiabilities: number;
     monthlySpending: number;
     monthlyIncome: number;
     unmatchedCount: number;
@@ -1681,12 +1683,15 @@ export default function BankAccounts() {
 
   // Fetch bank accounts summary from engine API (replaces local calculations)
   const monthStr = format(currentMonth, "yyyy-MM");
-  const { data: engineData = { totalBalance: 0, monthlySpending: 0, monthlyIncome: 0, unmatchedCount: 0 } } = useQuery<BankAccountsEngineResult>({
+  const { data: engineData = { totalBalance: 0, totalAssets: 0, totalLiabilities: 0, monthlySpending: 0, monthlyIncome: 0, unmatchedCount: 0 } } = useQuery<BankAccountsEngineResult>({
     queryKey: [`/api/engine/bank-accounts?month=${monthStr}`],
   });
 
   // Extract computed values from engine response, with fallback defaults
+  // totalBalance is now net worth (assets - liabilities), not raw sum
   const totalBalance = engineData?.totalBalance ?? 0;
+  const totalAssets = engineData?.totalAssets ?? 0;
+  const totalLiabilities = engineData?.totalLiabilities ?? 0;
   const monthlySpending = engineData?.monthlySpending ?? 0;
   const monthlyIncome = engineData?.monthlyIncome ?? 0;
   const unmatchedCount = engineData?.unmatchedCount ?? 0;
@@ -1987,7 +1992,10 @@ export default function BankAccounts() {
               <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-lg sm:text-2xl font-bold">{formatCurrency(totalBalance)}</div>
+              <div className={`text-lg sm:text-2xl font-bold ${totalBalance < 0 ? 'text-red-600' : ''}`}>{formatCurrency(totalBalance)}</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
+                Assets {formatCurrency(totalAssets)} &middot; Debts {formatCurrency(totalLiabilities)}
+              </p>
             </CardContent>
           </Card>
           <Card>

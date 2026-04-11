@@ -75,16 +75,24 @@ export class PlaidAdapter implements BankingAdapter {
 
       const isPending = tx.pending === true || tx.pending === "true";
 
+      // PFC v2 income detection: counterpartyType "INCOME_SOURCE" identifies employers/gov payers.
+      // Also check PFC primary category — if Plaid says it's income, trust that.
+      const pfcPrimary = (tx.category || "").toUpperCase();
+      const counterpartyType = tx.counterpartyType || null;
+      const isIncomeByPFC = pfcPrimary === "INCOME";
+      const isIncomeByCounterparty = counterpartyType === "INCOME_SOURCE";
+      const isIncome = (isCredit && !isTransfer) || isIncomeByPFC || isIncomeByCounterparty;
+
       return {
         id: tx.id,
         date: tx.date,
         amount,
         direction: isCredit ? "credit" : "debit",
-        merchant: tx.merchantName || tx.name || "Unknown",
+        merchant: tx.counterpartyName || tx.merchantName || tx.name || "Unknown",
         category: String(category),
         isTransfer,
         isPending,
-        isIncome: isCredit && !isTransfer,
+        isIncome,
         matchedExpenseId: tx.matchedExpenseId || undefined,
         matchType: tx.matchType || undefined,
         cadEquivalent: tx.cadEquivalent != null

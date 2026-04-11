@@ -103,6 +103,15 @@ interface InvestmentsSummary {
   totalCostBasis: number;
   totalGainLoss: number;
   totalGainLossPct: number;
+  byAccount?: Array<{
+    accountId: string;
+    totalValue: number;
+    totalCost: number;
+    gainLoss: number;
+    gainLossPct: number;
+  }>;
+  bestPerformer?: { symbol: string; gainLossPct: number } | null;
+  worstPerformer?: { symbol: string; gainLossPct: number } | null;
 }
 
 interface EnrichedHolding {
@@ -1082,7 +1091,7 @@ function AIAdvisor({ holdings }: { holdings: Holding[] }) {
             <div className="flex flex-wrap gap-2">
               {[
                 portfolio?.holdings.length && portfolio.holdings.some((h) => h.gainLossPct < 0) &&
-                  `Why am I down so much on ${portfolio.holdings.reduce((worst, h) => h.gainLossPct < worst.gainLossPct ? h : worst, portfolio.holdings[0]).symbol}?`,
+                  `Why am I down so much on ${portfolio.holdings.reduce((worst, h) => h.gainLossPct < worst.gainLossPct ? h : worst, portfolio.holdings[0])?.symbol ?? "my worst stock"}?`,
                 "Should I buy more of my winners?",
                 "Am I too concentrated in any one stock?",
                 "What's the news saying about my holdings?",
@@ -1383,7 +1392,9 @@ export default function Investments() {
                 <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                   {accounts.map(account => {
                     const accountHoldings = holdings.filter(h => h.investmentAccountId === account.id);
-                    const accountValue = accountHoldings.reduce((sum, h) => sum + parseFloat(h.currentValue || "0"), 0) || parseFloat(account.balance || "0");
+                    // Use engine-computed per-account value; fall back to account balance
+                    const engineAcct = investmentsSummary?.byAccount?.find(a => a.accountId === account.id);
+                    const accountValue = engineAcct?.totalValue ?? parseFloat(account.balance || "0");
 
                     return (
                       <Card key={account.id} className="relative">

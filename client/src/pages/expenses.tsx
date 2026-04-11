@@ -97,14 +97,21 @@ import { DemoBanner } from "@/components/demo-banner";
 
 // Helper function to determine expense source
 const getExpenseSource = (expense: Expense): string => {
-  // If externalTransactionId is null/empty, it's a manual entry
-  if (!expense.externalTransactionId) {
-    return "Manual";
+  // Check externalTransactionId first (definitive source indicator)
+  if (expense.externalTransactionId) {
+    return "Bank";
   }
-  // TODO: Determine if transaction is from Plaid or MX by querying
-  // plaidTransactions or mxTransactions tables. For now, default to "Bank"
-  // as any externalTransactionId indicates an auto-imported transaction
-  return "Bank";
+  // Fallback: check notes for auto-import markers (backfill may not have run yet)
+  const notes = (expense.notes || "").toLowerCase();
+  if (
+    notes.includes("auto-imported from bank transaction") ||
+    notes.includes("plaid_tx:") ||
+    notes.includes("auto-reconciled") ||
+    notes.includes("mx_tx:")
+  ) {
+    return "Bank";
+  }
+  return "Manual";
 };
 
 interface ExpenseResult {
