@@ -4,7 +4,21 @@ import { z } from "zod";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import multer from "multer";
-import sharp from "sharp";
+// sharp is loaded lazily to avoid crashing on platforms where the native binary
+// isn't present (e.g. linux-x64 optional dep not yet installed). The avatar
+// upload route handles the case where sharp is unavailable.
+let _sharp: typeof import("sharp") | null = null;
+async function getSharp(): Promise<typeof import("sharp") | null> {
+  if (_sharp) return _sharp;
+  try {
+    const mod = await import("sharp");
+    _sharp = mod.default as unknown as typeof import("sharp");
+    return _sharp;
+  } catch {
+    console.warn("[sharp] native module unavailable – avatar resize will be skipped");
+    return null;
+  }
+}
 import { S3Client as AvatarS3Client, PutObjectCommand as AvatarPutObjectCommand, DeleteObjectCommand as AvatarDeleteObjectCommand } from "@aws-sdk/client-s3";
 import {
   insertBillSchema, insertExpenseSchema, updateBillSchema, updateExpenseSchema,
@@ -3971,11 +3985,18 @@ Return JSON: { "income": [...] }`;
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      // Resize to 256x256 webp using sharp
-      const resized = await sharp(req.file.buffer)
-        .resize(256, 256, { fit: "cover" })
-        .webp({ quality: 85 })
-        .toBuffer();
+      // Resize to 256x256 webp using sharp (lazy-loaded to avoid startup crash)
+      const sharpLib = await getSharp();
+      let resized: Buffer;
+      if (sharpLib) {
+        resized = await sharpLib(req.file.buffer)
+          .resize(256, 256, { fit: "cover" })
+          .webp({ quality: 85 })
+          .toBuffer();
+      } else {
+        // sharp not available — upload the original file without resizing
+        resized = req.file.buffer;
+      }
 
       const fileKey = `avatars/${req.session.userId}.webp`;
       const bucket = process.env.R2_BUCKET_NAME;
