@@ -80,6 +80,8 @@ export interface BillsResult {
   monthlyEstimate: number;
   /** Estimated annual bills total */
   annualEstimate: number;
+  /** Monthly-equivalent totals broken down by recurrence type (weekly, biweekly, monthly, yearly) */
+  byRecurrence: Record<string, number>;
 }
 
 // ─── Subscriptions ─────────────────────────────────────────────────────────
@@ -342,8 +344,12 @@ export interface ReportsData {
 // ─── Bank Accounts Summary ────────────────────────────────────────────────
 
 export interface BankAccountsEngineResult {
-  /** Sum of all enabled bank account balances */
+  /** Net worth: total assets minus total liabilities */
   totalBalance: number;
+  /** Total asset account balances (checking, savings, investments) */
+  totalAssets: number;
+  /** Total liability account balances (mortgages, credit cards, LOC, loans) */
+  totalLiabilities: number;
   /** Total spending from transactions this month */
   monthlySpending: number;
   /** Total income from transactions this month */
@@ -369,15 +375,22 @@ export interface TaxReportResult {
 
 export interface CalendarEvent {
   id: string;
-  date: string; // yyyy-MM-dd
-  type: 'bill' | 'income' | 'goal';
-  name: string;
+  title: string;
+  date: string;       // yyyy-MM-dd
   amount: number;
-  category?: string;
+  type: 'bill' | 'income' | 'goal' | 'subscription';
+  category: string;
+  recurrence?: string;
+  isPast: boolean;
+  isToday: boolean;
 }
 
 export interface CalendarResult {
   events: CalendarEvent[];
-  monthlyBills: number;
-  monthlyIncome: number;
+  /** Events grouped by date key (yyyy-MM-dd) */
+  byDate: Record<string, CalendarEvent[]>;
+  /** Total bills due in the queried month */
+  monthBillsTotal: number;
+  /** Total income expected in the queried month */
+  monthIncomeTotal: number;
 }
