@@ -6338,8 +6338,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         });
       }
       
-      const { plaidClient, PLAID_COUNTRY_CODES, PLAID_LANGUAGE, Products } = await import("./plaid");
-      
+      const { plaidClient, PLAID_COUNTRY_CODES, PLAID_LANGUAGE, Products, PLAID_ACCOUNT_FILTERS } = await import("./plaid");
+
       // Log request details for debugging
       console.log("[Plaid] Creating link token for user:", userId);
       console.log("[Plaid] Country codes:", PLAID_COUNTRY_CODES);
@@ -6363,6 +6363,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           transactions: {
             days_requested: 730,  // Request up to 2 years of transaction history
           },
+          account_filters: PLAID_ACCOUNT_FILTERS as any,
         });
 
         console.log("[Plaid] Link token created successfully with liabilities + additional products");
@@ -6398,6 +6399,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             transactions: {
               days_requested: 730,  // Request up to 2 years of transaction history
             },
+            account_filters: PLAID_ACCOUNT_FILTERS as any,
           });
 
           console.log("[Plaid] Link token created successfully without liabilities");

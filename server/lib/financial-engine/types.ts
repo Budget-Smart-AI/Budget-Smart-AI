@@ -387,10 +387,7 @@ export interface CalendarEvent {
 
 export interface CalendarResult {
   events: CalendarEvent[];
-  /** Events grouped by date key (yyyy-MM-dd) */
-  byDate: Record<string, CalendarEvent[]>;
-  /** Total bills due in the queried month */
-  monthBillsTotal: number;
-  /** Total income expected in the queried month */
-  monthIncomeTotal: number;
+  totalBills: number;
+  totalIncome: number;
+  netCashFlow: number;
 }

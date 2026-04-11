@@ -1,4 +1,7 @@
-import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } from "plaid";
+import {
+  Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode,
+  DepositoryAccountSubtype, CreditAccountSubtype, LoanAccountSubtype, InvestmentAccountSubtype,
+} from "plaid";
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db";
 import { pool } from "./db";
@@ -25,8 +28,28 @@ export const PLAID_COUNTRY_CODES: CountryCode[] = [CountryCode.Ca];
 export const PLAID_PRODUCTS: Products[] = [Products.Transactions, Products.Auth, Products.Liabilities];
 export const PLAID_LANGUAGE = "en";
 
-// Re-export Products enum for filtering
-export { Products };
+// Re-export Products enum and account subtypes for link token creation
+export { Products, DepositoryAccountSubtype, CreditAccountSubtype, LoanAccountSubtype, InvestmentAccountSubtype };
+
+/**
+ * Account filters for Plaid Link — ensures ALL account types show up
+ * including mortgage, LOC, investment, and loan accounts.
+ * Without these filters, Plaid may only surface depository + credit.
+ */
+export const PLAID_ACCOUNT_FILTERS = {
+  depository: {
+    account_subtypes: [DepositoryAccountSubtype.All],
+  },
+  credit: {
+    account_subtypes: [CreditAccountSubtype.All],
+  },
+  loan: {
+    account_subtypes: [LoanAccountSubtype.All],
+  },
+  investment: {
+    account_subtypes: [InvestmentAccountSubtype.All],
+  },
+};
 
 /**
  * Map Plaid personal_finance_category to Budget Smart AI internal categories.
@@ -519,7 +542,7 @@ export async function backfillPlaidEnrichment(
           transactions: enrichPayload,
         } as any);
 
-        const enriched = enrichResponse.data.enriched_transactions || [];
+        const enriched: any[] = enrichResponse.data.enriched_transactions || [];
         processed += batch.length;
 
         for (const enrichedTx of enriched) {
