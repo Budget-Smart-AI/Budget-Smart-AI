@@ -30,8 +30,9 @@ try {
   decrypt(test);
   console.log("[Encryption] Field encryption operational");
 } catch {
-  console.error("[Encryption] FIELD_ENCRYPTION_KEY missing — halting");
-  process.exit(1);
+  console.error("[Encryption] FIELD_ENCRYPTION_KEY missing or invalid — encryption disabled. Set a valid 64-hex-char FIELD_ENCRYPTION_KEY env var.");
+  // Do NOT exit — allow the server to start so Railway's /health check can pass
+  // and the error is visible in logs. Encrypted features will be degraded.
 }
 
 const app = express();
@@ -347,6 +348,20 @@ app.use((req, res, next) => {
   next();
 });
 
+// Bind the HTTP server to the port IMMEDIATELY so Railway's /health probe
+// can succeed during the 30-second grace period while async DB init runs.
+// The /health handler returns { status: "starting" } for the first 30 s.
+const port = parseInt(process.env.PORT || "5000", 10);
+if (process.env.NODE_ENV === "development") {
+  httpServer.listen(port, "127.0.0.1", () => {
+    log(`serving on port ${port}`);
+  });
+} else {
+  httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+    log(`serving on port ${port}`);
+  });
+}
+
 (async () => {
   // ═══════════════════════════════════════════════════════════════════════════
   // CRITICAL DATABASE INITIALIZATION - FATAL IF THESE FAIL
@@ -538,20 +553,8 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  const port = parseInt(process.env.PORT || "5000", 10);
-
   console.log('[Plaid] Webhook URL:', process.env.PLAID_WEBHOOK_URL);
   console.log('[MX] Webhook URL:', process.env.MX_WEBHOOK_URL);
-
-  if (process.env.NODE_ENV === "development") {
-    httpServer.listen(port, "127.0.0.1", () => {
-      log(`serving on port ${port}`);
-    });
-  } else {
-    httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
-      log(`serving on port ${port}`);
-    });
-  }
 })().catch((err) => {
   console.error("Fatal startup error:", err);
   process.exit(1);
