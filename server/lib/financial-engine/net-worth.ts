@@ -74,7 +74,7 @@ function calculateTotalAssets(
     (acc) => acc.isActive && DEPOSITORY_TYPES.has(acc.accountType)
   );
 
-  const bankTotal = depositoryAccounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
+  const bankTotal = depositoryAccounts.reduce((sum, acc) => sum + (parseFloat(String(acc.balance)) || 0), 0);
 
   if (bankTotal > 0) {
     breakdown['Bank Accounts'] = bankTotal;
@@ -132,7 +132,7 @@ function calculateTotalLiabilities(
   );
 
   const bankLiabilitiesTotal = liabilityAccounts.reduce(
-    (sum, acc) => sum + Math.abs(acc.balance || 0),
+    (sum, acc) => sum + Math.abs(parseFloat(String(acc.balance)) || 0),
     0
   );
 
@@ -202,7 +202,7 @@ export function calculateNetWorth(params: NetWorthParams): NetWorthResult {
     netWorth,
     totalAssets,
     totalLiabilities,
-    assetPercent: Math.round(assetPercent * 100) / 100,
+    assetPercent,
     latestChange,
     assetBreakdown: assetsCalc.breakdown,
     liabilityBreakdown: liabilitiesCalc.breakdown,

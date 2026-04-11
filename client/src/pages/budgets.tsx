@@ -993,27 +993,33 @@ export default function BudgetsPage() {
                           value={adjustedAmounts[suggestion.category] || suggestion.suggestedAmount.toFixed(2)}
                           onChange={(e) => setAdjustedAmounts(prev => ({
                             ...prev,
-                            [suggestion.category]: e.target.value
+                            [suggestion.category]: e.target.value,
                           }))}
-                          className="w-24 h-8 text-xs"
                         />
-                        <Badge variant={suggestion.confidence === "high" ? "default" : "secondary"}>
-                          {suggestion.confidence}
-                        </Badge>
+                        <span className="text-sm font-medium text-muted-foreground">
+                          {formatCurrency(parseFloat(adjustedAmounts[suggestion.category] || suggestion.suggestedAmount))}
+                        </span>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">{suggestion.reasoning}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Current: {formatCurrency(suggestion.currentAmount)} | Suggested: {formatCurrency(suggestion.suggestedAmount)}
+                    </p>
                   </div>
                 </div>
               ))}
             </div>
           )}
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setAiDialogOpen(false)}>
+          {aiSuggestions.length === 0 && (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No suggestions available yet.</p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowAiSuggestions(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAcceptSuggestions} disabled={bulkCreateMutation.isPending}>
-              {bulkCreateMutation.isPending ? "Creating..." : "Create Selected"}
+            <Button onClick={handleApplyAiSuggestions} disabled={selectedSuggestions.size === 0}>
+              Apply Selected
             </Button>
           </div>
         </DialogContent>

@@ -835,23 +835,21 @@ export default function SavingsGoalsPage() {
                       <Sparkles className="h-3.5 w-3.5 text-violet-500" />
                       Savings Tips
                     </p>
-                    <ul className="space-y-1.5">
+                    <div className="space-y-1.5">
                       {aiAdvice.savingsTips.map((tip, idx) => (
-                        <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
-                          <span className="text-violet-500 shrink-0">&#8226;</span>
-                          {tip}
-                        </li>
+                        <p key={idx} className="text-sm text-muted-foreground">
+                          • {tip}
+                        </p>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 )}
 
                 {/* Overall Advice */}
-                {aiAdvice.overallAdvice && (
-                  <p className="text-sm text-muted-foreground italic border-t pt-3">
-                    {aiAdvice.overallAdvice}
-                  </p>
-                )}
+                <div>
+                  <p className="text-sm font-medium mb-2">Overall Advice</p>
+                  <p className="text-sm text-muted-foreground">{aiAdvice.overallAdvice}</p>
+                </div>
               </div>
             </ScrollArea>
           )}

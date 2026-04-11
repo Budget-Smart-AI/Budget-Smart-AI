@@ -15,6 +15,7 @@ import {
   addDays,
   differenceInDays,
   startOfDay,
+  format,
 } from 'date-fns';
 import type { Bill } from '@shared/schema';
 import { SubscriptionsResult, BillOccurrence } from './types';
@@ -25,6 +26,7 @@ import { getNextBillOccurrence, getBillsForPeriod } from './bills';
  * These are bill categories that commonly represent subscriptions.
  */
 const SUBSCRIPTION_CATEGORIES = [
+  'Subscriptions',     // User-created subscriptions (primary category)
   'Communications',    // Internet, phone services
   'Entertainment',     // Streaming services, apps
   'Fitness',          // Gym memberships, fitness apps
@@ -79,16 +81,23 @@ function getMonthlySubscriptionCost(bill: Bill): number {
 
 /**
  * Convert internal bill to subscription occurrence format.
+ * Computes the next due date from today so the client can render it.
  */
-function billToSubscriptionOccurrence(bill: Bill): BillOccurrence {
+function billToSubscriptionOccurrence(bill: Bill, today: Date): BillOccurrence & { daysUntil?: number } & Record<string, any> {
+  const nextDue = getNextBillOccurrence(bill, today);
+  const daysUntil = nextDue ? differenceInDays(nextDue, startOfDay(today)) : undefined;
+
   return {
+    // Spread the full bill so the client has access to id, name, merchant, notes, etc.
+    ...bill,
     billId: bill.id,
     billName: bill.name,
     amount: parseFloat(bill.amount),
     category: bill.category,
-    dueDate: '',  // Will be set by caller if needed
+    dueDate: nextDue ? format(nextDue, 'yyyy-MM-dd') : '',
     recurrence: bill.recurrence,
     isPaused: bill.isPaused === 'true',
+    daysUntil,
   };
 }
 
@@ -121,9 +130,9 @@ export function calculateSubscriptions(params: {
   const activeSubscriptions = subscriptions.filter((s) => s.isPaused !== 'true');
   const pausedSubscriptions = subscriptions.filter((s) => s.isPaused === 'true');
 
-  // Convert to output format
-  const active = activeSubscriptions.map(billToSubscriptionOccurrence);
-  const paused = pausedSubscriptions.map(billToSubscriptionOccurrence);
+  // Convert to output format with computed due dates
+  const active = activeSubscriptions.map((s) => billToSubscriptionOccurrence(s, todayStart));
+  const paused = pausedSubscriptions.map((s) => billToSubscriptionOccurrence(s, todayStart));
 
   // Calculate monthly total (normalized)
   const monthlyTotal = activeSubscriptions.reduce(
@@ -143,20 +152,19 @@ export function calculateSubscriptions(params: {
   );
 
   const upcomingRenewals = upcomingOccurrences.map((occ) => {
-    const billOccurrence = billToSubscriptionOccurrence(occ.bill);
     const days = differenceInDays(occ.dueDate, todayStart);
 
     return {
-      ...billOccurrence,
-      dueDate: occ.bill.name, // Placeholder for renewing subscription name
+      ...billToSubscriptionOccurrence(occ.bill, todayStart),
+      dueDate: format(occ.dueDate, 'yyyy-MM-dd'),
       daysUntil: days,
-    } as BillOccurrence & { daysUntil: number };
+    };
   });
 
   // Count auto-detected subscriptions
   // Auto-detected bills have a linked bank account ID (from any provider)
   const autoDetectedCount = activeSubscriptions.filter(
-    (sub) => (sub as any).linkedPlaidAccountId || (sub as any).linkedBankAccountId
+    (sub) => (sub as any).linkedPlaidAccountId || (sub as any).linkedMXAccountId
   ).length;
 
   return {

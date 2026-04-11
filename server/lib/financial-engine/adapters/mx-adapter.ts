@@ -52,7 +52,7 @@ export class MxAdapter implements BankingAdapter {
       id: acc.id || acc.guid,
       name: acc.name || acc.userGuid || "MX Account",
       accountType: mapMxAccountType(acc.type),
-      balance: acc.balance ?? 0,
+      balance: parseFloat(String(acc.balance ?? 0)) || 0,
       isActive: acc.isActive === true || acc.isActive === "true",
       provider: "MX",
     }));

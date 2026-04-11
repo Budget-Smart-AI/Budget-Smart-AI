@@ -636,6 +636,9 @@ export default function IncomePage() {
   // Filter income list based on search and category (for the data table)
   const filteredIncome = allIncome
     .filter((inc) => {
+      // Filter by selected month
+      const incDate = new Date(inc.date);
+      if (incDate < monthStart || incDate > monthEnd) return false;
       const matchesSearch = inc.source.toLowerCase().includes(search.toLowerCase());
       const matchesCategory = categoryFilter === "all" || inc.category === categoryFilter;
       return matchesSearch && matchesCategory;
@@ -1122,28 +1125,20 @@ export default function IncomePage() {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="font-medium text-sm">{item.source}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {format(parseISO(item.date), "MMM d, yyyy")} • {formatCurrency(item.amount)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {item.count} similar entries detected
-                            </p>
+                            <p className="text-xs text-muted-foreground">{item.date}</p>
+                            <p className="text-xs text-muted-foreground">{item.count} transaction{item.count !== 1 ? 's' : ''}</p>
                           </div>
-                          <Badge variant="outline">Review</Badge>
+                          <div className="text-right">
+                            <p className="font-medium">{formatCurrency(parseFloat(item.amount))}</p>
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-3">
-                    Please review these entries to confirm if any should be kept as recurring income.
-                  </p>
                 </div>
               )}
             </div>
           ) : null}
-          <Button onClick={() => setIsDedupReviewOpen(false)} className="w-full">
-            Done
-          </Button>
         </DialogContent>
       </Dialog>
     </div>

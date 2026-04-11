@@ -352,18 +352,17 @@ export function calculateDebtPayoff(params: {
   const interestSaved = snowball.totalInterest - avalanche.totalInterest;
 
   // Payoff date based on avalanche (fastest)
-  let payoffDate = new Date().toISOString().split('T')[0];
-  if (avalanche.months > 0 && avalanche.schedule.length > 0) {
-    payoffDate = avalanche.schedule[avalanche.schedule.length - 1].date;
-  }
+  let payoffDate = new Date();
+  payoffDate.setMonth(payoffDate.getMonth() + avalanche.months);
+  const payoffDateStr = payoffDate.toISOString().split('T')[0];
 
   return {
     totalDebt,
     totalMinPayments,
-    weightedAvgApr: Math.round(weightedAvgApr * 100) / 100,
+    weightedAvgApr,
     avalanche,
     snowball,
     interestSaved,
-    payoffDate,
+    payoffDate: payoffDateStr,
   };
 }

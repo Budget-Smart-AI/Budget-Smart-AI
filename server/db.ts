@@ -844,10 +844,7 @@ export async function ensurePlaidEnrichmentColumns(): Promise<void> {
   await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS personal_finance_category_confidence TEXT`);
   await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS payment_channel TEXT`);
   await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS merchant_entity_id TEXT`);
-  // Transfer detection fields
-  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS is_transfer BOOLEAN DEFAULT false`);
-  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS transfer_pair_id UUID`);
-  // Index for fast transfer pair lookups
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_plaid_tx_transfer_pair ON plaid_transactions(transfer_pair_id) WHERE transfer_pair_id IS NOT NULL`);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_plaid_tx_is_transfer ON plaid_transactions(is_transfer) WHERE is_transfer = true`);
+  // Transfer detection columns
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS is_transfer boolean DEFAULT false`);
+  await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS transfer_pair_id TEXT`);
 }

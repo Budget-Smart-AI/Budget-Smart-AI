@@ -35,18 +35,18 @@ interface NetWorthResult {
 }
 
 function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("en-CA", {
     style: "currency",
-    currency: "USD",
+    currency: "CAD",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount);
 }
 
 function formatCurrencyFull(amount: number) {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("en-CA", {
     style: "currency",
-    currency: "USD",
+    currency: "CAD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
@@ -180,7 +180,7 @@ export default function NetWorth() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-muted-foreground">Total Liabilities</span>
             <span className="text-lg font-semibold text-red-600">
-              -{formatCurrencyFull(netWorth.totalLiabilities)}
+              {formatCurrencyFull(Math.abs(netWorth.totalLiabilities))}
             </span>
           </div>
           {/* Divider */}
@@ -245,7 +245,7 @@ export default function NetWorth() {
                 View all liabilities →
               </Link>
             </div>
-            <CardTitle className="text-2xl text-red-600">-{formatCurrencyFull(netWorth.totalLiabilities)}</CardTitle>
+            <CardTitle className="text-2xl text-red-600">{formatCurrencyFull(Math.abs(netWorth.totalLiabilities))}</CardTitle>
           </CardHeader>
           <CardContent>
             {liabilityData.length === 0 ? (
@@ -258,7 +258,7 @@ export default function NetWorth() {
                       <liability.icon className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm">{liability.name}</span>
                     </div>
-                    <span className="font-medium text-sm text-red-600">-{formatCurrencyFull(liability.value)}</span>
+                    <span className="font-medium text-sm text-red-600">{formatCurrencyFull(Math.abs(liability.value))}</span>
                   </div>
                 ))}
               </div>

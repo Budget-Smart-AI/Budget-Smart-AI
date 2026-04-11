@@ -80,9 +80,9 @@ interface ReportsData {
 }
 
 function formatCurrency(amount: number) {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("en-CA", {
     style: "currency",
-    currency: "USD",
+    currency: "CAD",
   }).format(amount);
 }
 
@@ -203,6 +203,12 @@ export default function ReportsPage() {
   const dailySpending = reportsData?.dailySpending ?? { dailyAvg: 0, projectedMonthly: 0, dailyTotals: {} };
   const topMerchants = reportsData?.topMerchants ?? [];
   const ytdData = reportsData?.ytd ?? { income: 0, expenses: 0, bills: 0, net: 0 };
+
+  // NOTE (M8): Debt service categories (e.g., Mortgage, Credit Card payments) are currently included
+  // in the "Spending by Category" breakdown. These represent liability payments rather than true
+  // expenses. Consider filtering them out or displaying them separately in a future update.
+  // Categories to potentially exclude: "Mortgage", "Credit Card", "Loans"
+  const DEBT_SERVICE_CATEGORIES = ["Mortgage", "Credit Card", "Loans"];
 
   const sortedCategories = Object.entries(categoryTotals)
     .sort(([, a], [, b]) => b - a);
@@ -1196,31 +1202,21 @@ export default function ReportsPage() {
                           <div
                             className="flex-1 bg-red-500 rounded-t transition-all"
                             style={{
-                              height: maxTrendValue > 0 ? `${(month.expenses / maxTrendValue) * 100}%` : "0%",
-                              minHeight: month.expenses > 0 ? "4px" : "0px",
+                              height: maxTrendValue > 0 ? `${(month.spending / maxTrendValue) * 100}%` : "0%",
+                              minHeight: month.spending > 0 ? "4px" : "0px",
                             }}
-                            title={`Expenses: ${formatCurrency(month.expenses)}`}
+                            title={`Spending: ${formatCurrency(month.spending)}`}
                           />
                         </div>
-                        <span className="text-xs text-muted-foreground">{month.month}</span>
+                        <div className="text-xs text-muted-foreground">{month.month}</div>
                       </div>
                     ))}
-                  </div>
-                  <div className="flex justify-center gap-6 mt-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded bg-green-500" />
-                      <span>Income</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded bg-red-500" />
-                      <span>Expenses</span>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
           ) : (
-            renderActiveReport()
+            renderReportContent()
           )}
         </>
       )}

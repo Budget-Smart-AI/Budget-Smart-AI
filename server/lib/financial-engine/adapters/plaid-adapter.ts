@@ -37,9 +37,10 @@ function mapPlaidAccountType(type?: string, subtype?: string): AccountCategory {
   if (sub === "savings") return "savings";
   if (t === "depository") return "depository";
   if (t === "credit" || sub === "credit card") return "credit";
-  if (t === "loan" || sub.includes("loan")) return "loan";
+  if (sub === "line of credit" || sub === "line_of_credit") return "line_of_credit";
+  if (t === "loan" || sub.includes("loan") || sub === "auto") return "loan";
   if (sub === "mortgage") return "mortgage";
-  if (t === "investment" || sub === "brokerage" || sub === "401k" || sub === "ira") return "investment";
+  if (t === "investment" || sub === "brokerage" || sub === "401k" || sub === "ira" || sub === "rrsp" || sub === "rssp") return "investment";
   return "other";
 }
 
@@ -51,7 +52,7 @@ export class PlaidAdapter implements BankingAdapter {
       id: acc.id,
       name: acc.name || acc.officialName || "Plaid Account",
       accountType: mapPlaidAccountType(acc.type, acc.subtype),
-      balance: acc.balanceCurrent ?? acc.balance ?? 0,
+      balance: parseFloat(String(acc.balanceCurrent ?? acc.balance ?? 0)) || 0,
       isActive: acc.isActive === true || acc.isActive === "true",
       provider: "Plaid",
     }));

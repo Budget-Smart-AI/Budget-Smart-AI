@@ -646,7 +646,7 @@ function CancelReminderDialog({
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Set a reminder to cancel <strong>{bill.name}</strong> before the next charge on{" "}
-            <strong>{format(nextDue, "MMM d, yyyy")}</strong>.
+            <strong>{format(nextDueDate, "MMM d, yyyy")}</strong>.
           </p>
 
           {existingReminder && (

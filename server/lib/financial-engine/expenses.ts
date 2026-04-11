@@ -381,10 +381,10 @@ export function calculateExpensesForPeriod(params: {
   const dailyAverage = daysInPeriod > 0 ? currentTotal / daysInPeriod : 0;
 
   // Project to full month (using current month's day count)
-  const daysInCurrentMonth = getDaysInMonth(monthStart);
-  const projectedMonthly = dailyAverage * daysInCurrentMonth;
+  const daysInCurrentMonth = getDaysInMonth(monthEnd);
+  const projectedMonthly = daysInPeriod > 0 ? (currentTotal / daysInPeriod) * daysInCurrentMonth : 0;
 
-  // Get daily totals
+  // Build daily totals map
   const dailyTotals = getDailyTotals(currentExpenses);
 
   return {

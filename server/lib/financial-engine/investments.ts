@@ -68,6 +68,6 @@ export function calculateInvestments(params: InvestmentsParams): InvestmentsResu
     totalValue,
     totalCost,
     totalGain,
-    gainPercent: Math.round(gainPercent * 100) / 100, // Round to 2 decimal places
+    gainPercent,
   };
 }

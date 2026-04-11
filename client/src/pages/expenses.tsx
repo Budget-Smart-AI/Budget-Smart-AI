@@ -95,6 +95,18 @@ import { DemoBanner } from "@/components/demo-banner";
 
 // ─── types ──────────────────────────────────────────────────────────────────
 
+// Helper function to determine expense source
+const getExpenseSource = (expense: Expense): string => {
+  // If externalTransactionId is null/empty, it's a manual entry
+  if (!expense.externalTransactionId) {
+    return "Manual";
+  }
+  // TODO: Determine if transaction is from Plaid or MX by querying
+  // plaidTransactions or mxTransactions tables. For now, default to "Bank"
+  // as any externalTransactionId indicates an auto-imported transaction
+  return "Bank";
+};
+
 interface ExpenseResult {
   total: number;
   count: number;
@@ -601,7 +613,7 @@ export default function ExpensesPage() {
       date: expense.date,
       category: expense.category,
       notes: expense.notes || undefined,
-      source: "manual",
+      source: getExpenseSource(expense).toLowerCase(),
       isoCurrencyCode: (expense as any).isoCurrencyCode || "CAD",
     });
     setTellerOpen(true);
@@ -1360,8 +1372,12 @@ export default function ExpensesPage() {
                         {/* Source */}
                         <TableCell>
                           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Pencil className="h-3.5 w-3.5" />
-                            <span>Manual</span>
+                            {getExpenseSource(expense) === "Manual" ? (
+                              <Pencil className="h-3.5 w-3.5" />
+                            ) : (
+                              <Link2 className="h-3.5 w-3.5" />
+                            )}
+                            <span>{getExpenseSource(expense)}</span>
                           </div>
                         </TableCell>
 

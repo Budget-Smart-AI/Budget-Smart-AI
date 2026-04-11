@@ -152,9 +152,9 @@ export function calculateHealthScore(params: {
     budgetScore: Math.round(budgetScore),
     savingsGoalScore: Math.round(savingsGoalScore),
     billScore: Math.round(billScore),
-    savingsRate: Math.round(savingsRate * 100) / 100,
+    savingsRate,
     budgetCount,
     billCount,
-    avgGoalProgress: Math.round(avgGoalProgress * 100) / 100,
+    avgGoalProgress,
   };
 }

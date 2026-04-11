@@ -123,3 +123,5 @@ export {
 export {
   calculateSafeToSpend,
 } from "./safe-to-spend";
+
+// Cash flow is calculated inline in the dashboard endpoint (no separate module needed)

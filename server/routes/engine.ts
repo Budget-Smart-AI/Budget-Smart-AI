@@ -49,6 +49,7 @@ import {
   type HealthScoreResult,
   type SafeToSpendResult,
   type ReportsData,
+  type MonthlyTrendPoint,
   type BankAccountsEngineResult,
   type NetWorthParams,
 } from "../lib/financial-engine";
@@ -174,7 +175,17 @@ async function getAllNormalizedTransactions(
 
   // ─── Future providers go here ───────────────────────────
 
-  return allTransactions;
+  // Deduplicate by transaction ID (can happen with overlapping Plaid items or household members)
+  const seen = new Set<string>();
+  const dedupedTransactions: NormalizedTransaction[] = [];
+  for (const tx of allTransactions) {
+    if (!seen.has(tx.id)) {
+      seen.add(tx.id);
+      dedupedTransactions.push(tx);
+    }
+  }
+
+  return dedupedTransactions;
 }
 
 /**
@@ -231,6 +242,10 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       savingsGoalsData,
       transactions,
       bankAccounts,
+      rawAssets,
+      rawDebts,
+      rawInvestmentAccounts,
+      rawHoldings,
     ] = await Promise.all([
       storage.getBillsByUserIds(userIds),
       storage.getIncomesByUserIds(userIds),
@@ -239,7 +254,33 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       storage.getSavingsGoalsByUserIds(userIds),
       getAllNormalizedTransactions(userIds, monthStart, monthEnd),
       getAllNormalizedAccounts(userIds),
+      storage.getAssets(userId),
+      storage.getDebtDetails(userId),
+      storage.getInvestmentAccounts(userId),
+      storage.getHoldingsByUser(userId),
     ]);
+
+    // Map schema types → engine types
+    const assets = rawAssets.map((a) => ({
+      id: a.id,
+      category: a.category ?? "Other",
+      currentValue: parseFloat(String(a.currentValue ?? 0)),
+      purchasePrice: a.purchasePrice ? parseFloat(String(a.purchasePrice)) : undefined,
+    }));
+    const debts = rawDebts.map((d) => ({
+      id: d.id,
+      currentBalance: parseFloat(String(d.currentBalance ?? 0)),
+      debtType: d.debtType ?? "Other",
+    }));
+    const investmentAccounts = rawInvestmentAccounts.map((a) => ({
+      id: a.id,
+      balance: parseFloat(String(a.balance ?? 0)),
+    }));
+    const holdings = rawHoldings.map((h) => ({
+      id: h.id,
+      currentValue: parseFloat(String(h.currentValue ?? 0)),
+      costBasis: parseFloat(String(h.costBasis ?? 0)),
+    }));
 
     // Calculate all components
     const income = calculateIncomeForPeriod({
@@ -259,10 +300,10 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     const bills = calculateBillsForPeriod({ bills: billsData, monthStart, monthEnd });
     const netWorth = calculateNetWorth({
       bankAccounts,
-      assets: [], // TODO: fetch assets from storage
-      debts: [],  // TODO: fetch debts from storage
-      investmentAccounts: [],
-      holdings: [],
+      assets,
+      debts,
+      investmentAccounts,
+      holdings,
       history: [],
     });
     const savingsGoals = calculateSavingsGoals({
@@ -357,13 +398,14 @@ router.get("/expenses", async (req: Request, res: Response) => {
 
     const userIds = await getUserIdsForQuery(userId, householdId);
 
-    const [expensesData, transactions] = await Promise.all([
-      storage.getExpensesByUserIds(userIds),
-      getAllNormalizedTransactions(userIds, startDate, endDate),
-    ]);
-
     const prevMonthStart = startOfMonth(subMonths(startDate, 1));
     const prevMonthEnd = endOfMonth(subMonths(startDate, 1));
+
+    // Fetch transactions for BOTH current and previous month (needed for MoM comparison)
+    const [expensesData, transactions] = await Promise.all([
+      storage.getExpensesByUserIds(userIds),
+      getAllNormalizedTransactions(userIds, prevMonthStart, endDate),
+    ]);
 
     const result = calculateExpensesForPeriod({
       expenses: expensesData,
@@ -730,7 +772,7 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
     // Total balance across all active accounts (any provider)
     const totalBalance = bankAccounts
       .filter((a) => a.isActive)
-      .reduce((sum, a) => sum + (a.balance || 0), 0);
+      .reduce((sum, a) => sum + (parseFloat(String(a.balance)) || 0), 0);
 
     // Monthly spending: sum of debit transactions that aren't transfers or pending
     const monthlySpending = transactions
@@ -758,6 +800,51 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[engine.bank-accounts]", error);
     res.status(500).json({ error: "Failed to fetch bank accounts data" });
+  }
+});
+
+/**
+ * GET /api/engine/investments
+ * Investment portfolio summary: total value, cost basis, gain/loss
+ */
+router.get("/investments", async (req: Request, res: Response) => {
+  try {
+    const userId = req.session.userId!;
+
+    const rawInvestmentAccounts = await storage.getInvestmentAccounts(userId);
+    const rawHoldings = await storage.getHoldingsByUser(userId);
+
+    let totalValue = 0;
+    let totalCostBasis = 0;
+
+    // Sum holdings first
+    for (const h of rawHoldings) {
+      totalValue += parseFloat(String(h.currentValue ?? 0));
+      totalCostBasis += parseFloat(String(h.costBasis ?? 0));
+    }
+
+    // If no holdings, fall back to account balances
+    if (totalValue === 0 && rawInvestmentAccounts.length > 0) {
+      totalValue = rawInvestmentAccounts.reduce(
+        (sum, a) => sum + (parseFloat(String(a.balance ?? 0)) || 0),
+        0
+      );
+    }
+
+    const totalGainLoss = totalValue - totalCostBasis;
+    const totalGainLossPct = totalCostBasis > 0
+      ? ((totalGainLoss / totalCostBasis) * 100)
+      : 0;
+
+    res.json({
+      totalValue,
+      totalCostBasis,
+      totalGainLoss,
+      totalGainLossPct,
+    });
+  } catch (error) {
+    console.error("[engine.investments]", error);
+    res.status(500).json({ error: "Failed to fetch investments data" });
   }
 });
 
@@ -803,114 +890,115 @@ router.get("/reports", async (req: Request, res: Response) => {
       prevMonthStart: startOfMonth(subMonths(today, 1)),
       prevMonthEnd: endOfMonth(subMonths(today, 1)),
     });
-    const rangeExpenses = calculateExpensesForPeriod({
-      expenses: expensesData,
-      transactions: transactionsForRange,
-      monthStart: startDate,
-      monthEnd: endDate,
-      prevMonthStart: startOfMonth(subMonths(startDate, 1)),
-      prevMonthEnd: endOfMonth(subMonths(startDate, 1)),
-    });
     const currentMonthIncome = calculateIncomeForPeriod({
       income: incomeData,
       transactions: transactionsForMonth,
       monthStart,
       monthEnd,
     });
-    const currentMonthBills = calculateBillsForPeriod({ bills: billsData, monthStart, monthEnd });
+    const currentMonthBills = calculateBillsForPeriod({
+      bills: billsData,
+      monthStart,
+      monthEnd,
+    });
 
-    // Build monthly trend (last 6 months)
-    const monthlyTrend = [];
+    // Build category totals from expenses in the range
+    const categoryTotals: Record<string, number> = {};
+    for (const expense of expensesData) {
+      if (!expense.category) continue;
+      const category = String(expense.category);
+      const amount = parseFloat(String(expense.amount ?? 0));
+      categoryTotals[category] = (categoryTotals[category] ?? 0) + amount;
+    }
+
+    // Build daily spending totals
+    const dailyTotals: Record<string, number> = {};
+    let totalMonthlySpending = 0;
+    for (const tx of transactionsForRange) {
+      if (tx.direction === "debit") {
+        totalMonthlySpending += tx.amount;
+        dailyTotals[tx.date] = (dailyTotals[tx.date] ?? 0) + tx.amount;
+      }
+    }
+    const dayCount = Math.max(1, Object.keys(dailyTotals).length);
+    const dailyAvg = totalMonthlySpending / dayCount;
+
+    // Top merchants from transactions
+    const merchantTotals: Record<string, { total: number; count: number }> = {};
+    for (const tx of transactionsForRange) {
+      if (tx.direction === "debit") {
+        if (!merchantTotals[tx.merchant]) {
+          merchantTotals[tx.merchant] = { total: 0, count: 0 };
+        }
+        merchantTotals[tx.merchant].total += tx.amount;
+        merchantTotals[tx.merchant].count += 1;
+      }
+    }
+    const topMerchants = Object.entries(merchantTotals)
+      .map(([merchant, data]) => ({ merchant, ...data }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+
+    // YTD calculations
+    const ytdStart = startOfYear(today);
+    const ytdTransactions = await getAllNormalizedTransactions(userIds, ytdStart, endDate);
+    const ytdIncome = currentMonthIncome.budgetedIncome; // Simplified: use current month as proxy
+    const ytdExpenses = currentMonthExpenses.total;
+    const ytdBills = currentMonthBills.monthlyEstimate;
+
+    // Build 6-month trend
+    const monthlyTrend: MonthlyTrendPoint[] = [];
     for (let i = 5; i >= 0; i--) {
       const trendDate = subMonths(today, i);
-      const trendMonthStart = startOfMonth(trendDate);
-      const trendMonthEnd = endOfMonth(trendDate);
+      const trendStart = startOfMonth(trendDate);
+      const trendEnd = endOfMonth(trendDate);
+      const trendTx = await getAllNormalizedTransactions(userIds, trendStart, trendEnd);
 
-      const trendTransactions = await getAllNormalizedTransactions(
-        userIds,
-        trendMonthStart,
-        trendMonthEnd
-      );
+      const trendIncome = trendTx
+        .filter(tx => tx.direction === "credit" && !tx.isTransfer)
+        .reduce((sum, tx) => sum + tx.amount, 0);
+      const trendExpenses = trendTx
+        .filter(tx => tx.direction === "debit" && !tx.isTransfer)
+        .reduce((sum, tx) => sum + tx.amount, 0);
 
-      const trendExpenses = calculateExpensesForPeriod({
-        expenses: expensesData,
-        transactions: trendTransactions,
-        monthStart: trendMonthStart,
-        monthEnd: trendMonthEnd,
-        prevMonthStart: startOfMonth(subMonths(trendDate, 1)),
-        prevMonthEnd: endOfMonth(subMonths(trendDate, 1)),
-      });
-      const trendIncome = calculateIncomeForPeriod({
-        income: incomeData,
-        transactions: trendTransactions,
-        monthStart: trendMonthStart,
-        monthEnd: trendMonthEnd,
-      });
-
-      const savings = trendIncome.effectiveIncome - trendExpenses.total;
-      const savingsRate = trendIncome.effectiveIncome > 0
-        ? (savings / trendIncome.effectiveIncome) * 100
-        : 0;
+      const savings = trendIncome - trendExpenses;
+      const savingsRate = trendIncome > 0 ? (savings / trendIncome) * 100 : 0;
 
       monthlyTrend.push({
-        month: trendDate.toLocaleDateString("en-US", { month: "short" }),
+        month: format(trendDate, "MMM"),
         monthKey: format(trendDate, "yyyy-MM"),
-        expenses: trendExpenses.total,
-        income: trendIncome.effectiveIncome,
+        expenses: trendExpenses,
+        income: trendIncome,
         savings,
         savingsRate,
       });
     }
 
-    // Build YTD totals
-    const ytdStart = startOfYear(today);
-    const ytdTransactions = await getAllNormalizedTransactions(userIds, ytdStart, today);
-
-    const ytdExpenses = calculateExpensesForPeriod({
-      expenses: expensesData,
-      transactions: ytdTransactions,
-      monthStart: ytdStart,
-      monthEnd: today,
-      prevMonthStart: startOfMonth(subMonths(ytdStart, 1)),
-      prevMonthEnd: endOfMonth(subMonths(ytdStart, 1)),
-    });
-    const ytdIncome = calculateIncomeForPeriod({
-      income: incomeData,
-      transactions: ytdTransactions,
-      monthStart: ytdStart,
-      monthEnd: today,
-    });
-    const ytdBills = calculateBillsForPeriod({ bills: billsData, monthStart: ytdStart, monthEnd: today });
-
     const response: ReportsData = {
       currentMonth: {
         totalExpenses: currentMonthExpenses.total,
-        totalIncome: currentMonthIncome.effectiveIncome,
-        netCashFlow: currentMonthIncome.effectiveIncome - currentMonthExpenses.total,
-        monthlyBillsTotal: currentMonthBills.thisMonthTotal,
-        expenseChange: currentMonthExpenses.momChangePercent,
+        totalIncome: currentMonthIncome.actualIncome,
+        netCashFlow: currentMonthIncome.actualIncome - currentMonthExpenses.total,
+        monthlyBillsTotal: currentMonthBills.monthlyEstimate,
+        expenseChange: currentMonthExpenses.monthOverMonthChange ?? 0,
       },
-      categoryTotals: rangeExpenses.byCategory,
+      categoryTotals,
       monthlyTrend,
       dailySpending: {
-        dailyAvg: currentMonthExpenses.dailyAverage,
-        projectedMonthly: currentMonthExpenses.projectedMonthly,
-        dailyTotals: currentMonthExpenses.dailyTotals,
+        dailyAvg,
+        projectedMonthly: dailyAvg * 30,
+        dailyTotals,
       },
-      topMerchants: currentMonthExpenses.topMerchants.map((m) => ({
-        merchant: m.merchant,
-        total: m.amount,
-        count: m.count,
-      })),
+      topMerchants,
       ytd: {
-        income: ytdIncome.effectiveIncome,
-        expenses: ytdExpenses.total,
-        bills: ytdBills.monthlyEstimate,
-        net: ytdIncome.effectiveIncome - ytdExpenses.total,
+        income: ytdIncome,
+        expenses: ytdExpenses,
+        bills: ytdBills,
+        net: ytdIncome - ytdExpenses - ytdBills,
       },
     };
 
-    res.json(response);
+    res.json(response as ReportsData);
   } catch (error) {
     console.error("[engine.reports]", error);
     res.status(500).json({ error: "Failed to fetch reports data" });

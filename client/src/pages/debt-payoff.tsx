@@ -504,8 +504,8 @@ Monthly Minimum Payments: $${totalMinPayments.toFixed(0)}
 Weighted Average APR: ${weightedAvgApr.toFixed(1)}%
 Extra Monthly Payment Available: $${extraPayment}
 
-Avalanche Method: ${avalancheResult?.months} months, $${avalancheResult?.totalInterest.toFixed(0)} total interest
-Snowball Method: ${snowballResult?.months} months, $${snowballResult?.totalInterest.toFixed(0)} total interest
+Avalanche Method: ${avalancheResult?.months ?? 0} months, $${(avalancheResult?.totalInterest ?? 0).toFixed(0)} total interest
+Snowball Method: ${snowballResult?.months ?? 0} months, $${(snowballResult?.totalInterest ?? 0).toFixed(0)} total interest
 
 Provide:
 1. Which strategy is best for this person and why
@@ -687,7 +687,7 @@ Keep the response concise and actionable.`;
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Interest</p>
-                <p className="text-2xl font-bold">{formatCurrency(selectedResult.totalInterest)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(selectedResult?.totalInterest ?? 0)}</p>
               </div>
             </div>
           </CardContent>
@@ -898,7 +898,7 @@ Keep the response concise and actionable.`;
                   Payoff Order ({selectedMethod === "avalanche" ? "highest rate first" : "smallest balance first"})
                 </h4>
                 <div className="flex flex-wrap items-center gap-2">
-                  {selectedResult.payoffOrder.map((name, index) => (
+                  {(selectedResult?.payoffOrder ?? []).map((name, index) => (
                     <div key={name} className="flex items-center gap-2">
                       <Badge variant="outline" className="flex items-center gap-1">
                         <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center">
@@ -906,7 +906,7 @@ Keep the response concise and actionable.`;
                         </span>
                         {name}
                       </Badge>
-                      {index < selectedResult.payoffOrder.length - 1 && (
+                      {index < (selectedResult?.payoffOrder?.length ?? 0) - 1 && (
                         <ArrowRight className="w-4 h-4 text-muted-foreground" />
                       )}
                     </div>
@@ -962,30 +962,6 @@ Keep the response concise and actionable.`;
           </CardContent>
         </Card>
       )}
-
-      {/* Empty State */}
-      {totalDebt === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-medium mb-2">No Debts to Calculate</h3>
-            <p className="text-muted-foreground mb-4">
-              Add debts with balances to see your payoff projections.
-            </p>
-            <Button asChild>
-              <Link href="/debts">Add Your First Debt</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Set APR Dialog */}
-      <SetAprDialog
-        open={showAprDialog}
-        onClose={() => setShowAprDialog(false)}
-        debts={debts}
-        onSaved={() => queryClient.invalidateQueries({ queryKey: ["/api/engine/debts"] })}
-      />
     </div>
     </DebtPayoffGate>
   );

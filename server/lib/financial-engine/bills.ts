@@ -325,7 +325,7 @@ export function calculateBillsForPeriod(params: {
     .filter((bill) => !bill.isPaused);
 
   // Calculate monthly and annual estimates based on recurrence patterns
-  const activeNonPausedBills = bills.filter((bill) => bill.isPaused !== 'true');
+  const activeNonPausedBills = bills.filter((b) => b.isPaused !== 'true');
   const monthlyEstimate = activeNonPausedBills.reduce(
     (sum, bill) => sum + getMonthlyEstimate(bill),
     0

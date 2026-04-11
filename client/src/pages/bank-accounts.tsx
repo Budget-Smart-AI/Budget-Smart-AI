@@ -1682,7 +1682,7 @@ export default function BankAccounts() {
   // Fetch bank accounts summary from engine API (replaces local calculations)
   const monthStr = format(currentMonth, "yyyy-MM");
   const { data: engineData = { totalBalance: 0, monthlySpending: 0, monthlyIncome: 0, unmatchedCount: 0 } } = useQuery<BankAccountsEngineResult>({
-    queryKey: ["/api/engine/bank-accounts", monthStr],
+    queryKey: [`/api/engine/bank-accounts?month=${monthStr}`],
   });
 
   // Extract computed values from engine response, with fallback defaults

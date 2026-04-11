@@ -233,12 +233,14 @@ export function calculateIncomeForPeriod(params: {
 
   const budgetedIncome = toDollars(budgetedIncomeCents);
   const actualIncome = toDollars(actualIncomeCents);
+  const hasBankData = actualIncomeCents > 0;
+  const effectiveIncome = hasBankData ? actualIncome : budgetedIncome;
 
   return {
     budgetedIncome,
     actualIncome,
-    effectiveIncome: actualIncomeCents > 0 ? actualIncome : budgetedIncome,
-    hasBankData: actualIncomeCents > 0,
+    effectiveIncome,
+    hasBankData,
     bySource,
   };
 }
