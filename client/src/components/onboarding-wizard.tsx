@@ -702,7 +702,7 @@ function ConnectBankStep({
               {preferredProvider === "plaid" && (
                 <button
                   onClick={handleConnectBank}
-                  disabled={!consentChecked || !country || !ready || !linkToken || isConnecting}
+                  disabled={!consentChecked || !country || isConnecting}
                   className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                 >
                   {isConnecting ? (
