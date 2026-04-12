@@ -82,7 +82,7 @@ function detectCountry(): string {
 // ─── Progress Indicator ───────────────────────────────────────────────────────
 
 function StepProgress({ current, total }: { current: number; total: number }) {
-  const labels = ["Welcome", "Connect Bank", "Monthly Income", "Budget Goal", "You're Ready!"];
+  const labels = ["Welcome", "Connect Bank", "Monthly Income", "You're Ready!"];
   // Show 100% on the final step
   const pct = current >= total ? 100 : Math.round(((current - 1) / total) * 100);
   return (
@@ -531,7 +531,7 @@ function ConnectBankStep({
           )}
         </div>
       ) : connected ? (
-        <div className="text-center py-6 space-y-3">
+        <div className="text-center py-4 space-y-4">
           <CheckCircle2 className="h-14 w-14 mx-auto text-green-500" />
           <p className="font-semibold text-lg text-green-600 dark:text-green-400">
             Bank connected successfully!
@@ -541,7 +541,23 @@ function ConnectBankStep({
               {txCount} transactions imported across {accountCount} account{accountCount !== 1 ? "s" : ""}
             </p>
           )}
-          <Button onClick={onNext} className="w-full gap-2 mt-2" size="lg">
+
+          {/* Add another bank — upgrade required for free users */}
+          <div className="bg-muted/40 border border-border rounded-xl p-4 text-left space-y-2">
+            <p className="text-sm font-semibold">Want to add another bank?</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Multiple bank connections require a <strong>Pro</strong> or <strong>Family</strong> plan.
+              Upgrade anytime from Settings → Billing.
+            </p>
+            <a
+              href="/settings/billing"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+            >
+              View upgrade options <ArrowRight size={12} />
+            </a>
+          </div>
+
+          <Button onClick={onNext} className="w-full gap-2" size="lg">
             Continue <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
@@ -1263,30 +1279,12 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
         console.error("Failed to save income:", err);
       }
     }
+    // Step 4 = You're Ready (budget step removed — budget creation is in the Budget panel)
     await apiRequest("POST", "/api/onboarding/save-step", { step: 4 });
     setStep(4);
   };
 
-  const handleBudgetNext = async (category: string, amount: number) => {
-    setBudgetCategory(category);
-    setBudgetAmount(amount);
-    setProgress((p) => ({ ...p, budget: true }));
-
-    if (!isDemo) {
-      try {
-        await apiRequest("POST", "/api/onboarding/save-income-goal", {
-          budgetCategory: category,
-          budgetAmount: amount,
-        });
-      } catch (err) {
-        console.error("Failed to save budget:", err);
-      }
-    }
-    await apiRequest("POST", "/api/onboarding/save-step", { step: 5 });
-    setStep(5);
-  };
-
-  const TOTAL_STEPS = 5;
+  const TOTAL_STEPS = 4;
 
   return (
     <Dialog
@@ -1337,19 +1335,8 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
           />
         )}
 
+        {/* Step 4 = You're Ready! (BudgetGoalStep removed — budgets are created in the Budget panel) */}
         {step === 4 && (
-          <BudgetGoalStep
-            onNext={handleBudgetNext}
-            onSkip={async () => {
-              await apiRequest("POST", "/api/onboarding/save-step", { step: 5 });
-              setStep(5);
-            }}
-            topCategories={topCategories}
-            selectedCountry={selectedCountry}
-          />
-        )}
-
-        {step === 5 && (
           <ReadyStep
             onComplete={handleComplete}
             onExplore={handleComplete}
@@ -1357,8 +1344,8 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
               bankConnected,
               accountCount,
               monthlyIncome,
-              budgetCategory,
-              budgetAmount,
+              budgetCategory: null,
+              budgetAmount: null,
               txCount,
               billsDetected,
             }}
