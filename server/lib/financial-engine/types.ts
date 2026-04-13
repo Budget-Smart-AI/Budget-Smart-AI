@@ -29,7 +29,7 @@ export interface IncomeResult {
   /** Whether we have real bank data to compare against */
   hasBankData: boolean;
   /** Breakdown by income source */
-  bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean }>;
+  bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean; frequency?: string }>;
 }
 
 // ─── Expenses ──────────────────────────────────────────────────────────────

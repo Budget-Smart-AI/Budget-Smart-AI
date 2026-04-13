@@ -302,6 +302,7 @@ export function calculateIncomeForPeriod(params: {
     amount: number;
     category: string;
     isRecurring: boolean;
+    frequency?: string;
   }> = [];
 
   for (const incomeRecord of incomeRecords) {
@@ -315,6 +316,7 @@ export function calculateIncomeForPeriod(params: {
         amount: monthlyAmount,
         category: incomeRecord.category || 'Other',
         isRecurring: incomeRecord.isRecurring === 'true',
+        frequency: incomeRecord.recurrence || undefined,
       });
     }
   }
@@ -362,6 +364,25 @@ export function calculateIncomeForPeriod(params: {
     }
   }
 
+  // ─── Historical Recurring Source Detection ────────────────────────────
+  // Run this FIRST to build a frequency lookup map, then use it when adding
+  // current-month deposits to bySource so all entries have frequency info.
+  const recurringFrequencyMap: Record<string, string> = {};
+  const detectedRecurringSources: DetectedRecurringSource[] = [];
+
+  if (historicalTransactions && historicalTransactions.length > 0) {
+    const historicalIncome = historicalTransactions.filter(
+      (tx) => !tx.isPending && !tx.isTransfer && tx.isIncome
+    );
+    if (historicalIncome.length > 0) {
+      const detected = detectRecurringIncomeSources(historicalIncome);
+      for (const d of detected) {
+        detectedRecurringSources.push(d);
+        recurringFrequencyMap[normalizeSourceName(d.source)] = d.frequency;
+      }
+    }
+  }
+
   // Add current-month bank income deposits to bySource (skip if already covered by a DB income record)
   // Only include meaningful income sources — skip small refunds and corrections
   const MIN_INCOME_SOURCE_AMOUNT = 100; // Minimum $100 to appear as an income source
@@ -383,60 +404,56 @@ export function calculateIncomeForPeriod(params: {
       }
     }
     if (!alreadyCovered) {
+      // Look up frequency from historical detection (check exact and partial matches)
+      let frequency: string | undefined;
+      if (recurringFrequencyMap[normalizedKey]) {
+        frequency = recurringFrequencyMap[normalizedKey];
+      } else {
+        for (const [key, freq] of Object.entries(recurringFrequencyMap)) {
+          if (key.includes(normalizedKey) || normalizedKey.includes(key)) {
+            frequency = freq;
+            break;
+          }
+        }
+      }
+
       bySource.push({
         source: info.merchant,
         amount: Math.round(info.total * 100) / 100,
         category: info.category,
-        isRecurring: false,
+        isRecurring: !!frequency,
+        frequency,
       });
     }
   }
 
-  // ─── Historical Recurring Source Detection ────────────────────────────
-  // If historical transactions are provided, detect recurring income sources
-  // that haven't deposited in the current period yet (e.g., biweekly pay
-  // where the last check was in the prior month and the next hasn't landed).
-  // These are added to bySource so the user can see all expected income.
-  if (historicalTransactions && historicalTransactions.length > 0) {
-    // Filter historical transactions to income only (non-pending, non-transfer)
-    const historicalIncome = historicalTransactions.filter(
-      (tx) => !tx.isPending && !tx.isTransfer && tx.isIncome
-    );
+  // Add any historically-detected recurring sources that DON'T have
+  // deposits in the current month (e.g., biweekly pay where next check
+  // hasn't landed yet). These already have frequency from detection.
+  const allSourceNames = new Set(
+    bySource.map((s) => normalizeSourceName(s.source))
+  );
+  for (const detected of detectedRecurringSources) {
+    const normalizedDetected = normalizeSourceName(detected.source);
 
-    if (historicalIncome.length > 0) {
-      const detectedSources = detectRecurringIncomeSources(historicalIncome);
-
-      // Build a set of normalized names already present in bySource
-      // (from DB income records AND current-month bank deposits) so we don't double-count
-      const existingSourceNames = new Set(
-        bySource.map((s) => normalizeSourceName(s.source))
-      );
-
-      for (const detected of detectedSources) {
-        const normalizedDetected = normalizeSourceName(detected.source);
-
-        // Skip if already represented in bySource (DB records + current-month deposits)
-        if (existingSourceNames.has(normalizedDetected)) continue;
-
-        // Also check partial matches (e.g., "coreslab structures" vs "coreslab")
-        let alreadyExists = false;
-        for (const existing of existingSourceNames) {
-          if (existing.includes(normalizedDetected) || normalizedDetected.includes(existing)) {
-            alreadyExists = true;
-            break;
-          }
-        }
-        if (alreadyExists) continue;
-
-        // Add detected recurring source as an expected income entry
-        bySource.push({
-          source: detected.source,
-          amount: detected.avgAmount,
-          category: 'Employment',
-          isRecurring: true,
-        });
+    // Skip if already in bySource (from DB records or current-month deposits)
+    if (allSourceNames.has(normalizedDetected)) continue;
+    let alreadyExists = false;
+    for (const existing of allSourceNames) {
+      if (existing.includes(normalizedDetected) || normalizedDetected.includes(existing)) {
+        alreadyExists = true;
+        break;
       }
     }
+    if (alreadyExists) continue;
+
+    bySource.push({
+      source: detected.source,
+      amount: detected.avgAmount,
+      category: 'Employment',
+      isRecurring: true,
+      frequency: detected.frequency,
+    });
   }
 
   const budgetedIncome = toDollars(budgetedIncomeCents);

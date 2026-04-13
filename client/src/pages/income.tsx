@@ -87,7 +87,7 @@ interface IncomeResult {
   actualIncome: number;
   effectiveIncome: number;
   hasBankData: boolean;
-  bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean }>;
+  bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean; frequency?: string }>;
 }
 
 function formatCurrency(amount: string | number) {
@@ -703,27 +703,6 @@ export default function IncomePage() {
           <p className="text-muted-foreground">Track your income sources</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => deduplicateMutation.mutate()}
-            disabled={deduplicateMutation.isPending}
-            title="Remove duplicate income records"
-          >
-            {deduplicateMutation.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4 mr-2" />
-            )}
-            Clean Duplicates
-          </Button>
-          <Button variant="outline" onClick={detectIncome} disabled={isDetecting}>
-            {isDetecting ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4 mr-2" />
-            )}
-            Detect Income
-          </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => setEditingIncome(undefined)}>
@@ -947,24 +926,75 @@ export default function IncomePage() {
                 Income Sources Detected from Bank
               </h4>
               <div className="space-y-2">
-                {incomeStats.bySource.map((source, idx) => (
-                  <div key={idx} className="flex items-center justify-between py-2 px-3 rounded-md bg-background">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-green-600/10 flex items-center justify-center text-green-600 font-medium text-sm">
-                        {source.source.charAt(0).toUpperCase()}
+                {incomeStats.bySource.map((source, idx) => {
+                  // Check if this source is already in the income table
+                  const normalizedSource = source.source.toLowerCase().replace(/[^a-z0-9]/g, '');
+                  const alreadyInTable = allIncome.some((inc) => {
+                    const normalizedInc = (inc.source || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    return normalizedInc.includes(normalizedSource) || normalizedSource.includes(normalizedInc);
+                  });
+
+                  const frequencyLabel = source.frequency
+                    ? source.frequency.charAt(0).toUpperCase() + source.frequency.slice(1)
+                    : null;
+
+                  return (
+                    <div key={idx} className="flex items-center justify-between py-2 px-3 rounded-md bg-background">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-green-600/10 flex items-center justify-center text-green-600 font-medium text-sm">
+                          {source.source.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">{source.source}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {source.category}
+                            {frequencyLabel ? ` · ${frequencyLabel}` : ''}
+                            {source.isRecurring && !frequencyLabel ? ' · Recurring' : ''}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-sm">{source.source}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {source.category}{source.isRecurring ? ' · Recurring' : ''}
-                        </p>
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold text-green-600">
+                          {formatCurrency(source.amount)}
+                        </span>
+                        {!alreadyInTable && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                // Map frequency to recurrence format
+                                const recurrenceMap: Record<string, string> = {
+                                  weekly: 'weekly',
+                                  biweekly: 'biweekly',
+                                  monthly: 'monthly',
+                                  quarterly: 'quarterly',
+                                };
+                                await apiRequest("POST", "/api/income", {
+                                  source: source.source,
+                                  amount: source.amount,
+                                  category: source.category === 'Employment' ? 'Salary' : source.category,
+                                  date: format(new Date(), "yyyy-MM-dd"),
+                                  isRecurring: source.isRecurring ? "true" : "false",
+                                  recurrence: source.frequency ? recurrenceMap[source.frequency] || 'monthly' : null,
+                                  notes: 'Added from bank detection',
+                                });
+                                queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+                                queryClient.invalidateQueries({ queryKey: ["/api/engine/income"] });
+                                toast({ title: `Added ${source.source} to income` });
+                              } catch (error) {
+                                toast({ title: "Failed to add income", variant: "destructive" });
+                              }
+                            }}
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Add
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    <span className="font-semibold text-green-600">
-                      {formatCurrency(source.amount)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

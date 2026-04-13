@@ -44,7 +44,7 @@ interface DashboardData {
     actualIncome: number;
     effectiveIncome: number;
     hasBankData: boolean;
-    bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean }>;
+    bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean; frequency?: string }>;
   };
   expenses: {
     total: number;
