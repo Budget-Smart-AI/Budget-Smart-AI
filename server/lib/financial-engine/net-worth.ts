@@ -9,7 +9,7 @@
 import { NetWorthResult, Cents } from './types';
 import type { NormalizedAccount } from './normalized-types';
 
-// ─── Supporting Types (not provider-specific) ─────────────────────────────
+// âââ Supporting Types (not provider-specific) âââââââââââââââââââââââââââââ
 
 export interface Asset {
   id: string;
@@ -52,7 +52,7 @@ export interface NetWorthParams {
   history: NetWorthSnapshot[];
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
+// âââ Helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 const ASSET_ACCOUNT_TYPES = new Set(['checking', 'savings', 'depository', 'investment']);
 const LIABILITY_TYPES = new Set(['credit', 'loan', 'mortgage', 'credit_card', 'line_of_credit']);
@@ -69,13 +69,14 @@ function calculateTotalAssets(
   const breakdown: Record<string, Cents> = {};
   let total: Cents = 0;
 
-  // Bank accounts (depository types only) — provider-agnostic
+  // Bank accounts (asset types: checking, savings, depository, investment) â provider-agnostic
   const assetAccounts = bankAccounts.filter(
     (acc) => acc.isActive && ASSET_ACCOUNT_TYPES.has(acc.accountType)
   );
 
   const bankTotal = assetAccounts.reduce((sum, acc) => sum + (parseFloat(String(acc.balance)) || 0), 0);
 
+  // Always include bank account balances in assets (even if total is negative, e.g. overdrawn checking)
   if (bankTotal !== 0) {
     breakdown['Bank Accounts'] = bankTotal;
     total += bankTotal;
@@ -126,7 +127,7 @@ function calculateTotalLiabilities(
   const breakdown: Record<string, Cents> = {};
   let total: Cents = 0;
 
-  // Credit cards, loans, mortgages from any bank provider — provider-agnostic
+  // Credit cards, loans, mortgages from any bank provider â provider-agnostic
   // Group by account type for per-category breakdown
   const liabilityAccounts = bankAccounts.filter(
     (acc) => acc.isActive && LIABILITY_TYPES.has(acc.accountType)
@@ -149,7 +150,8 @@ function calculateTotalLiabilities(
   }
 
   if (bankLiabilitiesTotal > 0) {
-    breakdown['Bank Debts'] = bankLiabilitiesTotal;
+    // Individual category entries (Mortgages, Credit Cards, etc.) are already in breakdown.
+    // Only add the total to the running sum â do NOT add a redundant "Bank Debts" key.
     total += bankLiabilitiesTotal;
   }
 
@@ -167,7 +169,7 @@ function calculateTotalLiabilities(
   return { total, breakdown };
 }
 
-// ─── Main Export ──────────────────────────────────────────────────────────
+// âââ Main Export ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 /**
  * Calculate net worth from comprehensive account data
@@ -219,4 +221,4 @@ export function calculateNetWorth(params: NetWorthParams): NetWorthResult {
     assetBreakdown: assetsCalc.breakdown,
     liabilityBreakdown: liabilitiesCalc.breakdown,
   };
-}
+    }
