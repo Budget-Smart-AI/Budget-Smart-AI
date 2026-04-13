@@ -439,14 +439,21 @@ router.get("/income", async (req: Request, res: Response) => {
 
     const userIds = await getUserIdsForQuery(userId, householdId);
 
-    const [incomeData, transactions] = await Promise.all([
+    // Fetch a 3-month lookback window for recurring income source detection.
+    // This allows biweekly, monthly, and quarterly income patterns to be
+    // identified even when no deposit has landed in the current month yet.
+    const lookbackStart = startOfMonth(subMonths(startDate, 3));
+
+    const [incomeData, transactions, historicalTransactions] = await Promise.all([
       storage.getIncomesByUserIds(userIds),
       getAllNormalizedTransactions(userIds, startDate, endDate),
+      getAllNormalizedTransactions(userIds, lookbackStart, endDate),
     ]);
 
     const result = calculateIncomeForPeriod({
       income: incomeData,
       transactions,
+      historicalTransactions,
       monthStart: startDate,
       monthEnd: endDate,
     });

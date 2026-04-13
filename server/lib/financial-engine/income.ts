@@ -20,6 +20,7 @@ import {
   isAfter,
   addWeeks,
   getDaysInMonth,
+  differenceInDays,
 } from 'date-fns';
 import { IncomeResult } from './types';
 import type { NormalizedTransaction } from './normalized-types';
@@ -153,6 +154,111 @@ export function calculateMonthlyIncomeTotal(
 // is handled by the adapter layer BEFORE data reaches the engine.
 // The engine only works with NormalizedTransaction objects.
 
+// ─── Recurring Income Source Detection (Historical) ──────────────────────
+//
+// Analyzes 3+ months of historical income transactions to detect recurring
+// sources (weekly, biweekly, monthly, quarterly). This allows sources like
+// biweekly paychecks to appear even when no deposit has landed in the
+// current period yet.
+
+function avg(arr: number[]): number {
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function stdDev(arr: number[]): number {
+  const mean = avg(arr);
+  const variance = arr.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / arr.length;
+  return Math.sqrt(variance);
+}
+
+/** Normalize a source/merchant name for grouping */
+function normalizeSourceName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b(direct dep|dir dep|payroll|deposit|payment|pay|inc|ltd|llc|corp|co)\b/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+interface DetectedRecurringSource {
+  source: string;
+  avgAmount: number;
+  frequency: string;
+  occurrences: number;
+}
+
+/**
+ * Detect recurring income sources from historical transactions.
+ * Groups income transactions by normalized source name, analyzes interval
+ * consistency, and returns sources with detected frequency patterns.
+ */
+function detectRecurringIncomeSources(
+  historicalIncomeTx: NormalizedTransaction[]
+): DetectedRecurringSource[] {
+  // Group by normalized source name
+  const groups: Record<string, { date: string; amount: number; rawName: string }[]> = {};
+
+  for (const tx of historicalIncomeTx) {
+    const rawName = tx.merchant || 'Unknown';
+    const key = normalizeSourceName(rawName);
+    if (!key || key.length < 2) continue;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({
+      date: tx.date,
+      amount: Math.abs(parseFloat(String(tx.amount))),
+      rawName,
+    });
+  }
+
+  const results: DetectedRecurringSource[] = [];
+
+  for (const [, entries] of Object.entries(groups)) {
+    if (entries.length < 2) continue;
+
+    // Sort by date ascending
+    entries.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Calculate intervals between consecutive occurrences
+    const intervals: number[] = [];
+    for (let i = 1; i < entries.length; i++) {
+      const days = differenceInDays(parseISO(entries[i].date), parseISO(entries[i - 1].date));
+      if (days > 0) intervals.push(days);
+    }
+
+    if (intervals.length === 0) continue;
+
+    const meanInterval = avg(intervals);
+    const sd = stdDev(intervals);
+
+    // Only mark as recurring if interval is reasonably consistent (stddev < 35% of mean)
+    if (sd > meanInterval * 0.35) continue;
+
+    // Detect frequency from average interval
+    let frequency: string | null = null;
+    if (meanInterval >= 6 && meanInterval <= 8) frequency = 'weekly';
+    else if (meanInterval >= 13 && meanInterval <= 16) frequency = 'biweekly';
+    else if (meanInterval >= 28 && meanInterval <= 35) frequency = 'monthly';
+    else if (meanInterval >= 88 && meanInterval <= 95) frequency = 'quarterly';
+
+    if (!frequency) continue;
+
+    // Use the most recent raw name
+    const rawName = entries[entries.length - 1].rawName;
+    const amounts = entries.map((e) => e.amount);
+    const meanAmount = avg(amounts);
+
+    results.push({
+      source: rawName,
+      avgAmount: Math.round(meanAmount * 100) / 100,
+      frequency,
+      occurrences: entries.length,
+    });
+  }
+
+  return results;
+}
+
 // ─── Main Export ───────────────────────────────────────────────────────────
 
 /**
@@ -180,10 +286,11 @@ export function calculateMonthlyIncomeTotal(
 export function calculateIncomeForPeriod(params: {
   income: Income[];
   transactions: NormalizedTransaction[];
+  historicalTransactions?: NormalizedTransaction[];
   monthStart: Date;
   monthEnd: Date;
 }): IncomeResult {
-  const { income: incomeRecords = [], transactions = [], monthStart, monthEnd } = params;
+  const { income: incomeRecords = [], transactions = [], historicalTransactions, monthStart, monthEnd } = params;
 
   // Calculate budgeted income from user-entered records (reference/fallback only)
   let budgetedIncomeCents = 0;
@@ -238,6 +345,82 @@ export function calculateIncomeForPeriod(params: {
     } catch (e) {
       // Skip malformed transactions
       continue;
+    }
+  }
+
+  // ─── Historical Recurring Source Detection ────────────────────────────
+  // If historical transactions are provided, detect recurring income sources
+  // that haven't deposited in the current period yet (e.g., biweekly pay
+  // where the last check was in the prior month and the next hasn't landed).
+  // These are added to bySource so the user can see all expected income.
+  if (historicalTransactions && historicalTransactions.length > 0) {
+    // Filter historical transactions to income only (non-pending, non-transfer)
+    const historicalIncome = historicalTransactions.filter(
+      (tx) => !tx.isPending && !tx.isTransfer && tx.isIncome
+    );
+
+    if (historicalIncome.length > 0) {
+      const detectedSources = detectRecurringIncomeSources(historicalIncome);
+
+      // Build a set of normalized names already present in bySource
+      // (from DB income records) so we don't double-count
+      const existingSourceNames = new Set(
+        bySource.map((s) => normalizeSourceName(s.source))
+      );
+
+      // Also check which sources already have actual deposits in the current month
+      const currentMonthIncomeTx = transactions.filter(
+        (tx) => {
+          try {
+            const txDate = parseISO(tx.date);
+            return !tx.isPending && !tx.isTransfer && tx.isIncome &&
+              !isBefore(txDate, startOfMonth(monthStart)) &&
+              !isAfter(txDate, endOfMonth(monthEnd));
+          } catch { return false; }
+        }
+      );
+      const currentMonthSourceNames = new Set(
+        currentMonthIncomeTx.map((tx) =>
+          normalizeSourceName(tx.merchant || '')
+        )
+      );
+
+      for (const detected of detectedSources) {
+        const normalizedDetected = normalizeSourceName(detected.source);
+
+        // Skip if already represented by a DB income record or current-month deposit
+        if (existingSourceNames.has(normalizedDetected)) continue;
+        if (currentMonthSourceNames.has(normalizedDetected)) continue;
+
+        // Also check partial matches (e.g., "coreslab structures" vs "coreslab")
+        let alreadyExists = false;
+        for (const existing of existingSourceNames) {
+          if (existing.includes(normalizedDetected) || normalizedDetected.includes(existing)) {
+            alreadyExists = true;
+            break;
+          }
+        }
+        if (alreadyExists) continue;
+
+        for (const existing of currentMonthSourceNames) {
+          if (existing.includes(normalizedDetected) || normalizedDetected.includes(existing)) {
+            alreadyExists = true;
+            break;
+          }
+        }
+        if (alreadyExists) continue;
+
+        // Add detected recurring source as an expected income entry
+        bySource.push({
+          source: detected.source,
+          amount: detected.avgAmount,
+          category: 'Employment',
+          isRecurring: true,
+        });
+
+        // Add to budgeted income so the user sees the expected total
+        budgetedIncomeCents += toCents(detected.avgAmount);
+      }
     }
   }
 
