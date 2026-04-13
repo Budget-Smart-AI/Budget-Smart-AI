@@ -458,6 +458,65 @@ router.get("/income", async (req: Request, res: Response) => {
       monthEnd: endDate,
     });
 
+    // Auto-create income records for bank-detected sources not already in the DB.
+    // This ensures recurring income from all household earners (e.g., spouse's employer)
+    // automatically appears in the income list without manual entry.
+    if (result.bySource && result.bySource.length > 0) {
+      const existingSourcesNormalized = new Set(
+        incomeData.map((inc) => (inc.source || '').toLowerCase().replace(/[^a-z0-9]/g, ''))
+      );
+
+      for (const detected of result.bySource) {
+        const normalizedDetected = (detected.source || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (!normalizedDetected || normalizedDetected.length < 2) continue;
+
+        // Check if any existing DB record matches (exact or partial)
+        let alreadyInDB = existingSourcesNormalized.has(normalizedDetected);
+        if (!alreadyInDB) {
+          for (const existing of existingSourcesNormalized) {
+            if (existing.includes(normalizedDetected) || normalizedDetected.includes(existing)) {
+              alreadyInDB = true;
+              break;
+            }
+          }
+        }
+        if (alreadyInDB) continue;
+
+        // Auto-create the income record
+        try {
+          // Map detected category to valid INCOME_CATEGORIES enum value
+          const categoryMap: Record<string, string> = {
+            'Employment': 'Employment',
+            'Salary': 'Employment',
+            'Payroll': 'Employment',
+            'Income': 'Employment',
+            'INCOME': 'Employment',
+          };
+          const validCategory = categoryMap[detected.category] || 'Employment';
+
+          // Determine recurrence from the detected frequency if available
+          const recurrence = detected.isRecurring ? 'monthly' : null;
+
+          await storage.createIncome({
+            userId,
+            source: detected.source,
+            amount: String(detected.amount),
+            date: format(startDate, 'yyyy-MM-dd'),
+            category: validCategory,
+            isRecurring: detected.isRecurring ? 'true' : 'false',
+            recurrence,
+            notes: 'Auto-detected from bank transactions',
+            isActive: 'true',
+          });
+
+          // Add to the set so we don't create duplicates within this request
+          existingSourcesNormalized.add(normalizedDetected);
+        } catch (autoCreateErr) {
+          console.warn('[engine.income] Failed to auto-create income record for', detected.source, autoCreateErr);
+        }
+      }
+    }
+
     res.json(result as IncomeResult);
   } catch (error) {
     console.error("[engine.income]", error);

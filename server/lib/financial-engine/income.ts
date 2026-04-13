@@ -324,6 +324,9 @@ export function calculateIncomeForPeriod(params: {
   const transactionStartDate = startOfMonth(monthStart);
   const transactionEndDate = endOfMonth(monthEnd);
 
+  // Track current-month income by merchant so we can add them to bySource
+  const currentMonthIncomeByMerchant: Record<string, { total: number; merchant: string; category: string }> = {};
+
   for (const tx of transactions) {
     try {
       const txDate = parseISO(tx.date);
@@ -342,9 +345,42 @@ export function calculateIncomeForPeriod(params: {
       }
 
       actualIncomeCents += toCents(tx.amount);
+
+      // Group by merchant for bySource breakdown
+      const merchantName = tx.merchant || 'Unknown';
+      const key = normalizeSourceName(merchantName);
+      if (!currentMonthIncomeByMerchant[key]) {
+        currentMonthIncomeByMerchant[key] = { total: 0, merchant: merchantName, category: tx.category || 'Income' };
+      }
+      currentMonthIncomeByMerchant[key].total += parseFloat(String(tx.amount));
     } catch (e) {
       // Skip malformed transactions
       continue;
+    }
+  }
+
+  // Add current-month bank income deposits to bySource (skip if already covered by a DB income record)
+  const existingSourceNamesFromDB = new Set(
+    bySource.map((s) => normalizeSourceName(s.source))
+  );
+  for (const [normalizedKey, info] of Object.entries(currentMonthIncomeByMerchant)) {
+    // Check exact and partial matches against DB income records
+    let alreadyCovered = existingSourceNamesFromDB.has(normalizedKey);
+    if (!alreadyCovered) {
+      for (const existing of existingSourceNamesFromDB) {
+        if (existing.includes(normalizedKey) || normalizedKey.includes(existing)) {
+          alreadyCovered = true;
+          break;
+        }
+      }
+    }
+    if (!alreadyCovered) {
+      bySource.push({
+        source: info.merchant,
+        amount: Math.round(info.total * 100) / 100,
+        category: info.category,
+        isRecurring: false,
+      });
     }
   }
 
@@ -363,46 +399,20 @@ export function calculateIncomeForPeriod(params: {
       const detectedSources = detectRecurringIncomeSources(historicalIncome);
 
       // Build a set of normalized names already present in bySource
-      // (from DB income records) so we don't double-count
+      // (from DB income records AND current-month bank deposits) so we don't double-count
       const existingSourceNames = new Set(
         bySource.map((s) => normalizeSourceName(s.source))
-      );
-
-      // Also check which sources already have actual deposits in the current month
-      const currentMonthIncomeTx = transactions.filter(
-        (tx) => {
-          try {
-            const txDate = parseISO(tx.date);
-            return !tx.isPending && !tx.isTransfer && tx.isIncome &&
-              !isBefore(txDate, startOfMonth(monthStart)) &&
-              !isAfter(txDate, endOfMonth(monthEnd));
-          } catch { return false; }
-        }
-      );
-      const currentMonthSourceNames = new Set(
-        currentMonthIncomeTx.map((tx) =>
-          normalizeSourceName(tx.merchant || '')
-        )
       );
 
       for (const detected of detectedSources) {
         const normalizedDetected = normalizeSourceName(detected.source);
 
-        // Skip if already represented by a DB income record or current-month deposit
+        // Skip if already represented in bySource (DB records + current-month deposits)
         if (existingSourceNames.has(normalizedDetected)) continue;
-        if (currentMonthSourceNames.has(normalizedDetected)) continue;
 
         // Also check partial matches (e.g., "coreslab structures" vs "coreslab")
         let alreadyExists = false;
         for (const existing of existingSourceNames) {
-          if (existing.includes(normalizedDetected) || normalizedDetected.includes(existing)) {
-            alreadyExists = true;
-            break;
-          }
-        }
-        if (alreadyExists) continue;
-
-        for (const existing of currentMonthSourceNames) {
           if (existing.includes(normalizedDetected) || normalizedDetected.includes(existing)) {
             alreadyExists = true;
             break;
