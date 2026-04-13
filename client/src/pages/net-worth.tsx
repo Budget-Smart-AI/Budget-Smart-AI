@@ -98,7 +98,7 @@ export default function NetWorth() {
 
   // Map asset breakdown from engine response
   const assetData = Object.entries(netWorth.assetBreakdown)
-    .filter(([, value]) => value > 0)
+    .filter(([, value]) => value !== 0)
     .map(([key, value]) => {
       const iconMap: Record<string, any> = {
         cashAndBank: Wallet,
@@ -163,7 +163,7 @@ export default function NetWorth() {
         </Button>
       </div>
 
-      {/* Main Net Worth Card — 3-line breakdown */}
+      {/* Main Net Worth Card â 3-line breakdown */}
       <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
         <CardHeader>
           <CardDescription>Net Worth Summary</CardDescription>
@@ -242,7 +242,7 @@ export default function NetWorth() {
                 <CardTitle className="text-lg">Liabilities</CardTitle>
               </div>
               <Link href="/liabilities" className="text-xs text-primary hover:underline">
-                View all liabilities →
+                View all liabilities â
               </Link>
             </div>
             <CardTitle className="text-2xl text-red-600">{formatCurrencyFull(Math.abs(netWorth.totalLiabilities))}</CardTitle>
