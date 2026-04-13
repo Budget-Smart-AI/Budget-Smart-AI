@@ -54,7 +54,7 @@ export interface NetWorthParams {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-const DEPOSITORY_TYPES = new Set(['checking', 'savings', 'depository']);
+const ASSET_ACCOUNT_TYPES = new Set(['checking', 'savings', 'depository', 'investment']);
 const LIABILITY_TYPES = new Set(['credit', 'loan', 'mortgage', 'credit_card', 'line_of_credit']);
 
 /**
@@ -70,13 +70,13 @@ function calculateTotalAssets(
   let total: Cents = 0;
 
   // Bank accounts (depository types only) — provider-agnostic
-  const depositoryAccounts = bankAccounts.filter(
-    (acc) => acc.isActive && DEPOSITORY_TYPES.has(acc.accountType)
+  const assetAccounts = bankAccounts.filter(
+    (acc) => acc.isActive && ASSET_ACCOUNT_TYPES.has(acc.accountType)
   );
 
-  const bankTotal = depositoryAccounts.reduce((sum, acc) => sum + (parseFloat(String(acc.balance)) || 0), 0);
+  const bankTotal = assetAccounts.reduce((sum, acc) => sum + (parseFloat(String(acc.balance)) || 0), 0);
 
-  if (bankTotal > 0) {
+  if (bankTotal !== 0) {
     breakdown['Bank Accounts'] = bankTotal;
     total += bankTotal;
   }
