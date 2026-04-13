@@ -138,7 +138,7 @@ function getDebtTypeColor(debtType: string) {
   }
 }
 
-// ─── Plaid account grouping helpers ──────────────────────────────────────────
+// âââ Plaid account grouping helpers ââââââââââââââââââââââââââââââââââââââââââ
 
 interface PlaidLiabilityGroup {
   label: string;
@@ -146,7 +146,7 @@ interface PlaidLiabilityGroup {
   accounts: PlaidAccount[];
 }
 
-// Keywords that indicate a line of credit — checked against subtype AND account name
+// Keywords that indicate a line of credit â checked against subtype AND account name
 const LOC_KEYWORDS = [
   "line of credit",
   "loc",
@@ -202,12 +202,12 @@ export default function LiabilitiesPage() {
   const [editingDebt, setEditingDebt] = useState<DebtDetails | null>(null);
   const [deletingDebtId, setDeletingDebtId] = useState<string | null>(null);
 
-  // ── Manual debts ──────────────────────────────────────────────────────────
+  // ââ Manual debts ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const { data: debts = [], isLoading: isLoadingDebts } = useQuery<DebtDetails[]>({
     queryKey: ["/api/debts"],
   });
 
-  // ── Plaid accounts ────────────────────────────────────────────────────────
+  // ââ Plaid accounts ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   type GroupedAccounts = {
     id: string;
     institutionName: string;
@@ -245,12 +245,16 @@ export default function LiabilitiesPage() {
     queryKey: ["/api/engine/net-worth"],
   });
 
-  // Extract computed values from engine response, with fallback defaults
-  const plaidTotal = engineData?.liabilityBreakdown?.["Bank Debts"] ?? 0;
-  const manualTotal = engineData?.liabilityBreakdown?.["Manual Debts"] ?? 0;
+  // Extract computed values from engine response, with fallback defaults.
+  // Bank liability total = everything in the breakdown EXCEPT "Manual Debts".
+  const breakdown = engineData?.liabilityBreakdown ?? {};
+  const manualTotal = breakdown["Manual Debts"] ?? 0;
+  const plaidTotal = Object.entries(breakdown)
+    .filter(([key]) => key !== "Manual Debts")
+    .reduce((sum, [, v]) => sum + v, 0);
   const grandTotal = engineData?.totalLiabilities ?? 0;
 
-  // ── Auto-import helpers ───────────────────────────────────────────────────
+  // ââ Auto-import helpers âââââââââââââââââââââââââââââââââââââââââââââââââââ
   const linkedPlaidAccountIds = useMemo(
     () => new Set(debts.filter((d) => d.linkedPlaidAccountId).map((d) => d.linkedPlaidAccountId)),
     [debts]
@@ -326,7 +330,7 @@ export default function LiabilitiesPage() {
     }
   };
 
-  // ── Form ──────────────────────────────────────────────────────────────────
+  // ââ Form ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
   const form = useForm<DebtFormData>({
     resolver: zodResolver(debtFormSchema),
     defaultValues: {
@@ -533,14 +537,14 @@ export default function LiabilitiesPage() {
 
   return (
     <div className="space-y-6">
-      {/* ── Header ── */}
+      {/* ââ Header ââ */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             Liabilities
             <HelpTooltip
               title="Liabilities"
-              content="All your debts in one place — credit cards, mortgages, and loans pulled from your linked bank accounts, plus any manually tracked debts."
+              content="All your debts in one place â credit cards, mortgages, and loans pulled from your linked bank accounts, plus any manually tracked debts."
             />
           </h1>
           <p className="text-muted-foreground">Everything you owe in one place</p>
@@ -568,7 +572,7 @@ export default function LiabilitiesPage() {
         </div>
       </div>
 
-      {/* ── Total card ── */}
+      {/* ââ Total card ââ */}
       <Card className="border-red-500/20 bg-red-500/5">
         <CardContent className="flex items-center justify-between py-5">
           <div className="flex items-center gap-3">
@@ -597,7 +601,7 @@ export default function LiabilitiesPage() {
         </CardContent>
       </Card>
 
-      {/* ── Auto-import suggestion ── */}
+      {/* ââ Auto-import suggestion ââ */}
       {unlinkedPlaidAccounts.length > 0 && debts.length === 0 && (
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="flex items-center gap-4 py-4">
@@ -626,7 +630,7 @@ export default function LiabilitiesPage() {
         </Card>
       )}
 
-      {/* ── Plaid liability groups ── */}
+      {/* ââ Plaid liability groups ââ */}
       {plaidGroups.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -678,7 +682,7 @@ export default function LiabilitiesPage() {
                                   <p className="text-xs text-muted-foreground">{institution}</p>
                                 )}
                                 {account.mask && (
-                                  <p className="text-xs text-muted-foreground">••••{account.mask}</p>
+                                  <p className="text-xs text-muted-foreground">â¢â¢â¢â¢{account.mask}</p>
                                 )}
                                 <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
                                   {account.subtype || account.type}
@@ -703,14 +707,14 @@ export default function LiabilitiesPage() {
         </div>
       )}
 
-      {/* ── Manually tracked debts ── */}
+      {/* ââ Manually tracked debts ââ */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Pencil className="h-5 w-5 text-muted-foreground" />
             Manually Tracked
             <span className="text-sm font-normal text-muted-foreground">
-              — for loans not connected to Plaid
+              â for loans not connected to Plaid
             </span>
           </h2>
           <Button variant="outline" size="sm" onClick={handleOpenCreate} data-testid="button-add-manual-debt">
@@ -807,7 +811,7 @@ export default function LiabilitiesPage() {
         </Card>
       </div>
 
-      {/* ── Footer CTA ── */}
+      {/* ââ Footer CTA ââ */}
       <Card className="border-dashed">
         <CardContent className="flex items-center justify-between py-4">
           <div className="flex items-center gap-3">
@@ -828,7 +832,7 @@ export default function LiabilitiesPage() {
         </CardContent>
       </Card>
 
-      {/* ── Add/Edit Dialog ── */}
+      {/* ââ Add/Edit Dialog ââ */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1118,7 +1122,7 @@ export default function LiabilitiesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete confirmation ── */}
+      {/* ââ Delete confirmation ââ */}
       <AlertDialog open={!!deletingDebtId} onOpenChange={() => setDeletingDebtId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
