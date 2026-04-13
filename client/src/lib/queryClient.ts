@@ -106,7 +106,12 @@ function getUserFriendlyErrorMessage(status: number, originalMessage: string): s
     return "Please log in to continue.";
   }
   if (status === 402) return "You've reached the limit for your current plan. Upgrade to Pro to unlock unlimited access.";
-  if (status === 403) return "You don't have permission to do that.";
+  if (status === 403) {
+    if (originalMessage && originalMessage.length > MIN_CUSTOM_MESSAGE_LENGTH) {
+      return originalMessage;
+    }
+    return "You don't have permission to do that.";
+  }
   if (status === 404) return "That resource doesn't exist.";
   if (status === 409) return "A conflict occurred — this may already exist.";
   if (status === 422) return "Some fields have errors. Please review and try again.";
