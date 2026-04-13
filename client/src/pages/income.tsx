@@ -910,22 +910,64 @@ export default function IncomePage() {
             {statsLoading ? (
               <Skeleton className="h-8 w-32" />
             ) : (
-              <div>
-                <div className="text-2xl font-bold text-green-600">
-                  {formatCurrency(incomeStats?.budgetedIncome || 0)}
-                  <span className="text-sm font-normal text-muted-foreground ml-2">
-                    planned for {format(currentMonth, "MMMM")}
-                  </span>
+              <div className="flex items-center gap-6 flex-wrap">
+                <div>
+                  <div className="text-2xl font-bold text-green-600">
+                    {formatCurrency(incomeStats?.actualIncome || 0)}
+                    <span className="text-sm font-normal text-muted-foreground ml-2">
+                      received in {format(currentMonth, "MMMM")}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Actual income detected from bank deposits
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Expected income based on your income entries — see Bank Accounts for actual deposits received
-                </p>
+                {(incomeStats?.budgetedIncome || 0) > 0 && (
+                  <div className="border-l pl-6">
+                    <div className="text-lg font-semibold text-muted-foreground">
+                      {formatCurrency(incomeStats?.budgetedIncome || 0)}
+                      <span className="text-sm font-normal ml-2">planned</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      From your manual income entries
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             <span className="inline-flex items-center rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-              Planned / Expected
+              Bank Detected
             </span>
           </div>
+          {/* Bank-detected income sources from bySource */}
+          {!statsLoading && incomeStats?.bySource && incomeStats.bySource.length > 0 && (
+            <div className="mt-4 border rounded-lg p-4 bg-muted/30">
+              <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-green-600" />
+                Income Sources Detected from Bank
+              </h4>
+              <div className="space-y-2">
+                {incomeStats.bySource.map((source, idx) => (
+                  <div key={idx} className="flex items-center justify-between py-2 px-3 rounded-md bg-background">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-green-600/10 flex items-center justify-center text-green-600 font-medium text-sm">
+                        {source.source.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{source.source}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {source.category}{source.isRecurring ? ' · Recurring' : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="font-semibold text-green-600">
+                      {formatCurrency(source.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {isLoading ? (

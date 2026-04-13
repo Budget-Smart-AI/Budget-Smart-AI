@@ -427,9 +427,6 @@ export function calculateIncomeForPeriod(params: {
           category: 'Employment',
           isRecurring: true,
         });
-
-        // Add to budgeted income so the user sees the expected total
-        budgetedIncomeCents += toCents(detected.avgAmount);
       }
     }
   }
