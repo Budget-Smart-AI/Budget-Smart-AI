@@ -151,7 +151,7 @@ function calculateTotalLiabilities(
 
   if (bankLiabilitiesTotal > 0) {
     // Individual category entries (Mortgages, Credit Cards, etc.) are already in breakdown.
-    // Only add the total to the running sum â do NOT add a redundant "Bank Debts" key.
+    // Only add the total to the running sum — do NOT add a redundant "Bank Debts" key.
     total += bankLiabilitiesTotal;
   }
 
