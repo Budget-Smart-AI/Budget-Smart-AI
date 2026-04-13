@@ -69,7 +69,7 @@ function calculateTotalAssets(
   const breakdown: Record<string, Cents> = {};
   let total: Cents = 0;
 
-  // Bank accounts (asset types: checking, savings, depository, investment) â provider-agnostic
+  // Bank accounts (asset types: checking, savings, depository, investment) -- provider-agnostic
   const assetAccounts = bankAccounts.filter(
     (acc) => acc.isActive && ASSET_ACCOUNT_TYPES.has(acc.accountType)
   );
