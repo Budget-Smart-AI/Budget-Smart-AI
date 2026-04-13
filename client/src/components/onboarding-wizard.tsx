@@ -232,11 +232,18 @@ function ConnectBankStep({
         setLinkToken(data.link_token);
         return data.link_token;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching link token:", error);
+      setPendingPlaidOpen(false);
+      const msg = error?.message || "Failed to connect bank account.";
+      toast({
+        title: "Unable to connect bank",
+        description: msg,
+        variant: "destructive",
+      });
     }
     return null;
-  }, []);
+  }, [toast]);
 
   // Cleanup timer on unmount
   useEffect(() => {
