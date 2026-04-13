@@ -77,11 +77,19 @@ export class PlaidAdapter implements BankingAdapter {
 
       // PFC v2 income detection: counterpartyType "INCOME_SOURCE" identifies employers/gov payers.
       // Also check PFC primary category — if Plaid says it's income, trust that.
+      // Note: we do NOT treat all credits as income — refunds, corrections, and
+      // merchant credits are credits but not income. We rely on Plaid's PFC
+      // classification and counterparty type for accurate income detection.
       const pfcPrimary = (tx.category || "").toUpperCase();
       const counterpartyType = tx.counterpartyType || null;
       const isIncomeByPFC = pfcPrimary === "INCOME";
       const isIncomeByCounterparty = counterpartyType === "INCOME_SOURCE";
-      const isIncome = (isCredit && !isTransfer) || isIncomeByPFC || isIncomeByCounterparty;
+      // Also check the mapped category for income-related keywords
+      const isIncomeByCategory = /salary|payroll|income|wages|employment/i.test(category);
+      // A credit is only income if Plaid explicitly classifies it as such,
+      // OR the mapped category is income-related. Plain credits (refunds,
+      // corrections, merchant credits) are NOT income.
+      const isIncome = isIncomeByPFC || isIncomeByCounterparty || (isCredit && !isTransfer && isIncomeByCategory);
 
       return {
         id: tx.id,

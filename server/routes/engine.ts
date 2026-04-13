@@ -444,18 +444,6 @@ router.get("/income", async (req: Request, res: Response) => {
     // identified even when no deposit has landed in the current month yet.
     const lookbackStart = startOfMonth(subMonths(startDate, 3));
 
-    // One-time cleanup: remove income records that were erroneously auto-created
-    // by a previous version of this route. Safe to remove this block after 2026-04-20.
-    try {
-      const { pool } = await import("../db");
-      await pool.query(
-        `DELETE FROM income WHERE notes = 'Auto-detected from bank transactions'`
-      );
-    } catch (cleanupErr) {
-      // Non-fatal — just log and continue
-      console.warn('[engine.income] cleanup:', cleanupErr);
-    }
-
     const [incomeData, transactions, historicalTransactions] = await Promise.all([
       storage.getIncomesByUserIds(userIds),
       getAllNormalizedTransactions(userIds, startDate, endDate),

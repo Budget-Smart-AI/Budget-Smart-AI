@@ -248,6 +248,9 @@ function detectRecurringIncomeSources(
     const amounts = entries.map((e) => e.amount);
     const meanAmount = avg(amounts);
 
+    // Skip small recurring credits (interest, cashback, etc.) — not meaningful income
+    if (meanAmount < 100) continue;
+
     results.push({
       source: rawName,
       avgAmount: Math.round(meanAmount * 100) / 100,
@@ -360,10 +363,15 @@ export function calculateIncomeForPeriod(params: {
   }
 
   // Add current-month bank income deposits to bySource (skip if already covered by a DB income record)
+  // Only include meaningful income sources — skip small refunds and corrections
+  const MIN_INCOME_SOURCE_AMOUNT = 100; // Minimum $100 to appear as an income source
   const existingSourceNamesFromDB = new Set(
     bySource.map((s) => normalizeSourceName(s.source))
   );
   for (const [normalizedKey, info] of Object.entries(currentMonthIncomeByMerchant)) {
+    // Skip small amounts (likely refunds, corrections, interest)
+    if (info.total < MIN_INCOME_SOURCE_AMOUNT) continue;
+
     // Check exact and partial matches against DB income records
     let alreadyCovered = existingSourceNamesFromDB.has(normalizedKey);
     if (!alreadyCovered) {
