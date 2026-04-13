@@ -38,8 +38,8 @@ function mapPlaidAccountType(type?: string, subtype?: string): AccountCategory {
   if (t === "depository") return "depository";
   if (t === "credit" || sub === "credit card") return "credit";
   if (sub === "line of credit" || sub === "line_of_credit") return "line_of_credit";
-  if (t === "loan" || sub.includes("loan") || sub === "auto") return "loan";
   if (sub === "mortgage") return "mortgage";
+  if (t === "loan" || sub.includes("loan") || sub === "auto") return "loan";
   if (t === "investment" || sub === "brokerage" || sub === "401k" || sub === "ira" || sub === "rrsp" || sub === "rssp") return "investment";
   return "other";
 }
