@@ -561,8 +561,15 @@ export function ConnectBankWizard({
             setLinkToken(tokenData.link_token);
             // openPlaid() will be called by the auto-open effect once ready
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error("[ConnectBankWizard] Failed to create link token:", err);
+          setPlaidIsOpen(false);
+          const msg = err?.message || "Failed to connect bank account.";
+          toast({
+            title: "Unable to connect bank",
+            description: msg,
+            variant: "destructive",
+          });
         } finally {
           setTokenLoading(false);
         }
