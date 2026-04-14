@@ -21,6 +21,7 @@ import { Router, Request, Response } from "express";
 import { startOfMonth, endOfMonth, parseISO, format, subMonths, startOfYear } from "date-fns";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
+import { loadAndCalculateNetWorth } from "../lib/net-worth-service";
 import {
   calculateIncomeForPeriod,
   calculateExpensesForPeriod,
@@ -519,62 +520,10 @@ router.get("/net-worth", async (req: Request, res: Response) => {
   try {
     const userId = req.session.userId!;
     const householdId = req.session.householdId;
-
     const userIds = await getUserIdsForQuery(userId, householdId);
 
-    const [bankAccounts, rawAssets, rawDebts, rawSnapshots] = await Promise.all([
-      getAllNormalizedAccounts(userIds),
-      storage.getAssets(userId),
-      storage.getDebtDetails(userId),
-      storage.getNetWorthSnapshots(userId, { limit: 2 }),
-    ]);
-
-    // Fetch investment accounts and holdings for the primary user
-    const rawInvestmentAccounts = await storage.getInvestmentAccounts(userId);
-    const rawHoldings = await storage.getHoldingsByUser(userId);
-
-    // Map schema types (numeric strings) → engine types (numbers)
-    const assets = rawAssets.map((a) => ({
-      id: a.id,
-      category: a.category ?? "Other",
-      currentValue: parseFloat(String(a.currentValue ?? 0)),
-      purchasePrice: a.purchasePrice ? parseFloat(String(a.purchasePrice)) : undefined,
-    }));
-
-    const debts = rawDebts.map((d) => ({
-      id: d.id,
-      currentBalance: parseFloat(String(d.currentBalance ?? 0)),
-      debtType: d.debtType ?? "Other",
-    }));
-
-    const investmentAccounts = rawInvestmentAccounts.map((a) => ({
-      id: a.id,
-      balance: parseFloat(String(a.balance ?? 0)),
-    }));
-
-    const holdings = rawHoldings.map((h) => ({
-      id: h.id,
-      currentValue: parseFloat(String(h.currentValue ?? 0)),
-      costBasis: parseFloat(String(h.costBasis ?? 0)),
-    }));
-
-    // Map net worth history snapshots (numeric strings → numbers)
-    const history = rawSnapshots.map((s) => ({
-      netWorth: parseFloat(String(s.netWorth ?? 0)),
-      totalAssets: parseFloat(String(s.totalAssets ?? 0)),
-      totalLiabilities: parseFloat(String(s.totalLiabilities ?? 0)),
-      date: s.date,
-    }));
-
-    const result = calculateNetWorth({
-      bankAccounts,
-      assets,
-      debts,
-      investmentAccounts,
-      holdings,
-      history,
-    });
-
+    // All net worth math flows through the single service. No inline logic here.
+    const result = await loadAndCalculateNetWorth(userIds, userId);
     res.json(result as NetWorthResult);
   } catch (error) {
     console.error("[engine.net-worth]", error);
@@ -771,51 +720,17 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
 
     const userIds = await getUserIdsForQuery(userId, householdId);
 
-    const [bankAccounts, transactions] = await Promise.all([
-      getAllNormalizedAccounts(userIds),
+    // Net worth comes from the single service — no inline math. This route adds
+    // monthly spending/income/unmatched-count on top of the net worth numbers,
+    // all fed from the same normalized data model.
+    const [netWorthResult, transactions] = await Promise.all([
+      loadAndCalculateNetWorth(userIds, userId, { history: false }),
       getAllNormalizedTransactions(userIds, monthStart, monthEnd),
     ]);
 
-    // ── Net Worth calculation (mirrors net-worth.ts engine) ───────────────
-    // Following Monarch's logic:
-    // - Cash accounts (checking, savings, depository): only POSITIVE balances count as Assets
-    // - Investment-type accounts: count as Assets (positive only)
-    // - Liability accounts (mortgage, credit, loan, LOC): count as Liabilities (positive amount owed)
-    // - OVERDRAWN cash (negative checking) is treated as a Liability (debt owed to the bank)
-    // - Net Worth = Total Assets − Total Liabilities (always math-consistent)
-    const LIABILITY_TYPES = new Set(["credit", "loan", "mortgage", "credit_card", "line_of_credit"]);
-    const CASH_TYPES = new Set(["checking", "savings", "depository"]);
-    const INVESTMENT_BANK_TYPES = new Set(["investment", "brokerage"]);
-
-    const activeAccounts = bankAccounts.filter((a) => a.isActive);
-
-    // Cash assets: only positive cash balances contribute
-    const cashAssetTotal = activeAccounts
-      .filter((a) => CASH_TYPES.has(a.accountType))
-      .reduce((sum, a) => sum + Math.max(0, parseFloat(String(a.balance)) || 0), 0);
-
-    // Investment assets: positive balances of brokerage/investment accounts
-    const investmentAssetTotal = activeAccounts
-      .filter((a) => INVESTMENT_BANK_TYPES.has(a.accountType))
-      .reduce((sum, a) => sum + Math.max(0, parseFloat(String(a.balance)) || 0), 0);
-
-    const totalAssets = cashAssetTotal + investmentAssetTotal;
-
-    // Standard liabilities: credit cards, loans, mortgages, LOCs
-    const standardLiabilities = activeAccounts
-      .filter((a) => LIABILITY_TYPES.has(a.accountType))
-      .reduce((sum, a) => sum + Math.abs(parseFloat(String(a.balance)) || 0), 0);
-
-    // Overdrawn cash → treat as liability (debt to the bank)
-    const overdrawnCashTotal = activeAccounts
-      .filter((a) => CASH_TYPES.has(a.accountType))
-      .reduce((sum, a) => sum + Math.max(0, -(parseFloat(String(a.balance)) || 0)), 0);
-
-    const totalLiabilities = standardLiabilities + overdrawnCashTotal;
-
-    // Net worth = assets minus liabilities (math always works, no negative Assets display)
-    const netWorth = totalAssets - totalLiabilities;
-    const totalBalance = netWorth;
+    const totalAssets = netWorthResult.totalAssets;
+    const totalLiabilities = netWorthResult.totalLiabilities;
+    const totalBalance = netWorthResult.netWorth;
 
     // Monthly spending: sum of debit transactions that aren't transfers or pending
     const monthlySpending = transactions

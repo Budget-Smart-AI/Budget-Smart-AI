@@ -61,6 +61,7 @@ import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
 import { getEffectivePlan } from "./lib/planResolver";
 import { autoReconcile } from "./lib/auto-reconciler";
+import { loadAndCalculateNetWorth } from "./lib/net-worth-service";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -14214,114 +14215,25 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.get("/api/net-worth", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const householdId = req.session.householdId;
+      const userIds = householdId
+        ? await storage.getHouseholdMemberUserIds(householdId)
+        : [userId];
 
-      // Get all financial data
-      const [
-        plaidAccounts,
-        manualAccounts,
-        investmentAccounts,
-        holdings,
-        assets,
-        debtDetails,
-      ] = await Promise.all([
-        storage.getAllPlaidAccounts(userId),
-        storage.getManualAccounts(userId),
-        storage.getInvestmentAccounts(userId),
-        storage.getHoldingsByUser(userId),
-        storage.getAssets(userId),
-        storage.getDebtDetails(userId),
-      ]);
+      // All net worth math flows through the single service. No inline logic here
+      // so this route CANNOT drift from /api/engine/net-worth or the snapshot
+      // endpoint. See server/lib/net-worth-service.ts.
+      const result = await loadAndCalculateNetWorth(userIds, userId);
 
-      // Calculate totals
-      let cashAndBank = 0;
-      let investments = 0;
-      let realEstate = 0;
-      let vehicles = 0;
-      let otherAssets = 0;
-      let creditCards = 0;
-      let loans = 0;
-      let mortgages = 0;
-      let otherLiabilities = 0;
-
-      // Plaid accounts — classify by type per Plaid conventions
-      // ASSETS: depository (checking/savings/cd/money market), investment (brokerage/RRSP/TFSA/401k), other
-      // LIABILITIES: credit (credit card/line of credit/home equity), loan (mortgage/auto/student/personal)
-      // Plaid balanceCurrent is always POSITIVE for both assets and liabilities
-      // Only include explicitly active accounts (isActive === "true")
-      for (const acc of plaidAccounts.filter(a => a.isActive === "true")) {
-        const balance = parseFloat(acc.balanceCurrent || "0");
-        const type = (acc.type || "").toLowerCase();
-        const subtype = (acc.subtype || "").toLowerCase();
-        if (type === "depository") {
-          cashAndBank += balance;
-        } else if (type === "investment") {
-          investments += balance;
-        } else if (type === "other") {
-          otherAssets += balance;
-        } else if (type === "credit") {
-          creditCards += Math.abs(balance);
-        } else if (type === "loan") {
-          // Split loan subtypes: mortgage vs other loans
-          if (subtype.includes("mortgage")) {
-            mortgages += Math.abs(balance);
-          } else {
-            loans += Math.abs(balance);
-          }
-        }
-      }
-
-      // Manual accounts - types are: cash, paypal, venmo, other (all are liquid assets)
-      // Only include explicitly active accounts (isActive === "true")
-      for (const acc of manualAccounts.filter(a => a.isActive === "true")) {
-        const balance = parseFloat(acc.balance || "0");
-        // Manual accounts (cash, paypal, venmo, other) are all treated as cash/liquid assets
-        cashAndBank += balance;
-      }
-
-      // Investment accounts and holdings
-      for (const holding of holdings) {
-        investments += parseFloat(holding.currentValue || "0");
-      }
-
-      // Physical assets
-      for (const asset of assets) {
-        const value = parseFloat(asset.currentValue || "0");
-        if (asset.category === "real_estate") {
-          realEstate += value;
-        } else if (asset.category === "vehicle") {
-          vehicles += value;
-        } else {
-          otherAssets += value;
-        }
-      }
-
-      // Debt details (mortgages, etc.)
-      // Only include explicitly active debts that are NOT already tracked via a linked Plaid account
-      // (prevents double-counting: Plaid loan accounts are already counted above)
-      for (const debt of debtDetails.filter(d => d.isActive === "true" && !d.plaidAccountId)) {
-        const balance = parseFloat(debt.currentBalance || "0");
-        if (debt.debtType === "mortgage") {
-          mortgages += balance;
-        } else if (debt.debtType === "auto_loan") {
-          loans += balance;
-        } else if (debt.debtType === "student_loan" || debt.debtType === "personal_loan") {
-          loans += balance;
-        } else {
-          otherLiabilities += balance;
-        }
-      }
-
-      const totalAssets = cashAndBank + investments + realEstate + vehicles + otherAssets;
-      const totalLiabilities = creditCards + loans + mortgages + otherLiabilities;
-      const netWorth = totalAssets - totalLiabilities;
-
+      // Preserve the legacy response shape (breakdown keys) so any lingering
+      // callers don't break. Prefer /api/engine/net-worth for new callers.
       res.json({
-        netWorth,
-        totalAssets,
-        totalLiabilities,
+        netWorth: result.netWorth,
+        totalAssets: result.totalAssets,
+        totalLiabilities: result.totalLiabilities,
         breakdown: {
-          assets: { cashAndBank, investments, realEstate, vehicles, otherAssets },
-          liabilities: { creditCards, loans, mortgages, otherLiabilities },
+          assets: result.assetBreakdown,
+          liabilities: result.liabilityBreakdown,
         },
       });
     } catch (error) {
@@ -14344,77 +14256,44 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.post("/api/net-worth/snapshot", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const householdId = req.session.householdId;
+      const userIds = householdId
+        ? await storage.getHouseholdMemberUserIds(householdId)
+        : [userId];
 
-      // Calculate current net worth (same logic as GET /api/net-worth)
-      const [
-        plaidAccounts,
-        manualAccounts,
-        holdings,
-        assets,
-        debtDetails,
-      ] = await Promise.all([
-        storage.getAllPlaidAccounts(userId),
-        storage.getManualAccounts(userId),
-        storage.getHoldingsByUser(userId),
-        storage.getAssets(userId),
-        storage.getDebtDetails(userId),
-      ]);
+      // Net worth math flows through the single service. This guarantees the
+      // snapshot that gets persisted uses the EXACT same formula the user sees
+      // on the Net Worth page and the Accounts page. No more drift between
+      // "current net worth" and "saved history".
+      const result = await loadAndCalculateNetWorth(userIds, userId, { history: false });
 
-      let cashAndBank = 0, investments = 0, realEstate = 0, vehicles = 0, otherAssets = 0;
-      let creditCards = 0, loans = 0, mortgages = 0, otherLiabilities = 0;
-
-      // Only include explicitly active accounts (isActive === "true")
-      // Classify by Plaid type: depository/investment/other = assets; credit/loan = liabilities
-      for (const acc of plaidAccounts.filter(a => a.isActive === "true")) {
-        const balance = parseFloat(acc.balanceCurrent || "0");
-        const type = (acc.type || "").toLowerCase();
-        const subtype = (acc.subtype || "").toLowerCase();
-        if (type === "depository") cashAndBank += balance;
-        else if (type === "investment") investments += balance;
-        else if (type === "other") otherAssets += balance;
-        else if (type === "credit") creditCards += Math.abs(balance);
-        else if (type === "loan") {
-          if (subtype.includes("mortgage")) mortgages += Math.abs(balance);
-          else loans += Math.abs(balance);
-        }
-      }
-
-      // Manual accounts (cash, paypal, venmo, other) - all treated as cash/liquid assets
-      // Only include explicitly active accounts (isActive === "true")
-      for (const acc of manualAccounts.filter(a => a.isActive === "true")) {
-        const balance = parseFloat(acc.balance || "0");
-        cashAndBank += balance;
-      }
-
-      for (const holding of holdings) investments += parseFloat(holding.currentValue || "0");
-
-      for (const asset of assets) {
-        const value = parseFloat(asset.currentValue || "0");
-        if (asset.category === "real_estate") realEstate += value;
-        else if (asset.category === "vehicle") vehicles += value;
-        else otherAssets += value;
-      }
-
-      // Only include explicitly active debts that are NOT already tracked via a linked Plaid account
-      // (prevents double-counting: Plaid loan accounts are already counted above)
-      for (const debt of debtDetails.filter(d => d.isActive === "true" && !d.plaidAccountId)) {
-        const balance = parseFloat(debt.currentBalance || "0");
-        if (debt.debtType === "mortgage") mortgages += balance;
-        else if (debt.debtType === "auto_loan") loans += balance;
-        else if (["student_loan", "personal_loan"].includes(debt.debtType!)) loans += balance;
-        else otherLiabilities += balance;
-      }
-
-      const totalAssets = cashAndBank + investments + realEstate + vehicles + otherAssets;
-      const totalLiabilities = creditCards + loans + mortgages + otherLiabilities;
-      const netWorth = totalAssets - totalLiabilities;
+      // Break the engine's assetBreakdown / liabilityBreakdown back into the
+      // legacy per-category columns that net_worth_snapshots uses for history
+      // charts (cashAndBank, investments, realEstate, vehicles, otherAssets,
+      // creditCards, loans, mortgages, otherLiabilities).
+      const ab = result.assetBreakdown || {};
+      const lb = result.liabilityBreakdown || {};
+      const cashAndBank = ab["Cash"] ?? 0;
+      const investments = ab["Investments"] ?? 0;
+      const otherAssets = ab["Assets"] ?? 0; // manual assets bucket from engine
+      const realEstate = 0; // engine doesn't split these out today; kept for schema compat
+      const vehicles = 0;
+      const creditCards = lb["Credit Cards"] ?? 0;
+      const loans = lb["Other Loans"] ?? 0;
+      const mortgages = lb["Mortgages"] ?? 0;
+      // Overdrawn cash + manual debts roll into "other liabilities" bucket for history
+      const otherLiabilities =
+        (lb["Overdrawn Cash"] ?? 0) +
+        (lb["Lines of Credit"] ?? 0) +
+        (lb["Manual Debts"] ?? 0) +
+        (lb["Other Debts"] ?? 0);
 
       const snapshot = await storage.createNetWorthSnapshot({
         userId,
         date: new Date().toISOString().split('T')[0],
-        totalAssets: String(totalAssets),
-        totalLiabilities: String(totalLiabilities),
-        netWorth: String(netWorth),
+        totalAssets: String(result.totalAssets),
+        totalLiabilities: String(result.totalLiabilities),
+        netWorth: String(result.netWorth),
         cashAndBank: String(cashAndBank),
         investments: String(investments),
         realEstate: String(realEstate),
