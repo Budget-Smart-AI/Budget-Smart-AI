@@ -1015,10 +1015,10 @@ export default function BudgetsPage() {
             </div>
           )}
           <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={() => setShowAiSuggestions(false)}>
+            <Button variant="outline" onClick={() => setAiDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleApplyAiSuggestions} disabled={selectedSuggestions.size === 0}>
+            <Button onClick={handleAcceptSuggestions} disabled={selectedSuggestions.size === 0}>
               Apply Selected
             </Button>
           </div>

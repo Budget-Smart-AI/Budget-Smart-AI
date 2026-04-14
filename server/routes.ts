@@ -459,12 +459,80 @@ export async function registerRoutes(
         return mode;
       };
 
-      // Group transactions by merchant name (normalized)
+      // ── Bill detection filters (mirrors Monarch's logic) ──────────────────
+      // A "bill" is a recurring fixed-cost obligation: subscriptions, utilities,
+      // insurance, loan payments, rent. NOT discretionary recurring spending like
+      // groceries, restaurants, gas, or shopping (even if the merchant is recurring).
+      const NON_BILL_CATEGORIES = new Set([
+        "Groceries", "Grocery Store", "Grocery",
+        "Restaurants", "Restaurant", "Restaurant & Bars", "Restaurants & Bars",
+        "Coffee Shops", "Coffee Shop", "Coffee", "Cafe",
+        "Fast Food", "Fast Food / Pizza",
+        "Gas", "Gas & Fuel", "Gas Station", "Fuel",
+        "Shopping", "Discount Store", "Online Retail", "Clothing", "Clothing & Apparel",
+        "Cash & ATM", "ATM", "Cash Advance", "Cash",
+        "Money Transfer", "Personal Transfer", "Peer-to-Peer Transfer", "Transfer",
+        "Bank Fees", "Bank Fee", "Overdraft Protection Fee", "NSF Fee",
+        "Public Transit", "Taxi", "Ride Share", "Parking",
+        "Office Supplies", "Office Supplies & Expenses",
+        "Pet Supplies", "Personal Care", "Personal Care Products",
+        "Entertainment & Recreation",
+      ]);
+
+      // Map a personal/Plaid category to a valid BILL_CATEGORIES enum value.
+      // Returns "Other" only as a true last resort.
+      const mapToBillCategory = (rawCategory: string | null | undefined): string => {
+        if (!rawCategory) return "Other";
+        const c = rawCategory.toLowerCase();
+        if (c.includes("rent")) return "Rent";
+        if (c.includes("mortgage")) return "Mortgage";
+        if (c.includes("insurance")) return "Insurance";
+        if (c.includes("phone") || c.includes("mobile") || c.includes("cellular")) return "Phone";
+        if (c.includes("internet") || c.includes("cable")) return "Internet";
+        if (c.includes("utility") || c.includes("utilities") || c.includes("electric") ||
+            c.includes("gas & elec") || c.includes("water") || c.includes("garbage") || c.includes("hydro")) return "Utilities";
+        if (c.includes("subscription") || c.includes("streaming") || c.includes("software") || c.includes("ai service")) return "Subscriptions";
+        if (c.includes("loan") || c.includes("financing")) return "Loans";
+        if (c.includes("credit card payment")) return "Credit Card";
+        if (c.includes("line of credit")) return "Line of Credit";
+        if (c.includes("fitness") || c.includes("gym")) return "Fitness";
+        if (c.includes("entertainment")) return "Entertainment";
+        if (c.includes("travel") || c.includes("hotel") || c.includes("airline")) return "Travel";
+        if (c.includes("daycare") || c.includes("day care") || c.includes("childcare")) return "Day Care";
+        if (c.includes("car") || c.includes("auto")) return "Car";
+        if (c.includes("transportation") || c.includes("transit")) return "Transportation";
+        if (c.includes("communication") || c.includes("telecom")) return "Communications";
+        if (c.includes("business")) return "Business Expense";
+        if (c.includes("electric")) return "Electrical";
+        if (c.includes("maintenance") || c.includes("repair")) return "Maintenance";
+        return "Other";
+      };
+
+      // Project the next due date from the most recent occurrence + frequency interval
+      const intervalDaysByFreq: Record<string, number> = {
+        weekly: 7, biweekly: 14, monthly: 30, quarterly: 91, yearly: 365,
+      };
+      const projectNextDueDate = (lastChargeDate: string, freq: string): string => {
+        const last = new Date(lastChargeDate);
+        const days = intervalDaysByFreq[freq] || 30;
+        const next = new Date(last);
+        next.setDate(next.getDate() + days);
+        return next.toISOString().split("T")[0];
+      };
+
+      // Group transactions by merchant name (normalized), filtering at the source
       const merchantGroups: Record<string, any[]> = {};
       for (const tx of allTransactions) {
         // Only look at expenses (positive amounts in Plaid are money leaving account)
         const amount = parseFloat(tx.amount);
         if (amount <= 0) continue;
+
+        // Skip transfers (cash advance, e-transfer, credit card payment) — these aren't bills
+        if ((tx as any).isTransfer === true) continue;
+
+        // Skip transactions in non-bill categories (groceries, restaurants, gas, shopping…)
+        const personalCat = (tx as any).personalCategory;
+        if (personalCat && NON_BILL_CATEGORIES.has(personalCat)) continue;
 
         const merchant = (tx.merchantName || tx.name || "").toLowerCase().trim();
         if (!merchant || merchant.length < 3) continue;
@@ -507,9 +575,10 @@ export async function registerRoutes(
         const amounts = transactions.map(tx => parseFloat(tx.amount));
         const avgAmount = amounts.reduce((a, b) => a + b, 0) / amounts.length;
 
-        // Check if amounts are consistent (within 10% of average)
-        const amountsConsistent = amounts.every(a => Math.abs(a - avgAmount) / avgAmount < 0.1);
-        if (!amountsConsistent && transactions.length < 4) continue;
+        // TIGHTENED: bills must have very consistent amounts (within 5% of average).
+        // Variable-amount recurring charges (groceries every Friday) are NOT bills.
+        const amountsConsistent = amounts.every(a => Math.abs(a - avgAmount) / avgAmount < 0.05);
+        if (!amountsConsistent) continue;
 
         // Analyze frequency
         const dates = transactions.map(tx => new Date(tx.date).getTime());
@@ -559,6 +628,23 @@ export async function registerRoutes(
           .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
           .join(" ");
 
+        // Derive bill category from the source transactions' personalCategory.
+        // Use the most common non-null category across the group.
+        const txCategories = transactions
+          .map(t => (t as any).personalCategory)
+          .filter((c): c is string => !!c);
+        const dominantCategory = txCategories.length > 0
+          ? txCategories.sort((a, b) =>
+              txCategories.filter(v => v === a).length - txCategories.filter(v => v === b).length
+            ).pop() ?? null
+          : null;
+        const billCategory = mapToBillCategory(dominantCategory);
+
+        // Project the actual next due date from the last charge + frequency interval
+        const lastChargeDate = transactions[transactions.length - 1].date;
+        const nextDueDate = projectNextDueDate(lastChargeDate, frequency);
+        const startDate = transactions[0].date;
+
         detected.push({
           name: displayName,
           amount: Math.round(avgAmount * 100) / 100,
@@ -568,11 +654,14 @@ export async function registerRoutes(
           merchant: displayName,
           confidence,
           confidenceLabel: confidence >= 0.85 ? "high" : confidence >= 0.7 ? "medium" : "low",
-          lastChargeDate: transactions[transactions.length - 1].date,
+          lastChargeDate,
+          nextDueDate,
+          startDate,
           transactionCount: transactions.length,
           predominantDay,
           source: "pattern",
-          category: "Other",
+          category: billCategory,
+          sourceCategory: dominantCategory || null,
         });
       }
 
@@ -9200,12 +9289,77 @@ ${JSON.stringify(txSummary)}`;
         return mode;
       };
 
-      // Group transactions by merchant name (normalized)
+      // ── Subscription/bill detection filters (mirrors Monarch's logic) ────
+      // A "subscription" or "bill" is a recurring fixed-cost obligation. NOT
+      // discretionary recurring spending like groceries, restaurants, gas, or
+      // shopping (even if the merchant is recurring).
+      const NON_BILL_CATEGORIES = new Set([
+        "Groceries", "Grocery Store", "Grocery",
+        "Restaurants", "Restaurant", "Restaurant & Bars", "Restaurants & Bars",
+        "Coffee Shops", "Coffee Shop", "Coffee", "Cafe",
+        "Fast Food", "Fast Food / Pizza",
+        "Gas", "Gas & Fuel", "Gas Station", "Fuel",
+        "Shopping", "Discount Store", "Online Retail", "Clothing", "Clothing & Apparel",
+        "Cash & ATM", "ATM", "Cash Advance", "Cash",
+        "Money Transfer", "Personal Transfer", "Peer-to-Peer Transfer", "Transfer",
+        "Bank Fees", "Bank Fee", "Overdraft Protection Fee", "NSF Fee",
+        "Public Transit", "Taxi", "Ride Share", "Parking",
+        "Office Supplies", "Office Supplies & Expenses",
+        "Pet Supplies", "Personal Care", "Personal Care Products",
+        "Entertainment & Recreation",
+      ]);
+
+      const mapToBillCategory = (rawCategory: string | null | undefined): string => {
+        if (!rawCategory) return "Other";
+        const c = rawCategory.toLowerCase();
+        if (c.includes("rent")) return "Rent";
+        if (c.includes("mortgage")) return "Mortgage";
+        if (c.includes("insurance")) return "Insurance";
+        if (c.includes("phone") || c.includes("mobile") || c.includes("cellular")) return "Phone";
+        if (c.includes("internet") || c.includes("cable")) return "Internet";
+        if (c.includes("utility") || c.includes("utilities") || c.includes("electric") ||
+            c.includes("gas & elec") || c.includes("water") || c.includes("garbage") || c.includes("hydro")) return "Utilities";
+        if (c.includes("subscription") || c.includes("streaming") || c.includes("software") || c.includes("ai service")) return "Subscriptions";
+        if (c.includes("loan") || c.includes("financing")) return "Loans";
+        if (c.includes("credit card payment")) return "Credit Card";
+        if (c.includes("line of credit")) return "Line of Credit";
+        if (c.includes("fitness") || c.includes("gym")) return "Fitness";
+        if (c.includes("entertainment")) return "Entertainment";
+        if (c.includes("travel") || c.includes("hotel") || c.includes("airline")) return "Travel";
+        if (c.includes("daycare") || c.includes("day care") || c.includes("childcare")) return "Day Care";
+        if (c.includes("car") || c.includes("auto")) return "Car";
+        if (c.includes("transportation") || c.includes("transit")) return "Transportation";
+        if (c.includes("communication") || c.includes("telecom")) return "Communications";
+        if (c.includes("business")) return "Business Expense";
+        if (c.includes("electric")) return "Electrical";
+        if (c.includes("maintenance") || c.includes("repair")) return "Maintenance";
+        return "Other";
+      };
+
+      const intervalDaysByFreq: Record<string, number> = {
+        weekly: 7, biweekly: 14, monthly: 30, quarterly: 91, yearly: 365,
+      };
+      const projectNextDueDate = (lastChargeDate: string, freq: string): string => {
+        const last = new Date(lastChargeDate);
+        const days = intervalDaysByFreq[freq] || 30;
+        const next = new Date(last);
+        next.setDate(next.getDate() + days);
+        return next.toISOString().split("T")[0];
+      };
+
+      // Group transactions by merchant name (normalized) — apply filters at source
       const merchantGroups: Record<string, any[]> = {};
       for (const tx of allTransactions) {
         // Only look at expenses (positive amounts in Plaid are money leaving account)
         const amount = parseFloat(tx.amount);
         if (amount <= 0) continue;
+
+        // Skip transfers (cash advance, e-transfer, credit card payment) — not bills
+        if ((tx as any).isTransfer === true) continue;
+
+        // Skip non-bill categories (groceries, restaurants, gas, shopping…)
+        const personalCat = (tx as any).personalCategory;
+        if (personalCat && NON_BILL_CATEGORIES.has(personalCat)) continue;
 
         const merchant = (tx.merchantName || tx.name || "").toLowerCase().trim();
         if (!merchant || merchant.length < 3) continue;
@@ -9248,9 +9402,9 @@ ${JSON.stringify(txSummary)}`;
         const amounts = transactions.map(tx => parseFloat(tx.amount));
         const avgAmount = amounts.reduce((a, b) => a + b, 0) / amounts.length;
 
-        // Check if amounts are consistent (within 10% of average)
-        const amountsConsistent = amounts.every(a => Math.abs(a - avgAmount) / avgAmount < 0.1);
-        if (!amountsConsistent && transactions.length < 4) continue;
+        // TIGHTENED: bills must have very consistent amounts (within 5% of average)
+        const amountsConsistent = amounts.every(a => Math.abs(a - avgAmount) / avgAmount < 0.05);
+        if (!amountsConsistent) continue;
 
         // Analyze frequency
         const dates = transactions.map(tx => new Date(tx.date).getTime());
@@ -9300,6 +9454,22 @@ ${JSON.stringify(txSummary)}`;
           .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
           .join(" ");
 
+        // Derive bill category from source transactions (most common personalCategory)
+        const txCategories = transactions
+          .map(t => (t as any).personalCategory)
+          .filter((c): c is string => !!c);
+        const dominantCategory = txCategories.length > 0
+          ? txCategories.sort((a, b) =>
+              txCategories.filter(v => v === a).length - txCategories.filter(v => v === b).length
+            ).pop() ?? null
+          : null;
+        const billCategory = mapToBillCategory(dominantCategory);
+
+        // Project actual next due date from last charge + frequency interval
+        const lastChargeDate = transactions[transactions.length - 1].date;
+        const nextDueDate = projectNextDueDate(lastChargeDate, frequency);
+        const startDate = transactions[0].date;
+
         detected.push({
           name: displayName,
           amount: Math.round(avgAmount * 100) / 100,
@@ -9309,11 +9479,14 @@ ${JSON.stringify(txSummary)}`;
           merchant: displayName,
           confidence,
           confidenceLabel: confidence >= 0.85 ? "high" : confidence >= 0.7 ? "medium" : "low",
-          lastChargeDate: transactions[transactions.length - 1].date,
+          lastChargeDate,
+          nextDueDate,
+          startDate,
           transactionCount: transactions.length,
           predominantDay,
           source: "pattern",
-          category: "Other",
+          category: billCategory,
+          sourceCategory: dominantCategory || null,
         });
       }
 

@@ -862,6 +862,9 @@ export default function Bills() {
           category: bill.category,
           dueDay: bill.dueDay,
           recurrence: bill.recurrence,
+          // Use the actual first detected charge as startDate (not today) so the UI
+          // can compute correct "Next Due" countdowns from startDate + recurrence.
+          startDate: (bill as any).startDate || (bill as any).lastChargeDate || undefined,
           notes: `Auto-detected from bank transactions`,
         });
         if (response.status === 402) {

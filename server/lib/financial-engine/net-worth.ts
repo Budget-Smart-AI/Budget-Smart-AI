@@ -54,11 +54,20 @@ export interface NetWorthParams {
 
 // âââ Helpers ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
-const ASSET_ACCOUNT_TYPES = new Set(['checking', 'savings', 'depository', 'investment']);
+// Cash accounts: liquid funds that can be positive or negative (overdrawn).
+// Following Monarch's logic, only positive balances contribute to Assets;
+// negative balances (overdrawn) are treated as liabilities.
+const CASH_TYPES = new Set(['checking', 'savings', 'depository']);
+const INVESTMENT_BANK_TYPES = new Set(['investment', 'brokerage']);
 const LIABILITY_TYPES = new Set(['credit', 'loan', 'mortgage', 'credit_card', 'line_of_credit']);
 
 /**
  * Calculate total assets from all sources
+ *
+ * Following Monarch's pattern: Assets are POSITIVE positions you own.
+ * - Cash accounts: only positive balances are counted (overdrawn cash flows to liabilities)
+ * - Investment accounts: counted at full value
+ * - Manual assets: counted at current value
  */
 function calculateTotalAssets(
   bankAccounts: NormalizedAccount[],
@@ -69,21 +78,35 @@ function calculateTotalAssets(
   const breakdown: Record<string, Cents> = {};
   let total: Cents = 0;
 
-  // Bank accounts (asset types: checking, savings, depository, investment) -- provider-agnostic
-  const assetAccounts = bankAccounts.filter(
-    (acc) => acc.isActive && ASSET_ACCOUNT_TYPES.has(acc.accountType)
+  // Cash & Bank Accounts (checking, savings, depository) — only positive contributes
+  // Per-account treatment: each account adds to Assets only if its balance is positive.
+  // Overdrawn balances are surfaced under Liabilities (see calculateTotalLiabilities).
+  const cashAccounts = bankAccounts.filter(
+    (acc) => acc.isActive && CASH_TYPES.has(acc.accountType)
   );
 
-  const bankTotal = assetAccounts.reduce((sum, acc) => sum + (parseFloat(String(acc.balance)) || 0), 0);
+  const cashAssetTotal = cashAccounts.reduce(
+    (sum, acc) => sum + Math.max(0, parseFloat(String(acc.balance)) || 0),
+    0
+  );
 
-  // Always include bank account balances in assets (even if total is negative, e.g. overdrawn checking)
-  if (bankTotal !== 0) {
-    breakdown['Bank Accounts'] = bankTotal;
-    total += bankTotal;
+  if (cashAssetTotal > 0) {
+    breakdown['Cash'] = cashAssetTotal;
+    total += cashAssetTotal;
   }
 
-  // Investment accounts and holdings
-  let investmentTotal: Cents = 0;
+  // Investment-type bank accounts (e.g., brokerage cash from Plaid)
+  const investmentBankAccounts = bankAccounts.filter(
+    (acc) => acc.isActive && INVESTMENT_BANK_TYPES.has(acc.accountType)
+  );
+
+  const investmentBankTotal = investmentBankAccounts.reduce(
+    (sum, acc) => sum + Math.max(0, parseFloat(String(acc.balance)) || 0),
+    0
+  );
+
+  // Investment accounts and holdings (separate data source — manual or via investments table)
+  let investmentTotal: Cents = investmentBankTotal;
 
   const holdingsByAccount: Record<string, Cents> = {};
   holdings.forEach((holding) => {
@@ -103,7 +126,7 @@ function calculateTotalAssets(
     total += investmentTotal;
   }
 
-  // Manual assets
+  // Manual assets (cars, real estate, etc.)
   const manualAssetsTotal = assets.reduce(
     (sum, asset) => sum + (asset.currentValue || 0),
     0
@@ -153,6 +176,24 @@ function calculateTotalLiabilities(
     // Individual category entries (Mortgages, Credit Cards, etc.) are already in breakdown.
     // Only add the total to the running sum — do NOT add a redundant "Bank Debts" key.
     total += bankLiabilitiesTotal;
+  }
+
+  // Overdrawn cash accounts: a negative checking/savings balance is debt owed to the bank.
+  // This keeps Net Worth = Total Assets − Total Liabilities while preventing the
+  // confusing "negative Total Assets" display that occurred when overdrawn cash was
+  // lumped into Assets. (Mirrors Monarch's pattern of separating cash from the assets rollup.)
+  const cashAccountsForOverdraft = bankAccounts.filter(
+    (acc) => acc.isActive && CASH_TYPES.has(acc.accountType)
+  );
+
+  const overdrawnTotal = cashAccountsForOverdraft.reduce(
+    (sum, acc) => sum + Math.max(0, -(parseFloat(String(acc.balance)) || 0)),
+    0
+  );
+
+  if (overdrawnTotal > 0) {
+    breakdown['Overdrawn Cash'] = overdrawnTotal;
+    total += overdrawnTotal;
   }
 
   // Manual debts

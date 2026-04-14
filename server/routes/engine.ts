@@ -776,25 +776,44 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
       getAllNormalizedTransactions(userIds, monthStart, monthEnd),
     ]);
 
-    // ── Net Worth calculation ──────────────────────────────────────────────
-    // Liability accounts (mortgage, credit, loan, LOC) are debts the user OWES.
-    // Their balance represents money owed, so it must be subtracted from net worth.
-    // Asset accounts (checking, savings, investment, brokerage) are money the user HAS.
+    // ── Net Worth calculation (mirrors net-worth.ts engine) ───────────────
+    // Following Monarch's logic:
+    // - Cash accounts (checking, savings, depository): only POSITIVE balances count as Assets
+    // - Investment-type accounts: count as Assets (positive only)
+    // - Liability accounts (mortgage, credit, loan, LOC): count as Liabilities (positive amount owed)
+    // - OVERDRAWN cash (negative checking) is treated as a Liability (debt owed to the bank)
+    // - Net Worth = Total Assets − Total Liabilities (always math-consistent)
     const LIABILITY_TYPES = new Set(["credit", "loan", "mortgage", "credit_card", "line_of_credit"]);
-    const ASSET_TYPES = new Set(["checking", "savings", "depository", "investment"]);
+    const CASH_TYPES = new Set(["checking", "savings", "depository"]);
+    const INVESTMENT_BANK_TYPES = new Set(["investment", "brokerage"]);
 
     const activeAccounts = bankAccounts.filter((a) => a.isActive);
 
-    const totalAssets = activeAccounts
-      .filter((a) => ASSET_TYPES.has(a.accountType))
+    // Cash assets: only positive cash balances contribute
+    const cashAssetTotal = activeAccounts
+      .filter((a) => CASH_TYPES.has(a.accountType))
       .reduce((sum, a) => sum + Math.max(0, parseFloat(String(a.balance)) || 0), 0);
 
-    const totalLiabilities = activeAccounts
+    // Investment assets: positive balances of brokerage/investment accounts
+    const investmentAssetTotal = activeAccounts
+      .filter((a) => INVESTMENT_BANK_TYPES.has(a.accountType))
+      .reduce((sum, a) => sum + Math.max(0, parseFloat(String(a.balance)) || 0), 0);
+
+    const totalAssets = cashAssetTotal + investmentAssetTotal;
+
+    // Standard liabilities: credit cards, loans, mortgages, LOCs
+    const standardLiabilities = activeAccounts
       .filter((a) => LIABILITY_TYPES.has(a.accountType))
       .reduce((sum, a) => sum + Math.abs(parseFloat(String(a.balance)) || 0), 0);
 
-    // Net worth = assets minus liabilities
-    // Also compute totalBalance (raw sum) for backward compat if needed elsewhere
+    // Overdrawn cash → treat as liability (debt to the bank)
+    const overdrawnCashTotal = activeAccounts
+      .filter((a) => CASH_TYPES.has(a.accountType))
+      .reduce((sum, a) => sum + Math.max(0, -(parseFloat(String(a.balance)) || 0)), 0);
+
+    const totalLiabilities = standardLiabilities + overdrawnCashTotal;
+
+    // Net worth = assets minus liabilities (math always works, no negative Assets display)
     const netWorth = totalAssets - totalLiabilities;
     const totalBalance = netWorth;
 
