@@ -185,6 +185,12 @@ function ConnectBankStep({
   onCountryChange: (country: string, state: string) => void;
 }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  // Provider-agnostic bank-link intent. Held in component state ONLY — never
+  // persisted to localStorage / sessionStorage / React Query cache. The server
+  // validates this id matches the still-current session user before
+  // exchanging the Plaid public_token (or syncing the MX member).
+  const [intentId, setIntentId] = useState<string | null>(null);
+  const [mxIntentId, setMxIntentId] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -230,6 +236,8 @@ function ConnectBankStep({
       const data = await res.json();
       if (data.link_token) {
         setLinkToken(data.link_token);
+        // Capture the bank-link intent — must be passed back at exchange time.
+        setIntentId(data.intent_id ?? null);
         return data.link_token;
       }
     } catch (error: any) {
@@ -268,8 +276,12 @@ function ConnectBankStep({
     try {
       await apiRequest("POST", "/api/plaid/exchange-token", {
         public_token: publicToken,
+        intent_id: intentId,
         metadata: { institution: metadata.institution },
       });
+      // Single-use intent — clear immediately. Server enforces single-use too.
+      setIntentId(null);
+      setLinkToken(null);
       setConnected(true);
       setIsSyncing(true);
       setSyncMessage("🎉 Connected! Finding your transactions...");
@@ -376,6 +388,8 @@ function ConnectBankStep({
       const data = await res.json();
       if (data.widgetUrl) {
         setMxWidgetUrl(data.widgetUrl);
+        // Capture intent — must be passed back when MX posts memberConnected.
+        setMxIntentId(data.intent_id ?? null);
         setShowMxWidget(true);
         onPlaidOpen?.(true);
       } else {
@@ -408,9 +422,13 @@ function ConnectBankStep({
           try {
             const memberGuid = metadata?.member_guid;
             if (memberGuid) {
-              await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`);
+              await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`, {
+                intent_id: mxIntentId,
+              });
               await apiRequest("POST", "/api/mx/transactions/sync");
             }
+            // Single-use intent — clear immediately.
+            setMxIntentId(null);
             toast({ title: "Bank account connected!" });
           } catch (err) {
             console.error("[MX wizard] Sync error:", err);
@@ -425,7 +443,7 @@ function ConnectBankStep({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [mxEnabled, toast, onPlaidOpen, onBankConnected]);
+  }, [mxEnabled, toast, onPlaidOpen, onBankConnected, mxIntentId]);
 
   // Auto-advance after 30s if syncing
   useEffect(() => {

@@ -393,12 +393,17 @@ export function ConnectBankWizard({
   const [country, setCountry] = useState(initialCountry || detectCountry());
   const [plaidIsOpen, setPlaidIsOpen] = useState(false);
 
-  // Plaid link token
+  // Plaid link token + provider-agnostic bank-link intent. Both held in
+  // component state ONLY — never persisted to localStorage / sessionStorage,
+  // never written to React Query cache. Cleared on dialog close so a stale
+  // token can't be replayed by a different user on the same browser.
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [intentId, setIntentId] = useState<string | null>(null);
   const [tokenLoading, setTokenLoading] = useState(false);
 
-  // MX state
+  // MX state — intent_id likewise scoped to component memory only.
   const [mxWidgetUrl, setMxWidgetUrl] = useState<string | null>(null);
+  const [mxIntentId, setMxIntentId] = useState<string | null>(null);
   const [showMxWidget, setShowMxWidget] = useState(false);
   const [mxLoading, setMxLoading] = useState(false);
   const [showMxConsent, setShowMxConsent] = useState(false);
@@ -408,11 +413,19 @@ export function ConnectBankWizard({
   const [preferredProvider, setPreferredProvider] = useState<"plaid" | "mx" | null>(null);
   const [providersLoaded, setProvidersLoaded] = useState(false);
 
-  // Reset to step 1 whenever the dialog opens
+  // Reset to step 1 whenever the dialog opens — and CRITICALLY clear all
+  // bank-link state. A stale link_token / intent from a previous run (or a
+  // previous user on the same browser) must never leak into a new connect
+  // attempt; the server intent guard would catch the cross-user case but
+  // belt-and-braces here costs nothing.
   useEffect(() => {
     if (open) {
       setStep(1);
       setLinkToken(null);
+      setIntentId(null);
+      setMxWidgetUrl(null);
+      setMxIntentId(null);
+      setShowMxWidget(false);
       setPlaidIsOpen(false);
     }
   }, [open]);
@@ -445,10 +458,18 @@ export function ConnectBankWizard({
     async (publicToken: string, metadata: any) => {
       setPlaidIsOpen(false);
       try {
+        // intent_id was captured at create-link-token time and stays in
+        // component memory only. The server validates it matches the still-
+        // current session user before exchanging the public_token.
         await apiRequest("POST", "/api/plaid/exchange-token", {
           public_token: publicToken,
+          intent_id: intentId,
           metadata: { institution: metadata.institution },
         });
+        // One-shot intent — clear immediately to prevent any retry from
+        // accidentally trying to reuse it (the server enforces single-use too).
+        setIntentId(null);
+        setLinkToken(null);
         // Kick off historical fetch in background
         apiRequest("POST", "/api/plaid/transactions/fetch-historical").catch(() => {});
         queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
@@ -461,7 +482,7 @@ export function ConnectBankWizard({
         toast({ title: "Failed to connect bank account", variant: "destructive" });
       }
     },
-    [toast, onOpenChange, onSuccess]
+    [toast, onOpenChange, onSuccess, intentId]
   );
 
   const onPlaidExit = useCallback(() => {
@@ -482,6 +503,9 @@ export function ConnectBankWizard({
       const data = await res.json();
       if (data.widgetUrl) {
         setMxWidgetUrl(data.widgetUrl);
+        // Capture the bank-link intent — must be presented back when MX
+        // posts memberConnected and we sync the member to our DB.
+        setMxIntentId(data.intent_id ?? null);
         setShowMxWidget(true);
         setPlaidIsOpen(true);
       } else {
@@ -504,9 +528,16 @@ export function ConnectBankWizard({
           try {
             const memberGuid = metadata?.member_guid;
             if (memberGuid) {
-              await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`);
+              // Pass the intent_id captured from /api/mx/connect-widget so
+              // the server can verify this completion belongs to the same
+              // session that initiated it.
+              await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`, {
+                intent_id: mxIntentId,
+              });
               await apiRequest("POST", "/api/mx/transactions/sync");
             }
+            // One-shot intent — clear immediately.
+            setMxIntentId(null);
             toast({ title: "🎉 Bank account connected!" });
           } catch (err) {
             console.error("[ConnectBankWizard MX] Sync error:", err);
@@ -522,7 +553,7 @@ export function ConnectBankWizard({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [open, toast, onOpenChange, onSuccess]);
+  }, [open, toast, onOpenChange, onSuccess, mxIntentId]);
 
   // Step 1 → save country → go to step 2
   const handleLocationNext = useCallback(
@@ -559,6 +590,9 @@ export function ConnectBankWizard({
           const tokenData = await tokenRes.json();
           if (tokenData.link_token) {
             setLinkToken(tokenData.link_token);
+            // Capture the bank-link intent — must be passed back at exchange
+            // time so the server can verify the same session that initiated.
+            setIntentId(tokenData.intent_id ?? null);
             // openPlaid() will be called by the auto-open effect once ready
           }
         } catch (err: any) {

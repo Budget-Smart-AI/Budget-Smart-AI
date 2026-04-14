@@ -19,7 +19,7 @@ import { initializeSyncScheduler } from "./sync-scheduler";
 import { checkAllUsersBudgetAlerts } from "./budget-alerts";
 import { landingPageMiddleware } from "./domain-router";
 import { apiRateLimiter } from "./rate-limiter";
-import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureIsSyncingColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn, ensureBudgetPeriodColumns, ensureIncomeAutoDetectionColumns, ensurePlaidEnrichmentColumns } from "./db";
+import { pool, ensureReceiptsTable, ensureSupportTables, ensureVaultTables, ensureAITables, ensureBankProviderTable, ensureMerchantEnrichmentTable, ensureEncryptionColumns, ensureTotpColumns, ensureProfileColumns, ensureHouseholdColumns, ensurePreferenceColumns, ensureAuditLogTable, ensureLoginSecurityColumns, ensureDeletionColumns, ensureSupportPortalTables, ensureUserAICostsTable, ensureUserFeatureUsageTable, ensurePlanColumns, ensurePlanFeatureLimitsTable, ensureSyncCursorColumn, ensureIsSyncingColumn, ensureBillRemindersSentTable, ensureLandingSettingsTable, ensureOnboardingProgressColumn, ensureBudgetPeriodColumns, ensureIncomeAutoDetectionColumns, ensurePlaidEnrichmentColumns, ensureBankLinkIntentsTable } from "./db";
 import { encrypt, decrypt } from "./encryption";
 import { db } from "./db";
 import { plaidItems } from "@shared/schema";
@@ -495,6 +495,14 @@ if (process.env.NODE_ENV === "development") {
 
   await ensurePlaidEnrichmentColumns().catch(err =>
     console.error("Failed to ensure Plaid enrichment columns — personal_finance_category/transfer detection will not work:", err)
+  );
+
+  // Bank-link intent table — required for the cross-user-token-leak guard on
+  // every Plaid / MX (and future provider) connection. If this fails the
+  // intent middleware will hard-fail, which is safer than silently allowing
+  // unauthenticated link-token exchanges.
+  await ensureBankLinkIntentsTable().catch(err =>
+    console.error("Failed to ensure bank_link_intents table — bank linking will be blocked:", err)
   );
 
   // Note: ensureUserFeatureUsageTable() and ensurePlanFeatureLimitsTable() are now

@@ -183,6 +183,11 @@ type SortKey = "date" | "name" | "amount" | "matchType" | "personalCategory";
 
 function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => void; autoOpen?: boolean }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  // Provider-agnostic bank-link intent — held in component memory only,
+  // never persisted. Server validates this id matches the still-current
+  // session user before exchanging the public_token / syncing the member.
+  const [intentId, setIntentId] = useState<string | null>(null);
+  const [mxIntentId, setMxIntentId] = useState<string | null>(null);
   const [showConsent, setShowConsent] = useState(false);
   const [privacyChecked, setPrivacyChecked] = useState(false);
   const [limitError, setLimitError] = useState<string | null>(null);
@@ -209,6 +214,8 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       const data = await res.json();
       if (data.link_token) {
         setLinkToken(data.link_token);
+        // Capture the bank-link intent — required at exchange time.
+        setIntentId(data.intent_id ?? null);
         setLimitError(null);
         return data.link_token;
       } else if (data.error) {
@@ -266,10 +273,14 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       // Exchange token — server now returns transactionStatus: "pending_webhook"
       const res = await apiRequest("POST", "/api/plaid/exchange-token", {
         public_token: publicToken,
+        intent_id: intentId,
         metadata: {
           institution: metadata.institution,
         },
       });
+      // Single-use intent — clear immediately. Server enforces single-use too.
+      setIntentId(null);
+      setLinkToken(null);
       const data = await res.json();
 
       if (data.transactionStatus === "pending_webhook") {
@@ -290,7 +301,7 @@ function PlaidLinkButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       toast({ title: "Failed to connect bank account", variant: "destructive" });
       setIsSyncing(false);
     }
-  }, [onSuccess, toast, startPollingForTransactions]);
+  }, [onSuccess, toast, startPollingForTransactions, intentId]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
@@ -463,6 +474,8 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
       const data = await res.json();
       if (data.widgetUrl) {
         setWidgetUrl(data.widgetUrl);
+        // Capture the bank-link intent — required when MX posts memberConnected.
+        setMxIntentId(data.intent_id ?? null);
         setShowWidget(true);
       } else {
         toast({ title: "Failed to get connect widget", variant: "destructive" });
@@ -504,12 +517,16 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
           setShowWidget(false);
           // Show pending state immediately
           setMxPendingConnection(institutionName);
-          // Kick off background sync
+          // Kick off background sync — pass intent_id from openMXConnect.
           try {
             if (memberGuid) {
-              await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`);
+              await apiRequest("POST", `/api/mx/members/${memberGuid}/sync`, {
+                intent_id: mxIntentId,
+              });
               await apiRequest("POST", "/api/mx/transactions/sync");
             }
+            // Single-use intent — clear immediately.
+            setMxIntentId(null);
           } catch (error) {
             console.error("[MX] Background sync error:", error);
           }
@@ -527,7 +544,7 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [onSuccess, toast, startPollingForMxTransactions]);
+  }, [onSuccess, toast, startPollingForMxTransactions, mxIntentId]);
 
   return (
     <>

@@ -61,6 +61,7 @@ import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
 import { getEffectivePlan } from "./lib/planResolver";
 import { autoReconcile } from "./lib/auto-reconciler";
+import { issueBankLinkIntent, consumeBankLinkIntent } from "./lib/bank-link-security";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -6447,6 +6448,12 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       console.log("[Plaid] Primary products:", primaryProducts);
       console.log("[Plaid] Additional products:", additionalProducts);
 
+      // Issue the provider-agnostic bank-link intent FIRST. The client must
+      // present this intent_id back to /api/plaid/exchange-token, where we
+      // verify it matches the still-current session user before exchanging.
+      // This blocks the cross-user-token-leak class of bug.
+      const linkIntent = await issueBankLinkIntent(userId, "plaid");
+
       try {
         const response = await plaidClient.linkTokenCreate({
           user: { client_user_id: String(userId) },
@@ -6465,6 +6472,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         console.log("[Plaid] Link token created successfully (products: transactions, auth; additional: liabilities, investments)");
         return res.json({
           link_token: response.data.link_token,
+          intent_id: linkIntent.intentId,
+          intent_expires_at: linkIntent.expiresAt.toISOString(),
           currentBankCount,
           maxBankAccounts,
           canAddMore: hasUnlimitedBanks || currentBankCount < maxBankAccounts
@@ -6486,6 +6495,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         if (errorCode === 'INVALID_PRODUCT' || errorMessage.includes('liabilities') || errorMessage.includes('investments')) {
           console.log("[Plaid] Retrying without additional_consented_products...");
 
+          // Same intent issued above is still valid — Plaid retried our
+          // linkTokenCreate, but the user is still mid-flow.
           const fallbackResponse = await plaidClient.linkTokenCreate({
             user: { client_user_id: String(userId) },
             client_name: "Budget Smart AI",
@@ -6502,6 +6513,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           console.log("[Plaid] Link token created (fallback: transactions + auth only, with account_filters)");
           return res.json({
             link_token: fallbackResponse.data.link_token,
+            intent_id: linkIntent.intentId,
+            intent_expires_at: linkIntent.expiresAt.toISOString(),
             currentBankCount,
             maxBankAccounts,
             canAddMore: hasUnlimitedBanks || currentBankCount < maxBankAccounts,
@@ -6546,10 +6559,40 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       }
 
       const { plaidClient } = await import("./plaid");
-      const { public_token, metadata } = req.body;
+      const { public_token, metadata, intent_id } = req.body;
 
       if (!public_token) {
         return res.status(400).json({ error: "public_token is required" });
+      }
+
+      // ── Cross-user-token-leak guard ──────────────────────────────────────
+      // Validate that the public_token came from a link_token issued for THIS
+      // user's session, not a stale token cached in the browser from a
+      // previous user. The intent was issued at /api/plaid/create-link-token.
+      // See server/lib/bank-link-security.ts for the full rationale.
+      const intentResult = await consumeBankLinkIntent({
+        intentId: intent_id,
+        currentUserId: userId,
+        expectedProvider: "plaid",
+        clientIp:
+          (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          null,
+        userAgent: req.headers["user-agent"] as string | undefined ?? null,
+      });
+      if (!intentResult.ok) {
+        console.warn("[Plaid] exchange-token blocked by intent guard:", {
+          userId,
+          reason: intentResult.reason,
+          intentId: intent_id,
+        });
+        // Same opaque error to the client regardless of WHY — don't leak
+        // whether the intent existed, expired, was already used, etc.
+        return res.status(403).json({
+          error: "bank_link_session_invalid",
+          message:
+            "Your bank-link session is no longer valid. Please start the connection again.",
+        });
       }
 
       // Exchange public token for access token
@@ -7333,9 +7376,20 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
 
       // Get existing member if updating
       const memberGuid = req.query.memberGuid as string | undefined;
-      
+
       const widgetUrl = await getConnectWidgetUrl(mxUserGuid, memberGuid);
-      res.json({ widgetUrl });
+
+      // Provider-agnostic intent guard: same pattern as Plaid. Client must
+      // present the intent_id back to /api/mx/members/:memberGuid/sync, where
+      // we verify the still-current session user matches BEFORE writing the
+      // member into our DB. Defends against the cross-user-token-leak hazard.
+      const intent = await issueBankLinkIntent(userId, "mx");
+
+      res.json({
+        widgetUrl,
+        intent_id: intent.intentId,
+        intent_expires_at: intent.expiresAt.toISOString(),
+      });
     } catch (error: any) {
       console.error("Error getting MX connect widget:", error);
       res.status(500).json({ error: error.message || "Failed to get connect widget" });
@@ -7349,9 +7403,35 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       const user = await storage.getUser(userId);
       const plan = await getEffectivePlan(userId);
       const memberGuid = req.params.memberGuid as string;
-      
+
       if (!user?.mxUserGuid) {
         return res.status(400).json({ error: "MX user not configured" });
+      }
+
+      // ── Cross-user-token-leak guard ──────────────────────────────────────
+      // Validate the intent issued at /api/mx/connect-widget. Same pattern as
+      // Plaid's exchange-token. See server/lib/bank-link-security.ts.
+      const intentResult = await consumeBankLinkIntent({
+        intentId: req.body?.intent_id,
+        currentUserId: userId,
+        expectedProvider: "mx",
+        clientIp:
+          (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+          req.socket.remoteAddress ||
+          null,
+        userAgent: req.headers["user-agent"] as string | undefined ?? null,
+      });
+      if (!intentResult.ok) {
+        console.warn("[MX] member-sync blocked by intent guard:", {
+          userId,
+          memberGuid,
+          reason: intentResult.reason,
+        });
+        return res.status(403).json({
+          error: "bank_link_session_invalid",
+          message:
+            "Your bank-link session is no longer valid. Please start the connection again.",
+        });
       }
 
       const { getMember, listAccounts, getInstitution, mapMXAccountType } = await import("./mx");

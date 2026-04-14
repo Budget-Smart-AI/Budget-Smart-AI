@@ -848,3 +848,49 @@ export async function ensurePlaidEnrichmentColumns(): Promise<void> {
   await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS is_transfer boolean DEFAULT false`);
   await pool.query(`ALTER TABLE plaid_transactions ADD COLUMN IF NOT EXISTS transfer_pair_id TEXT`);
 }
+/**
+ * Ensure the bank_link_intents table exists. Provider-agnostic record of every
+ * bank-connection attempt, used to prevent the cross-user-token-leak class of
+ * bug where a public_token (Plaid) or member_guid (MX) generated under one
+ * user's session is exchanged on the server while a different user is now
+ * logged in. Each intent is single-use, expires quickly, and is bound to the
+ * user_id that initiated the link flow.
+ *
+ * Schema:
+ *   id              UUID primary key (returned to client at link-token-create)
+ *   user_id         the session user when the intent was issued
+ *   provider        'plaid' | 'mx' | future provider name
+ *   status          'open' | 'consumed' | 'expired'
+ *   created_at      issuance timestamp
+ *   expires_at      hard expiry (typically created_at + 15 min)
+ *   consumed_at     when the intent was atomically marked consumed
+ *   consumed_ip     observed client IP at consume time (audit trail)
+ *   consumed_ua     observed user agent at consume time (audit trail)
+ *   metadata        provider-specific bookkeeping (e.g., institution id)
+ */
+export async function ensureBankLinkIntentsTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bank_link_intents (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id      VARCHAR NOT NULL,
+      provider     VARCHAR(20) NOT NULL,
+      status       VARCHAR(20) NOT NULL DEFAULT 'open',
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at   TIMESTAMPTZ NOT NULL,
+      consumed_at  TIMESTAMPTZ,
+      consumed_ip  VARCHAR(45),
+      consumed_ua  TEXT,
+      metadata     JSONB
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS bank_link_intents_user_idx
+      ON bank_link_intents (user_id)
+  `);
+  // Partial index optimised for the validate-and-consume hot path.
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS bank_link_intents_open_idx
+      ON bank_link_intents (status, expires_at)
+      WHERE status = 'open'
+  `);
+}
