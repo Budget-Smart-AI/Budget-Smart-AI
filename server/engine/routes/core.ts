@@ -1,27 +1,30 @@
 /**
- * Financial Engine Router
+ * Engine — core calculation routes.
  *
- * This Express router exposes all financial engine calculations as API endpoints.
- * The frontend pages call these endpoints instead of computing locally.
+ * Every route here runs inside the engine sub-app (createEngineApp), which
+ * means engineAuth has already placed a validated EngineContext on the
+ * request. Handlers consume it via `requireContext(req)` — they never touch
+ * `req.session` directly.
  *
- * Architecture:
- *   Client page → API endpoint → Adapter Layer → Financial Engine → Neon DB
- *                                     ↓
- *                              Computed result → JSON response → Client renders
+ * Data access rules:
+ *   • financial reads go through EngineStorage (the security facade);
+ *   • normalized provider data comes from server/engine/data-loaders.ts;
+ *   • the full `storage` module is NOT imported here.
  *
- * The adapter layer normalizes provider-specific data (Plaid, MX, etc.) into
- * NormalizedTransaction and NormalizedAccount types before passing to the engine.
- * To add a new banking aggregator, create a new adapter — no route changes needed.
- *
- * Authentication: All endpoints require `requireAuth` middleware.
- * Household support: Respects householdId if set in session.
+ * Provider-agnostic: Plaid, MX, Manual, and any future aggregator plug in
+ * via their adapters in server/lib/financial-engine/adapters/ — no route
+ * changes needed when a new provider lands.
  */
 
 import { Router, Request, Response } from "express";
 import { startOfMonth, endOfMonth, parseISO, format, subMonths, startOfYear } from "date-fns";
-import { requireAuth } from "../auth";
-import { storage } from "../storage";
-import { loadAndCalculateNetWorth } from "../lib/net-worth-service";
+import { EngineStorage } from "../storage";
+import {
+  getAllNormalizedAccounts,
+  getAllNormalizedTransactions,
+} from "../data-loaders";
+import { requireContext } from "../context";
+import { loadAndCalculateNetWorth } from "../../lib/net-worth-service";
 import {
   calculateIncomeForPeriod,
   calculateExpensesForPeriod,
@@ -33,9 +36,6 @@ import {
   calculateHealthScore,
   calculateSavingsGoals,
   calculateSafeToSpend,
-  plaidAdapter,
-  mxAdapter,
-  manualAdapter,
   type NormalizedTransaction,
   type NormalizedAccount,
   type DashboardData,
@@ -53,168 +53,23 @@ import {
   type MonthlyTrendPoint,
   type BankAccountsEngineResult,
   type NetWorthParams,
-} from "../lib/financial-engine";
+} from "../../lib/financial-engine";
 
 const router = Router();
 
-// ─── Helper Functions ──────────────────────────────────────────────────────
-
 /**
- * Get user IDs to query: either just the current user, or the entire household
- */
-async function getUserIdsForQuery(userId: string, householdId?: string): Promise<string[]> {
-  if (householdId) {
-    return storage.getHouseholdMemberUserIds(householdId);
-  }
-  return [userId];
-}
-
-/**
- * Fetch and normalize all bank accounts across all providers.
- * Returns a single array of NormalizedAccount, regardless of which providers are active.
- *
- * To add a new provider:
- *   1. Fetch its raw accounts from storage
- *   2. Normalize via the provider's adapter
- *   3. Spread into the result array
- */
-async function getAllNormalizedAccounts(userIds: string[]): Promise<NormalizedAccount[]> {
-  const allAccounts: NormalizedAccount[] = [];
-
-  // ─── Plaid ──────────────────────────────────────────────
-  for (const userId of userIds) {
-    const plaidItems = await storage.getPlaidItems(userId);
-    for (const item of plaidItems) {
-      const rawAccounts = await storage.getPlaidAccounts(item.id);
-      allAccounts.push(...plaidAdapter.normalizeAccounts(rawAccounts));
-    }
-  }
-
-  // ─── MX ─────────────────────────────────────────────────
-  for (const userId of userIds) {
-    const rawMxAccounts = await storage.getMxAccountsByUserId(userId);
-    allAccounts.push(...mxAdapter.normalizeAccounts(rawMxAccounts));
-  }
-
-  // ─── Manual ─────────────────────────────────────────────
-  for (const userId of userIds) {
-    const rawManualAccounts = await storage.getManualAccounts(userId);
-    allAccounts.push(...manualAdapter.normalizeAccounts(rawManualAccounts));
-  }
-
-  // ─── Future providers go here ───────────────────────────
-  // e.g., for (const userId of userIds) {
-  //   const rawBasiqAccounts = await storage.getBasiqAccountsByUserId(userId);
-  //   allAccounts.push(...basiqAdapter.normalizeAccounts(rawBasiqAccounts));
-  // }
-
-  return allAccounts;
-}
-
-/**
- * Fetch and normalize all bank transactions for a date range across all providers.
- * Only includes transactions from active (enabled) accounts.
- *
- * @param userIds User IDs to query
- * @param startDate Start of date range
- * @param endDate End of date range
- * @returns Unified, normalized transaction array
- */
-async function getAllNormalizedTransactions(
-  userIds: string[],
-  startDate: Date | string,
-  endDate: Date | string
-): Promise<NormalizedTransaction[]> {
-  const allTransactions: NormalizedTransaction[] = [];
-  const startStr = typeof startDate === 'string' ? startDate : format(startDate, 'yyyy-MM-dd');
-  const endStr = typeof endDate === 'string' ? endDate : format(endDate, 'yyyy-MM-dd');
-
-  // ─── Plaid ──────────────────────────────────────────────
-  for (const userId of userIds) {
-    const plaidItems = await storage.getPlaidItems(userId);
-    for (const item of plaidItems) {
-      const rawAccounts = await storage.getPlaidAccounts(item.id);
-      // Only query transactions from active accounts
-      const enabledAccountIds = rawAccounts
-        .filter((a) => a.isActive === "true")
-        .map((a) => a.id);
-
-      if (enabledAccountIds.length > 0) {
-        const rawTx = await storage.getPlaidTransactions(enabledAccountIds, {
-          startDate: startStr,
-          endDate: endStr,
-        });
-        allTransactions.push(...plaidAdapter.normalizeTransactions(rawTx));
-      }
-    }
-  }
-
-  // ─── MX ─────────────────────────────────────────────────
-  for (const userId of userIds) {
-    const rawMxAccounts = await storage.getMxAccountsByUserId(userId);
-    const enabledMxAccountIds = rawMxAccounts
-      .filter((a: any) => a.isActive === "true" || a.isActive === true)
-      .map((a: any) => a.id || a.guid);
-
-    if (enabledMxAccountIds.length > 0) {
-      const rawTx = await storage.getMxTransactions(enabledMxAccountIds, {
-        startDate: startStr,
-        endDate: endStr,
-      });
-      allTransactions.push(...mxAdapter.normalizeTransactions(rawTx));
-    }
-  }
-
-  // ─── Manual Transactions ────────────────────────────────
-  for (const userId of userIds) {
-    const rawManualTx = await storage.getManualTransactionsByUser(userId, {
-      startDate: startStr,
-      endDate: endStr,
-    });
-    allTransactions.push(...manualAdapter.normalizeTransactions(rawManualTx));
-  }
-
-  // ─── Future providers go here ───────────────────────────
-
-  // Deduplicate by transaction ID (can happen with overlapping Plaid items or household members)
-  const seen = new Set<string>();
-  const dedupedTransactions: NormalizedTransaction[] = [];
-  for (const tx of allTransactions) {
-    if (!seen.has(tx.id)) {
-      seen.add(tx.id);
-      dedupedTransactions.push(tx);
-    }
-  }
-
-  return dedupedTransactions;
-}
-
-/**
- * Parse date query parameters (yyyy-MM-dd format)
+ * Parse date query parameters (yyyy-MM-dd format). Defaults to current month.
  */
 function parseDateRange(
   startDateStr?: string,
   endDateStr?: string,
 ): { startDate: Date; endDate: Date } {
-  let startDate: Date;
-  let endDate: Date;
-
   if (startDateStr && endDateStr) {
-    startDate = parseISO(startDateStr);
-    endDate = parseISO(endDateStr);
-  } else {
-    // Default to current month
-    const today = new Date();
-    startDate = startOfMonth(today);
-    endDate = endOfMonth(today);
+    return { startDate: parseISO(startDateStr), endDate: parseISO(endDateStr) };
   }
-
-  return { startDate, endDate };
+  const today = new Date();
+  return { startDate: startOfMonth(today), endDate: endOfMonth(today) };
 }
-
-// ─── Middleware ────────────────────────────────────────────────────────────
-
-router.use(requireAuth);
 
 // ─── Endpoints ─────────────────────────────────────────────────────────────
 
@@ -224,10 +79,7 @@ router.use(requireAuth);
  */
 router.get("/dashboard", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
-
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const { userId, householdUserIds: userIds } = requireContext(req);
 
     // Get current month dates
     const today = new Date();
@@ -248,17 +100,17 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       rawInvestmentAccounts,
       rawHoldings,
     ] = await Promise.all([
-      storage.getBillsByUserIds(userIds),
-      storage.getIncomesByUserIds(userIds),
-      storage.getExpensesByUserIds(userIds),
-      storage.getBudgetsByUserIds(userIds),
-      storage.getSavingsGoalsByUserIds(userIds),
+      EngineStorage.getBillsByUserIds(userIds),
+      EngineStorage.getIncomesByUserIds(userIds),
+      EngineStorage.getExpensesByUserIds(userIds),
+      EngineStorage.getBudgetsByUserIds(userIds),
+      EngineStorage.getSavingsGoalsByUserIds(userIds),
       getAllNormalizedTransactions(userIds, monthStart, monthEnd),
       getAllNormalizedAccounts(userIds),
-      storage.getAssets(userId),
-      storage.getDebtDetails(userId),
-      storage.getInvestmentAccounts(userId),
-      storage.getHoldingsByUser(userId),
+      EngineStorage.getAssets(userId),
+      EngineStorage.getDebtDetails(userId),
+      EngineStorage.getInvestmentAccounts(userId),
+      EngineStorage.getHoldingsByUser(userId),
     ]);
 
     // Map schema types → engine types
@@ -389,22 +241,21 @@ router.get("/dashboard", async (req: Request, res: Response) => {
  */
 router.get("/expenses", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
+    const { userId, householdUserIds } = requireContext(req);
 
     const { startDate, endDate } = parseDateRange(
       req.query.startDate as string | undefined,
       req.query.endDate as string | undefined
     );
 
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const userIds = requireContext(req).householdUserIds;
 
     const prevMonthStart = startOfMonth(subMonths(startDate, 1));
     const prevMonthEnd = endOfMonth(subMonths(startDate, 1));
 
     // Fetch transactions for BOTH current and previous month (needed for MoM comparison)
     const [expensesData, transactions] = await Promise.all([
-      storage.getExpensesByUserIds(userIds),
+      EngineStorage.getExpensesByUserIds(userIds),
       getAllNormalizedTransactions(userIds, prevMonthStart, endDate),
     ]);
 
@@ -430,15 +281,14 @@ router.get("/expenses", async (req: Request, res: Response) => {
  */
 router.get("/income", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
+    const { userId, householdUserIds } = requireContext(req);
 
     const { startDate, endDate } = parseDateRange(
       req.query.startDate as string | undefined,
       req.query.endDate as string | undefined
     );
 
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const userIds = requireContext(req).householdUserIds;
 
     // Fetch a 3-month lookback window for recurring income source detection.
     // This allows biweekly, monthly, and quarterly income patterns to be
@@ -446,7 +296,7 @@ router.get("/income", async (req: Request, res: Response) => {
     const lookbackStart = startOfMonth(subMonths(startDate, 3));
 
     const [incomeData, transactions, historicalTransactions] = await Promise.all([
-      storage.getIncomesByUserIds(userIds),
+      EngineStorage.getIncomesByUserIds(userIds),
       getAllNormalizedTransactions(userIds, startDate, endDate),
       getAllNormalizedTransactions(userIds, lookbackStart, endDate),
     ]);
@@ -472,15 +322,14 @@ router.get("/income", async (req: Request, res: Response) => {
  */
 router.get("/bills", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
+    const { userId, householdUserIds } = requireContext(req);
 
     const today = new Date();
     const monthStart = startOfMonth(today);
     const monthEnd = endOfMonth(today);
 
-    const userIds = await getUserIdsForQuery(userId, householdId);
-    const billsData = await storage.getBillsByUserIds(userIds);
+    const userIds = requireContext(req).householdUserIds;
+    const billsData = await EngineStorage.getBillsByUserIds(userIds);
 
     const result = calculateBillsForPeriod({ bills: billsData, monthStart, monthEnd });
 
@@ -497,11 +346,8 @@ router.get("/bills", async (req: Request, res: Response) => {
  */
 router.get("/subscriptions", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
-
-    const userIds = await getUserIdsForQuery(userId, householdId);
-    const billsData = await storage.getBillsByUserIds(userIds);
+    const { userId, householdUserIds: userIds } = requireContext(req);
+    const billsData = await EngineStorage.getBillsByUserIds(userIds);
 
     const result = calculateSubscriptions({ bills: billsData });
 
@@ -518,9 +364,8 @@ router.get("/subscriptions", async (req: Request, res: Response) => {
  */
 router.get("/net-worth", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const { userId, householdUserIds } = requireContext(req);
+    const userIds = requireContext(req).householdUserIds;
 
     // All net worth math flows through the single service. No inline logic here.
     const result = await loadAndCalculateNetWorth(userIds, userId);
@@ -537,11 +382,11 @@ router.get("/net-worth", async (req: Request, res: Response) => {
  */
 router.get("/debts", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
+    const { userId } = requireContext(req);
     const extraPayment = parseFloat(req.query.extraPayment as string) || 0;
 
     // Fetch raw debt details from storage and map to engine DebtItem format
-    const rawDebts = await storage.getDebtDetails(userId);
+    const rawDebts = await EngineStorage.getDebtDetails(userId);
 
     const debts = rawDebts.map((d) => ({
       id: d.id,
@@ -568,8 +413,7 @@ router.get("/debts", async (req: Request, res: Response) => {
  */
 router.get("/budgets", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
+    const { userId, householdUserIds } = requireContext(req);
 
     // Parse month from query, default to current month
     let monthStr = req.query.month as string | undefined;
@@ -582,11 +426,11 @@ router.get("/budgets", async (req: Request, res: Response) => {
     const startDate = new Date(year, month - 1, 1);
     const endDate = endOfMonth(startDate);
 
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const userIds = requireContext(req).householdUserIds;
 
     const [budgetsData, expensesData] = await Promise.all([
-      storage.getBudgetsByUserIdsAndMonth(userIds, monthStr),
-      storage.getExpensesByUserIds(userIds),
+      EngineStorage.getBudgetsByUserIdsAndMonth(userIds, monthStr),
+      EngineStorage.getExpensesByUserIds(userIds),
     ]);
 
     // Map Drizzle numeric strings → engine number types
@@ -618,11 +462,8 @@ router.get("/budgets", async (req: Request, res: Response) => {
  */
 router.get("/savings-goals", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
-
-    const userIds = await getUserIdsForQuery(userId, householdId);
-    const savingsGoalsData = await storage.getSavingsGoalsByUserIds(userIds);
+    const { userId, householdUserIds: userIds } = requireContext(req);
+    const savingsGoalsData = await EngineStorage.getSavingsGoalsByUserIds(userIds);
 
     const result = calculateSavingsGoals({
       goals: savingsGoalsData.map((g) => ({
@@ -646,22 +487,21 @@ router.get("/savings-goals", async (req: Request, res: Response) => {
  */
 router.get("/health-score", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
+    const { userId, householdUserIds } = requireContext(req);
 
     const today = new Date();
     const monthStart = startOfMonth(today);
     const monthEnd = endOfMonth(today);
 
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const userIds = requireContext(req).householdUserIds;
 
     const [incomeData, budgetsData, billsData, savingsGoalsData, expensesData, transactions] =
       await Promise.all([
-        storage.getIncomesByUserIds(userIds),
-        storage.getBudgetsByUserIds(userIds),
-        storage.getBillsByUserIds(userIds),
-        storage.getSavingsGoalsByUserIds(userIds),
-        storage.getExpensesByUserIds(userIds),
+        EngineStorage.getIncomesByUserIds(userIds),
+        EngineStorage.getBudgetsByUserIds(userIds),
+        EngineStorage.getBillsByUserIds(userIds),
+        EngineStorage.getSavingsGoalsByUserIds(userIds),
+        EngineStorage.getExpensesByUserIds(userIds),
         getAllNormalizedTransactions(userIds, monthStart, monthEnd),
       ]);
 
@@ -704,8 +544,7 @@ router.get("/health-score", async (req: Request, res: Response) => {
  */
 router.get("/bank-accounts", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
+    const { userId, householdUserIds } = requireContext(req);
 
     // Parse month, default to current
     let monthStr = req.query.month as string | undefined;
@@ -718,7 +557,7 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = endOfMonth(monthStart);
 
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const userIds = requireContext(req).householdUserIds;
 
     // Net worth comes from the single service — no inline math. This route adds
     // monthly spending/income/unmatched-count on top of the net worth numbers,
@@ -769,8 +608,8 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
  */
 router.get("/assets", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const rawAssets = await storage.getAssets(userId);
+    const { userId } = requireContext(req);
+    const rawAssets = await EngineStorage.getAssets(userId);
 
     let totalValue = 0;
     let totalPurchasePrice = 0;
@@ -815,10 +654,10 @@ router.get("/assets", async (req: Request, res: Response) => {
  */
 router.get("/investments", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
+    const { userId } = requireContext(req);
 
-    const rawInvestmentAccounts = await storage.getInvestmentAccounts(userId);
-    const rawHoldings = await storage.getHoldingsByUser(userId);
+    const rawInvestmentAccounts = await EngineStorage.getInvestmentAccounts(userId);
+    const rawHoldings = await EngineStorage.getHoldingsByUser(userId);
 
     let totalValue = 0;
     let totalCostBasis = 0;
@@ -908,15 +747,14 @@ router.get("/investments", async (req: Request, res: Response) => {
  */
 router.get("/reports", async (req: Request, res: Response) => {
   try {
-    const userId = req.session.userId!;
-    const householdId = req.session.householdId;
+    const { userId, householdUserIds } = requireContext(req);
 
     const { startDate, endDate } = parseDateRange(
       req.query.startDate as string | undefined,
       req.query.endDate as string | undefined
     );
 
-    const userIds = await getUserIdsForQuery(userId, householdId);
+    const userIds = requireContext(req).householdUserIds;
 
     const today = new Date();
     const monthStart = startOfMonth(today);
@@ -924,9 +762,9 @@ router.get("/reports", async (req: Request, res: Response) => {
 
     // Get all base data
     const [expensesData, incomeData, billsData] = await Promise.all([
-      storage.getExpensesByUserIds(userIds),
-      storage.getIncomesByUserIds(userIds),
-      storage.getBillsByUserIds(userIds),
+      EngineStorage.getExpensesByUserIds(userIds),
+      EngineStorage.getIncomesByUserIds(userIds),
+      EngineStorage.getBillsByUserIds(userIds),
     ]);
 
     // Get normalized transactions for both date range and current month
@@ -1057,80 +895,13 @@ router.get("/reports", async (req: Request, res: Response) => {
   }
 });
 
-// ─── Re-categorization endpoint ─────────────────────────────────────────
-// Applies the expanded Plaid/MX category mappings to ALL existing transactions.
-// This is a one-time migration endpoint to fix old transactions that were mapped
-// with the old, less-detailed mapping tables.
-
-import { mapPlaidCategoryDetailed, mapPlaidCategory } from "../plaid";
-import { mapMXCategory } from "../mx";
-
-router.post("/recategorize", async (req: Request, res: Response) => {
-  try {
-    const userId = req.session.userId!;
-    let plaidUpdated = 0;
-    let mxUpdated = 0;
-    let plaidSkipped = 0;
-    let mxSkipped = 0;
-
-    // ── Plaid Transactions ──
-    const plaidAccounts = await storage.getAllPlaidAccounts(userId);
-    const plaidAccountIds = plaidAccounts.map((a) => a.id);
-
-    if (plaidAccountIds.length > 0) {
-      const plaidTxs = await storage.getPlaidTransactions(plaidAccountIds);
-
-      for (const tx of plaidTxs) {
-        // Re-apply mapping: try detailed first, then primary
-        const detailed = (tx as any).personalFinanceCategoryDetailed || null;
-        const primary = tx.category || null;
-        const newCategory = mapPlaidCategoryDetailed(detailed) || mapPlaidCategory(primary);
-
-        if (newCategory && newCategory !== (tx as any).personalCategory) {
-          await storage.updatePlaidTransaction(tx.id, {
-            personalCategory: newCategory,
-          } as any);
-          plaidUpdated++;
-        } else {
-          plaidSkipped++;
-        }
-      }
-    }
-
-    // ── MX Transactions ──
-    const mxAccounts = await storage.getMxAccountsByUserId(userId);
-    const mxAccountIds = mxAccounts.map((a) => a.id);
-
-    if (mxAccountIds.length > 0) {
-      const mxTxs = await storage.getMxTransactions(mxAccountIds);
-
-      for (const tx of mxTxs) {
-        const topLevel = (tx as any).topLevelCategory || "";
-        const category = (tx as any).category || "";
-        const isIncome = (tx as any).transactionType === "CREDIT";
-        const newCategory = mapMXCategory(topLevel, category, isIncome);
-
-        if (newCategory && newCategory !== (tx as any).personalCategory) {
-          await storage.updateMxTransaction(tx.id, {
-            personalCategory: newCategory,
-          } as any);
-          mxUpdated++;
-        } else {
-          mxSkipped++;
-        }
-      }
-    }
-
-    res.json({
-      success: true,
-      plaid: { updated: plaidUpdated, unchanged: plaidSkipped },
-      mx: { updated: mxUpdated, unchanged: mxSkipped },
-      totalUpdated: plaidUpdated + mxUpdated,
-    });
-  } catch (error) {
-    console.error("[engine.recategorize]", error);
-    res.status(500).json({ error: "Failed to re-categorize transactions" });
-  }
-});
+// REMOVED: /recategorize endpoint
+//
+// This was a one-time migration that mutated personal_category on every Plaid
+// and MX transaction to apply expanded category mappings. It does not belong
+// in the engine — the engine is a read-mostly calculation service. Data
+// migration / ETL operations are the responsibility of the website backend
+// (or a one-shot script). If a similar migration is needed in the future,
+// add it as an admin-only website endpoint, not an engine route.
 
 export default router;

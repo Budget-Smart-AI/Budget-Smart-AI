@@ -54,14 +54,13 @@ import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
 import adminCommunicationsRouter from "./routes/admin-communications";
-import engineRouter from "./routes/engine";
+import { createEngineApp } from "./engine/app";
 import { registerPasswordResetRoutes } from "./routes/auth-password-reset";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt, decrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
 import { getEffectivePlan } from "./lib/planResolver";
 import { autoReconcile } from "./lib/auto-reconciler";
-import { loadAndCalculateNetWorth } from "./lib/net-worth-service";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -130,8 +129,11 @@ export async function registerRoutes(
     console.warn("[CONFIG] Neither SALES_EMAIL nor ALERT_EMAIL_TO is set. Sales-lead notification emails will not be delivered.");
   }
 
-  // Centralized financial engine routes (single source of truth for all calculations)
-  app.use("/api/engine", engineRouter);
+  // Engine sub-app — isolated calculation service with its own middleware
+  // stack (engineAuth, audit, error handler) and its own EngineStorage facade.
+  // See server/engine/app.ts. When this is split into its own Railway service
+  // (Step 3), createEngineApp() becomes that service's entry point unchanged.
+  app.use("/api/engine", createEngineApp());
 
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);
@@ -14209,108 +14211,18 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     }
   });
 
-  // FEATURE: NET_WORTH_TRACKING | tier: free | limit: unlimited
-  // ============ NET WORTH API ============
-
-  app.get("/api/net-worth", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const householdId = req.session.householdId;
-      const userIds = householdId
-        ? await storage.getHouseholdMemberUserIds(householdId)
-        : [userId];
-
-      // All net worth math flows through the single service. No inline logic here
-      // so this route CANNOT drift from /api/engine/net-worth or the snapshot
-      // endpoint. See server/lib/net-worth-service.ts.
-      const result = await loadAndCalculateNetWorth(userIds, userId);
-
-      // Preserve the legacy response shape (breakdown keys) so any lingering
-      // callers don't break. Prefer /api/engine/net-worth for new callers.
-      res.json({
-        netWorth: result.netWorth,
-        totalAssets: result.totalAssets,
-        totalLiabilities: result.totalLiabilities,
-        breakdown: {
-          assets: result.assetBreakdown,
-          liabilities: result.liabilityBreakdown,
-        },
-      });
-    } catch (error) {
-      console.error("Error calculating net worth:", error);
-      res.status(500).json({ error: "Failed to calculate net worth" });
-    }
-  });
-
-  app.get("/api/net-worth/history", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 12;
-      const snapshots = await storage.getNetWorthSnapshots(userId, { limit });
-      res.json(snapshots);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch net worth history" });
-    }
-  });
-
-  app.post("/api/net-worth/snapshot", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const householdId = req.session.householdId;
-      const userIds = householdId
-        ? await storage.getHouseholdMemberUserIds(householdId)
-        : [userId];
-
-      // Net worth math flows through the single service. This guarantees the
-      // snapshot that gets persisted uses the EXACT same formula the user sees
-      // on the Net Worth page and the Accounts page. No more drift between
-      // "current net worth" and "saved history".
-      const result = await loadAndCalculateNetWorth(userIds, userId, { history: false });
-
-      // Break the engine's assetBreakdown / liabilityBreakdown back into the
-      // legacy per-category columns that net_worth_snapshots uses for history
-      // charts (cashAndBank, investments, realEstate, vehicles, otherAssets,
-      // creditCards, loans, mortgages, otherLiabilities).
-      const ab = result.assetBreakdown || {};
-      const lb = result.liabilityBreakdown || {};
-      const cashAndBank = ab["Cash"] ?? 0;
-      const investments = ab["Investments"] ?? 0;
-      const otherAssets = ab["Assets"] ?? 0; // manual assets bucket from engine
-      const realEstate = 0; // engine doesn't split these out today; kept for schema compat
-      const vehicles = 0;
-      const creditCards = lb["Credit Cards"] ?? 0;
-      const loans = lb["Other Loans"] ?? 0;
-      const mortgages = lb["Mortgages"] ?? 0;
-      // Overdrawn cash + manual debts roll into "other liabilities" bucket for history
-      const otherLiabilities =
-        (lb["Overdrawn Cash"] ?? 0) +
-        (lb["Lines of Credit"] ?? 0) +
-        (lb["Manual Debts"] ?? 0) +
-        (lb["Other Debts"] ?? 0);
-
-      const snapshot = await storage.createNetWorthSnapshot({
-        userId,
-        date: new Date().toISOString().split('T')[0],
-        totalAssets: String(result.totalAssets),
-        totalLiabilities: String(result.totalLiabilities),
-        netWorth: String(result.netWorth),
-        cashAndBank: String(cashAndBank),
-        investments: String(investments),
-        realEstate: String(realEstate),
-        vehicles: String(vehicles),
-        otherAssets: String(otherAssets),
-        creditCards: String(creditCards),
-        loans: String(loans),
-        mortgages: String(mortgages),
-        otherLiabilities: String(otherLiabilities),
-      });
-
-      res.status(201).json(snapshot);
-    } catch (error) {
-      console.error("Error creating net worth snapshot:", error);
-      res.status(500).json({ error: "Failed to create snapshot" });
-    }
-  });
+  // ============ NET WORTH API — moved to engine sub-app ============
+  //
+  // The legacy /api/net-worth, /api/net-worth/history, and /api/net-worth/snapshot
+  // routes that lived here have been REMOVED. They now live in the engine
+  // sub-app at:
+  //   GET  /api/engine/net-worth
+  //   GET  /api/engine/net-worth/history
+  //   POST /api/engine/net-worth/snapshot
+  //
+  // No alias is provided — pre-production cleanup. Any client still calling
+  // the old paths will get a 404 and must be updated to the engine paths.
+  // (See client/src/pages/net-worth.tsx for the call sites.)
 
   // FEATURE: CALENDAR_VIEW | tier: free | limit: unlimited
   // ============ FINANCIAL CALENDAR API ============

@@ -1441,7 +1441,7 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/accounts/manual"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/net-worth"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth"] });
       toast({ title: "Account deleted" });
       setDeleteManualAccountId(null);
       if (selectedManualAccount?.id === deleteManualAccountId) {
@@ -1590,7 +1590,7 @@ export default function BankAccounts() {
     queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
     queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
     queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/net-worth"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth"] });
     // Invalidate all dashboard-related queries so data refreshes immediately
     queryClient.invalidateQueries({ queryKey: ["/api/transactions/all"] });
     queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
@@ -2692,7 +2692,7 @@ export default function BankAccounts() {
         account={editingManualAccount}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/accounts/manual"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/net-worth"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth"] });
         }}
       />
 

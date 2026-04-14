@@ -64,13 +64,13 @@ export default function NetWorth() {
   });
 
   const { data: history = [], isLoading: historyLoading } = useQuery<NetWorthSnapshot[]>({
-    queryKey: ["/api/net-worth/history"],
+    queryKey: ["/api/engine/net-worth/history"],
   });
 
   const snapshotMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/net-worth/snapshot"),
+    mutationFn: () => apiRequest("POST", "/api/engine/net-worth/snapshot"),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/net-worth/history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth/history"] });
       toast({ title: "Snapshot saved successfully" });
     },
     onError: () => toast({ title: "Failed to save snapshot", variant: "destructive" }),
