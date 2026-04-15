@@ -332,7 +332,12 @@ function ConnectBankStep({
 
       setIsSyncing(false);
       setSyncMessage("");
-      await apiRequest("POST", "/api/onboarding/save-step", { step: 2 });
+      // Save as step 3 — user has COMPLETED step 2 and is now ready for step 3
+      // (Monthly Income). Saving step 2 would cause the server to still report
+      // currentStep=2 on refresh, sending the user back through the bank-
+      // connect flow and producing "Bank account limit reached" on a second
+      // attempt.
+      await apiRequest("POST", "/api/onboarding/save-step", { step: 3 });
     } catch {
       toast({ title: "Failed to connect bank account", variant: "destructive" });
       setConnected(false);
@@ -1248,13 +1253,14 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     }
   }, [onboardingStatus]);
 
-  // Reset local step to 1 whenever the wizard opens so a previous session's
-  // residual step state can't linger (e.g., user completes onboarding, does
-  // Fresh Start, re-opens the wizard — must start from Welcome, not a late
-  // step pointing at deleted data).
-  useEffect(() => {
-    if (open) setStep(1);
-  }, [open]);
+  // Note: we deliberately do NOT reset `step` to 1 on every `open` transition.
+  // An earlier version of this file did that, and it caused ConnectBankStep to
+  // remount mid-flow (when Plaid popup briefly flipped state), wiping its
+  // local `connected = true` and sending the user back to "Get Your Phone
+  // Ready" right after a successful bank connection. The defensive clamp
+  // inside StepProgress (current bounded to [1, total]) plus the serverStep
+  // clamp above is enough to prevent "Step 5 of 4" ghosts; we don't need to
+  // force-reset local step.
 
   // Detect income from analysis data
   const detectedIncome = onboardingStatus?.analysisData?.incomeSources?.[0];
