@@ -3294,10 +3294,19 @@ Return JSON: { "income": [...] }`;
 
   app.post("/api/auth/verify-mfa", authRateLimiter, async (req, res) => {
     try {
-      const { mfaCode } = req.body;
-      
+      // Accept both `code` (what the client sends — matches mfa/enable and
+      // the password-reset flows) and `mfaCode` (the historical field name
+      // this endpoint used to require). The client has always sent `code`,
+      // so without this tolerant parse the server saw `undefined` and every
+      // verification attempt failed with 'Invalid MFA code'.
+      const code = req.body.code ?? req.body.mfaCode;
+
       if (!req.session.userId || !req.session.pendingMfa) {
         return res.status(401).json({ error: "No pending MFA verification" });
+      }
+
+      if (!code || typeof code !== "string") {
+        return res.status(400).json({ error: "MFA code is required" });
       }
 
       const user = await storage.getUser(req.session.userId);
@@ -3305,7 +3314,7 @@ Return JSON: { "income": [...] }`;
         return res.status(401).json({ error: "MFA not configured" });
       }
 
-      const isValid = verifyMfaToken(user.mfaSecret, mfaCode);
+      const isValid = verifyMfaToken(user.mfaSecret, code);
       if (!isValid) {
         return res.status(401).json({ error: "Invalid MFA code" });
       }
