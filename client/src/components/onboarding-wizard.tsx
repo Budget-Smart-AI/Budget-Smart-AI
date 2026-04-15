@@ -81,15 +81,24 @@ function detectCountry(): string {
 
 // ─── Progress Indicator ───────────────────────────────────────────────────────
 
+// Module-level constant so the useEffect that clamps server-provided step
+// values and the render both agree on the bound. Changing this requires
+// updating the labels array inside StepProgress too.
+const TOTAL_STEPS = 4;
+
 function StepProgress({ current, total }: { current: number; total: number }) {
   const labels = ["Welcome", "Connect Bank", "Monthly Income", "You're Ready!"];
-  // Show 100% on the final step
-  const pct = current >= total ? 100 : Math.round(((current - 1) / total) * 100);
+  // Defensively clamp. If upstream state is ever out of range (e.g., stale
+  // cached onboarding status pointing at a step that no longer exists after
+  // a Fresh Start), we still render a sane "Step N of total — label" rather
+  // than "Step 5 of 4 — undefined".
+  const safeCurrent = Math.max(1, Math.min(current, total));
+  const pct = safeCurrent >= total ? 100 : Math.round(((safeCurrent - 1) / total) * 100);
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-medium text-muted-foreground">
-          Step {current} of {total} — {labels[current - 1]}
+          Step {safeCurrent} of {total} — {labels[safeCurrent - 1]}
         </p>
         <p className="text-xs text-muted-foreground">{pct}%</p>
       </div>
@@ -98,9 +107,9 @@ function StepProgress({ current, total }: { current: number; total: number }) {
           <div
             key={i}
             className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
-              i < current - 1
+              i < safeCurrent - 1
                 ? "bg-primary"
-                : i === current - 1
+                : i === safeCurrent - 1
                 ? "bg-primary animate-pulse"
                 : "bg-muted"
             }`}
@@ -1220,7 +1229,10 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     enabled: open,
   });
 
-  // Restore state from onboarding status
+  // Restore state from onboarding status. Clamped to [1, TOTAL_STEPS] so a
+  // stale server value or cached response (e.g., after Fresh Start where the
+  // analysis row was deleted but cache hadn't invalidated yet) cannot push
+  // the wizard into a step index that has no matching render branch.
   useEffect(() => {
     if (!onboardingStatus) return;
     if (onboardingStatus.hasPlaidConnection && step === 1) {
@@ -1230,10 +1242,19 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     if (onboardingStatus.analysisData?.recurringBills) {
       setBillsDetected(onboardingStatus.analysisData.recurringBills.length);
     }
-    if (onboardingStatus.currentStep > step) {
-      setStep(onboardingStatus.currentStep);
+    const serverStep = Math.max(1, Math.min(onboardingStatus.currentStep, TOTAL_STEPS));
+    if (serverStep > step) {
+      setStep(serverStep);
     }
   }, [onboardingStatus]);
+
+  // Reset local step to 1 whenever the wizard opens so a previous session's
+  // residual step state can't linger (e.g., user completes onboarding, does
+  // Fresh Start, re-opens the wizard — must start from Welcome, not a late
+  // step pointing at deleted data).
+  useEffect(() => {
+    if (open) setStep(1);
+  }, [open]);
 
   // Detect income from analysis data
   const detectedIncome = onboardingStatus?.analysisData?.incomeSources?.[0];
@@ -1313,8 +1334,6 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     await apiRequest("POST", "/api/onboarding/save-step", { step: 4 });
     setStep(4);
   };
-
-  const TOTAL_STEPS = 4;
 
   return (
     <Dialog
