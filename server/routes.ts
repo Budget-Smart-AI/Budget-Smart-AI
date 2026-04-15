@@ -54,7 +54,13 @@ import receiptsRouter from "./routes/receipts";
 import vaultRouter from "./routes/vault";
 import adminPlansRouter from "./routes/admin-plans";
 import adminCommunicationsRouter from "./routes/admin-communications";
-import { createEngineApp } from "./engine/app";
+// Engine sub-app moved to its own Railway service at api.budgetsmart.io.
+// The client routes /api/engine/* requests there directly (see
+// client/src/lib/queryClient.ts::resolveApiUrl). Removed from the website
+// service to complete the isolation: engine code no longer runs inside the
+// website process, and the website's full-access DB credentials cannot
+// reach the engine path.
+// import { createEngineApp } from "./engine/app";
 import { registerPasswordResetRoutes } from "./routes/auth-password-reset";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt, decrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
@@ -130,11 +136,13 @@ export async function registerRoutes(
     console.warn("[CONFIG] Neither SALES_EMAIL nor ALERT_EMAIL_TO is set. Sales-lead notification emails will not be delivered.");
   }
 
-  // Engine sub-app — isolated calculation service with its own middleware
-  // stack (engineAuth, audit, error handler) and its own EngineStorage facade.
-  // See server/engine/app.ts. When this is split into its own Railway service
-  // (Step 3), createEngineApp() becomes that service's entry point unchanged.
-  app.use("/api/engine", createEngineApp());
+  // Engine sub-app is NOT mounted here. It runs as its own Railway service
+  // at https://api.budgetsmart.io (see server/engine/standalone.ts). The
+  // client routes /api/engine/* calls directly to that host via the
+  // resolveApiUrl helper in client/src/lib/queryClient.ts. This completes
+  // the Step 1–3 isolation: engine code runs in a separate process, with
+  // its own least-privileged Neon role, and cannot be reached through the
+  // website's full-access credentials.
 
   // Receipt scanner routes
   app.use("/api/receipts", receiptsRouter);

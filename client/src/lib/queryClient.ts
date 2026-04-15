@@ -1,5 +1,38 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// ─── Engine base URL resolver ────────────────────────────────────────────────
+//
+// Routes /api/engine/* requests to the isolated engine service
+// (api.budgetsmart.io) in production, and leaves other requests same-origin.
+// In development everything stays same-origin so `npm run dev` works without
+// the engine service running.
+//
+// Override via VITE_ENGINE_API_BASE_URL at build time if the engine host
+// differs from the production default. When unset, production requests to
+// /api/engine/* are rewritten to https://api.budgetsmart.io/api/engine/*.
+
+const ENGINE_BASE_URL_OVERRIDE =
+  (import.meta as any).env?.VITE_ENGINE_API_BASE_URL || "";
+
+function resolveApiUrl(url: string): string {
+  // Only rewrite engine paths. Other /api/* paths stay same-origin on the
+  // website service.
+  if (!url.startsWith("/api/engine")) return url;
+
+  // Explicit override wins (useful for staging/preview environments).
+  if (ENGINE_BASE_URL_OVERRIDE) {
+    return ENGINE_BASE_URL_OVERRIDE.replace(/\/$/, "") + url;
+  }
+
+  // In production, route to the isolated engine host. In dev, keep it
+  // same-origin so Vite's proxy continues to work.
+  if ((import.meta as any).env?.PROD) {
+    return "https://api.budgetsmart.io" + url;
+  }
+
+  return url;
+}
+
 // ─── 402 Feature-gate event bus ──────────────────────────────────────────────
 //
 // A lightweight publish/subscribe channel that lets the API fetch helpers
@@ -182,7 +215,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await fetch(resolveApiUrl(url), {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
@@ -199,7 +232,7 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    const res = await fetch(resolveApiUrl(queryKey.join("/") as string), {
       credentials: "include",
     });
 
