@@ -330,7 +330,12 @@ function ConnectBankStep({
     } finally {
       setIsConnecting(false);
     }
-  }, [toast, onPlaidOpen, onBankConnected]);
+    // intentId is read inside this callback (passed to exchange-token).
+    // Omitting it from deps caches a stale `null` value in the closure
+    // because the callback is created before fetchLinkToken runs. Leaving it
+    // out was the cause of the 403 bank_link_session_invalid error on the
+    // onboarding flow.
+  }, [toast, onPlaidOpen, onBankConnected, intentId]);
 
   const onPlaidExit = useCallback(() => {
     onPlaidOpen?.(false);
