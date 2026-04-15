@@ -61,6 +61,21 @@ async function buildAll() {
     logLevel: "info",
   });
 
+  console.log("building engine standalone entry...");
+  await esbuild({
+    entryPoints: ["server/engine/standalone.ts"],
+    platform: "node",
+    bundle: true,
+    format: "cjs",
+    outfile: "dist/engine.cjs",
+    define: {
+      "process.env.NODE_ENV": '"production"',
+    },
+    minify: true,
+    external: externals,
+    logLevel: "info",
+  });
+
   console.log("copying landing page...");
   await cp("server/landing", "dist/landing", { recursive: true });
 }
