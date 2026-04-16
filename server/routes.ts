@@ -13818,6 +13818,7 @@ The Budget Smart AI Team`,
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid data", details: error.errors });
       }
+            console.error("Error updating holding:", error);
       res.status(500).json({ error: "Failed to update holding" });
     }
   });
