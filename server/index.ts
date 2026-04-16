@@ -199,11 +199,14 @@ app.use(
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       maxAge: SESSION_MAX_AGE,
-      sameSite: "strict",
+      // Cross-subdomain cookies (app.budgetsmart.io → api.budgetsmart.io)
+      // require sameSite=none + secure=true in production so the browser
+      // sends the session cookie to the isolated engine service.
+      // Development uses strict because there's no cross-origin call.
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
       // Only set a specific cookie domain when MAIN_DOMAIN is explicitly
-      // configured; omitting it allows the cookie to work on any host
-      // (e.g. Railway, Replit, or a custom domain) without the browser
-      // rejecting a cookie whose domain doesn't match the current origin.
+      // configured; this scopes the cookie to *.budgetsmart.io so both
+      // the website (app.) and engine (api.) share the same session.
       domain: process.env.MAIN_DOMAIN ? `.${process.env.MAIN_DOMAIN}` : undefined,
     },
   })
@@ -536,35 +539,4 @@ if (process.env.NODE_ENV === "development") {
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
-
-    return res.status(status).json({ message });
-  });
-
-  // Handle landing page domain (budgetsmart.io) before SPA catch-all
-  // This serves the landing page for the main domain while app.budgetsmart.io gets the SPA
-  app.use(landingPageMiddleware);
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
-  }
-
-  console.log('[Plaid] Webhook URL:', process.env.PLAID_WEBHOOK_URL);
-  console.log('[MX] Webhook URL:', process.env.MX_WEBHOOK_URL);
-})().catch((err) => {
-  console.error("Fatal startup error:", err);
-  process.exit(1);
-});
+   
