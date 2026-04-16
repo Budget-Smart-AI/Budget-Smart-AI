@@ -305,6 +305,8 @@ interface TaxSummaryResponse {
     suggestedTaxCategory: string;
     confidence: "high" | "medium";
     reason: string;
+    merchant: string;
+        amount: number;
   }>;
 }
 
@@ -393,6 +395,8 @@ export default function TaxSmartPage() {
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+    const [acceptingSuggestion, setAcceptingSuggestion] = useState<string | null>(null);
+      const [acceptedSuggestions, setAcceptedSuggestions] = useState<Set<string>>(new Set());
 
   const config = TAXSMART_CONFIG[country];
   const effectiveMarginalRate = customMarginalRate ?? marginalRate;
@@ -1312,15 +1316,21 @@ export default function TaxSmartPage() {
             </p>
             <div className="space-y-2">
               {taxSummary.suggestions.slice(0, 8).map((s) => {
-                const matchedTx = allTransactions.find((t) => t.id === s.transactionId);
+                const isAccepted = acceptedSuggestions.has(s.transactionId);
+                const isAccepting = acceptingSuggestion === s.transactionId;
                 return (
                   <div
                     key={s.transactionId}
-                    className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-border bg-muted/20"
+                    className={`flex items-center justify-between gap-3 p-2.5 rounded-lg border ${
+                      isAccepted ? "border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20" : "border-border bg-muted/20"
+                    }`}
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">
-                        {matchedTx?.merchant || "Transaction"}
+                        {s.merchant || "Transaction"}{" "}
+                        <span className="text-muted-foreground font-normal">
+                          ({formatCurrency(Math.abs(s.amount || 0), config.locale, config.symbol)})
+                        </span>
                       </p>
                       <p className="text-xs text-muted-foreground">{s.reason}</p>
                     </div>
@@ -1334,23 +1344,46 @@ export default function TaxSmartPage() {
                     >
                       {s.confidence}
                     </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs shrink-0"
-                      onClick={() =>
-                        toast({
-                          title: "Coming soon",
-                          description: "Auto-tagging will be available in the next update.",
-                        })
-                      }
-                    >
-                      Accept
-                    </Button>
+                    {isAccepted ? (
+                      <Badge className="bg-green-600 text-white text-xs shrink-0">
+                        â Tagged
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                        disabled={isAccepting}
+                        onClick={async () => {
+                          try {
+                            setAcceptingSuggestion(s.transactionId);
+                            await apiRequest("PATCH", `/api/expenses/${s.transactionId}`, {
+                              taxDeductible: "true",
+                              taxCategory: s.suggestedTaxCategory,
+                            });
+                            setAcceptedSuggestions((prev) => new Set([...prev, s.transactionId]));
+                            queryClient.invalidateQueries({ queryKey: ["/api/tax/summary"] });
+                            toast({
+                              title: "Transaction tagged",
+                              description: `${s.merchant} marked as ${s.suggestedTaxCategory.replace(/_/g, " ")} deduction.`,
+                            });
+                          } catch (err) {
+                            toast({
+                              title: "Error",
+                              description: "Failed to tag transaction. Please try again.",
+                              variant: "destructive",
+                            });
+                          } finally {
+                            setAcceptingSuggestion(null);
+                          }
+                        }}
+                      >
+                        {isAccepting ? "..." : "Accept"}
+                      </Button>
+                    )}
                   </div>
                 );
-              })}
-              {taxSummary.suggestions.length > 8 && (
+              })}              {taxSummary.suggestions.length > 8 && (
                 <p className="text-xs text-muted-foreground text-center pt-1">
                   + {taxSummary.suggestions.length - 8} more suggestions
                 </p>
