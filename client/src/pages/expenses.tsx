@@ -665,7 +665,7 @@ export default function ExpensesPage() {
   const { data: expenseStats } = useQuery<ExpenseResult>({
     queryKey: ["/api/engine/expenses", { startDate: monthStart, endDate: monthEnd }],
     queryFn: async () => {
-      const res = await fetch(`/api/engine/expenses?startDate=${monthStart}&endDate=${monthEnd}`);
+      const res = await apiRequest("GET", `/api/engine/expenses?startDate=${monthStart}&endDate=${monthEnd}`);
       return res.json();
     },
   });
