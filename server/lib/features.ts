@@ -746,7 +746,7 @@ export const FEATURE_LIMITS = {
     expense_tracking: null,             // unlimited (auto-imported Plaid transactions must not count toward a limit)
     spending_analysis: null,            // unlimited (basic feature)
     unmatched_transactions: null,       // unlimited (basic feature)
-    subscription_tracking: 0,          // disabled on free — Pro feature
+    subscription_tracking: null,        // unlimited — now free for all tiers
 
     // Planning
     budget_creation: 5,                 // total budgets
