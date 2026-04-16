@@ -501,6 +501,38 @@ router.post("/documents/:id/ask", requireAuth, vaultRateLimiter, async (req, res
 });
 
 /**
+ * GET /api/vault/documents/:id/preview
+ * Streams the file directly through the API server so the browser can embed it
+ * in an iframe without R2 CORS / X-Frame-Options issues.
+ */
+router.get("/documents/:id/preview", requireAuth, async (req, res) => {
+  try {
+    const userId = String(req.session.userId ?? "");
+    const db = getPool();
+    const result = await db.query("SELECT * FROM vault_documents WHERE id=$1", [req.params.id]);
+    const doc = result.rows[0];
+    if (!doc || doc.user_id !== userId) return res.status(404).json({ error: "Document not found" });
+
+    const command = new GetObjectCommand({ Bucket: getBucket(), Key: doc.file_key });
+    const r2Response = await getR2().send(command);
+
+    if (!r2Response.Body) return res.status(404).json({ error: "File not found in storage" });
+
+    res.setHeader("Content-Type", doc.mime_type || "application/octet-stream");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    if (r2Response.ContentLength) res.setHeader("Content-Length", String(r2Response.ContentLength));
+
+    // Stream the R2 response body to the client
+    const stream = r2Response.Body as NodeJS.ReadableStream;
+    stream.pipe(res);
+  } catch (error: any) {
+    console.error("Preview proxy error:", error);
+    res.status(500).json({ error: "Failed to load preview" });
+  }
+});
+
+/**
  * GET /api/vault/documents/:id/download
  */
 router.get("/documents/:id/download", requireAuth, vaultRateLimiter, async (req, res) => {
