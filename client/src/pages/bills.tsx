@@ -1164,6 +1164,7 @@ export default function Bills() {
             </DialogContent>
           </Dialog>
         </div>
+        )}
       </div>
 
       <ImportDialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen} downloadTemplate={downloadTemplate} />
@@ -1647,7 +1648,6 @@ export default function Bills() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    )}
     </div>
   );
 }
