@@ -164,7 +164,7 @@ app.use(
             "https://api.openai.com",
           "https://api.budgetsmart.io",
           ],
-        frameSrc: ["https://cdn.plaid.com", "https://*.plaid.com", "https://*.moneydesktop.com"],
+        frameSrc: ["'self'", "https://cdn.plaid.com", "https://*.plaid.com", "https://*.moneydesktop.com"],
         objectSrc: ["'none'"],
       },
     },
