@@ -541,12 +541,12 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
           {/* Document Tab */}
           <TabsContent value="document" className="flex-1 overflow-y-auto p-4 space-y-4 mt-0">
             {/* Preview */}
-            {currentDoc.signedUrl && (
+            {(currentDoc.signedUrl || currentDoc.id) && (
               <div className="rounded-xl overflow-hidden border bg-muted/30 max-h-72">
                 {currentDoc.mime_type?.startsWith("image/") ? (
                   <img src={currentDoc.signedUrl} alt={currentDoc.file_name} className="w-full h-full object-contain" />
                 ) : currentDoc.mime_type === "application/pdf" ? (
-                  <iframe src={currentDoc.signedUrl} className="w-full h-72" title="PDF Preview" />
+                  <iframe src={`/api/vault/documents/${currentDoc.id}/preview`} className="w-full h-72" title="PDF Preview" />
                 ) : (
                   <div className="flex items-center justify-center h-40 gap-3">
                     {getFileIcon(currentDoc.mime_type, "h-12 w-12")}
