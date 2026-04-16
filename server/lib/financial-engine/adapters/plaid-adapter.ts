@@ -8,6 +8,13 @@
  * - Account type/subtype hierarchy (e.g., "depository" / "checking")
  * - balanceCurrent vs balanceAvailable
  * - isActive stored as string "true" / "false"
+ *
+ * PFC fields exposed to the engine (added 2026-04-15 for Monarch alignment):
+ * - pfcPrimary: Plaid PFC primary (FOOD_AND_DRINK, TRANSFER_OUT, etc.)
+ * - pfcDetailed: Plaid PFC detailed (FOOD_AND_DRINK_GROCERIES, etc.)
+ * The Monarch-aligned category resolver in
+ * `server/lib/financial-engine/categories/` reads these to produce the
+ * canonical Monarch category name without any keyword string-matching.
  */
 
 import {
@@ -80,9 +87,9 @@ export class PlaidAdapter implements BankingAdapter {
       // Note: we do NOT treat all credits as income — refunds, corrections, and
       // merchant credits are credits but not income. We rely on Plaid's PFC
       // classification and counterparty type for accurate income detection.
-      const pfcPrimary = (tx.category || "").toUpperCase();
+      const pfcPrimaryRaw = (tx.category || "").toUpperCase();
       const counterpartyType = tx.counterpartyType || null;
-      const isIncomeByPFC = pfcPrimary === "INCOME";
+      const isIncomeByPFC = pfcPrimaryRaw === "INCOME";
       const isIncomeByCounterparty = counterpartyType === "INCOME_SOURCE";
       // Also check the mapped category for income-related keywords
       const isIncomeByCategory = /salary|payroll|income|wages|employment/i.test(category);
@@ -90,6 +97,16 @@ export class PlaidAdapter implements BankingAdapter {
       // OR the mapped category is income-related. Plain credits (refunds,
       // corrections, merchant credits) are NOT income.
       const isIncome = isIncomeByPFC || isIncomeByCounterparty || (isCredit && !isTransfer && isIncomeByCategory);
+
+      // Expose Plaid PFC fields for the Monarch category resolver. The PFC
+      // primary lives at `tx.category` (existing column), the detailed at
+      // `tx.personalFinanceCategoryDetailed` (added during the enrichment
+      // refactor in the `fix(enrichment)` commits earlier this month).
+      // Both are nullable — the resolver tolerates absent fields.
+      const pfcPrimary = pfcPrimaryRaw || null;
+      const pfcDetailed = tx.personalFinanceCategoryDetailed
+        ? String(tx.personalFinanceCategoryDetailed).toUpperCase()
+        : null;
 
       return {
         id: tx.id,
@@ -107,6 +124,9 @@ export class PlaidAdapter implements BankingAdapter {
           ? parseFloat(String(tx.cadEquivalent))
           : undefined,
         provider: "Plaid",
+        // Provider category signals consumed by `categories/resolver.ts`.
+        pfcPrimary,
+        pfcDetailed,
       } as NormalizedTransaction;
     });
   }

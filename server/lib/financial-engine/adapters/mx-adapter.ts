@@ -82,6 +82,18 @@ export class MxAdapter implements BankingAdapter {
         tx.pending === "true" ||
         tx.status === "PENDING";
 
+      // Expose MX category fields for the Monarch category resolver. MX uses
+      // `category` for the leaf (e.g. "Groceries") and `topLevelCategory` for
+      // the group (e.g. "Food & Dining"). Both nullable; resolver tolerates
+      // absent fields. Added 2026-04-15 for Monarch alignment — see
+      // `server/lib/financial-engine/categories/`.
+      const mxCategory = tx.category ? String(tx.category) : null;
+      const mxTopLevel = tx.topLevelCategory
+        ? String(tx.topLevelCategory)
+        : tx.topCategory
+          ? String(tx.topCategory)
+          : null;
+
       return {
         id: tx.id || tx.transactionGuid || tx.guid,
         date: tx.date || tx.transactedAt,
@@ -98,6 +110,9 @@ export class MxAdapter implements BankingAdapter {
           ? parseFloat(String(tx.cadEquivalent))
           : undefined,
         provider: "MX",
+        // Provider category signals consumed by `categories/resolver.ts`.
+        mxCategory,
+        mxTopLevel,
       } as NormalizedTransaction;
     });
   }

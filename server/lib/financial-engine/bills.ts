@@ -248,6 +248,259 @@ export function getBillsForPeriod(
   return results;
 }
 
+// ─── Paid vs Predicted (Monarch-aligned) ──────────────────────────────────
+//
+// For each bill occurrence in a period, check whether a real transaction
+// matches it within a tolerance window (±3 days, ±$2 of amount). Classify
+// each occurrence as one of:
+//
+//   paid       — matching transaction found
+//   missed     — due date is in the past (or today) and no match found
+//   predicted  — due date is in the future and no match found yet
+//
+// Powers Monarch's "$X remaining due this month" recurring widget. Used by
+// the dashboard and the Recurring page.
+
+/** A bill occurrence with its paid/missed/predicted status and matched tx. */
+export interface BillOccurrenceWithStatus {
+  billId: string;
+  billName: string;
+  amount: number;
+  category: string;
+  dueDate: string; // yyyy-MM-dd
+  recurrence: string;
+  status: "paid" | "missed" | "predicted";
+  /** ID of the matching transaction (when status === "paid"). */
+  matchedTransactionId?: string;
+  /** Date of the matching transaction (when status === "paid"). */
+  matchedTransactionDate?: string;
+  /** Actual amount paid (when status === "paid", may differ slightly from bill.amount). */
+  paidAmount?: number;
+}
+
+/** Tolerance window for matching a transaction to a bill occurrence. */
+const PAID_MATCH_DAY_TOLERANCE = 3;
+const PAID_MATCH_AMOUNT_TOLERANCE = 2.0; // dollars
+
+/**
+ * Match a single bill occurrence to a transaction within tolerance.
+ * Returns the matching transaction or null.
+ *
+ * Matching rules (in order):
+ *   1. Transaction date within ±3 days of due date
+ *   2. Transaction amount within ±$2 of bill amount
+ *   3. Transaction merchant matches the bill's merchant (case-insensitive,
+ *      whitespace-trimmed); if the bill has no merchant, name-match is used
+ *   4. Transaction is a debit (we never match income to a bill)
+ *
+ * If multiple transactions match, the closest by date wins (ties broken
+ * by smallest amount delta).
+ */
+function findMatchingTransaction(
+  occurrence: InternalBillOccurrence,
+  transactions: import("./normalized-types").NormalizedTransaction[]
+): import("./normalized-types").NormalizedTransaction | null {
+  const { bill, dueDate } = occurrence;
+  const billAmount = parseFloat(bill.amount);
+  const billMerchant = (bill.merchant ?? bill.name ?? "").trim().toLowerCase();
+
+  let best: import("./normalized-types").NormalizedTransaction | null = null;
+  let bestScore = Infinity; // lower = better (sum of date and amount delta)
+
+  for (const tx of transactions) {
+    if (tx.direction !== "debit") continue;
+    if (tx.isPending) continue;
+    if (tx.isTransfer) continue;
+
+    let txDate: Date;
+    try {
+      txDate = parseISO(tx.date);
+    } catch {
+      continue;
+    }
+    const dayDelta = Math.abs(differenceInDays(txDate, dueDate));
+    if (dayDelta > PAID_MATCH_DAY_TOLERANCE) continue;
+
+    const amountDelta = Math.abs(tx.amount - billAmount);
+    if (amountDelta > PAID_MATCH_AMOUNT_TOLERANCE) continue;
+
+    const txMerchant = (tx.merchant ?? "").trim().toLowerCase();
+    if (billMerchant && txMerchant) {
+      // Loose merchant check: one is a substring of the other (handles
+      // "Netflix" matching "NETFLIX.COM" etc.).
+      if (
+        !txMerchant.includes(billMerchant) &&
+        !billMerchant.includes(txMerchant)
+      ) {
+        continue;
+      }
+    }
+
+    const score = dayDelta + amountDelta;
+    if (score < bestScore) {
+      bestScore = score;
+      best = tx;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * For every bill occurrence in [startDate, endDate], classify as paid,
+ * missed, or predicted. Returns a structured result with totals so the
+ * UI can render Monarch-style "$2,603 remaining due."
+ *
+ * @param bills - User's Bills
+ * @param transactions - Recent transactions to match against (caller should
+ *   pass a window covering startDate - 3 days to endDate + 3 days at minimum)
+ * @param startDate - Window start (inclusive)
+ * @param endDate - Window end (inclusive)
+ * @param today - Reference date for paid/missed/predicted classification
+ *   (occurrences before today with no match → missed; after today → predicted)
+ */
+export function getBillsForPeriodWithStatus(
+  bills: Bill[],
+  transactions: import("./normalized-types").NormalizedTransaction[],
+  startDate: Date,
+  endDate: Date,
+  today: Date
+): {
+  occurrences: BillOccurrenceWithStatus[];
+  paidTotal: number;
+  predictedTotal: number;
+  missedTotal: number;
+  remainingDue: number; // predicted + missed
+} {
+  const internal = getBillsForPeriod(bills, startDate, endDate);
+  const todayMidnight = startOfDay(today);
+
+  const result: BillOccurrenceWithStatus[] = [];
+  let paidTotal = 0;
+  let predictedTotal = 0;
+  let missedTotal = 0;
+
+  for (const occ of internal) {
+    const match = findMatchingTransaction(occ, transactions);
+    const billAmount = parseFloat(occ.bill.amount);
+
+    let status: "paid" | "missed" | "predicted";
+    let matchedTransactionId: string | undefined;
+    let matchedTransactionDate: string | undefined;
+    let paidAmount: number | undefined;
+
+    if (match) {
+      status = "paid";
+      matchedTransactionId = match.id;
+      matchedTransactionDate = match.date;
+      paidAmount = match.amount;
+      paidTotal += match.amount;
+    } else if (isAfter(occ.dueDate, todayMidnight)) {
+      status = "predicted";
+      predictedTotal += billAmount;
+    } else {
+      status = "missed";
+      missedTotal += billAmount;
+    }
+
+    result.push({
+      billId: occ.bill.id,
+      billName: occ.bill.name,
+      amount: billAmount,
+      category: occ.bill.category,
+      dueDate: format(occ.dueDate, "yyyy-MM-dd"),
+      recurrence: occ.bill.recurrence,
+      status,
+      matchedTransactionId,
+      matchedTransactionDate,
+      paidAmount,
+    });
+  }
+
+  return {
+    occurrences: result,
+    paidTotal: Math.round(paidTotal * 100) / 100,
+    predictedTotal: Math.round(predictedTotal * 100) / 100,
+    missedTotal: Math.round(missedTotal * 100) / 100,
+    remainingDue: Math.round((predictedTotal + missedTotal) * 100) / 100,
+  };
+}
+
+// ─── Auto-dismiss stale recurrences ───────────────────────────────────────
+
+/**
+ * Check whether a bill should be auto-dismissed because no matching
+ * transaction has been seen for `2 × cadence` past the last expected date.
+ *
+ * Wiring (next session): call from sync-scheduler after each sync. For each
+ * non-dismissed bill where this returns true, set `is_auto_dismissed = true`
+ * so the bill stops contributing to upcoming totals. Reactivation is
+ * automatic: when a matching transaction shows up, a follow-up scan should
+ * flip the flag back. (Or: the bill-detection auto-confirm pipeline can
+ * recreate the bill if the user dismissed it intentionally.)
+ *
+ * @param bill - The bill to evaluate
+ * @param transactions - Recent transactions covering the window since the
+ *   bill's expected last occurrence
+ * @param today - Reference date
+ * @returns true if the bill should be auto-dismissed
+ */
+export function shouldAutoDismissBill(
+  bill: Bill,
+  transactions: import("./normalized-types").NormalizedTransaction[],
+  today: Date
+): boolean {
+  // Never auto-dismiss paused / one-time / custom bills.
+  if (bill.isPaused === "true") return false;
+  if (bill.recurrence === "one_time" || bill.recurrence === "custom") return false;
+
+  // Cadence in days for grace calculation.
+  const cadenceDays =
+    bill.recurrence === "weekly"
+      ? 7
+      : bill.recurrence === "biweekly"
+        ? 14
+        : bill.recurrence === "yearly"
+          ? 365
+          : 30; // monthly default
+  const graceDays = cadenceDays * 2;
+
+  // Look back twice the cadence; if no matching tx in that window, dismiss.
+  const lookbackStart = addDays(today, -graceDays);
+  const billAmount = parseFloat(bill.amount);
+  const billMerchant = (bill.merchant ?? bill.name ?? "").trim().toLowerCase();
+
+  for (const tx of transactions) {
+    if (tx.direction !== "debit") continue;
+    if (tx.isPending) continue;
+    if (tx.isTransfer) continue;
+
+    let txDate: Date;
+    try {
+      txDate = parseISO(tx.date);
+    } catch {
+      continue;
+    }
+    if (isBefore(txDate, lookbackStart)) continue;
+    if (isAfter(txDate, today)) continue;
+
+    const amountDelta = Math.abs(tx.amount - billAmount);
+    if (amountDelta > PAID_MATCH_AMOUNT_TOLERANCE) continue;
+
+    const txMerchant = (tx.merchant ?? "").trim().toLowerCase();
+    if (billMerchant && txMerchant) {
+      if (!txMerchant.includes(billMerchant) && !billMerchant.includes(txMerchant)) {
+        continue;
+      }
+    }
+
+    // Found a match within the grace window — keep the bill active.
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Sums the total amount across a set of bill occurrences.
  *

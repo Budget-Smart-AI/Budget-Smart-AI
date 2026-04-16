@@ -44,6 +44,23 @@ export interface NormalizedTransaction {
   cadEquivalent?: number;
   /** The originating provider (for provenance, NOT for logic branching) */
   provider: string;
+
+  // ── Optional provider-category signals ────────────────────────────────
+  // Populated by adapters (Plaid / MX / Finicity / etc.) when the underlying
+  // transaction carries categorisation data. The Monarch-aligned category
+  // resolver (`server/lib/financial-engine/categories/`) reads these to
+  // produce a canonical Monarch category name without keyword string-matching.
+  // None are required — when absent, the resolver falls back to the legacy
+  // `category` string + merchant override + "Uncategorized".
+
+  /** Plaid PFC primary category, e.g. `FOOD_AND_DRINK`, `TRANSFER_OUT`. */
+  pfcPrimary?: string | null;
+  /** Plaid PFC detailed category, e.g. `FOOD_AND_DRINK_GROCERIES`. */
+  pfcDetailed?: string | null;
+  /** MX category value, e.g. `Groceries` (case-sensitive as MX returns it). */
+  mxCategory?: string | null;
+  /** MX top-level category, e.g. `Food & Dining`. */
+  mxTopLevel?: string | null;
 }
 
 // ─── Normalized Account ───────────────────────────────────────────────────

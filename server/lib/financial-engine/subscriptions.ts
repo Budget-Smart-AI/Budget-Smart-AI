@@ -22,30 +22,55 @@ import { SubscriptionsResult, BillOccurrence } from './types';
 import { getNextBillOccurrence, getBillsForPeriod } from './bills';
 
 /**
- * Subscription categories that indicate a recurring, subscription-like expense.
- * These are bill categories that commonly represent subscriptions.
+ * Subscription categories — Monarch-aligned model.
+ *
+ * Following Monarch's design (and the operator's 2026-04-15 decision):
+ * subscriptions are NOT a separate concept. They are a filter over recurring
+ * bills whose category is in a small, intentional set: streaming/software/
+ * dues/digital-media/internet/phone/fitness/insurance/education/business-
+ * insurance. A daily Starbucks run is not a subscription.
+ *
+ * The canonical list comes from `categories/monarch-categories.ts` —
+ * categories with `subscriptionLike: true`. We also accept legacy BSAI
+ * category names for backwards compatibility (existing user Bills) and
+ * translate them through the resolver's legacy-name map.
  */
-const SUBSCRIPTION_CATEGORIES = [
-  'Subscriptions',     // User-created subscriptions (primary category)
-  'Communications',    // Internet, phone services
-  'Entertainment',     // Streaming services, apps
-  'Fitness',          // Gym memberships, fitness apps
-  'Education',        // Online courses, learning platforms
-  'Business Travel & Meals',
-  'Travel',           // Travel memberships, services
-  'Coffee Shops',     // Membership/recurring visits
-  'Other',            // Catch-all for misc subscriptions
-];
+import {
+  SUBSCRIPTION_LIKE_CATEGORIES,
+  findMonarchCategory,
+} from './categories/monarch-categories';
+
+/** The legacy "Subscriptions" bucket that pre-dated Monarch alignment. We
+ * still treat user Bills with `category === "Subscriptions"` as subscriptions
+ * so historical data renders correctly. */
+const LEGACY_SUBSCRIPTION_CATEGORIES = new Set<string>(['Subscriptions']);
 
 /**
- * Determine if a bill is subscription-like based on category.
- * Categories in SUBSCRIPTION_CATEGORIES are considered subscriptions.
+ * Determine if a bill is subscription-like.
  *
- * @param bill - The bill to check
- * @returns true if the bill is subscription-like
+ * Decision: a bill is subscription-like iff its category resolves to a
+ * Monarch category whose `subscriptionLike` flag is true, OR it's the
+ * legacy "Subscriptions" user-created category.
+ *
+ * Notably NOT subscription-like (departing from BSAI's old behaviour):
+ *   - "Other" (catch-all is not a subscription)
+ *   - "Coffee Shops", "Travel", "Business Travel & Meals" (these are
+ *     spending categories, not subscriptions)
+ *   - "Communications" alone (mapped to "Internet & Cable" / "Phone" which
+ *     are subscription-like; the legacy name will be normalised by the
+ *     resolver)
  */
 function isSubscriptionCategory(bill: Bill): boolean {
-  return SUBSCRIPTION_CATEGORIES.includes(bill.category);
+  if (LEGACY_SUBSCRIPTION_CATEGORIES.has(bill.category)) return true;
+  // Try direct match against the Monarch list.
+  if ((SUBSCRIPTION_LIKE_CATEGORIES as readonly string[]).includes(bill.category)) {
+    return true;
+  }
+  // If the bill's category name is a legacy BSAI name, map it to Monarch
+  // and check the flag on the def.
+  const def = findMonarchCategory(bill.category);
+  if (def?.subscriptionLike) return true;
+  return false;
 }
 
 /**

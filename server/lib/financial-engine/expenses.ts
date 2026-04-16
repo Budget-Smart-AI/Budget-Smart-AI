@@ -24,6 +24,10 @@ import {
 import { ExpenseResult } from './types';
 import type { NormalizedTransaction } from './normalized-types';
 import type { Expense } from '@shared/schema';
+// Monarch-aligned transfer detection. Prefers Plaid PFC / MX category signals
+// when adapters populate them; otherwise falls back to the legacy keyword
+// match below for safety. See `MONARCH_VS_BSAI.md` §3 for the rationale.
+import { isTransfer as isTransferByResolver } from './categories';
 
 // ─── Precision Helpers ──────────────────────────────────────────────────────
 
@@ -48,8 +52,17 @@ function toDollars(cents: number): number {
 // ─── Transaction Filtering ──────────────────────────────────────────────────
 
 /**
- * Categories that represent money transfers, not actual spending
- * These should be excluded from expense calculations
+ * Legacy keyword-based transfer category check.
+ *
+ * Kept as a fallback for non-Plaid / non-MX transactions (manual entries,
+ * other providers, or older imports without PFC enrichment). The primary
+ * detection path is now `isTransferByResolver()` which uses Plaid PFC
+ * primary + MX top-level when available — see imports above.
+ *
+ * Why both: relying on string-matching alone misses transactions where the
+ * adapter normalised the category to a non-keyword name, and being too
+ * aggressive on keywords ("payment" appearing in arbitrary merchant names
+ * for example) caused false positives. The PFC-first resolver fixes both.
  */
 const TRANSFER_CATEGORY_KEYWORDS = new Set([
   'transfer',
@@ -61,13 +74,7 @@ const TRANSFER_CATEGORY_KEYWORDS = new Set([
   'payment',
 ]);
 
-/**
- * Check if a transaction category indicates a transfer
- *
- * @param category Category name or code
- * @returns True if this is a transfer category
- */
-function isTransferCategory(category: string | null | undefined): boolean {
+function isTransferCategoryByKeyword(category: string | null | undefined): boolean {
   if (!category) return false;
   const categoryLower = String(category).toLowerCase();
   for (const keyword of TRANSFER_CATEGORY_KEYWORDS) {
@@ -76,6 +83,26 @@ function isTransferCategory(category: string | null | undefined): boolean {
     }
   }
   return false;
+}
+
+/**
+ * True if a normalized transaction is a transfer (and therefore should be
+ * excluded from spending totals). Uses the Monarch-aligned resolver first
+ * (Plaid PFC primary, then MX top-level, then category-name match), and
+ * falls back to the legacy keyword set if the resolver yields no signal.
+ */
+function isTransferTransaction(tx: NormalizedTransaction): boolean {
+  if (
+    isTransferByResolver({
+      pfcPrimary: tx.pfcPrimary,
+      mxTopLevel: tx.mxTopLevel,
+      category: tx.category,
+    })
+  ) {
+    return true;
+  }
+  // Legacy keyword fallback for adapters that don't yet populate PFC/MX fields.
+  return isTransferCategoryByKeyword(tx.category);
 }
 
 // ─── Normalized Transaction Helpers ────────────────────────────────────────
@@ -187,7 +214,7 @@ function deduplicateExpenses(
       }
 
       // Skip transfer categories (belt-and-suspenders check)
-      if (isTransferCategory(tx.category)) {
+      if (isTransferTransaction(tx)) {
         continue;
       }
 
