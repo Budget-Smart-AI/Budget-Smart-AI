@@ -60,6 +60,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BILL_CATEGORIES, RECURRENCE_OPTIONS, type Bill } from "@shared/schema";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { AlertTriangle, Crown } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import SubscriptionsContent from "@/pages/subscriptions";
 
 const DAYS_OF_WEEK = [
   { value: 0, label: "Sunday" },
@@ -798,6 +800,7 @@ function ImportDialog({
 }
 
 export default function Bills() {
+  const [activeTab, setActiveTab] = useState("bills");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isDetectDialogOpen, setIsDetectDialogOpen] = useState(false);
@@ -1104,16 +1107,25 @@ export default function Bills() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight" data-testid="text-bills-title">Recurring Bills</h1>
+            <h1 className="text-3xl font-bold tracking-tight" data-testid="text-bills-title">Bills & Subscriptions</h1>
             <HelpTooltip
               title="About Bills"
               content="Bills are meant for scheduled, recurring payments that match what you've set up in your banking platform - things like rent, utilities, insurance, and loan payments. Budget Smart AI tracks due dates and sends you reminders before payments are due."
             />
           </div>
           <p className="text-muted-foreground">
-            Manage your recurring bills and receive reminders
+            Manage your recurring bills and subscriptions
           </p>
         </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList>
+            <TabsTrigger value="bills">Bills</TabsTrigger>
+            <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        {activeTab === "subscriptions" ? (
+          <SubscriptionsContent />
+        ) : (
         <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" onClick={detectBills} disabled={isDetecting} data-testid="button-detect-bills">
             {isDetecting ? (
@@ -1635,6 +1647,7 @@ export default function Bills() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    )}
     </div>
   );
 }
