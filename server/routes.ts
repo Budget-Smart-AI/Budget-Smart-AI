@@ -1,4 +1,4 @@
-import type { Express, Request as ExpressRequest } from "express";
+himport type { Express, Request as ExpressRequest } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import { storage } from "./storage";
@@ -45,7 +45,7 @@ import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPass
 import passport from "passport";
 import { authRateLimiter, apiRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending, getBillsInRange, getIncomeInRange } from "./cash-flow";
-import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices } from "./alpha-vantage";
+import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices, getHistoricalPrices } from "./alpha-vantage";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
 import { salesLeadFormSchema, billPayments, spendingAlerts, insertSpendingAlertSchema, updateSpendingAlertSchema, plaidItems, expenses, plaidTransactions } from "@shared/schema";
@@ -13864,6 +13864,23 @@ The Budget Smart AI Team`,
     } catch (error) {
       console.error("Error fetching stock analysis:", error);
       res.status(500).json({ error: "Failed to fetch stock analysis" });
+    }
+  });
+
+  // Get historical price data for charts
+  app.get("/api/stocks/:symbol/history", requireAuth, async (req, res) => {
+    try {
+      const symbol = (req.params.symbol as string).toUpperCase();
+      const range = (req.query.range as string) || "1M";
+      const validRanges = ["1M", "3M", "1Y", "5Y"];
+      if (!validRanges.includes(range)) {
+        return res.status(400).json({ error: "Invalid range. Use 1M, 3M, 1Y, or 5Y" });
+      }
+      const prices = await getHistoricalPrices(symbol, range as "1M" | "3M" | "1Y" | "5Y");
+      res.json({ symbol, range, prices });
+    } catch (error) {
+      console.error("Error fetching historical prices:", error);
+      res.status(500).json({ error: "Failed to fetch historical prices" });
     }
   });
 
