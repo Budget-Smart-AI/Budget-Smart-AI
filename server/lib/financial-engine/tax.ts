@@ -52,6 +52,8 @@ export interface TaxSuggestion {
   suggestedTaxCategory: string;
   confidence: "high" | "medium";
   reason: string;
+  merchant: string;
+  amount: number;
 }
 
 export interface TaxBracket {
@@ -478,7 +480,9 @@ export function suggestTaxDeductible(
         transactionId: t.id,
         suggestedTaxCategory: "medical",
         confidence: "high",
-        reason: "Medical expense — typically deductible",
+        reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Medical expense, typically deductible`,
+        merchant: t.merchant,
+        amount: t.amount,
       });
       return;
     }
@@ -488,7 +492,9 @@ export function suggestTaxDeductible(
         transactionId: t.id,
         suggestedTaxCategory: "charitable",
         confidence: "high",
-        reason: "Charitable donation detected",
+        reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Charitable donation detected`,
+        merchant: t.merchant,
+        amount: t.amount,
       });
       return;
     }
@@ -502,7 +508,9 @@ export function suggestTaxDeductible(
         transactionId: t.id,
         suggestedTaxCategory: "education",
         confidence: "medium",
-        reason: "Education expense — may be deductible",
+        reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Education expense, may be deductible`,
+        merchant: t.merchant,
+        amount: t.amount,
       });
       return;
     }
@@ -512,7 +520,9 @@ export function suggestTaxDeductible(
         transactionId: t.id,
         suggestedTaxCategory: "business_expense",
         confidence: "medium",
-        reason: "Business service — likely deductible",
+        reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Business service, likely deductible`,
+        merchant: t.merchant,
+        amount: t.amount,
       });
       return;
     }
@@ -526,7 +536,9 @@ export function suggestTaxDeductible(
           transactionId: t.id,
           suggestedTaxCategory: "business_expense",
           confidence: "high",
-          reason: "Business software — deductible business expense",
+          reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Business software, deductible expense`,
+          merchant: t.merchant,
+          amount: t.amount,
         });
         return;
       }
@@ -539,7 +551,9 @@ export function suggestTaxDeductible(
           transactionId: t.id,
           suggestedTaxCategory: "mortgage_interest",
           confidence: "high",
-          reason: "Mortgage interest — deductible if itemizing",
+          reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Mortgage interest, deductible if itemizing`,
+          merchant: t.merchant,
+          amount: t.amount,
         });
         return;
       }
@@ -551,7 +565,9 @@ export function suggestTaxDeductible(
           transactionId: t.id,
           suggestedTaxCategory: "union_professional_dues",
           confidence: "high",
-          reason: "Union dues — fully deductible",
+          reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Union dues, fully deductible`,
+          merchant: t.merchant,
+          amount: t.amount,
         });
         return;
       }
@@ -561,7 +577,9 @@ export function suggestTaxDeductible(
           transactionId: t.id,
           suggestedTaxCategory: "rrsp_contribution",
           confidence: "high",
-          reason: "RRSP contribution — tax-deductible",
+          reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — RRSP contribution, tax-deductible`,
+          merchant: t.merchant,
+          amount: t.amount,
         });
         return;
       }
@@ -573,7 +591,9 @@ export function suggestTaxDeductible(
           transactionId: t.id,
           suggestedTaxCategory: "pension_contribution",
           confidence: "high",
-          reason: "Pension contribution — receives tax relief",
+          reason: `${t.merchant} (${Math.abs(t.amount).toFixed(2)}) — Pension contribution, receives tax relief`,
+          merchant: t.merchant,
+          amount: t.amount,
         });
         return;
       }
