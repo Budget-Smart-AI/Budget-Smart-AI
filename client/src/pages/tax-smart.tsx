@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -46,43 +47,44 @@ import {
   Loader2,
   Upload,
   Eye,
+  ArrowUpDown,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Expense } from "@shared/schema";
 
 // ─── Tax Config ────────────────────────────────────────────────────────────────
+
+const MARGINAL_RATE_BRACKETS = {
+  US: [
+    { label: "10% — up to $11,925", rate: 10 },
+    { label: "12% — $11,926–$48,475", rate: 12 },
+    { label: "22% — $48,476–$103,350", rate: 22 },
+    { label: "24% — $103,351–$197,300", rate: 24 },
+    { label: "32% — $197,301–$250,525", rate: 32 },
+    { label: "35% — $250,526–$626,350", rate: 35 },
+    { label: "37% — $626,351+", rate: 37 },
+  ],
+  CA: [
+    { label: "15% — up to $57,375 (Federal)", rate: 15 },
+    { label: "20.5% — $57,376–$114,750 (Federal)", rate: 20.5 },
+    { label: "26% — $114,751–$158,468 (Federal)", rate: 26 },
+    { label: "29% — $158,469–$220,000 (Federal)", rate: 29 },
+    { label: "33% — $220,001+ (Federal)", rate: 33 },
+  ],
+  UK: [
+    { label: "20% — Basic Rate (£12,571–£50,270)", rate: 20 },
+    { label: "40% — Higher Rate (£50,271–£125,140)", rate: 40 },
+    { label: "45% — Additional Rate (£125,141+)", rate: 45 },
+  ],
+};
 
 const TAXSMART_CONFIG = {
   US: {
     name: "United States (IRS)",
     currency: "USD",
-    categories: [
-      "business_expense", "home_office", "medical", "charitable", "education",
-      "business_travel", "business_meals", "vehicle_expense", "professional_services",
-      "office_supplies", "other_deductible",
-    ],
-    categoryLabels: {
-      business_expense: "Business Expense",
-      home_office: "Home Office",
-      medical: "Medical & Dental",
-      charitable: "Charitable Donations",
-      education: "Education",
-      business_travel: "Business Travel",
-      business_meals: "Business Meals (50%)",
-      vehicle_expense: "Vehicle / Mileage",
-      professional_services: "Professional Services",
-      office_supplies: "Office Supplies",
-      other_deductible: "Other Deductible",
-    },
-    quickQuestions: [
-      "What home office expenses can I deduct?",
-      "How do I calculate the standard mileage rate?",
-      "What medical expenses are deductible?",
-      "Can I deduct my home internet for work?",
-      "What records do I need for charitable donations?",
-    ],
+    symbol: "$",
+    locale: "en-US",
     guidance: [
       {
         title: "Schedule C — Self-Employment",
@@ -121,38 +123,21 @@ const TAXSMART_CONFIG = {
         warning: false,
       },
     ],
+    quickQuestions: [
+      "What home office expenses can I deduct?",
+      "How do I calculate the standard mileage rate?",
+      "What medical expenses are deductible?",
+      "Can I deduct my home internet for work?",
+      "What records do I need for charitable donations?",
+    ],
     taxAuthority: "IRS",
     taxAuthorityUrl: "https://www.irs.gov",
-    disclaimer: `IMPORTANT DISCLAIMER: TaxSmart AI is an educational tool only. It does NOT provide personalized tax advice, legal advice, or accounting services. The information provided is for general educational purposes about US (IRS) tax concepts only. Tax laws change frequently and your individual situation may differ. Always consult a licensed CPA, Enrolled Agent, or tax attorney for advice specific to your situation. BudgetSmart AI is not responsible for any tax decisions made based on this tool.`,
   },
   CA: {
     name: "Canada (CRA)",
     currency: "CAD",
-    categories: [
-      "business_expense", "home_office", "medical", "charitable", "education",
-      "business_travel", "business_meals", "vehicle_expense", "professional_services",
-      "office_supplies", "other_deductible",
-    ],
-    categoryLabels: {
-      business_expense: "Business Expense",
-      home_office: "Home Office (T2200)",
-      medical: "Medical Expenses",
-      charitable: "Charitable Donations",
-      education: "Tuition / Education",
-      business_travel: "Business Travel",
-      business_meals: "Business Meals (50%)",
-      vehicle_expense: "Vehicle Expenses",
-      professional_services: "Professional Services",
-      office_supplies: "Office Supplies",
-      other_deductible: "Other Deductible",
-    },
-    quickQuestions: [
-      "What is the T2200 form and when do I need it?",
-      "How do I claim home office expenses as an employee?",
-      "What medical expenses qualify for the CRA medical credit?",
-      "How does the RRSP deduction work?",
-      "What vehicle expenses can I deduct for business?",
-    ],
+    symbol: "CA$",
+    locale: "en-CA",
     guidance: [
       {
         title: "T2125 — Self-Employment Income",
@@ -203,15 +188,76 @@ const TAXSMART_CONFIG = {
         warning: false,
       },
     ],
+    quickQuestions: [
+      "What is the T2200 form and when do I need it?",
+      "How do I claim home office expenses as an employee?",
+      "What medical expenses qualify for the CRA medical credit?",
+      "How does the RRSP deduction work?",
+      "What vehicle expenses can I deduct for business?",
+    ],
     taxAuthority: "CRA",
     taxAuthorityUrl: "https://www.canada.ca/en/revenue-agency.html",
-    disclaimer: `IMPORTANT DISCLAIMER: TaxSmart AI is an educational tool only. It does NOT provide personalized tax advice, legal advice, or accounting services. The information provided is for general educational purposes about Canadian (CRA) tax concepts only. Tax laws change frequently and your individual situation may differ. Always consult a licensed CPA, CGA, or tax professional for advice specific to your situation. BudgetSmart AI is not responsible for any tax decisions made based on this tool.`,
+  },
+  UK: {
+    name: "United Kingdom (HMRC)",
+    currency: "GBP",
+    symbol: "£",
+    locale: "en-GB",
+    guidance: [
+      {
+        title: "Self Assessment",
+        body: "Self-employed with income over £1,000? Register for Self Assessment and file by 31 January following the tax year.",
+        link: "https://www.gov.uk/self-assessment-tax-returns",
+        warning: false,
+      },
+      {
+        title: "Marriage Allowance",
+        body: "Transfer up to £1,260 of unused Personal Allowance to your spouse. Worth up to £252 per year.",
+        link: null,
+        warning: false,
+      },
+      {
+        title: "Working From Home",
+        body: "Employees required to work from home can claim £6/week tax relief without receipts, or exact costs with evidence.",
+        link: null,
+        warning: false,
+      },
+      {
+        title: "Gift Aid",
+        body: "Charitable donations via Gift Aid let charities claim 25p per £1. Higher-rate taxpayers can claim the difference.",
+        link: null,
+        warning: false,
+      },
+      {
+        title: "Pension Tax Relief",
+        body: "Contributions to registered pensions get tax relief at your marginal rate. Annual allowance is £60,000.",
+        link: null,
+        warning: true,
+      },
+      {
+        title: "Keep Records 5+ Years",
+        body: "HMRC can investigate up to 4 years back (6 for carelessness, 20 for fraud). Keep all receipts and records.",
+        link: null,
+        warning: false,
+      },
+    ],
+    quickQuestions: [
+      "What expenses can I claim as self-employed?",
+      "How does the Marriage Allowance work?",
+      "Can I claim working from home tax relief?",
+      "What pension contributions are tax-deductible?",
+      "How do I register for Self Assessment?",
+    ],
+    taxAuthority: "HMRC",
+    taxAuthorityUrl: "https://www.gov.uk/hmrc",
   },
 };
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type Country = "US" | "CA";
+type Country = "US" | "CA" | "UK";
+type SortKey = "date" | "merchant" | "amount" | "category" | "taxCategory";
+type SortDir = "asc" | "desc";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -232,6 +278,88 @@ interface VaultTaxDocument {
   file_type: string;
 }
 
+interface TaxSummaryResponse {
+  year: number;
+  country: string;
+  totalDeductible: number;
+  totalBusiness: number;
+  estimatedSavings: number;
+  marginalRate: number;
+  transactionCount: number;
+  businessCount: number;
+  byCategory: Array<{
+    category: string;
+    label: string;
+    total: number;
+    count: number;
+    transactions: Array<{
+      id: string;
+      date: string;
+      amount: number;
+      merchant: string;
+      source: string;
+    }>;
+  }>;
+  suggestions: Array<{
+    transactionId: string;
+    suggestedTaxCategory: string;
+    confidence: "high" | "medium";
+    reason: string;
+  }>;
+}
+
+interface TaxTransaction {
+  id: string;
+  date: string;
+  merchant: string;
+  amount: number;
+  category: string;
+  taxCategory: string;
+  source: string;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatCurrency(amount: number, locale: string, symbol: string) {
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: symbol === "$" ? "USD" : symbol === "CA$" ? "CAD" : "GBP",
+  }).format(amount);
+}
+
+function exportToCSV(transactions: TaxTransaction[], year: number, country: string) {
+  const headers = ["Date", "Merchant", "Amount", "Category", "Tax Category", "Source"];
+  const rows = transactions.map((t) => [
+    t.date,
+    `"${t.merchant.replace(/"/g, '""')}"`,
+    t.amount.toFixed(2),
+    `"${t.category}"`,
+    `"${t.taxCategory || ""}"`,
+    `"${t.source || ""}"`,
+  ]);
+
+  const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `tax-smart-${country}-${year}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+const parseExtractedData = (raw: any): Record<string, string> => {
+  if (!raw) return {};
+  try {
+    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]));
+  } catch {
+    return {};
+  }
+};
+
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function TaxSmartPage() {
@@ -241,33 +369,33 @@ export default function TaxSmartPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // State
-  const [country, setCountry] = useState<Country>(() => {
-    return (localStorage.getItem("taxsmart-country") as Country) || "CA";
-  });
+  const [country, setCountry] = useState<Country>("CA");
   const [taxYear, setTaxYear] = useState(currentYear - 1);
-  const [marginalRate, setMarginalRate] = useState<number>(30);
-  const [showDisclaimer, setShowDisclaimer] = useState(() => {
-    return !localStorage.getItem("taxsmart-disclaimer-v1");
-  });
+  const [marginalRate, setMarginalRate] = useState<number>(
+    MARGINAL_RATE_BRACKETS.CA[2].rate
+  );
+  const [customMarginalRate, setCustomMarginalRate] = useState<number | null>(null);
+  const [showDisclaimer, setShowDisclaimer] = useState(true);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [proactiveInsight, setProactiveInsight] = useState<string>("");
   const [insightLoading, setInsightLoading] = useState(false);
 
-  // T4 / vault document state
+  // Vault documents
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [docAnalysis, setDocAnalysis] = useState<Record<string, string>>({});
   const [analyzingDocId, setAnalyzingDocId] = useState<string | null>(null);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [showAllDocs, setShowAllDocs] = useState(false);
 
-  const config = TAXSMART_CONFIG[country];
+  // Table sorting
+  const [sortKey, setSortKey] = useState<SortKey>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  // Persist country preference
-  useEffect(() => {
-    localStorage.setItem("taxsmart-country", country);
-  }, [country]);
+  const config = TAXSMART_CONFIG[country];
+  const effectiveMarginalRate = customMarginalRate ?? marginalRate;
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -276,11 +404,6 @@ export default function TaxSmartPage() {
 
   // ─── Data Fetching ──────────────────────────────────────────────────────────
 
-  const { data: allExpenses = [] } = useQuery<Expense[]>({
-    queryKey: ["/api/expenses"],
-  });
-
-  // Fetch vault tax documents (T4, W-2, etc.)
   const { data: vaultDocsData, isLoading: vaultDocsLoading, refetch: refetchVaultDocs } = useQuery<{
     success: boolean;
     data: VaultTaxDocument[];
@@ -291,38 +414,82 @@ export default function TaxSmartPage() {
 
   const vaultTaxDocs = vaultDocsData?.data ?? [];
 
-  // Filter to tax-deductible expenses for the selected year
-  const taxExpenses = allExpenses.filter((e) => {
-    const isDeductible = e.taxDeductible === "true" || (e.taxDeductible as any) === true;
-    const expYear = e.date ? parseInt(e.date.substring(0, 4)) : 0;
-    return isDeductible && expYear === taxYear;
+  // Fetch tax summary from engine
+  const { data: taxSummary, isLoading: summaryLoading } = useQuery<TaxSummaryResponse>({
+    queryKey: ["/api/tax/summary", { year: taxYear, country, marginalRate: effectiveMarginalRate }],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        year: String(taxYear),
+        country,
+        marginalRate: String(effectiveMarginalRate),
+      });
+      const res = await fetch(`/api/tax/summary?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch tax summary");
+      return res.json();
+    },
   });
 
-  const totalDeductible = taxExpenses.reduce(
-    (sum, e) => sum + parseFloat((e.amount as string) || "0"),
-    0
+  // Flatten transactions from byCategory for table display
+  const allTransactions: TaxTransaction[] = useMemo(() => {
+    if (!taxSummary?.byCategory) return [];
+    return taxSummary.byCategory.flatMap((cat) =>
+      cat.transactions.map((t) => ({
+        id: t.id,
+        date: t.date,
+        merchant: t.merchant,
+        amount: t.amount,
+        category: cat.category,
+        taxCategory: cat.label,
+        source: t.source,
+      }))
+    );
+  }, [taxSummary?.byCategory]);
+
+  // Get unique categories for filter
+  const uniqueCategories = useMemo(() => {
+    return Array.from(new Set(allTransactions.map((t) => t.category)));
+  }, [allTransactions]);
+
+  // Filter and sort transactions
+  const filteredTransactions = useMemo(() => {
+    let result = [...allTransactions];
+    if (categoryFilter !== "all") {
+      result = result.filter((t) => t.category === categoryFilter);
+    }
+    result.sort((a, b) => {
+      let valA: string | number = a[sortKey];
+      let valB: string | number = b[sortKey];
+      if (sortKey === "amount") {
+        valA = parseFloat(String(valA));
+        valB = parseFloat(String(valB));
+      }
+      if (valA < valB) return sortDir === "asc" ? -1 : 1;
+      if (valA > valB) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return result;
+  }, [allTransactions, categoryFilter, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const SortHeader = ({ label, sk }: { label: string; sk: SortKey }) => (
+    <TableHead
+      className="cursor-pointer hover:text-primary transition-colors select-none"
+      onClick={() => handleSort(sk)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <ArrowUpDown className="h-3 w-3" />
+      </div>
+    </TableHead>
   );
-
-  const businessExpenses = taxExpenses.filter(
-    (e) => e.isBusinessExpense === "true" || (e.isBusinessExpense as any) === true
-  );
-  const totalBusiness = businessExpenses.reduce(
-    (sum, e) => sum + parseFloat((e.amount as string) || "0"),
-    0
-  );
-
-  const estimatedSavings = (totalDeductible * marginalRate) / 100;
-
-  // Category breakdown
-  const categoryTotals: Record<string, number> = {};
-  taxExpenses.forEach((e) => {
-    const cat = e.taxCategory || "other_deductible";
-    categoryTotals[cat] = (categoryTotals[cat] || 0) + parseFloat((e.amount as string) || "0");
-  });
-
-  const sortedCategories = Object.entries(categoryTotals)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 8);
 
   // ─── T4 Document Analysis ───────────────────────────────────────────────────
 
@@ -356,8 +523,8 @@ export default function TaxSmartPage() {
     }
   };
 
-  // Build T4 context for AI chat
-  const buildT4Context = (): string => {
+  // Build vault context for AI chat
+  const buildVaultContext = (): string => {
     if (vaultTaxDocs.length === 0) return "";
 
     const parts: string[] = [];
@@ -388,20 +555,20 @@ export default function TaxSmartPage() {
   // ─── AI Functions ───────────────────────────────────────────────────────────
 
   const generateProactiveInsight = async () => {
+    if (!taxSummary) return;
     setInsightLoading(true);
     setProactiveInsight("");
     try {
-      const t4Context = buildT4Context();
+      const vaultContext = buildVaultContext();
       const summary =
-        taxExpenses.length > 0
-          ? `${taxExpenses.length} deductible expenses totaling $${totalDeductible.toFixed(2)} for tax year ${taxYear}. Top categories: ${sortedCategories
+        allTransactions.length > 0
+          ? `${allTransactions.length} deductible transactions totaling ${config.symbol}${taxSummary.totalDeductible.toFixed(2)} for tax year ${taxYear}. Top categories: ${taxSummary.byCategory
               .slice(0, 3)
-              .map(([cat, amt]) => `${cat} ($${amt.toFixed(0)})`)
-              .join(", ")}.`
-          : `No deductible expenses found for tax year ${taxYear}.`;
+              .map((cat) => `${cat.label} (${config.symbol}${cat.total.toFixed(0)})`).join(", ")}.`
+          : `No deductible transactions found for tax year ${taxYear}.`;
 
       const questionText = vaultTaxDocs.length > 0
-        ? `I have ${vaultTaxDocs.length} tax document(s) uploaded (${vaultTaxDocs.map(d => d.display_name || d.file_name).join(", ")}). ${t4Context ? "Based on my tax documents and expense data, give me 2-3 specific observations about my tax situation for ${taxYear}. Reference specific figures if available." : "Give me 2-3 specific observations about my expenses that might be worth discussing with my accountant."} Keep it under 80 words. Data: ${summary}`
+        ? `I have ${vaultTaxDocs.length} tax document(s) uploaded. ${vaultContext ? "Based on my tax documents and expense data, give me 2-3 specific observations about my tax situation for ${taxYear}. Reference specific figures if available." : "Give me 2-3 specific observations about my expenses that might be worth discussing with my accountant."} Keep it under 80 words. Data: ${summary}`
         : `Look at my expense data and give me 2-3 specific observations about expenses that might be worth discussing with my accountant. Reference specific merchant names and amounts if available. Keep it under 70 words. Data: ${summary}`;
 
       const res = await apiRequest("POST", "/api/tax/ai-assistant", {
@@ -423,21 +590,20 @@ export default function TaxSmartPage() {
   useEffect(() => {
     generateProactiveInsight();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taxYear, country, vaultTaxDocs.length]);
+  }, [taxYear, country, vaultTaxDocs.length, taxSummary]);
 
   const handleQuestion = async (q?: string) => {
     const userQuestion = q || question;
     if (!userQuestion.trim()) return;
 
-    // Inject T4 context into the question if we have vault docs
-    const t4Context = buildT4Context();
-    const enrichedQuestion = t4Context
-      ? `${userQuestion}\n\n[Context from my uploaded tax documents:${t4Context}]`
+    const vaultContext = buildVaultContext();
+    const enrichedQuestion = vaultContext
+      ? `${userQuestion}\n\n[Context from my uploaded tax documents:${vaultContext}]`
       : userQuestion;
 
     const newMessages: ChatMessage[] = [
       ...messages,
-      { role: "user", content: userQuestion }, // Show clean question in UI
+      { role: "user", content: userQuestion },
     ];
     setMessages(newMessages);
     setQuestion("");
@@ -447,7 +613,7 @@ export default function TaxSmartPage() {
       const res = await apiRequest("POST", "/api/tax/ai-assistant", {
         country,
         taxYear,
-        question: enrichedQuestion, // Send enriched question to AI
+        question: enrichedQuestion,
         messages: newMessages.slice(-6),
       });
       const data = await res.json();
@@ -476,71 +642,10 @@ export default function TaxSmartPage() {
     }
   };
 
-  // ─── CSV Download ───────────────────────────────────────────────────────────
-
-  const downloadCSV = () => {
-    const disclaimerRows = [
-      `"DISCLAIMER: This export is for organizational purposes only. Not tax advice. Consult a licensed tax professional."`,
-      `"Generated by BudgetSmart AI TaxSmart - Tax Year ${taxYear} - ${config.name}"`,
-      `""`,
-    ];
-
-    const headers = ["Date", "Merchant", "Amount", "Category", "Tax Category", "Notes"];
-    const rows = taxExpenses.map((e) => [
-      e.date,
-      `"${(e.merchant || "").replace(/"/g, '""')}"`,
-      parseFloat((e.amount as string) || "0").toFixed(2),
-      `"${e.category || ""}"`,
-      `"${e.taxCategory || ""}"`,
-      `"${(e.notes || "").replace(/"/g, '""')}"`,
-    ]);
-
-    const csv = [
-      ...disclaimerRows,
-      headers.join(","),
-      ...rows.map((r) => r.join(",")),
-    ].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `taxsmart-${country}-${taxYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    toast({
-      title: "CSV Downloaded",
-      description: `${taxExpenses.length} deductible expenses exported.`,
-    });
-  };
-
-  // ─── Disclaimer Accept ──────────────────────────────────────────────────────
-
-  const acceptDisclaimer = () => {
-    localStorage.setItem("taxsmart-disclaimer-v1", "accepted");
-    setShowDisclaimer(false);
-  };
-
-  const currencyPrefix = country === "CA" ? "CA$" : "$";
-
-  // Helper: parse extracted data
-  const parseExtractedData = (raw: any): Record<string, string> => {
-    if (!raw) return {};
-    try {
-      const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-      return Object.fromEntries(
-        Object.entries(data).map(([k, v]) => [k, String(v)])
-      );
-    } catch {
-      return {};
-    }
-  };
-
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* ── Disclaimer Modal ── */}
       <Dialog open={showDisclaimer} onOpenChange={() => {}}>
         <DialogContent
@@ -560,9 +665,9 @@ export default function TaxSmartPage() {
               <p className="font-semibold text-foreground mb-2">TaxSmart AI helps you:</p>
               <ul className="space-y-1.5">
                 {[
-                  "Organize and categorize tax-related expenses",
-                  "Analyze uploaded T4/W-2 documents with AI",
-                  "Understand general US and Canadian tax concepts",
+                  "Organize and categorize tax-related transactions",
+                  "Analyze uploaded T4/W-2/tax documents with AI",
+                  "Understand general tax concepts for multiple countries",
                   "Prepare summaries for your accountant",
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-2 text-muted-foreground">
@@ -594,14 +699,13 @@ export default function TaxSmartPage() {
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <p>
                 Tax laws change frequently and your individual situation may differ. Always consult
-                a licensed CPA, Enrolled Agent, or tax attorney for advice specific to your
-                situation.
+                a licensed CPA, Enrolled Agent, tax attorney, or accountant for advice specific to your situation.
               </p>
             </div>
           </div>
 
           <DialogFooter>
-            <Button onClick={acceptDisclaimer} className="w-full">
+            <Button onClick={() => setShowDisclaimer(false)} className="w-full">
               I understand — Continue to TaxSmart AI
             </Button>
           </DialogFooter>
@@ -613,37 +717,38 @@ export default function TaxSmartPage() {
         <div>
           <div className="flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-primary" />
-            <h1 className="text-2xl font-bold">TaxSmart AI</h1>
+            <h1 className="text-3xl font-bold">TaxSmart AI</h1>
             <Badge variant="secondary" className="text-xs">Pro</Badge>
           </div>
           <p className="text-muted-foreground text-sm mt-1">
-            AI-powered tax guidance · Analyze T4/W-2 documents · Organize deductible expenses
+            Engine-powered tax guidance · Analyze documents · Organize deductible transactions
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Country Toggle */}
           <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
-            <button
-              onClick={() => setCountry("US")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                country === "US"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              🇺🇸 United States
-            </button>
-            <button
-              onClick={() => setCountry("CA")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                country === "CA"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              🇨🇦 Canada
-            </button>
+            {(["US", "CA", "UK"] as const).map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  setCountry(c);
+                  // Reset marginal rate to a sensible default for the new country
+                  const defaultBracket = MARGINAL_RATE_BRACKETS[c][Math.floor(MARGINAL_RATE_BRACKETS[c].length / 2)];
+                  setMarginalRate(defaultBracket.rate);
+                  setCustomMarginalRate(null);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  country === c
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {c === "US" && "🇺🇸 United States"}
+                {c === "CA" && "🇨🇦 Canada"}
+                {c === "UK" && "🇬🇧 United Kingdom"}
+              </button>
+            ))}
           </div>
 
           {/* Tax Year Selector */}
@@ -661,10 +766,17 @@ export default function TaxSmartPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={downloadCSV}
-            disabled={taxExpenses.length === 0}
+            onClick={() => {
+              if (allTransactions.length === 0) {
+                toast({ title: "No transactions to export", variant: "destructive" });
+                return;
+              }
+              exportToCSV(allTransactions, taxYear, country);
+              toast({ title: `CSV exported for ${taxYear}` });
+            }}
+            disabled={allTransactions.length === 0}
           >
-            <Download className="w-4 h-4 mr-1" />
+            <Download className="w-4 h-4 mr-2" />
             Export CSV
           </Button>
         </div>
@@ -675,7 +787,7 @@ export default function TaxSmartPage() {
         <AlertTriangle size={13} className="text-amber-500/70 shrink-0 mt-0.5" />
         <p className="text-muted-foreground/70">
           <span className="font-medium text-amber-600/80 dark:text-amber-400/80">Organizational tool only.</span>
-          {' '}TaxSmart AI does not provide tax advice. Always consult a qualified tax professional before filing.{' '}
+          {' '}TaxSmart AI does not provide tax advice. Always consult a qualified tax professional.{' '}
           <a href={config.taxAuthorityUrl} target="_blank" rel="noopener noreferrer" className="text-primary/70 hover:text-primary hover:underline transition-colors">
             {config.taxAuthority} →
           </a>
@@ -707,7 +819,7 @@ export default function TaxSmartPage() {
               </Button>
               <a href="/vault" className="text-xs text-primary hover:underline flex items-center gap-1">
                 <Upload className="w-3 h-3" />
-                Upload T4 in Vault
+                Upload in Vault
               </a>
             </div>
           </div>
@@ -773,15 +885,6 @@ export default function TaxSmartPage() {
                               </span>
                             </>
                           )}
-                          {doc.ai_processing_status === "pending" && (
-                            <>
-                              <span className="text-xs text-muted-foreground">·</span>
-                              <span className="text-xs text-amber-600 flex items-center gap-0.5">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Processing...
-                              </span>
-                            </>
-                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
@@ -827,7 +930,6 @@ export default function TaxSmartPage() {
                     {/* Expanded Content */}
                     {isExpanded && (
                       <div className="border-t border-border/50 p-3 space-y-3">
-                        {/* AI Summary */}
                         {doc.ai_summary && (
                           <div className="p-3 bg-background rounded-lg border border-border/50">
                             <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
@@ -838,7 +940,6 @@ export default function TaxSmartPage() {
                           </div>
                         )}
 
-                        {/* Extracted Data */}
                         {Object.keys(extractedData).length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-2">Extracted Data</p>
@@ -855,7 +956,6 @@ export default function TaxSmartPage() {
                           </div>
                         )}
 
-                        {/* TaxSmart AI Analysis */}
                         {hasAnalysis && (
                           <div className="p-3 bg-primary/5 rounded-lg border border-primary/20">
                             <p className="text-xs font-medium text-primary mb-2 flex items-center gap-1">
@@ -868,7 +968,6 @@ export default function TaxSmartPage() {
                           </div>
                         )}
 
-                        {/* Ask about this document */}
                         <div className="flex gap-2">
                           <Button
                             size="sm"
@@ -877,7 +976,6 @@ export default function TaxSmartPage() {
                             onClick={() => {
                               const q = `Based on my ${doc.display_name || doc.file_name}, what are the key tax implications and deductions I should discuss with my accountant for ${taxYear}?`;
                               handleQuestion(q);
-                              // Scroll to chat
                               document.getElementById("taxsmart-chat")?.scrollIntoView({ behavior: "smooth" });
                             }}
                           >
@@ -910,7 +1008,6 @@ export default function TaxSmartPage() {
                 </button>
               )}
 
-              {/* T4 context indicator */}
               {vaultTaxDocs.length > 0 && (
                 <div className="flex items-center gap-2 p-2 bg-green-500/10 border border-green-500/20 rounded-lg">
                   <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
@@ -973,8 +1070,8 @@ export default function TaxSmartPage() {
               <div className="flex flex-col items-center justify-center h-full py-8 text-center">
                 <Sparkles className="w-8 h-8 text-primary/30 mb-2" />
                 <p className="text-sm text-muted-foreground">
-                  Ask a question about {country === "US" ? "IRS" : "CRA"} tax deductions below
-                  {vaultTaxDocs.length > 0 && `, or ask about your uploaded ${vaultTaxDocs.map(d => d.subcategory || "tax document").join(", ")}`}.
+                  Ask a question about {config.name} tax deductions below
+                  {vaultTaxDocs.length > 0 && `, or ask about your uploaded tax documents`}.
                 </p>
                 {vaultTaxDocs.length > 0 && (
                   <p className="text-xs text-primary/60 mt-1">
@@ -1035,11 +1132,7 @@ export default function TaxSmartPage() {
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleQuestion()}
-              placeholder={
-                vaultTaxDocs.length > 0
-                  ? `Ask about your T4 or ${country === "US" ? "IRS" : "CRA"} deductions...`
-                  : `Ask about ${country === "US" ? "IRS" : "CRA"} deductions...`
-              }
+              placeholder={`Ask about ${config.name} deductions...`}
               className="flex-1 text-sm px-3 py-2 border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
               disabled={isLoading}
             />
@@ -1054,25 +1147,6 @@ export default function TaxSmartPage() {
 
           {/* Quick Questions */}
           <div className="flex flex-wrap gap-2 mt-1">
-            {/* T4-specific quick questions if docs are loaded */}
-            {vaultTaxDocs.length > 0 && country === "CA" && (
-              <>
-                <button
-                  onClick={() => handleQuestion(`Based on my T4 for ${taxYear}, what is my estimated RRSP contribution room?`)}
-                  disabled={isLoading}
-                  className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
-                >
-                  📄 RRSP room from my T4
-                </button>
-                <button
-                  onClick={() => handleQuestion(`What deductions should I claim based on my T4 income for ${taxYear}?`)}
-                  disabled={isLoading}
-                  className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
-                >
-                  📄 Deductions for my income
-                </button>
-              </>
-            )}
             {config.quickQuestions.map((q) => (
               <button
                 key={q}
@@ -1092,119 +1166,234 @@ export default function TaxSmartPage() {
         </CardContent>
       </Card>
 
-      {/* ── 4 Summary Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                <DollarSign className="w-5 h-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Deductible</p>
-                <p className="text-2xl font-bold">
-                  {currencyPrefix}{totalDeductible.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      {/* ── Summary Cards ── */}
+      {summaryLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="pt-6">
+                <Skeleton className="h-20 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <TrendingDown className="h-4 w-4 text-green-500" />
+                Total Deductible
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-green-600">
+                {formatCurrency(taxSummary?.totalDeductible || 0, config.locale, config.symbol)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">{taxSummary?.transactionCount || 0} transactions</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <Briefcase className="h-4 w-4 text-blue-500" />
+                Business Expenses
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-blue-600">
+                {formatCurrency(taxSummary?.totalBusiness || 0, config.locale, config.symbol)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">{taxSummary?.businessCount || 0} business expenses</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <FileText className="h-4 w-4 text-purple-500" />
+                Categories
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{taxSummary?.byCategory?.length || 0}</p>
+              <p className="text-xs text-muted-foreground mt-1">tax categories used</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <DollarSign className="h-4 w-4 text-amber-500" />
+                Est. Tax Savings
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-amber-600">
+                {formatCurrency(taxSummary?.estimatedSavings || 0, config.locale, config.symbol)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">at {effectiveMarginalRate}% marginal rate</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Marginal Rate Selector ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Tax Bracket</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Select
+            value={customMarginalRate !== null ? "custom" : String(marginalRate)}
+            onValueChange={(v) => {
+              if (v === "custom") {
+                setCustomMarginalRate(marginalRate);
+              } else {
+                const rate = parseFloat(v);
+                setMarginalRate(rate);
+                setCustomMarginalRate(null);
+              }
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MARGINAL_RATE_BRACKETS[country].map((bracket) => (
+                <SelectItem key={bracket.rate} value={String(bracket.rate)}>
+                  {bracket.label}
+                </SelectItem>
+              ))}
+              <SelectItem value="custom">Custom Rate</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {customMarginalRate !== null && (
+            <div className="flex gap-2 items-center">
+              <input
+                type="number"
+                min={1}
+                max={100}
+                step={0.5}
+                value={customMarginalRate}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (val >= 1 && val <= 100) setCustomMarginalRate(val);
+                }}
+                className="flex-1 text-sm px-3 py-2 border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <span className="text-sm text-muted-foreground">%</span>
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Your estimated tax savings is calculated using this marginal rate. This is for informational purposes only.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* ── AI Suggestions ── */}
+      {taxSummary?.suggestions && taxSummary.suggestions.length > 0 && (
+        <Card className="border-primary/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              AI Suggestions
+              <Badge variant="secondary" className="text-xs ml-1">
+                {taxSummary.suggestions.length} found
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              These transactions may be tax-deductible based on their category and merchant.
+            </p>
+            <div className="space-y-2">
+              {taxSummary.suggestions.slice(0, 8).map((s) => {
+                const matchedTx = allTransactions.find((t) => t.id === s.transactionId);
+                return (
+                  <div
+                    key={s.transactionId}
+                    className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-border bg-muted/20"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {matchedTx?.merchant || "Transaction"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{s.reason}</p>
+                    </div>
+                    <Badge
+                      variant={s.confidence === "high" ? "default" : "secondary"}
+                      className={`text-xs shrink-0 ${
+                        s.confidence === "high"
+                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                      }`}
+                    >
+                      {s.confidence}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs shrink-0"
+                      onClick={() =>
+                        toast({
+                          title: "Coming soon",
+                          description: "Auto-tagging will be available in the next update.",
+                        })
+                      }
+                    >
+                      Accept
+                    </Button>
+                  </div>
+                );
+              })}
+              {taxSummary.suggestions.length > 8 && (
+                <p className="text-xs text-muted-foreground text-center pt-1">
+                  + {taxSummary.suggestions.length - 8} more suggestions
                 </p>
-                <p className="text-xs text-muted-foreground">Tax year {taxYear}</p>
-              </div>
+              )}
             </div>
           </CardContent>
         </Card>
+      )}
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <Briefcase className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Business Expenses</p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {currencyPrefix}{totalBusiness.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-muted-foreground">Marked as business expense</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                <FileText className="w-5 h-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Deductible Expenses</p>
-                <p className="text-2xl font-bold text-purple-600">{taxExpenses.length}</p>
-                <p className="text-xs text-muted-foreground">Tagged transactions</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
-                <TrendingDown className="w-5 h-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Est. Tax Savings</p>
-                <p className="text-2xl font-bold text-amber-600">
-                  {currencyPrefix}{estimatedSavings.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-muted-foreground">At {marginalRate}% marginal rate</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Marginal Rate Adjuster */}
-      <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
-        <span>Adjust your marginal tax rate:</span>
-        <input
-          type="number"
-          min={1}
-          max={60}
-          step={1}
-          value={Math.round(marginalRate)}
-          onChange={(e) => {
-            const val = parseInt(e.target.value);
-            if (val >= 1 && val <= 60) setMarginalRate(val);
-          }}
-          className="w-16 text-center border border-border rounded px-2 py-1 bg-background text-xs"
-        />
-        <span>%</span>
-        <span className="text-muted-foreground/40">(estimate only)</span>
-      </div>
-
-      {/* ── Expense Breakdown + Table ── */}
+      {/* ── Category Breakdown + Table Grid ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Category Breakdown */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Expense Breakdown by Category</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              Breakdown by Category
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {sortedCategories.length === 0 ? (
+            {summaryLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-8 w-full" />
+                ))}
+              </div>
+            ) : !taxSummary?.byCategory || taxSummary.byCategory.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">
                 <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p>No tax-deductible expenses found for {taxYear}.</p>
-                <p className="mt-1 text-xs">Tag expenses as tax-deductible in the Expenses page.</p>
+                <p>No deductible transactions found for {taxYear}.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {sortedCategories.map(([cat, amt]) => {
-                  const pct = totalDeductible > 0 ? (amt / totalDeductible) * 100 : 0;
-                  const label = (config.categoryLabels as Record<string, string>)[cat] || cat;
+                {taxSummary.byCategory.map((cat) => {
+                  const pct = taxSummary.totalDeductible > 0
+                    ? (cat.total / taxSummary.totalDeductible) * 100
+                    : 0;
                   return (
-                    <div key={cat}>
+                    <div key={cat.category}>
                       <div className="flex justify-between text-sm mb-1">
-                        <span className="text-muted-foreground">{label}</span>
+                        <span className="text-muted-foreground">{cat.label}</span>
                         <span className="font-medium">
-                          {currencyPrefix}{amt.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatCurrency(cat.total, config.locale, config.symbol)}
                           <span className="text-muted-foreground ml-1 text-xs">({pct.toFixed(0)}%)</span>
                         </span>
                       </div>
@@ -1226,71 +1415,80 @@ export default function TaxSmartPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Tax-Deductible Expenses — {taxYear}</CardTitle>
-              <Badge variant="outline">{taxExpenses.length} expenses</Badge>
+              <CardTitle className="text-base">Tax-Deductible Transactions</CardTitle>
+              {!summaryLoading && (
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="All Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {uniqueCategories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </CardHeader>
           <CardContent>
-            {taxExpenses.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <FileText size={32} className="text-muted-foreground/30 mb-3" />
-                <p className="text-sm text-muted-foreground">No deductible expenses for {taxYear}</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">
-                  Tag expenses as tax-deductible in the Expenses page to see them here
-                </p>
+            {summaryLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : filteredTransactions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                <p>No transactions for {taxYear}</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Merchant</TableHead>
-                      <TableHead>Tax Category</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead>Biz</TableHead>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <SortHeader label="Date" sk="date" />
+                    <SortHeader label="Merchant" sk="merchant" />
+                    <SortHeader label="Amount" sk="amount" />
+                    <TableHead>Category</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredTransactions.map((tx) => (
+                    <TableRow key={tx.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {format(parseISO(tx.date), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell className="font-medium text-sm">{tx.merchant}</TableCell>
+                      <TableCell className="font-semibold text-green-600 whitespace-nowrap">
+                        {formatCurrency(tx.amount, config.locale, config.symbol)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-xs">
+                          {tx.taxCategory}
+                        </Badge>
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {taxExpenses
-                      .sort((a, b) => (b.date || "").localeCompare(a.date || ""))
-                      .slice(0, 30)
-                      .map((expense) => (
-                        <TableRow key={expense.id}>
-                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                            {expense.date ? format(parseISO(expense.date), "MMM d") : "—"}
-                          </TableCell>
-                          <TableCell className="font-medium text-sm max-w-[120px] truncate">
-                            {expense.merchant}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {expense.taxCategory ? (
-                              <Badge variant="secondary" className="text-xs">
-                                {(config.categoryLabels as Record<string, string>)[expense.taxCategory] || expense.taxCategory}
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right font-medium text-sm">
-                            {currencyPrefix}{parseFloat((expense.amount as string) || "0").toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </TableCell>
-                          <TableCell>
-                            {expense.isBusinessExpense === "true" || (expense.isBusinessExpense as any) === true ? (
-                              <CheckCircle className="w-4 h-4 text-green-500" />
-                            ) : (
-                              <XCircle className="w-4 h-4 text-muted-foreground/40" />
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                  </TableBody>
-                </Table>
-                {taxExpenses.length > 30 && (
-                  <p className="text-xs text-muted-foreground text-center mt-2">
-                    Showing 30 of {taxExpenses.length} expenses. Export CSV for full list.
-                  </p>
-                )}
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            {/* Total row */}
+            {filteredTransactions.length > 0 && (
+              <div className="flex items-center justify-between pt-4 border-t mt-4">
+                <span className="text-sm font-medium text-muted-foreground">
+                  {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? "s" : ""}
+                </span>
+                <span className="font-bold text-green-600">
+                  Total: {formatCurrency(
+                    filteredTransactions.reduce((s, t) => s + t.amount, 0),
+                    config.locale,
+                    config.symbol
+                  )}
+                </span>
               </div>
             )}
           </CardContent>
@@ -1302,7 +1500,7 @@ export default function TaxSmartPage() {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <BookOpen className="w-4 h-4" />
-            {country === "US" ? "United States (IRS) Tax Guidance" : "Canada (CRA) Tax Guidance"}
+            {config.name} Tax Guidance
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -1339,7 +1537,7 @@ export default function TaxSmartPage() {
       <div className="mt-8 pt-5 border-t border-border">
         <p className="text-xs text-muted-foreground/50 text-center leading-relaxed max-w-2xl mx-auto">
           <span className="font-medium">Disclaimer: </span>
-          TaxSmart AI is an organizational tool, not tax software. All figures are estimates for general educational purposes only. Always consult a qualified CPA or tax professional before making any tax decisions or filing your return.{' '}
+          TaxSmart AI is an organizational tool, not tax software. All figures are estimates for general educational purposes only. Always consult a qualified CPA, Enrolled Agent, or tax professional before making any tax decisions or filing your return.{' '}
           <a href={config.taxAuthorityUrl} target="_blank" rel="noopener noreferrer" className="text-primary/60 hover:underline">
             Verify with {config.taxAuthority} ↗
           </a>

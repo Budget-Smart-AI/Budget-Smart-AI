@@ -75,7 +75,7 @@ import SignupPage from "@/pages/signup";
 import Simulator from "@/pages/simulator";
 import Receipts from "@/pages/receipts";
 import VaultPage from "@/pages/vault";
-import TaxReport from "@/pages/tax-report";
+// tax-report.tsx merged into tax-smart.tsx — redirect below
 import TaxSmartPage from "@/pages/tax-smart";
 import NotFound from "@/pages/not-found";
 import DemoPage from "@/pages/demo";
@@ -151,7 +151,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/simulator" component={Simulator} />
       <Route path="/receipts" component={Receipts} />
       <Route path="/vault" component={VaultPage} />
-      <Route path="/tax-report" component={TaxReport} />
+      <Route path="/tax-report" component={TaxSmartPage} />
       <Route path="/tax-smart" component={TaxSmartPage} />
       <Route path="/anomalies" component={AnomaliesPage} />
       <Route path="/upgrade" component={UpgradePage} />

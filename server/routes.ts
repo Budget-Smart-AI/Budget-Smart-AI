@@ -68,6 +68,7 @@ import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
 import { getEffectivePlan } from "./lib/planResolver";
 import { autoReconcile } from "./lib/auto-reconciler";
 import { issueBankLinkIntent, consumeBankLinkIntent } from "./lib/bank-link-security";
+import { calculateTaxSummary, suggestTaxDeductible, TAX_COUNTRY_CONFIG, type TaxCountry, type TaxTransaction } from "./lib/financial-engine/tax";
 
 // CSV parsing helper
 function parseCSV(csvText: string): Record<string, string>[] {
@@ -14914,7 +14915,6 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
   app.get("/api/tax/summary", requireAuth, apiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const user = await storage.getUser(userId);
       const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "tax_reporting");
       if (!gateResult.allowed) {
@@ -14927,63 +14927,53 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
       }
 
       const year = req.query.year ? parseInt(req.query.year as string) : new Date().getFullYear();
+      const country = (req.query.country as TaxCountry) || "CA";
+      const marginalRate = req.query.marginalRate ? parseFloat(req.query.marginalRate as string) : 30;
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      // Get all transactions for the year
+      // Get all transactions for the year from all sources
       const plaidAccounts = await storage.getAllPlaidAccounts(userId);
       const accountIds = plaidAccounts.map(a => a.id);
 
-      const [plaidTransactions, manualTransactions] = await Promise.all([
+      const [plaidTxns, manualTxns] = await Promise.all([
         accountIds.length > 0
           ? storage.getPlaidTransactions(accountIds, { startDate, endDate })
           : [],
         storage.getManualTransactionsByUser(userId, { startDate, endDate }),
       ]);
 
-      // Filter tax-deductible transactions
-      const deductiblePlaid = plaidTransactions.filter(t => t.taxDeductible === "true");
-      const deductibleManual = manualTransactions.filter(t => t.taxDeductible === "true");
-
-      // Group by category
-      const byCategory: Record<string, { count: number; total: number; transactions: any[] }> = {};
-
-      for (const tx of deductiblePlaid) {
-        const cat = tx.taxCategory || "other_deductible";
-        if (!byCategory[cat]) byCategory[cat] = { count: 0, total: 0, transactions: [] };
-        byCategory[cat].count++;
-        byCategory[cat].total += Math.abs(parseFloat(tx.amount));
-        byCategory[cat].transactions.push({
-          id: tx.id,
-          date: tx.date,
-          amount: tx.amount,
-          merchant: tx.merchantName || tx.name,
+      // Transform to TaxTransaction[] for the engine
+      const taxTransactions: TaxTransaction[] = [
+        ...plaidTxns.map((t: any): TaxTransaction => ({
+          id: t.id,
+          date: t.date,
+          amount: Math.abs(parseFloat(t.amount)),
+          merchant: t.merchantName || t.name || "Unknown",
+          category: t.category || "Uncategorized",
+          taxDeductible: t.taxDeductible === "true",
+          taxCategory: t.taxCategory || null,
+          isBusinessExpense: t.isBusinessExpense === "true",
           source: "plaid",
-        });
-      }
-
-      for (const tx of deductibleManual) {
-        const cat = tx.taxCategory || "other_deductible";
-        if (!byCategory[cat]) byCategory[cat] = { count: 0, total: 0, transactions: [] };
-        byCategory[cat].count++;
-        byCategory[cat].total += Math.abs(parseFloat(tx.amount));
-        byCategory[cat].transactions.push({
-          id: tx.id,
-          date: tx.date,
-          amount: tx.amount,
-          merchant: tx.merchant,
+        })),
+        ...manualTxns.map((t: any): TaxTransaction => ({
+          id: t.id,
+          date: t.date,
+          amount: Math.abs(parseFloat(t.amount)),
+          merchant: t.merchant || "Unknown",
+          category: t.category || "Uncategorized",
+          taxDeductible: t.taxDeductible === "true",
+          taxCategory: t.taxCategory || null,
+          isBusinessExpense: t.isBusinessExpense === "true",
           source: "manual",
-        });
-      }
+        })),
+      ];
 
-      const totalDeductible = Object.values(byCategory).reduce((sum, cat) => sum + cat.total, 0);
+      // Delegate to the centralized engine
+      const summary = calculateTaxSummary(taxTransactions, country, year, marginalRate);
+      const suggestions = suggestTaxDeductible(taxTransactions, country);
 
-      res.json({
-        year,
-        totalDeductible,
-        byCategory,
-        transactionCount: deductiblePlaid.length + deductibleManual.length,
-      });
+      res.json({ ...summary, suggestions });
     } catch (error) {
       console.error("Error generating tax summary:", error);
       res.status(500).json({ error: "Failed to generate tax summary" });
@@ -17236,94 +17226,4 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
         { accountId: chequingId, amount: "-95.00",   merchant: "Hydro One",                      category: "Electricity",    date: daysAgo(23) },
         { accountId: chequingId, amount: "-110.00",  merchant: "Enbridge Gas",                   category: "Utilities",      date: daysAgo(18) },
         { accountId: chequingId, amount: "-89.00",   merchant: "Rogers Internet",                category: "Internet",       date: daysAgo(27) },
-        { accountId: chequingId, amount: "-152.40",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(26) },
-        { accountId: visaId,     amount: "-85.70",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(22) },
-        { accountId: visaId,     amount: "-220.00",  merchant: "Costco",                         category: "Groceries",      date: daysAgo(19) },
-        { accountId: chequingId, amount: "-168.30",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(15) },
-        { accountId: visaId,     amount: "-79.40",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(11) },
-        { accountId: chequingId, amount: "-141.60",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(7)  },
-        { accountId: visaId,     amount: "-7.80",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(28) },
-        { accountId: visaId,     amount: "-6.50",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(25) },
-        { accountId: visaId,     amount: "-11.90",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(23) },
-        { accountId: visaId,     amount: "-7.20",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(21) },
-        { accountId: visaId,     amount: "-6.90",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(18) },
-        { accountId: visaId,     amount: "-10.50",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(16) },
-        { accountId: visaId,     amount: "-19.99",   merchant: "Netflix",                        category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-10.99",   merchant: "Spotify",                        category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-9.99",    merchant: "Amazon Prime",                   category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-73.60",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(26) },
-        { accountId: visaId,     amount: "-77.20",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(19) },
-        { accountId: visaId,     amount: "-69.80",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(12) },
-        { accountId: visaId,     amount: "-80.40",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(5)  },
-        { accountId: visaId,     amount: "-46.30",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(25) },
-        { accountId: visaId,     amount: "-69.90",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(20) },
-        { accountId: visaId,     amount: "-43.50",   merchant: "East Side Marios",               category: "Restaurants",    date: daysAgo(16) },
-        { accountId: visaId,     amount: "-91.00",   merchant: "The Keg",                        category: "Restaurants",    date: daysAgo(12) },
-        { accountId: visaId,     amount: "-50.20",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(8)  },
-        { accountId: visaId,     amount: "-47.60",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(4)  },
-        // Transfer pair (AI Teller demo — Unmatched status)
-        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",            category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
-        { accountId: savingsId,  amount: "500.00",   merchant: "Transfer from Chequing",         category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
-        // Unmatched Debit Memo (reconciliation demo)
-        { accountId: chequingId, amount: "-300.00",  merchant: "Debit Memo",                     category: "Other",          date: daysAgo(10), status: "Unmatched" },
-      ];
-
-      let txnCount = 0;
-      for (const t of txns) {
-        await pool.query(
-          `INSERT INTO manual_transactions
-             (user_id, account_id, date, amount, merchant, category, is_transfer, is_demo)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
-          [userId, t.accountId, t.date, t.amount, t.merchant, t.category, t.isTransfer || "false"]
-        );
-        txnCount++;
-      }
-
-      // ── 3. Seed budgets ───────────────────────────────────────────────────
-      const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
-      const budgets = [
-        { category: "Groceries",     amount: "800.00"  },
-        { category: "Dining Out",    amount: "300.00"  },
-        { category: "Gas",           amount: "200.00"  },
-        { category: "Entertainment", amount: "150.00"  },
-        { category: "Utilities",     amount: "400.00"  },
-        { category: "Subscriptions", amount: "75.00"   },
-      ];
-      for (const b of budgets) {
-        await pool.query(
-          `INSERT INTO budgets (user_id, category, amount, month, is_demo)
-           VALUES ($1, $2, $3, $4, true)`,
-          [userId, b.category, b.amount, currentMonth]
-        );
-      }
-
-      // ── 4. Seed savings goals ─────────────────────────────────────────────
-      const goals = [
-        { name: "Emergency Fund",   targetAmount: "10000.00", currentAmount: "2500.00", targetDate: daysAgo(-365) },
-        { name: "Family Vacation",  targetAmount: "5000.00",  currentAmount: "800.00",  targetDate: daysAgo(-180) },
-      ];
-      for (const g of goals) {
-        await pool.query(
-          `INSERT INTO savings_goals (user_id, name, target_amount, current_amount, target_date, is_demo)
-           VALUES ($1, $2, $3, $4, $5, true)`,
-          [userId, g.name, g.targetAmount, g.currentAmount, g.targetDate]
-        );
-      }
-
-      res.json({
-        success: true,
-        summary: {
-          transactions: txnCount,
-          accounts: 3,
-          budgets: budgets.length,
-          goals: goals.length,
-        },
-      });
-    } catch (error: any) {
-      console.error("load-demo-data error:", error);
-      res.status(500).json({ error: "Failed to load demo data" });
-    }
-  });
-
-  return httpServer;
-}
+        { accountId: chequingId, amount: "-1

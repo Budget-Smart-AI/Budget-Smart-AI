@@ -124,4 +124,19 @@ export {
   calculateSafeToSpend,
 } from "./safe-to-spend";
 
+export {
+  calculateTaxSummary,
+  suggestTaxDeductible,
+  TAX_COUNTRY_CONFIG,
+} from "./tax";
+
+export type {
+  TaxCountry,
+  TaxTransaction,
+  TaxSummaryResult,
+  TaxSuggestion,
+  TaxCategoryBreakdown,
+  TaxCountryConfig,
+} from "./tax";
+
 // Cash flow is calculated inline in the dashboard endpoint (no separate module needed)

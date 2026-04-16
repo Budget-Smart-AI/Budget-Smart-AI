@@ -360,34 +360,19 @@ export interface BankAccountsEngineResult {
 
 // ─── Tax Report ────────────────────────────────────────────────────────────
 
+/**
+ * @deprecated Use TaxSummaryResult from ./tax.ts instead.
+ * Kept for backwards compatibility with any existing consumers.
+ */
 export interface TaxReportResult {
   /** Total tax-deductible expenses */
   totalDeductible: number;
   /** Business expenses only */
   totalBusiness: number;
-  /** Estimated tax savings at 33% marginal rate */
+  /** Estimated tax savings at the user's marginal rate */
   estimatedSavings: number;
   /** Breakdown by tax category */
   byCategory: Array<{ category: string; total: number; count: number }>;
 }
 
-// ─── Calendar Events ───────────────────────────────────────────────────────
-
-export interface CalendarEvent {
-  id: string;
-  title: string;
-  date: string;       // yyyy-MM-dd
-  amount: number;
-  type: 'bill' | 'income' | 'goal' | 'subscription';
-  category: string;
-  recurrence?: string;
-  isPast: boolean;
-  isToday: boolean;
-}
-
-export interface CalendarResult {
-  events: CalendarEvent[];
-  totalBills: number;
-  totalIncome: number;
-  netCashFlow: number;
-}
+// ─── Calendar Events ─────────────────────────────────────────────────────�
