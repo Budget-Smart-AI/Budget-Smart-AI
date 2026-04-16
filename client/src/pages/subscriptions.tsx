@@ -1,4 +1,4 @@
-// FEATURE: SUBSCRIPTION_TRACKING | tier: pro | limit: unlimited (disabled on free) 
+// FEATURE: SUBSCRIPTION_TRACKING | tier: free | limit: unlimited
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -764,9 +764,8 @@ export default function Subscriptions() {
     );
   }
 
-  // Wrap the entire page content in the gate — free users see the upgrade overlay
+  // Subscriptions are now free for all tiers
   return (
-    <SubscriptionIntelligenceGate>
       <div className="container mx-auto px-4 py-4 sm:p-6 max-w-4xl space-y-4 sm:space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -990,6 +989,5 @@ export default function Subscriptions() {
           </Card>
         )}
       </div>
-    </SubscriptionIntelligenceGate>
   );
 }
