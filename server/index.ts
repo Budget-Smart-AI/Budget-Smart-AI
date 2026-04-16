@@ -212,6 +212,46 @@ app.use(
   })
 );
 
+/**
+ * Session-domain-refresh middleware.
+ *
+ * After deploying MAIN_DOMAIN for the first time, existing sessions still
+ * carry cookies scoped to the old origin (e.g. app.budgetsmart.io).  The
+ * engine service at api.budgetsmart.io never receives those cookies, so all
+ * cross-subdomain calls return 401.
+ *
+ * This middleware detects sessions that haven't been refreshed since the
+ * domain change and regenerates them once — which re-sets the Set-Cookie
+ * header with the correct `.budgetsmart.io` domain.  The flag
+ * `_domainRefreshed` ensures this only fires once per session.
+ */
+if (process.env.MAIN_DOMAIN) {
+  app.use((req: any, res: any, next: any) => {
+    if (req.session?.userId && !req.session._domainRefreshed) {
+      const { userId, username, isAdmin, mfaVerified, pendingMfa,
+              householdId, householdRole, isDemo } = req.session;
+      req.session.regenerate((err: any) => {
+        if (err) { console.error("[session-refresh] regenerate failed:", err); return next(); }
+        req.session.userId = userId;
+        req.session.username = username;
+        req.session.isAdmin = isAdmin;
+        req.session.mfaVerified = mfaVerified;
+        req.session.pendingMfa = pendingMfa;
+        if (householdId) req.session.householdId = householdId;
+        if (householdRole) req.session.householdRole = householdRole;
+        if (isDemo) (req.session as any).isDemo = isDemo;
+        req.session._domainRefreshed = true;
+        req.session.save((err: any) => {
+          if (err) { console.error("[session-refresh] save failed:", err); return next(); }
+          next();
+        });
+      });
+      return; // wait for async regenerate
+    }
+    next();
+  });
+}
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {
