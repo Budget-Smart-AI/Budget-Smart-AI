@@ -198,6 +198,245 @@ function getAccountTypeIcon(type: string) {
   }
 }
 
+// ── Price Chart Component (Monarch-style) ─────────────────────────────────
+type PriceRange = "1M" | "3M" | "1Y" | "5Y";
+
+interface HistoricalPrice {
+  date: string;
+  close: number;
+  open: number;
+  high: number;
+  low: number;
+  volume: number;
+}
+
+function StockPriceChart({ symbol, currentPrice, onClose }: { symbol: string; currentPrice?: number; onClose: () => void }) {
+  const [range, setRange] = useState<PriceRange>("1M");
+  const { data: priceData, isLoading } = useQuery<{ prices: HistoricalPrice[] }>({
+    queryKey: [`/api/stocks/${symbol}/history`, range],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/stocks/${symbol}/history?range=${range}`);
+      return res as any;
+    },
+    enabled: !!symbol,
+  });
+
+  const prices = priceData?.prices || [];
+  const firstPrice = prices.length > 0 ? prices[0].close : 0;
+  const lastPrice = prices.length > 0 ? prices[prices.length - 1].close : (currentPrice || 0);
+  const priceChange = lastPrice - firstPrice;
+  const pctChange = firstPrice > 0 ? (priceChange / firstPrice) * 100 : 0;
+  const isPositive = priceChange >= 0;
+
+  const chartData = prices.map(p => ({
+    date: p.date,
+    price: p.close,
+    label: new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+  }));
+
+  return (
+    <Card className="mb-4">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              {symbol}
+              <span className="text-2xl font-bold">{formatCurrency(lastPrice)}</span>
+              <span className={`text-sm font-medium ${isPositive ? "text-green-600" : "text-red-600"}`}>
+                {isPositive ? "+" : ""}{priceChange.toFixed(2)} ({isPositive ? "+" : ""}{pctChange.toFixed(2)}%)
+              </span>
+            </CardTitle>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+        </div>
+        <div className="flex gap-1 mt-2">
+          {(["1M", "3M", "1Y", "5Y"] as PriceRange[]).map(r => (
+            <Button
+              key={r}
+              variant={range === r ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-3 text-xs"
+              onClick={() => setRange(r)}
+            >
+              {r}
+            </Button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="h-[250px] flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : chartData.length === 0 ? (
+          <div className="h-[250px] flex items-center justify-center text-muted-foreground text-sm">
+            No price data available for {symbol}
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 11 }}
+                interval="preserveStartEnd"
+                tickCount={6}
+              />
+              <YAxis
+                domain={["auto", "auto"]}
+                tick={{ fontSize: 11 }}
+                tickFormatter={(v: number) => `$${v.toFixed(0)}`}
+                width={60}
+              />
+              <RechartsTooltip
+                formatter={(value: number) => [formatCurrency(value), "Price"]}
+                labelFormatter={(label: string) => label}
+              />
+              <Line
+                type="monotone"
+                dataKey="price"
+                stroke={isPositive ? "#16a34a" : "#dc2626"}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function StockResearchPanel() {
+  const [searchSymbol, setSearchSymbol] = useState("");
+  const [activeSymbol, setActiveSymbol] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const { data: analysis, isLoading: analysisLoading } = useQuery<any>({
+    queryKey: [`/api/stocks/${activeSymbol}/analysis`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/stocks/${activeSymbol}/analysis`);
+      return res;
+    },
+    enabled: !!activeSymbol,
+  });
+
+  const handleSearch = () => {
+    const sym = searchSymbol.trim().toUpperCase();
+    if (!sym) {
+      toast({ title: "Enter a stock symbol", variant: "destructive" });
+      return;
+    }
+    setActiveSymbol(sym);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <Input
+          placeholder="Enter stock symbol (e.g. AAPL)"
+          value={searchSymbol}
+          onChange={(e) => setSearchSymbol(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          className="max-w-xs"
+        />
+        <Button onClick={handleSearch} disabled={analysisLoading}>
+          {analysisLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <TrendingUp className="h-4 w-4 mr-2" />}
+          Analyze
+        </Button>
+      </div>
+
+      {activeSymbol && (
+        <>
+          <StockPriceChart
+            symbol={activeSymbol}
+            currentPrice={analysis?.quote?.price}
+            onClose={() => setActiveSymbol(null)}
+          />
+
+          {analysisLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+          ) : analysis ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {analysis.quote && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Quote Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Open</span><span>{formatCurrency(analysis.quote.open)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">High</span><span>{formatCurrency(analysis.quote.high)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Low</span><span>{formatCurrency(analysis.quote.low)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Previous Close</span><span>{formatCurrency(analysis.quote.previousClose)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Volume</span><span>{analysis.quote.volume?.toLocaleString()}</span></div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {analysis.overview && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Fundamentals</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Sector</span><span className="text-right max-w-[150px] truncate">{analysis.overview.sector}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">P/E Ratio</span><span>{analysis.overview.peRatio > 0 ? analysis.overview.peRatio.toFixed(2) : "N/A"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">EPS</span><span>{analysis.overview.eps > 0 ? formatCurrency(analysis.overview.eps) : "N/A"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Market Cap</span><span>{analysis.overview.marketCap > 0 ? "$" + (analysis.overview.marketCap / 1e9).toFixed(1) + "B" : "N/A"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Dividend Yield</span><span>{analysis.overview.dividendYield > 0 ? (analysis.overview.dividendYield * 100).toFixed(2) + "%" : "N/A"}</span></div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {analysis.rsi && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Technical Indicators</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">RSI (14)</span>
+                      <span className={analysis.rsi.value > 70 ? "text-red-600" : analysis.rsi.value < 30 ? "text-green-600" : ""}>
+                        {analysis.rsi.value.toFixed(1)} {analysis.rsi.value > 70 ? "(Overbought)" : analysis.rsi.value < 30 ? "(Oversold)" : "(Neutral)"}
+                      </span>
+                    </div>
+                    {analysis.sma50 && <div className="flex justify-between"><span className="text-muted-foreground">50-Day SMA</span><span>{formatCurrency(analysis.sma50.value)}</span></div>}
+                    {analysis.sma200 && <div className="flex justify-between"><span className="text-muted-foreground">200-Day SMA</span><span>{formatCurrency(analysis.sma200.value)}</span></div>}
+                    {analysis.sma50 && analysis.sma200 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Trend</span>
+                        <Badge variant={analysis.sma50.value > analysis.sma200.value ? "default" : "destructive"} className="text-xs">
+                          {analysis.sma50.value > analysis.sma200.value ? "Bullish (Golden Cross)" : "Bearish (Death Cross)"}
+                        </Badge>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {analysis.summary && (
+                <Card className="md:col-span-2">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Analysis Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">{analysis.summary}</pre>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 function formatAccountType(type: string) {
   return type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -1198,6 +1437,7 @@ export default function Investments() {
   const [editingAccount, setEditingAccount] = useState<InvestmentAccount | undefined>();
   const [editingHolding, setEditingHolding] = useState<Holding | undefined>();
   const [editingCostBasisHolding, setEditingCostBasisHolding] = useState<Holding | undefined>();
+  const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteType, setDeleteType] = useState<"account" | "holding">("account");
   const { toast } = useToast();
@@ -1375,6 +1615,7 @@ export default function Investments() {
         <TabsList>
           <TabsTrigger value="portfolio"><BarChart3 className="h-4 w-4 mr-2" />Portfolio</TabsTrigger>
           <TabsTrigger value="advisor"><Brain className="h-4 w-4 mr-2" />AI Advisor</TabsTrigger>
+          <TabsTrigger value="research"><TrendingUp className="h-4 w-4 mr-2" />Research</TabsTrigger>
         </TabsList>
 
         <TabsContent value="portfolio" className="space-y-4">
@@ -1451,6 +1692,15 @@ export default function Investments() {
             </CardContent>
           </Card>
 
+          {/* Price Chart (Monarch-style) */}
+          {selectedChartSymbol && (
+            <StockPriceChart
+              symbol={selectedChartSymbol}
+              currentPrice={parseFloat(holdings.find(h => h.symbol === selectedChartSymbol)?.currentPrice || "0")}
+              onClose={() => setSelectedChartSymbol(null)}
+            />
+          )}
+
           {/* Holdings Table */}
           <Card>
             <CardHeader className="p-3 sm:p-6">
@@ -1489,7 +1739,7 @@ export default function Investments() {
                         const gainPct = cost > 0 ? (gain / cost) * 100 : 0;
 
                         return (
-                          <TableRow key={holding.id}>
+                          <TableRow key={holding.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedChartSymbol(holding.symbol === selectedChartSymbol ? null : holding.symbol)}>
                             <TableCell className="font-medium text-xs sm:text-sm p-2 sm:p-4">{holding.symbol}</TableCell>
                             <TableCell className="hidden sm:table-cell text-xs sm:text-sm p-2 sm:p-4 max-w-[120px] truncate">{holding.name}</TableCell>
                             <TableCell className="hidden lg:table-cell p-2 sm:p-4"><Badge variant="outline" className="text-xs">{holding.holdingType}</Badge></TableCell>
@@ -1564,6 +1814,22 @@ export default function Investments() {
             <AIAdvisor holdings={holdings} />
           </FeatureGate>
         </TabsContent>
+
+        <TabsContent value="research" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Stock Research
+              </CardTitle>
+              <CardDescription>Look up any stock for detailed analysis powered by Alpha Vantage</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <StockResearchPanel />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
       </Tabs>
 
       {/* Edit Cost Basis Dialog */}
