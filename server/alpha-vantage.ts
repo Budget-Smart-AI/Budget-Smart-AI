@@ -350,3 +350,77 @@ export function generateAnalysisSummary(analysis: {
 
   return parts.join('\n');
 }
+
+export interface HistoricalPrice {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/**
+ * Get historical daily prices for a symbol.
+ * Uses TIME_SERIES_DAILY for 1M/3M, TIME_SERIES_MONTHLY for 1Y/5Y.
+ * @param symbol - Stock ticker symbol
+ * @param range - Time range: "1M", "3M", "1Y", "5Y"
+ */
+export async function getHistoricalPrices(
+  symbol: string,
+  range: "1M" | "3M" | "1Y" | "5Y" = "1M"
+): Promise<HistoricalPrice[]> {
+  if (!API_KEY) {
+    console.warn("Alpha Vantage API key not configured");
+    return [];
+  }
+
+  try {
+    let fn: string;
+    let timeSeriesKey: string;
+    let outputsize = "compact"; // compact = last 100 data points
+
+    if (range === "1Y" || range === "5Y") {
+      fn = "TIME_SERIES_MONTHLY";
+      timeSeriesKey = "Monthly Time Series";
+      outputsize = "full";
+    } else {
+      fn = "TIME_SERIES_DAILY";
+      timeSeriesKey = "Time Series (Daily)";
+      outputsize = range === "3M" ? "full" : "compact";
+    }
+
+    const url = `${ALPHA_VANTAGE_BASE_URL}?function=${fn}&symbol=${encodeURIComponent(symbol)}&outputsize=${outputsize}&apikey=${API_KEY}`;
+    const data = await rateLimitedFetch(url);
+
+    const timeSeries = data[timeSeriesKey];
+    if (!timeSeries) return [];
+
+    const entries = Object.entries(timeSeries) as [string, any][];
+    // Sort by date descending
+    entries.sort((a, b) => b[0].localeCompare(a[0]));
+
+    // Limit based on range
+    const limitMap: Record<string, number> = {
+      "1M": 22,   // ~22 trading days
+      "3M": 66,   // ~66 trading days
+      "1Y": 12,   // 12 months
+      "5Y": 60,   // 60 months
+    };
+    const limit = limitMap[range] || 22;
+    const limited = entries.slice(0, limit);
+
+    // Return in chronological order (oldest first) for charting
+    return limited.reverse().map(([date, values]: [string, any]) => ({
+      date,
+      open: parseFloat(values["1. open"]),
+      high: parseFloat(values["2. high"]),
+      low: parseFloat(values["3. low"]),
+      close: parseFloat(values["4. close"]),
+      volume: parseInt(values["5. volume"]),
+    }));
+  } catch (error) {
+    console.error(`Error fetching historical prices for ${symbol}:`, error);
+    return [];
+  }
+}
