@@ -30,7 +30,6 @@ import MerchantsPage from "@/pages/merchants";
 import BankAccounts from "@/pages/bank-accounts";
 import AdminUsers from "@/pages/admin-users";
 import AIAssistant from "@/pages/ai-assistant";
-import Subscriptions from "@/pages/subscriptions";
 import Categories from "@/pages/categories";
 import EmailSettings from "@/pages/email-settings";
 import Login from "@/pages/login";
@@ -99,7 +98,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/bank-accounts"><Redirect to="/accounts" /></Route>
       <Route path="/expenses" component={ExpensesPage} />
       <Route path="/other-expenses"><Redirect to="/accounts" /></Route>
-      <Route path="/subscriptions" component={Subscriptions} />
+      <Route path="/subscriptions">{() => <Redirect to="/bills" />}</Route>
       <Route path="/categories" component={Categories} />
       <Route path="/email-settings" component={EmailSettings} />
       <Route path="/settings"><Redirect to="/settings/profile" /></Route>
