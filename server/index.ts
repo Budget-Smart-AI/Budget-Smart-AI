@@ -539,4 +539,35 @@ if (process.env.NODE_ENV === "development") {
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-   
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+
+    console.error("Internal Server Error:", err);
+
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    return res.status(status).json({ message });
+  });
+
+  // Handle landing page domain (budgetsmart.io) before SPA catch-all
+  // This serves the landing page for the main domain while app.budgetsmart.io gets the SPA
+  app.use(landingPageMiddleware);
+
+  // importantly only setup vite in development and after
+  // setting up all the other routes so the catch-all route
+  // doesn't interfere with the other routes
+  if (process.env.NODE_ENV === "production") {
+    serveStatic(app);
+  } else {
+    const { setupVite } = await import("./vite");
+    await setupVite(httpServer, app);
+  }
+
+  console.log('[Plaid] Webhook URL:', process.env.PLAID_WEBHOOK_URL);
+  console.log('[MX] Webhook URL:', process.env.MX_WEBHOOK_URL);
+})().catch((err) => {
+  console.error("Fatal startup error:", err);
+  process.exit(1);
+});
