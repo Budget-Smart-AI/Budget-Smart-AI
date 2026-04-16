@@ -427,11 +427,18 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
   });
 
   const currentDoc = fullDoc?.data || doc;
-  const conversations2 = currentDoc.conversations || conversations;
+  // Merge server-loaded conversations with locally-added ones (de-duped by id)
+  const serverConvs = currentDoc.conversations || [];
+  const mergedConversations = [...serverConvs];
+  for (const c of conversations) {
+    if (!mergedConversations.find((s: AiConversation) => s.id === c.id)) {
+      mergedConversations.push(c);
+    }
+  }
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conversations2]);
+  }, [mergedConversations.length]);
 
   const handleSave = async () => {
     try {
@@ -451,9 +458,9 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
     }
   };
 
-  const handleAsk = async () => {
-    if (!question.trim() || asking) return;
-    const q = question.trim();
+  const handleAsk = async (directQuestion?: string) => {
+    const q = (directQuestion || question).trim();
+    if (!q || asking) return;
     setQuestion("");
     setAsking(true);
     try {
@@ -676,9 +683,9 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
               <div>
                 <p className="text-sm font-semibold mb-3">Ask anything about this document</p>
 
-                {conversations2.length > 0 && (
+                {mergedConversations.length > 0 && (
                   <div className="space-y-3 mb-3">
-                    {conversations2.map((conv) => (
+                    {mergedConversations.map((conv) => (
                       <div key={conv.id} className="space-y-2">
                         <div className="flex justify-end">
                           <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-3 py-2 text-sm">
@@ -712,7 +719,7 @@ function DocumentDrawer({ doc, onClose, onUpdate }: { doc: VaultDocument; onClos
                   {qExamples.map(q => (
                     <button
                       key={q}
-                      onClick={() => setQuestion(q)}
+                      onClick={() => handleAsk(q)}
                       className="text-xs px-2.5 py-1 rounded-full border hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
                     >
                       {q}
