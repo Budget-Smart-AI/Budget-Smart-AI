@@ -1252,7 +1252,18 @@ export const insertHoldingSchema = createInsertSchema(holdings).omit({ id: true,
   currentPrice: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
   currentValue: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
 });
-export const updateHoldingSchema = insertHoldingSchema.partial();
+export const updateHoldingSchema = z.object({
+  investmentAccountId: z.string().min(1).optional(),
+  symbol: z.string().min(1).transform((v) => v.toUpperCase()).optional(),
+  name: z.string().min(1).optional(),
+  holdingType: z.enum(HOLDING_TYPES).optional(),
+  quantity: z.string().or(z.number()).transform((val) => String(val)).optional(),
+  costBasis: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
+  currentPrice: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
+  currentValue: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
+  currency: z.string().optional(),
+  lastPriceUpdate: z.string().nullable().optional(),
+});
 export type Holding = typeof holdings.$inferSelect;
 export type InsertHolding = z.infer<typeof insertHoldingSchema>;
 
