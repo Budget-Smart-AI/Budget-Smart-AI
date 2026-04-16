@@ -52,7 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Receipt, X, CalendarPlus, Upload, Download, FileSpreadsheet, Search, Filter, ArrowUpDown, FileDown, Sparkles, Loader2, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Pencil, Trash2, Receipt, X, CalendarPlus, Upload, Download, FileSpreadsheet, Search, Filter, ArrowUpDown, FileDown, Sparkles, Loader2, CheckCircle2, ChevronDown, ChevronUp, DollarSign, TrendingUp, Calendar } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format, setDate, addMonths, isBefore, addDays, addWeeks, getDay, setDay, parseISO, differenceInDays } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -274,6 +274,7 @@ function BillForm({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/bills"] });
       toast({ title: "Bill created successfully" });
       onClose();
     },
@@ -289,6 +290,7 @@ function BillForm({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/bills"] });
       toast({ title: "Bill updated successfully" });
       onClose();
     },
@@ -679,6 +681,7 @@ function ImportDialog({
       setImportResult(result);
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/bills"] });
       if (result.imported > 0) {
         toast({ title: `Successfully imported ${result.imported} bills` });
       }
@@ -875,6 +878,7 @@ export default function Bills() {
       }
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/bills"] });
       if (addedCount > 0) {
         toast({ title: `Added ${addedCount} bill${addedCount !== 1 ? "s" : ""}` });
       }
@@ -937,6 +941,33 @@ export default function Bills() {
     queryKey: ["/api/bills/payment-status"],
   });
 
+  // Fetch engine-computed bill summaries (monthly/annual estimates, upcoming bills, next due dates)
+  const { data: engineBills } = useQuery<{
+    thisMonthBills: Array<{ billId: string; billName: string; amount: number; category: string; dueDate: string; recurrence: string; isPaused: boolean }>;
+    thisMonthTotal: number;
+    upcomingBills: Array<{ billId: string; billName: string; amount: number; dueDate: string; daysUntil: number; recurrence: string; isPaused: boolean }>;
+    monthlyEstimate: number;
+    annualEstimate: number;
+    byRecurrence: Record<string, number>;
+  }>({
+    queryKey: ["/api/engine/bills"],
+  });
+
+  // Build a lookup from billId → engine-computed next due date
+  const engineDueDateMap = new Map<string, string>();
+  if (engineBills?.upcomingBills) {
+    for (const ub of engineBills.upcomingBills) {
+      engineDueDateMap.set(ub.billId, ub.dueDate);
+    }
+  }
+  if (engineBills?.thisMonthBills) {
+    for (const mb of engineBills.thisMonthBills) {
+      if (!engineDueDateMap.has(mb.billId)) {
+        engineDueDateMap.set(mb.billId, mb.dueDate);
+      }
+    }
+  }
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/bills/${id}`);
@@ -944,6 +975,7 @@ export default function Bills() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills/payment-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/bills"] });
       toast({ title: "Bill deleted successfully" });
       setDeletingBill(undefined);
     },
@@ -983,16 +1015,11 @@ export default function Bills() {
       let valA: any, valB: any;
 
       if (sortConfig.key === "nextDue") {
-        // NOTE: Due date calculation is now handled by the engine.
-        // We rely on the bills being populated from /api/bills/payment-status
-        // which includes proper due date ordering from the server
-        // For now, fall back to comparing dates using the dueDay and recurrence pattern
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        // Simple heuristic: use startDate if available, else estimate from dueDay
-        const aDate = a.startDate ? new Date(a.startDate) : new Date();
-        const bDate = b.startDate ? new Date(b.startDate) : new Date();
+        // Use engine-computed due dates for sorting when available
+        const aDueStr = engineDueDateMap.get(a.id);
+        const bDueStr = engineDueDateMap.get(b.id);
+        const aDate = aDueStr ? parseISO(aDueStr) : (a.startDate ? new Date(a.startDate) : new Date());
+        const bDate = bDueStr ? parseISO(bDueStr) : (b.startDate ? new Date(b.startDate) : new Date());
 
         valA = aDate.getTime();
         valB = bDate.getTime();
@@ -1079,6 +1106,72 @@ export default function Bills() {
       </div>
 
       <ImportDialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen} downloadTemplate={downloadTemplate} />
+
+      {/* Engine-powered summary cards */}
+      {engineBills && (
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-full bg-primary/10">
+                  <DollarSign className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">This Month</p>
+                  <p className="text-lg font-bold" data-testid="text-this-month-total">
+                    {formatCurrency(engineBills.thisMonthTotal)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-full bg-blue-500/10">
+                  <TrendingUp className="w-4 h-4 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Monthly Estimate</p>
+                  <p className="text-lg font-bold" data-testid="text-monthly-estimate">
+                    {formatCurrency(engineBills.monthlyEstimate)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-full bg-amber-500/10">
+                  <Calendar className="w-4 h-4 text-amber-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Annual Estimate</p>
+                  <p className="text-lg font-bold" data-testid="text-annual-estimate">
+                    {formatCurrency(engineBills.annualEstimate)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-full bg-green-500/10">
+                  <Receipt className="w-4 h-4 text-green-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Upcoming (30 days)</p>
+                  <p className="text-lg font-bold" data-testid="text-upcoming-count">
+                    {engineBills.upcomingBills?.length || 0} bills
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Detect Bills Dialog */}
       <Dialog open={isDetectDialogOpen} onOpenChange={(open) => !isDetecting && setIsDetectDialogOpen(open)}>
@@ -1339,9 +1432,9 @@ export default function Bills() {
                 </TableHeader>
                 <TableBody>
                   {filteredBills.map((bill) => {
-                    // NOTE: nextDue calculation is now handled by the financial engine
-                    // For display purposes, we estimate using startDate if available
-                    const nextDue = bill.startDate ? parseISO(bill.startDate) : new Date();
+                    // Use engine-computed due date when available, otherwise fall back to startDate
+                    const engineDueDate = engineDueDateMap.get(bill.id);
+                    const nextDue = engineDueDate ? parseISO(engineDueDate) : (bill.startDate ? parseISO(bill.startDate) : new Date());
                     const isExpanded = expandedBillId === bill.id;
                     return (
                       <>
