@@ -162,6 +162,7 @@ app.use(
           "https://api.mx.com",
           "https://api.deepseek.com",
             "https://api.openai.com",
+          "https://api.budgetsmart.io",
           ],
         frameSrc: ["https://cdn.plaid.com", "https://*.plaid.com", "https://*.moneydesktop.com"],
         objectSrc: ["'none'"],
