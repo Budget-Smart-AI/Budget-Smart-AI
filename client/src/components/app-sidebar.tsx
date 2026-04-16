@@ -61,14 +61,9 @@ const trackingItems = [
     icon: Receipt,
   },
   {
-    title: "Bills",
+    title: "Bills & Subscriptions",
     url: "/bills",
     icon: CreditCard,
-  },
-  {
-    title: "Subscriptions",
-    url: "/subscriptions",
-    icon: RefreshCw,
   },
   {
     title: "Accounts",
