@@ -154,13 +154,19 @@ function SectionHeader({
 }
 
 // Data Source Label Component
+//
+// "bank" used to render in orange, but that made every Real Cash Flow card
+// feel warm/amber which clashed with the mint glass theme. Now both pills
+// live in the green/teal family — "bank" is a muted neutral-slate pill to
+// keep a visual distinction from the solid emerald "plan" pill without
+// introducing a second accent colour.
 function DataSourceLabel({ type }: { type: "bank" | "plan" }) {
   return (
-    <Badge 
-      variant="outline" 
+    <Badge
+      variant="outline"
       className={`text-[10px] gap-1 ${
-        type === "bank" 
-          ? "border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30" 
+        type === "bank"
+          ? "border-border/60 text-muted-foreground bg-muted/40 dark:bg-muted/20"
           : "border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30"
       }`}
     >
@@ -196,10 +202,13 @@ function RealCashFlowCard({
         <CardTitle className="text-xs font-medium text-muted-foreground truncate">
           {title}
         </CardTitle>
+        {/* Icon pill — negative stays red (money-leaving signal), positive
+         * uses the section's accent (emerald/teal glass) instead of orange
+         * to stay aligned with the mint theme. */}
         <div className={`flex h-7 w-7 items-center justify-center rounded-md shrink-0 ${
-          isNegative ? "bg-red-100 dark:bg-red-950/50" : "bg-orange-100 dark:bg-orange-950/50"
+          isNegative ? "bg-red-100 dark:bg-red-950/50" : "bg-emerald-100 dark:bg-emerald-950/40"
         }`}>
-          <Icon className={`h-3.5 w-3.5 ${isNegative ? "text-red-600 dark:text-red-400" : "text-orange-600 dark:text-orange-400"}`} />
+          <Icon className={`h-3.5 w-3.5 ${isNegative ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`} />
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-4">
@@ -343,10 +352,17 @@ function MismatchAlert({
   return (
     <div className="space-y-2">
       {alerts.map((alert, index) => (
-        <Alert 
-          key={index} 
+        <Alert
+          key={index}
           variant={alert.type === "critical" ? "destructive" : "default"}
-          className={alert.type === "warning" ? "border-yellow-200 dark:border-yellow-800 bg-yellow-50/50 dark:bg-yellow-950/20" : ""}
+          // "warning" variant used bright yellow which washed out the mint
+          // glass palette. Softened to a translucent amber glass pill — still
+          // reads as cautionary but blends with the surrounding cards.
+          className={
+            alert.type === "warning"
+              ? "border-amber-300/50 dark:border-amber-500/30 bg-amber-50/40 dark:bg-amber-950/15 backdrop-blur-sm [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400"
+              : ""
+          }
         >
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>{alert.type === "critical" ? "Reality Check" : "Budget Warning"}</AlertTitle>
@@ -504,25 +520,14 @@ export default function Dashboard() {
       {/* Demo Data Banner */}
       <DemoBanner />
 
-      {/* Header */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 bg-clip-text text-transparent" data-testid="text-dashboard-title">
-            {(() => {
-              const hour = new Date().getHours();
-              const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-              const name = sessionData?.displayName || sessionData?.firstName;
-              return name ? `${greeting}, ${name}!` : "Financial Dashboard";
-            })()}
-          </h1>
-          <HelpTooltip
-            title="About Your Dashboard"
-            content="Your dashboard is split into two views: Real Cash Flow shows what actually happened with your money, while Your Financial Plan shows your budgeted intentions. Compare them to understand the gap between reality and plan."
-          />
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Your complete financial picture for {format(now, "MMMM yyyy")}
-        </p>
+      {/* Dashboard tooltip anchor — greeting itself lives in the topbar.
+       * Keep a hidden HelpTooltip trigger so the "About Your Dashboard" copy
+       * is still discoverable next to other header icons. */}
+      <div className="sr-only" aria-hidden="false">
+        <HelpTooltip
+          title="About Your Dashboard"
+          content="Your dashboard is split into two views: Real Cash Flow shows what actually happened with your money, while Your Financial Plan shows your budgeted intentions. Compare them to understand the gap between reality and plan."
+        />
       </div>
 
       {/* Fix 7: Processing Banner — shown right after onboarding while transactions sync */}
@@ -620,7 +625,10 @@ export default function Dashboard() {
           variant="real"
         />
         
-        <div className="p-4 rounded-lg border-2 border-orange-200 dark:border-orange-800 bg-gradient-to-br from-orange-50/50 to-red-50/30 dark:from-orange-950/20 dark:to-red-950/10">
+        {/* Section wrapper — was orange/red gradient which made the entire
+         * page feel amber. Swapped to translucent emerald/teal glass so it
+         * visually owns "Real Cash Flow" without fighting the mint bg. */}
+        <div className="p-4 rounded-lg border border-emerald-200/60 dark:border-emerald-700/30 bg-gradient-to-br from-emerald-50/40 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10 backdrop-blur-sm">
           {/* Real Stats Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <RealCashFlowCard
@@ -657,11 +665,11 @@ export default function Dashboard() {
           </div>
 
           {/* Net Worth Widget */}
-          <Card className="border-orange-200 dark:border-orange-800 mb-4">
+          <Card className="mb-4">
             <CardHeader className="px-4 py-4">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <CircleDollarSign className="h-4 w-4 text-orange-500" />
+                  <CircleDollarSign className="h-4 w-4 text-emerald-500" />
                   Net Worth
                 </CardTitle>
                 <div className="flex items-center gap-2">
@@ -719,12 +727,20 @@ export default function Dashboard() {
 
           {/* Where Your Money Went + Upcoming Bills */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-            {/* Where Your Money Went - now use dashboard.expenses.topCategories */}
-            <Card className="border-orange-200 dark:border-orange-800">
+            {/* Where Your Money Went - now use dashboard.expenses.topCategories.
+             *
+             * Refreshed Apr 2026 to match the Claude mockup: each category gets
+             * its own icon pill colour AND a matching progress-bar fill so the
+             * card reads as a small legend. Removes the uniform orange icons
+             * and green-only bars the previous version used. Amount text is
+             * neutral (not red) since the category label already signals spend
+             * and red-on-everything was too alarmist.
+             */}
+            <Card>
               <CardHeader className="px-4 py-4">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <CreditCard className="h-4 w-4 text-orange-500" />
+                    <CreditCard className="h-4 w-4 text-emerald-500" />
                     Where Your Money Went
                   </CardTitle>
                   <DataSourceLabel type="bank" />
@@ -761,25 +777,65 @@ export default function Dashboard() {
                         "Healthcare": Heart,
                         "Insurance": Shield,
                       };
+                      // Per-category palette. Each entry is { icon-bg, icon-fg,
+                      // bar-fill, bar-track } — kept as literal class strings so
+                      // Tailwind's JIT can pick them up. Fallback = slate.
+                      const categoryPalette: Record<
+                        string,
+                        { iconBg: string; iconFg: string; barFill: string; barTrack: string }
+                      > = {
+                        "Healthcare":     { iconBg: "bg-rose-100 dark:bg-rose-950/40",      iconFg: "text-rose-600 dark:text-rose-400",      barFill: "bg-rose-500",     barTrack: "bg-rose-100/60 dark:bg-rose-950/30" },
+                        "Insurance":      { iconBg: "bg-emerald-100 dark:bg-emerald-950/40", iconFg: "text-emerald-600 dark:text-emerald-400", barFill: "bg-emerald-500", barTrack: "bg-emerald-100/60 dark:bg-emerald-950/30" },
+                        "Transportation": { iconBg: "bg-sky-100 dark:bg-sky-950/40",        iconFg: "text-sky-600 dark:text-sky-400",        barFill: "bg-sky-500",      barTrack: "bg-sky-100/60 dark:bg-sky-950/30" },
+                        "Shopping":       { iconBg: "bg-violet-100 dark:bg-violet-950/40",  iconFg: "text-violet-600 dark:text-violet-400",  barFill: "bg-violet-500",   barTrack: "bg-violet-100/60 dark:bg-violet-950/30" },
+                        "Food":           { iconBg: "bg-amber-100 dark:bg-amber-950/40",    iconFg: "text-amber-600 dark:text-amber-400",    barFill: "bg-amber-500",    barTrack: "bg-amber-100/60 dark:bg-amber-950/30" },
+                        "Groceries":      { iconBg: "bg-amber-100 dark:bg-amber-950/40",    iconFg: "text-amber-600 dark:text-amber-400",    barFill: "bg-amber-500",    barTrack: "bg-amber-100/60 dark:bg-amber-950/30" },
+                        "Rent":           { iconBg: "bg-indigo-100 dark:bg-indigo-950/40",  iconFg: "text-indigo-600 dark:text-indigo-400",  barFill: "bg-indigo-500",   barTrack: "bg-indigo-100/60 dark:bg-indigo-950/30" },
+                        "Mortgage":       { iconBg: "bg-indigo-100 dark:bg-indigo-950/40",  iconFg: "text-indigo-600 dark:text-indigo-400",  barFill: "bg-indigo-500",   barTrack: "bg-indigo-100/60 dark:bg-indigo-950/30" },
+                        "Subscriptions":  { iconBg: "bg-teal-100 dark:bg-teal-950/40",      iconFg: "text-teal-600 dark:text-teal-400",      barFill: "bg-teal-500",     barTrack: "bg-teal-100/60 dark:bg-teal-950/30" },
+                        "Utilities":      { iconBg: "bg-yellow-100 dark:bg-yellow-950/40",  iconFg: "text-yellow-600 dark:text-yellow-400",  barFill: "bg-yellow-500",   barTrack: "bg-yellow-100/60 dark:bg-yellow-950/30" },
+                        "Entertainment":  { iconBg: "bg-pink-100 dark:bg-pink-950/40",      iconFg: "text-pink-600 dark:text-pink-400",      barFill: "bg-pink-500",     barTrack: "bg-pink-100/60 dark:bg-pink-950/30" },
+                        "Credit Cards":   { iconBg: "bg-orange-100 dark:bg-orange-950/40",  iconFg: "text-orange-600 dark:text-orange-400",  barFill: "bg-orange-500",   barTrack: "bg-orange-100/60 dark:bg-orange-950/30" },
+                      };
+                      const fallbackPalette = {
+                        iconBg: "bg-slate-100 dark:bg-slate-900/50",
+                        iconFg: "text-slate-600 dark:text-slate-400",
+                        barFill: "bg-slate-500",
+                        barTrack: "bg-slate-100/60 dark:bg-slate-900/40",
+                      };
+                      const palette = categoryPalette[item.category] ?? fallbackPalette;
                       const IconComponent = categoryIcons[item.category] || BarChart3;
                       const maxAmount = dashboard.expenses.topCategories[0]?.amount || item.amount;
+                      const pct = Math.min(100, Math.max(0, (item.amount / maxAmount) * 100));
                       return (
-                        <div key={item.category} className="space-y-1">
+                        <div key={item.category} className="space-y-1.5">
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
-                              <div className="p-1.5 rounded-md bg-orange-100 dark:bg-orange-950/50">
-                                <IconComponent className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+                              <div className={`p-1.5 rounded-md ${palette.iconBg}`}>
+                                <IconComponent className={`h-3.5 w-3.5 ${palette.iconFg}`} />
                               </div>
                               <span className="font-medium">{item.category}</span>
                             </div>
-                            <span className="font-semibold text-red-600 dark:text-red-400">
+                            <span className="font-semibold tabular-nums text-foreground">
                               {formatCurrency(item.amount)}
                             </span>
                           </div>
-                          <Progress
-                            value={(item.amount / maxAmount) * 100}
-                            className="h-2"
-                          />
+                          {/* Hand-rolled bar so fill colour can vary per row
+                           * (the shadcn Progress primitive uses bg-primary on
+                           * the indicator which would force every bar green). */}
+                          <div
+                            className={`h-2 w-full rounded-full overflow-hidden ${palette.barTrack}`}
+                            role="progressbar"
+                            aria-valuenow={Math.round(pct)}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`${item.category} spend as share of top category`}
+                          >
+                            <div
+                              className={`h-full rounded-full transition-all ${palette.barFill}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
                         </div>
                       );
                     })}
@@ -789,11 +845,11 @@ export default function Dashboard() {
             </Card>
 
             {/* Upcoming Payments Preview */}
-            <Card className="border-orange-200 dark:border-orange-800">
+            <Card>
               <CardHeader className="px-4 py-4">
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <Calendar className="h-4 w-4 text-orange-500" />
+                    <Calendar className="h-4 w-4 text-emerald-500" />
                     Upcoming Payments
                   </CardTitle>
                   <DataSourceLabel type="bank" />

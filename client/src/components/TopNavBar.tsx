@@ -35,11 +35,9 @@ function getGreeting(date: Date): string {
   return "Good evening";
 }
 
-function formatLongDate(date: Date): string {
+function formatMonthYear(date: Date): string {
   return date.toLocaleDateString(undefined, {
-    weekday: "long",
     month: "long",
-    day: "numeric",
     year: "numeric",
   });
 }
@@ -66,11 +64,11 @@ export function TopNavBar() {
   const isProOnly = plan === "pro";
   const isPro = plan === "pro" || plan === "family" || plan === "lifetime";
 
-  // Compute greeting + date once per minute. Good enough — we only cross a
-  // greeting boundary at 12:00 / 18:00 / 00:00.
-  const { greeting, longDate } = useMemo(() => {
+  // Compute greeting + subtitle once per mount. Good enough — we only cross
+  // a greeting boundary at 12:00 / 18:00 / 00:00, and the session is short.
+  const { greeting, monthYear } = useMemo(() => {
     const now = new Date();
-    return { greeting: getGreeting(now), longDate: formatLongDate(now) };
+    return { greeting: getGreeting(now), monthYear: formatMonthYear(now) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -99,23 +97,28 @@ export function TopNavBar() {
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 flex h-16 shrink-0 items-center gap-3",
+        "sticky top-0 z-40 flex h-20 shrink-0 items-center gap-3",
         "border-b border-border/40 bg-background/60 backdrop-blur-xl supports-[backdrop-filter]:bg-background/40",
         "px-4 md:px-6"
       )}
       data-testid="top-nav-bar"
     >
-      {/* Left: Sidebar trigger + greeting */}
+      {/* Left: Sidebar trigger + greeting.
+       * The greeting is the full page header now — Dashboard no longer
+       * renders its own hero. Uses the brand gradient on the title and a
+       * muted subtitle for visual parity with the mockup. */}
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger data-testid="button-sidebar-toggle" className="md:h-8 md:w-8 shrink-0" />
         <div className="min-w-0 hidden sm:block">
           <h1
-            className="font-display text-[15px] font-semibold leading-tight truncate"
+            className="font-display text-xl md:text-2xl font-bold leading-tight truncate brand-gradient-text"
             data-testid="topbar-greeting"
           >
             {greeting}, {greetingName}
           </h1>
-          <p className="text-xs text-muted-foreground leading-tight truncate">{longDate}</p>
+          <p className="text-xs md:text-sm text-muted-foreground leading-tight truncate">
+            Here's your financial snapshot for {monthYear}
+          </p>
         </div>
       </div>
 
