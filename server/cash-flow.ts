@@ -3,7 +3,7 @@
  * Predicts future account balances based on:
  * - Current balance
  * - Upcoming bills
- * - Expected income
+ * - Expected income (from Income records + auto-detected recurring deposits)
  * - Historical spending patterns
  */
 
@@ -317,21 +317,179 @@ export function getIncomeInRange(incomes: Income[], startDate: Date, endDate: Da
 }
 
 /**
+ * Auto-detect recurring income from transaction history.
+ *
+ * Looks for repeating credit patterns (same payer, similar amount, ~regular cadence)
+ * in the last `days` of transactions and projects them forward to `endDate`.
+ *
+ * This is the critical fallback that fixes the "Money Timeline all red" bug when
+ * users haven't set up manual recurring income records — Monarch parity behaviour.
+ *
+ * Excludes:
+ * - Transfers (TRANSFER_IN_*, TRANSFER_OUT_*, matchType='transfer')
+ * - Loan disbursements (mis-labelled by some issuers as income)
+ * - Refunds / one-off credits (not enough occurrences)
+ */
+export function detectRecurringIncomeFromTransactions(
+  transactions: PlaidTransaction[],
+  startDate: Date,
+  endDate: Date,
+): CashFlowEvent[] {
+  const today = startOfDay(startDate);
+
+  // 1. Filter to credits only (negative amounts in Plaid = deposits into account)
+  //    AND exclude transfers/loan disbursements.
+  //
+  // UAT-8 FIX: Added a name-pattern backstop. A bank sometimes routes its own
+  // transfers through categories like "Other" with the legacy PFC primary unset,
+  // e.g. "Customer Transfer Cr. MB-CASH ADVANCE". Those were slipping through
+  // as income and doubling Money Timeline projections.
+  const INCOME_EXCLUDE_CATEGORIES = new Set([
+    "transfers", "transfer", "credit card payment", "payment",
+    "internal account transfer", "loan disbursement",
+  ]);
+  const INCOME_EXCLUDE_DETAILED_PREFIXES = [
+    "TRANSFER_IN_", "TRANSFER_OUT_", "LOAN_DISBURSEMENT_",
+  ];
+  // Matches common transfer/advance/fee descriptors in names even when the
+  // aggregator hasn't flagged them. Case-insensitive, word-boundary safe.
+  const TRANSFER_NAME_PATTERN =
+    /\b(transfer|tfr|xfer|cash\s*advance|e[-\s]?transfer|interac|mb[-\s]?[a-z]+|internal\s+transfer|account\s+transfer|to\s+savings|from\s+savings|autopay|bill\s*pay(?:ment)?|zelle|venmo\s+cashout)\b/i;
+
+  const credits = transactions.filter(t => {
+    const amountCents = toCents(t.amount);
+    if (amountCents >= 0) return false; // Plaid: negative = deposit
+    if ((t as any).isTransfer === true || (t as any).isTransfer === "true") return false;
+    if (t.matchType === 'transfer') return false;
+
+    const cat = ((t as any).personalCategory || t.category || "").toLowerCase();
+    if (INCOME_EXCLUDE_CATEGORIES.has(cat)) return false;
+
+    const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
+    if (INCOME_EXCLUDE_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) return false;
+
+    // Name-pattern backstop for bank-labelled transfers that arrive with
+    // neutral categories (e.g. "Other", "Uncategorized").
+    const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
+    if (TRANSFER_NAME_PATTERN.test(name)) return false;
+
+    return true;
+  });
+
+  if (credits.length < 2) return [];
+
+  // 2. Group by merchant/counterparty fingerprint
+  const groups = new Map<string, PlaidTransaction[]>();
+  for (const t of credits) {
+    const key = ((t as any).counterpartyName
+      || (t as any).merchantName
+      || t.name
+      || "").trim().toUpperCase().replace(/\s+/g, " ");
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(t);
+  }
+
+  // 3. For each group with >=2 occurrences, infer cadence and project forward
+  const events: CashFlowEvent[] = [];
+  for (const [name, txs] of groups) {
+    if (txs.length < 2) continue;
+
+    // Sort by date ascending
+    const sorted = txs.slice().sort((a, b) =>
+      parseISO(a.date).getTime() - parseISO(b.date).getTime()
+    );
+
+    // Compute gaps between occurrences
+    const gaps: number[] = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const gap = differenceInDays(parseISO(sorted[i].date), parseISO(sorted[i - 1].date));
+      if (gap > 0 && gap < 100) gaps.push(gap);
+    }
+    if (gaps.length === 0) continue;
+
+    // Use median gap as cadence
+    gaps.sort((a, b) => a - b);
+    const medianGap = gaps[Math.floor(gaps.length / 2)];
+
+    // Detect cadence bucket.
+    // UAT-8 FIX: Previous ranges overlapped 14-16 (biweekly) and 14-17 (semi-monthly),
+    // so semi-monthly was unreachable. ROCHE pays on the 15th and 30th (gaps 15/13-18)
+    // and was getting mis-classified as biweekly, doubling its projected income. Made
+    // biweekly strict (13-14) and semi-monthly claim 15-17. Also widen the acceptance
+    // window on either end so real payroll jitter (holiday/weekend shifts) still lands.
+    let cadenceDays: number;
+    if (medianGap >= 6 && medianGap <= 8) cadenceDays = 7;            // weekly
+    else if (medianGap >= 13 && medianGap <= 14) cadenceDays = 14;    // biweekly (strict)
+    else if (medianGap >= 15 && medianGap <= 17) cadenceDays = 15;    // semi-monthly (~15d)
+    else if (medianGap >= 28 && medianGap <= 32) cadenceDays = 30;    // monthly
+    else continue; // Irregular — skip
+
+    // Average amount (absolute)
+    const amounts = sorted.map(t => Math.abs(toCents(t.amount)));
+    const avgCents = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+    const avgDollars = toDollars(avgCents);
+    if (avgDollars < 50) continue; // Skip tiny credits
+
+    // Project forward: start from last occurrence + cadenceDays
+    const lastDate = parseISO(sorted[sorted.length - 1].date);
+    let nextDate = addDays(lastDate, cadenceDays);
+
+    // Roll forward until we're at/after today
+    while (isBefore(nextDate, today)) {
+      nextDate = addDays(nextDate, cadenceDays);
+    }
+
+    // Emit events within the forecast window
+    let iterations = 0;
+    while (!isAfter(nextDate, endDate) && iterations < 100) {
+      events.push({
+        date: format(nextDate, "yyyy-MM-dd"),
+        type: "income",
+        name: name,
+        amount: avgDollars,
+        category: "Income",
+      });
+      nextDate = addDays(nextDate, cadenceDays);
+      iterations++;
+    }
+  }
+
+  return events;
+}
+
+/**
  * Calculate average daily spending from historical transactions
  */
 export function calculateAverageDailySpending(transactions: PlaidTransaction[], days: number = 30): number {
   // Exclude bill payments (tracked separately), transfers, and large loan/mortgage payments
   // that inflate the "daily discretionary spending" average.
   const NON_SPENDING_CATEGORIES = new Set([
-    "transfer", "credit card", "payment", "internal account transfer",
-    "mortgage", "housing", "loan", "loan payment",
+    "transfer", "transfers", "credit card", "credit card payment", "payment", "internal account transfer",
+    "mortgage", "housing", "loan", "loans", "loan payment",
   ]);
+  const NON_SPENDING_DETAILED_PREFIXES = [
+    "TRANSFER_IN_", "TRANSFER_OUT_", "LOAN_PAYMENTS_", "LOAN_DISBURSEMENT_",
+  ];
+  // UAT-8: same backstop as detectRecurringIncomeFromTransactions — keeps
+  // bank-labelled transfers (e.g. "MB-CASH ADVANCE", "Transfer To Savings")
+  // out of the "daily discretionary spending" number even when the aggregator
+  // categorises them loosely.
+  const TRANSFER_NAME_PATTERN =
+    /\b(transfer|tfr|xfer|cash\s*advance|e[-\s]?transfer|interac|mb[-\s]?[a-z]+|internal\s+transfer|account\s+transfer|to\s+savings|from\s+savings|zelle)\b/i;
+
   const outflows = transactions.filter(t => {
     const amountCents = toCents(t.amount);
     if (amountCents <= 0) return false; // Skip income (negative in Plaid)
     if (t.matchType === 'bill') return false; // Already tracked as bills
+    if (t.matchType === 'transfer') return false;
+    if ((t as any).isTransfer === true || (t as any).isTransfer === "true") return false;
     const cat = ((t as any).personalCategory || t.category || "").toLowerCase();
     if (NON_SPENDING_CATEGORIES.has(cat)) return false;
+    const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
+    if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) return false;
+    const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
+    if (TRANSFER_NAME_PATTERN.test(name)) return false;
     return true;
   });
   const totalCents = outflows.reduce((sum, t) => sum + toCents(t.amount), 0);
@@ -340,7 +498,16 @@ export function calculateAverageDailySpending(transactions: PlaidTransaction[], 
 }
 
 /**
- * Calculate spending by day of week to improve predictions
+ * Calculate spending by day of week to improve predictions.
+ *
+ * UAT-8 FIX: Previously this divided per-DOW total by TRANSACTION COUNT, which
+ * made a single large outlier become the "average" for that day of week forever
+ * (e.g. 1 Sunday charge of $1,200 → Sunday avg = $1,200 projected every Sunday).
+ *
+ * Now we divide by the number of distinct day-of-week occurrences in the history
+ * window — i.e. how many Sundays actually existed in the data, not how many
+ * transactions happened on Sundays. Requires >=2 occurrences to produce a
+ * DOW-specific number; otherwise falls back to 0 (caller uses overall avg).
  */
 export function getSpendingByDayOfWeek(transactions: PlaidTransaction[]): Record<number, number> {
   const byDay: Record<number, { totalCents: number; count: number }> = {
@@ -353,18 +520,52 @@ export function getSpendingByDayOfWeek(transactions: PlaidTransaction[]): Record
     6: { totalCents: 0, count: 0 },
   };
 
+  // Track distinct calendar dates seen per day-of-week (true denominator for "avg per Sunday").
+  const dayOfWeekDates: Record<number, Set<string>> = {
+    0: new Set(), 1: new Set(), 2: new Set(), 3: new Set(),
+    4: new Set(), 5: new Set(), 6: new Set(),
+  };
+
+  // Same exclusions as calculateAverageDailySpending so the daily pattern isn't skewed
+  // by mortgage/loan payments, transfers, or bill-matched outflows.
+  const NON_SPENDING_CATEGORIES = new Set([
+    "transfer", "transfers", "credit card", "credit card payment", "payment", "internal account transfer",
+    "mortgage", "housing", "loan", "loans", "loan payment",
+  ]);
+  const NON_SPENDING_DETAILED_PREFIXES = [
+    "TRANSFER_IN_", "TRANSFER_OUT_", "LOAN_PAYMENTS_", "LOAN_DISBURSEMENT_",
+  ];
+  const TRANSFER_NAME_PATTERN =
+    /\b(transfer|tfr|xfer|cash\s*advance|e[-\s]?transfer|interac|mb[-\s]?[a-z]+|internal\s+transfer|account\s+transfer|to\s+savings|from\s+savings|zelle)\b/i;
+
   for (const t of transactions) {
     const amountCents = toCents(t.amount);
     if (amountCents <= 0 || t.matchType === 'bill') continue; // Skip income and bill payments
+    if (t.matchType === 'transfer') continue;
+    if ((t as any).isTransfer === true || (t as any).isTransfer === "true") continue;
+    const cat = ((t as any).personalCategory || t.category || "").toLowerCase();
+    if (NON_SPENDING_CATEGORIES.has(cat)) continue;
+    const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
+    if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) continue;
+    const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
+    if (TRANSFER_NAME_PATTERN.test(name)) continue;
 
-    const dayOfWeek = getDay(parseISO(t.date));
+    const d = parseISO(t.date);
+    const dayOfWeek = getDay(d);
     byDay[dayOfWeek].totalCents += amountCents;
     byDay[dayOfWeek].count++;
+    dayOfWeekDates[dayOfWeek].add(t.date);
   }
 
   const result: Record<number, number> = {};
   for (const day of [0, 1, 2, 3, 4, 5, 6]) {
-    result[day] = byDay[day].count > 0 ? toDollars(byDay[day].totalCents / byDay[day].count) : 0;
+    const uniqueDays = dayOfWeekDates[day].size;
+    // Require at least 2 distinct occurrences of that weekday in history to
+    // produce a DOW-specific average; otherwise return 0 so the caller falls
+    // back to the overall daily average.
+    result[day] = uniqueDays >= 2
+      ? toDollars(byDay[day].totalCents / uniqueDays)
+      : 0;
   }
 
   return result;
@@ -410,7 +611,15 @@ export function generateCashFlowForecast(
 
   // Get all scheduled events (amounts in dollars)
   const billEvents = getBillsInRange(bills, today, endDate);
-  const incomeEvents = getIncomeInRange(incomes, today, endDate);
+  let incomeEvents = getIncomeInRange(incomes, today, endDate);
+
+  // CRITICAL FIX (UAT-7 Money Timeline):
+  // If the user hasn't set up recurring income records yet, auto-detect recurring
+  // income from their transaction history (paychecks, recurring deposits) so the
+  // forward projection isn't all red. This is Monarch parity behaviour.
+  if (incomeEvents.length === 0 && transactions.length > 0) {
+    incomeEvents = detectRecurringIncomeFromTransactions(transactions, today, endDate);
+  }
 
   // Calculate daily spending prediction (in dollars)
   // Use historicalDays so we divide by the actual window of data provided,
@@ -483,9 +692,21 @@ export function generateCashFlowForecast(
     });
   }
 
-  // Find low balance warning
+  // Find low balance warning.
+  // nextIncome uses Income records OR falls back to the first auto-detected income event
+  // so the "days until next income" number stays meaningful when records are absent.
   let lowBalanceWarning: LowBalanceWarning | null = null;
-  const nextIncome = findNextIncomeDate(incomes);
+  let nextIncome: { date: Date; amount: number; source: string } | null = findNextIncomeDate(incomes);
+  if (!nextIncome && incomeEvents.length > 0) {
+    const firstEvent = incomeEvents
+      .slice()
+      .sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime())[0];
+    nextIncome = {
+      date: parseISO(firstEvent.date),
+      amount: firstEvent.amount,
+      source: firstEvent.name,
+    };
+  }
 
   for (const proj of projections) {
     if (proj.balance < 500) {

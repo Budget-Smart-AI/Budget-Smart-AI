@@ -7313,6 +7313,78 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // UAT-8: Read-only Plaid item health endpoint.
+  // Returns each linked Plaid item's sync status, institution, newest
+  // transaction date, and a computed `isStale` flag (no new tx in 3+ days).
+  // The UI uses this to surface a "Reconnect bank" affordance when an item
+  // is stuck in ITEM_LOGIN_REQUIRED or otherwise has stopped producing data.
+  //
+  // Never leaks the access token or its encrypted form.
+  app.get("/api/plaid/items", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const items = await storage.getPlaidItems(userId);
+      const now = Date.now();
+      const STALE_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+
+      const result = [];
+      for (const item of items) {
+        const accounts = await storage.getPlaidAccounts(item.id);
+        const activeAccounts = accounts.filter((a) => a.isActive === "true");
+        const accountIds = activeAccounts.map((a) => a.id);
+
+        let newestTxDate: string | null = null;
+        if (accountIds.length > 0) {
+          try {
+            const recent = await storage.getPlaidTransactions(accountIds, {
+              // Pull a small recent window to find the newest tx fast.
+              startDate: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+              endDate: new Date(now).toISOString().slice(0, 10),
+            });
+            if (recent.length > 0) {
+              newestTxDate = recent
+                .map((t) => t.date)
+                .sort()
+                .at(-1) || null;
+            }
+          } catch {
+            // Treat as no recent data rather than failing the whole request.
+          }
+        }
+
+        const lastSyncedCandidates = activeAccounts
+          .map((a) => a.lastSynced)
+          .filter((d): d is string => !!d)
+          .sort();
+        const lastSyncedAt = lastSyncedCandidates.at(-1) || null;
+
+        const lastActivityMs = newestTxDate
+          ? new Date(newestTxDate).getTime()
+          : lastSyncedAt
+            ? new Date(lastSyncedAt).getTime()
+            : 0;
+        const isStale = lastActivityMs === 0 || (now - lastActivityMs) > STALE_MS;
+
+        result.push({
+          id: item.id,
+          institutionId: item.institutionId || null,
+          institutionName: item.institutionName || "Unknown institution",
+          status: item.status || "active",
+          accountCount: activeAccounts.length,
+          lastSyncedAt,
+          newestTransactionDate: newestTxDate,
+          isStale,
+          needsReconnect: item.status === "error" || item.status === "expired" || isStale,
+        });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error listing Plaid items:", error);
+      res.status(500).json({ error: "Failed to list bank connections" });
+    }
+  });
+
   // Disconnect a bank account (delete Plaid item)
   app.delete("/api/plaid/items/:id", requireAuth, async (req, res) => {
     try {
@@ -11070,22 +11142,65 @@ ${JSON.stringify(txSummary)}`;
       let thirtyDayIncome = income30.reduce((sum, e) => sum + e.amount, 0);
 
       // ── Transaction-based income fallback ──────────────────────────────
-      // If no income records produce projected income for the next 30 days,
-      // estimate from actual bank deposits in the last 30 days.
-      // This ensures the dashboard shows realistic income even before the user
-      // runs "Detect Income" or sets up recurring income records.
+      // UAT-8 FIX: Original filter was dangerously weak:
+      //   - missed "transfers" (plural)
+      //   - missed isTransfer flag
+      //   - missed matchType='transfer'
+      //   - missed PFC v2 detailed prefixes (TRANSFER_IN_*, TRANSFER_OUT_*,
+      //     LOAN_DISBURSEMENT_*, BANK_FEES_*)
+      //   - missed bank name patterns like "Transfer Cr. MB-CASH ADVANCE"
+      //
+      // Result: a customer's internal-transfer credits were being summed into
+      // the "Income (Next 30 Days)" card, inflating it ~2× on the dashboard.
+      //
+      // The centralised cash-flow.ts filters already handle this correctly;
+      // this fallback now mirrors those rules. The forecast's income events
+      // (which use the same path) are the preferred signal — this fallback
+      // only fires when both income records AND detectRecurringIncomeFromTransactions
+      // produced nothing usable for the 30-day window.
       if (thirtyDayIncome === 0 && transactions.length > 0) {
-        // Sum actual income deposits from the last 30 days of transactions
+        const EXCLUDE_CATEGORIES = new Set([
+          "transfer", "transfers", "credit card", "credit card payment",
+          "payment", "internal account transfer", "loan", "loan payments",
+          "loan payment", "loan disbursement", "bank fees",
+        ]);
+        const EXCLUDE_DETAILED_PREFIXES = [
+          "TRANSFER_IN_", "TRANSFER_OUT_", "LOAN_PAYMENTS_",
+          "LOAN_DISBURSEMENT_", "BANK_FEES_",
+        ];
+        const TRANSFER_NAME_PATTERN =
+          /\b(transfer|tfr|xfer|cash\s*advance|e[-\s]?transfer|interac|mb[-\s]?[a-z]+|internal\s+transfer|account\s+transfer|to\s+savings|from\s+savings|zelle)\b/i;
+
         const thirtyDaysAgo = new Date(today30);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
         const recentIncome = transactions
           .filter(tx => {
             if (!tx.date) return false;
             const txDate = new Date(tx.date);
-            return txDate >= thirtyDaysAgo &&
-              parseFloat(tx.amount?.toString() || "0") < 0 && // Plaid: negative = income
-              !["transfer", "credit card", "payment", "internal account transfer"]
-                .includes((tx.personalCategory || tx.category || "").toLowerCase());
+            if (txDate < thirtyDaysAgo) return false;
+
+            const amt = parseFloat(tx.amount?.toString() || "0");
+            if (amt >= 0) return false; // Plaid: negative = income
+
+            // Exclude by flag/matchType — covers aggregator-tagged transfers.
+            const anyTx = tx as any;
+            if (anyTx.isTransfer === true || anyTx.isTransfer === "true") return false;
+            if (anyTx.matchType === "transfer") return false;
+
+            // Exclude by legacy + PFC primary category.
+            const cat = (anyTx.personalCategory || tx.category || "").toString().toLowerCase();
+            if (EXCLUDE_CATEGORIES.has(cat)) return false;
+
+            // Exclude by PFC v2 detailed prefix.
+            const detailed = (anyTx.personalFinanceCategoryDetailed || "").toString().toUpperCase();
+            if (EXCLUDE_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) return false;
+
+            // Name-pattern backstop for loose-categorised bank transfers.
+            const name = (anyTx.counterpartyName || anyTx.merchantName || tx.name || "").toString();
+            if (TRANSFER_NAME_PATTERN.test(name)) return false;
+
+            return true;
           })
           .reduce((sum, tx) => sum + Math.abs(parseFloat(tx.amount?.toString() || "0")), 0);
 
@@ -13556,7 +13671,10 @@ The Budget Smart AI Team`,
           notes: null,
           source: "plaid" as const,
           accountId: tx.plaidAccountId,
-          isTransfer: tx.isTransfer === "true",
+          // UAT-8 FIX: `is_transfer` is a real boolean column — comparing to the
+          // string "true" always returned false, so every Plaid tx was reported
+          // as isTransfer: false to the client and included in expense sums.
+          isTransfer: tx.isTransfer === true || (tx as any).isTransfer === "true",
           pending: tx.pending === "true",
         })),
         ...manualTransactions.map(tx => ({

@@ -982,27 +982,70 @@ export default function IncomePage() {
                             size="sm"
                             onClick={async () => {
                               try {
-                                // Map frequency to recurrence format
+                                // UAT-8 FIX: server-side Zod validation rejects:
+                                //   - categories outside INCOME_CATEGORIES (["Salary",
+                                //     "Freelance", "Business", "Investments", "Rental",
+                                //     "Gifts", "Refunds", "Other"])
+                                //   - recurrence values outside RECURRENCE_OPTIONS
+                                //     (["weekly","biweekly","monthly","yearly",
+                                //     "custom","one_time"])
+                                // Previously we passed raw Plaid categories (e.g.
+                                // "Employment", "Deposit") and "quarterly" through
+                                // unchanged, so the request 400'd — which surfaced
+                                // as "Failed to add income" on every click.
+                                const ALLOWED_INCOME_CATEGORIES = new Set([
+                                  "Salary","Freelance","Business","Investments",
+                                  "Rental","Gifts","Refunds","Other",
+                                ]);
+                                const mappedCategory = (() => {
+                                  const raw = (source.category || "").toString();
+                                  if (raw === "Employment") return "Salary";
+                                  if (ALLOWED_INCOME_CATEGORIES.has(raw)) return raw;
+                                  // Heuristics for Plaid/aggregator values.
+                                  if (/salary|payroll|wages|employment/i.test(raw)) return "Salary";
+                                  if (/freelance|contract|1099/i.test(raw)) return "Freelance";
+                                  if (/business|self.?employed/i.test(raw)) return "Business";
+                                  if (/invest|dividend|interest/i.test(raw)) return "Investments";
+                                  if (/rent/i.test(raw)) return "Rental";
+                                  if (/gift/i.test(raw)) return "Gifts";
+                                  if (/refund/i.test(raw)) return "Refunds";
+                                  return "Other";
+                                })();
+
+                                // Map detected frequency to a valid recurrence enum value.
+                                // "quarterly" and "semi-monthly" aren't in the schema yet —
+                                // collapse to the closest supported option.
                                 const recurrenceMap: Record<string, string> = {
-                                  weekly: 'weekly',
-                                  biweekly: 'biweekly',
-                                  monthly: 'monthly',
-                                  quarterly: 'quarterly',
+                                  weekly: "weekly",
+                                  biweekly: "biweekly",
+                                  "semi-monthly": "biweekly",
+                                  monthly: "monthly",
+                                  quarterly: "monthly",
+                                  yearly: "yearly",
                                 };
+                                const mappedRecurrence = source.frequency
+                                  ? recurrenceMap[source.frequency.toLowerCase()] || "monthly"
+                                  : null;
+
                                 await apiRequest("POST", "/api/income", {
                                   source: source.source,
-                                  amount: source.amount,
-                                  category: source.category === 'Employment' ? 'Salary' : source.category,
+                                  amount: String(source.amount), // schema transforms but be explicit
+                                  category: mappedCategory,
                                   date: format(new Date(), "yyyy-MM-dd"),
                                   isRecurring: source.isRecurring ? "true" : "false",
-                                  recurrence: source.frequency ? recurrenceMap[source.frequency] || 'monthly' : null,
-                                  notes: 'Added from bank detection',
+                                  recurrence: mappedRecurrence,
+                                  notes: "Added from bank detection",
                                 });
                                 queryClient.invalidateQueries({ queryKey: ["/api/income"] });
                                 queryClient.invalidateQueries({ queryKey: ["/api/engine/income"] });
                                 toast({ title: `Added ${source.source} to income` });
                               } catch (error) {
-                                toast({ title: "Failed to add income", variant: "destructive" });
+                                const message = error instanceof Error ? error.message : "Unknown error";
+                                toast({
+                                  title: "Failed to add income",
+                                  description: message,
+                                  variant: "destructive",
+                                });
                               }
                             }}
                           >

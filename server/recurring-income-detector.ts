@@ -90,8 +90,12 @@ function normalizeName(name: string): string {
  * Returns null if the interval doesn't match a known pattern.
  */
 function detectFrequency(avgDays: number): string | null {
+  // UAT-8 FIX: Previous biweekly bucket (13-16) swallowed the 15-day
+  // semi-monthly cadence (15th/30th) and doubled projected income.
+  // Biweekly is now strict 13-14; semi-monthly (~15d) is explicit.
   if (avgDays >= 6 && avgDays <= 8) return "weekly";
-  if (avgDays >= 13 && avgDays <= 16) return "biweekly";
+  if (avgDays >= 13 && avgDays <= 14) return "biweekly";
+  if (avgDays >= 15 && avgDays <= 17) return "semi-monthly";
   if (avgDays >= 28 && avgDays <= 32) return "monthly";
   if (avgDays >= 88 && avgDays <= 95) return "quarterly";
   if (avgDays >= 360 && avgDays <= 370) return "yearly";
@@ -248,11 +252,21 @@ export async function detectRecurringIncome(userId: string): Promise<DetectionRe
       if (alreadyManuallySet) continue;
 
       try {
+        // Map detected labels to the subset of RECURRENCE_OPTIONS the schema
+        // accepts. "semi-monthly" and "quarterly" aren't in the enum yet, so we
+        // map them conservatively (underproject rather than overproject):
+        //   semi-monthly → biweekly  (closest 2×/mo cadence; ~8% under-rate)
+        //   quarterly    → monthly   (legacy mapping, preserved)
+        let storedRecurrence: string;
+        if (frequency === "quarterly") storedRecurrence = "monthly";
+        else if (frequency === "semi-monthly") storedRecurrence = "biweekly";
+        else storedRecurrence = frequency;
+
         await db
           .update(incomeTable)
           .set({
             isRecurring: "true",
-            recurrence: frequency === "quarterly" ? "monthly" : frequency, // map quarterly → monthly (closest RECURRENCE_OPTIONS)
+            recurrence: storedRecurrence,
             autoDetected: true,
             detectedAt: new Date(),
           })
