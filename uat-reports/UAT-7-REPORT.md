@@ -116,7 +116,7 @@ server/routes.ts                                     (P1-14 — server totals in
 ## Recommended next steps
 
 1. **Visual QA on P3-22 and P3-24** once a Plaid sandbox item with the edge cases is available.
-2. **Deploy to Railway** — engine service at `api.budgetsmart.io`, main app at `app.budgetsmart.ai`. No Railway config changes needed; per-service `railway.engine.json` is already in place.
+2. **Deploy to Railway** — engine service at `api.budgetsmart.io`, main app at `app.budgetsmart.io`. No Railway config changes needed; per-service `railway.engine.json` is already in place.
 3. **Monitor** the `/api/engine/safe-to-spend`, `/api/engine/tax`, `/api/engine/refunds`, and `/api/engine/categories/stats` endpoints after deploy — they're new in this pass and haven't yet seen production traffic.
 4. **Write a short end-to-end test** for the recurring-income detector that asserts an internal-transfer credit above $200/month does *not* produce a detection result. Catches regressions to P1-15 at the unit level.
 

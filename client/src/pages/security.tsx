@@ -324,8 +324,8 @@ export default function SecurityCompliance() {
               <h2 className="text-lg font-semibold mb-4">Questions about our security?</h2>
               <p className="text-muted-foreground">
                 If you have any questions about our security practices, please contact us at{" "}
-                <a href="mailto:security@budgetsmart.ai" className="text-primary hover:underline">
-                  security@budgetsmart.ai
+                <a href="mailto:security@budgetsmart.io" className="text-primary hover:underline">
+                  security@budgetsmart.io
                 </a>
               </p>
             </div>

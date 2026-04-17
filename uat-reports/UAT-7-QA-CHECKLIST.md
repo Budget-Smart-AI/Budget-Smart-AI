@@ -13,7 +13,7 @@ Both fixes are already in `main` (commit `5d2162a`). This is visual/runtime conf
 **What changed:** Calendar renders bills/income events across the Dec → Jan boundary without date drift.
 
 **Setup (2 min):**
-1. Open the app at `app.budgetsmart.ai` and sign in.
+1. Open the app at `app.budgetsmart.io` and sign in.
 2. Go to **Bills** → **Add Bill**.
 3. Create a test bill:
    - Name: `ZZ-QA Year-End Bill`

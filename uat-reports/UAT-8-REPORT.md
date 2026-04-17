@@ -284,7 +284,7 @@ Verified: 17/17 assertions across two new suites under uat-reports/."
 git push origin main
 ```
 
-Railway will redeploy both services on push (engine at api.budgetsmart.io, app at app.budgetsmart.ai).
+Railway will redeploy both services on push (engine at api.budgetsmart.io, app at app.budgetsmart.io).
 
 ---
 
