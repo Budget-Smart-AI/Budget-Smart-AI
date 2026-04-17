@@ -11640,8 +11640,13 @@ ${JSON.stringify(txSummary)}`;
         });
       }
       
-      // Get Plaid transactions from the last 90 days
-      const plaidItems = await storage.getPlaidItems(userId);
+      // Get Plaid transactions from the last 90 days + user's declared bills
+      // so we can exclude anything they've already recorded as a bill from the
+      // "hidden leaks" view (those are known expenses, not leaks).
+      const [plaidItems, userBills] = await Promise.all([
+        storage.getPlaidItems(userId),
+        storage.getBills(userId),
+      ]);
       let transactions: any[] = [];
 
       if (plaidItems.length > 0) {
@@ -11663,6 +11668,49 @@ ${JSON.stringify(txSummary)}`;
         }
       }
 
+      // ─── UAT-9: Leak-detector classification guard ──────────────────────────
+      //
+      // The old detector ran on ALL outgoing transactions and flagged (a) any
+      // small recurring charge and (b) any merchant whose amount rose ≥10%
+      // between the first and last occurrence. That misfired dramatically:
+      // bank transfers, mortgage payments, and loan payments naturally vary
+      // >10% month to month, so they all got surfaced as "leaks".
+      //
+      // Fix:
+      //   1. Exclude transfers / loan payments / fees / interest up front
+      //      using Plaid's personal-finance-category + our own name patterns.
+      //      Same filter as UAT-8 cash-flow, so the three pages stay aligned.
+      //   2. Exclude any merchant that already matches one of the user's
+      //      declared Bills — we don't tell them their mortgage is a leak.
+      //   3. Drop the "price_increase" detection entirely. It was the source
+      //      of all visible false positives (variable mortgage/transfer
+      //      amounts flagged as leaks) and has no reliable signal.
+      //   4. Keep only the recurring_small heuristic (< $50 with consistent
+      //      cadence) — which is the actual "forgot about this subscription"
+      //      use case this dashboard widget exists for.
+      const EXCLUDE_CATEGORIES = new Set([
+        "Transfer", "Loan Payment", "Bank Fees", "Interest",
+        "Payment", "Credit Card Payment",
+      ]);
+      const EXCLUDE_PFC_PREFIXES = [
+        "TRANSFER_IN_", "TRANSFER_OUT_",
+        "LOAN_PAYMENTS_", "LOAN_DISBURSEMENT_",
+        "BANK_FEES_",
+      ];
+      const TRANSFER_NAME_PATTERN =
+        /\b(transfer|tfr|xfer|cash\s*advance|e[-\s]?transfer|interac|mb[-\s]?[a-z]+|internal\s+transfer|account\s+transfer|to\s+savings|from\s+savings|zelle|mortgage\s+payment|mortgage\s+trans|principal|auto\s+loan|student\s+loan|loan\s+pmt)\b/i;
+
+      // Build a set of normalized merchant names for the user's declared bills.
+      function normalizeForMatch(s: string): string {
+        return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      }
+      const billMerchantKeys = new Set<string>();
+      for (const b of userBills) {
+        if ((b as any).isPaused === "true") continue;
+        const key = normalizeForMatch((b as any).name || "");
+        if (key.length >= 3) billMerchantKeys.add(key);
+      }
+
       // Analyze transactions for leaks
       const leaks: Array<{
         type: "recurring_small" | "price_increase" | "duplicate" | "unused_subscription";
@@ -11676,7 +11724,7 @@ ${JSON.stringify(txSummary)}`;
         confidence: number;
       }> = [];
 
-      // Group transactions by merchant name
+      // Group transactions by merchant name — excluding transfers/loans/bills.
       const merchantGroups = new Map<string, Array<{
         amount: number;
         date: string;
@@ -11686,8 +11734,30 @@ ${JSON.stringify(txSummary)}`;
       for (const tx of transactions) {
         const amount = parseFloat(tx.amount || "0");
         if (amount <= 0) continue; // Only look at charges (positive amounts in Plaid = money out)
-        
-        const name = (tx.merchantName || tx.name || "Unknown").toLowerCase().trim();
+
+        // Guard 1: Plaid-flagged transfer (column is boolean; tolerate legacy
+        // string "true" values too).
+        if (tx.isTransfer === true || (tx as any).isTransfer === "true") continue;
+
+        // Guard 2: category-level excludes.
+        const catTop = (tx.category || tx.personalCategory || "").trim();
+        if (catTop && EXCLUDE_CATEGORIES.has(catTop)) continue;
+
+        // Guard 3: Plaid personal-finance-category detailed prefix excludes.
+        const pfcDetailed = (tx.personalFinanceCategoryDetailed || "").toString().toUpperCase();
+        if (pfcDetailed && EXCLUDE_PFC_PREFIXES.some(p => pfcDetailed.startsWith(p))) continue;
+
+        // Guard 4: name-pattern backstop — catches Scotiabank-style "Customer
+        // Transfer Dr. MB-*" credits that slip through category/PFC filters.
+        const rawName = (tx.merchantName || tx.name || "").toString();
+        if (TRANSFER_NAME_PATTERN.test(rawName)) continue;
+
+        // Guard 5: skip merchants the user has already declared as bills —
+        // those are known recurring expenses, not "hidden leaks".
+        const mkey = normalizeForMatch(tx.merchantName || tx.name || "");
+        if (mkey && billMerchantKeys.has(mkey)) continue;
+
+        const name = rawName.toLowerCase().trim() || "unknown";
         if (!merchantGroups.has(name)) {
           merchantGroups.set(name, []);
         }
@@ -11698,73 +11768,56 @@ ${JSON.stringify(txSummary)}`;
         });
       }
 
-      // Detect patterns
-      for (const [merchantKey, txs] of Array.from(merchantGroups)) {
+      // Detect patterns — recurring small charges only (under $50 with a
+      // consistent weekly/biweekly/monthly/yearly cadence). The previous
+      // price-increase detector was dropped because natural variance in
+      // mortgages, transfers, and utilities produced constant false positives.
+      for (const [, txs] of Array.from(merchantGroups)) {
         if (txs.length < 2) continue;
 
         // Sort by date
         txs.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        // Check for recurring small charges (under $50)
         const avgAmount = txs.reduce((sum, t) => sum + t.amount, 0) / txs.length;
-        if (avgAmount < 50 && txs.length >= 2) {
-          // Calculate average days between transactions
-          let totalDays = 0;
-          for (let i = 1; i < txs.length; i++) {
-            const daysDiff = (new Date(txs[i].date).getTime() - new Date(txs[i-1].date).getTime()) / (1000 * 60 * 60 * 24);
-            totalDays += daysDiff;
-          }
-          const avgDays = totalDays / (txs.length - 1);
+        if (avgAmount >= 50) continue; // Only small recurring charges qualify as leaks.
 
-          let frequency = "irregular";
-          let monthlyMultiplier = 1;
-          if (avgDays >= 28 && avgDays <= 32) {
-            frequency = "monthly";
-            monthlyMultiplier = 1;
-          } else if (avgDays >= 6 && avgDays <= 8) {
-            frequency = "weekly";
-            monthlyMultiplier = 4.33;
-          } else if (avgDays >= 13 && avgDays <= 16) {
-            frequency = "bi-weekly";
-            monthlyMultiplier = 2.17;
-          } else if (avgDays >= 350 && avgDays <= 380) {
-            frequency = "yearly";
-            monthlyMultiplier = 1/12;
-          }
+        // Calculate average days between transactions
+        let totalDays = 0;
+        for (let i = 1; i < txs.length; i++) {
+          const daysDiff = (new Date(txs[i].date).getTime() - new Date(txs[i - 1].date).getTime()) / (1000 * 60 * 60 * 24);
+          totalDays += daysDiff;
+        }
+        const avgDays = totalDays / (txs.length - 1);
 
-          if (frequency !== "irregular") {
-            const monthlyImpact = avgAmount * monthlyMultiplier;
-            leaks.push({
-              type: "recurring_small",
-              name: txs[0].name,
-              amount: Math.round(avgAmount * 100) / 100,
-              frequency,
-              monthlyImpact: Math.round(monthlyImpact * 100) / 100,
-              yearlyImpact: Math.round(monthlyImpact * 12 * 100) / 100,
-              firstSeen: txs[0].date,
-              occurrences: txs.length,
-              confidence: Math.min(0.95, 0.5 + txs.length * 0.1),
-            });
-          }
+        let frequency = "irregular";
+        let monthlyMultiplier = 1;
+        if (avgDays >= 28 && avgDays <= 32) {
+          frequency = "monthly";
+          monthlyMultiplier = 1;
+        } else if (avgDays >= 6 && avgDays <= 8) {
+          frequency = "weekly";
+          monthlyMultiplier = 4.33;
+        } else if (avgDays >= 13 && avgDays <= 16) {
+          frequency = "bi-weekly";
+          monthlyMultiplier = 2.17;
+        } else if (avgDays >= 350 && avgDays <= 380) {
+          frequency = "yearly";
+          monthlyMultiplier = 1 / 12;
         }
 
-        // Check for price increases
-        if (txs.length >= 3) {
-          const recentAmount = txs[txs.length - 1].amount;
-          const olderAmount = txs[0].amount;
-          if (recentAmount > olderAmount * 1.1) { // 10% increase
-            leaks.push({
-              type: "price_increase",
-              name: txs[0].name,
-              amount: Math.round((recentAmount - olderAmount) * 100) / 100,
-              frequency: "detected",
-              monthlyImpact: Math.round((recentAmount - olderAmount) * 100) / 100,
-              yearlyImpact: Math.round((recentAmount - olderAmount) * 12 * 100) / 100,
-              firstSeen: txs[0].date,
-              occurrences: txs.length,
-              confidence: 0.7,
-            });
-          }
+        if (frequency !== "irregular") {
+          const monthlyImpact = avgAmount * monthlyMultiplier;
+          leaks.push({
+            type: "recurring_small",
+            name: txs[0].name,
+            amount: Math.round(avgAmount * 100) / 100,
+            frequency,
+            monthlyImpact: Math.round(monthlyImpact * 100) / 100,
+            yearlyImpact: Math.round(monthlyImpact * 12 * 100) / 100,
+            firstSeen: txs[0].date,
+            occurrences: txs.length,
+            confidence: Math.min(0.95, 0.5 + txs.length * 0.1),
+          });
         }
       }
 
@@ -11998,17 +12051,51 @@ ${JSON.stringify(txSummary)}`;
       // Calculate safe spending amount
       const safeBuffer = 100; // Minimum buffer
       const safeToSpend = Math.max(0, currentBalance - upcomingBillsTotal - safeBuffer);
-      
-      // Calculate daily allowance (until next paycheck)
-      const nextIncomeDate = incomes
+
+      // UAT-9 fix: "Days to Payday" was hard-coded to 30 because the old code
+      // read `payFrequency` (non-existent) instead of `recurrence`, and
+      // returned the cycle LENGTH (7/14/30) rather than the actual days
+      // remaining until the next paycheck. Now: walk each active income's
+      // recurrence forward from its stored start date until the next pay date
+      // is strictly after today, then take the MIN across all incomes so the
+      // widget reflects the soonest paycheck.
+      const MS_PER_DAY = 86_400_000;
+      const todayLocal = new Date();
+      todayLocal.setHours(0, 0, 0, 0);
+
+      function cycleDays(recurrence: string | null | undefined): number | null {
+        switch (recurrence) {
+          case "weekly": return 7;
+          case "biweekly": return 14;
+          case "monthly": return 30;
+          case "yearly": return 365;
+          default: return null;
+        }
+      }
+
+      const paydays = incomes
         .filter(i => i.isActive !== "false")
         .map(i => {
-          const payDay = parseInt((i as any).payFrequency === "weekly" ? "7" : 
-            (i as any).payFrequency === "biweekly" ? "14" : "30");
-          return payDay;
-        })[0] || 14;
-      
-      const dailyAllowance = safeToSpend / Math.max(1, nextIncomeDate);
+          const cycle = cycleDays((i as any).recurrence);
+          if (!cycle) return null;
+          const startRaw = (i as any).date as string | null | undefined;
+          if (!startRaw) return null;
+          const start = new Date(startRaw + "T00:00:00");
+          if (isNaN(start.getTime())) return null;
+          // Advance the pay date in cycle-day increments until it's after today.
+          let next = new Date(start);
+          while (next.getTime() <= todayLocal.getTime()) {
+            next = new Date(next.getTime() + cycle * MS_PER_DAY);
+          }
+          const daysUntil = Math.ceil((next.getTime() - todayLocal.getTime()) / MS_PER_DAY);
+          return Math.max(1, daysUntil);
+        })
+        .filter((d): d is number => d !== null && isFinite(d));
+
+      // Fallback: if no valid income records, assume 14 days (biweekly default).
+      const daysUntilNextPayday = paydays.length > 0 ? Math.min(...paydays) : 14;
+
+      const dailyAllowance = safeToSpend / Math.max(1, daysUntilNextPayday);
 
       // Determine spending status
       let status: "safe" | "caution" | "danger" = "safe";
@@ -12025,7 +12112,7 @@ ${JSON.stringify(txSummary)}`;
         dailyAllowance: Math.round(dailyAllowance * 100) / 100,
         upcomingBillsTotal: Math.round(upcomingBillsTotal * 100) / 100,
         upcomingBillsCount: upcomingBills.length,
-        daysUntilNextPayday: nextIncomeDate,
+        daysUntilNextPayday,
         status,
         message: status === "danger" 
           ? "Warning: Bills exceed your balance!"

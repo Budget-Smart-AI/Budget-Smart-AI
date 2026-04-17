@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,7 @@ function formatCurrency(amount: number): string {
 }
 
 export function MoneyLeaksWidget() {
+  const [, navigate] = useLocation();
   const { data, isLoading, error } = useQuery<LeaksResponse>({
     queryKey: ['/api/leaks/detect'],
     staleTime: 1000 * 60 * 30, // Cache for 30 minutes
@@ -126,7 +128,13 @@ export function MoneyLeaksWidget() {
             </div>
 
             {data.leaks.length > 3 && (
-              <Button variant="ghost" size="sm" className="w-full" data-testid="view-all-leaks">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                data-testid="view-all-leaks"
+                onClick={() => navigate('/subscriptions')}
+              >
                 View all {data.leaks.length} leaks
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>

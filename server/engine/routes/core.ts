@@ -190,13 +190,29 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       today,
     });
 
-    // Calculate gaps
-    const incomeGap = income.actualIncome - income.budgetedIncome;
+    // Calculate gaps.
+    //
+    // UAT-9 fix: previously these were raw (actual - monthly-full) subtractions,
+    // which misrepresented mid-month state as "under plan" simply because the
+    // month hadn't finished yet. We now prorate the planned side by the fraction
+    // of the month elapsed, so the gap is ~0 when on-track mid-month and only
+    // flags real variance against the time-proportional expectation.
     const budgetTotal = budgetsData.reduce((sum, b) => sum + parseFloat(String(b.amount ?? 0)), 0);
-    const spendingGap = expenses.total - budgetTotal;
+    const daysInMonth = getDaysInMonth(today);
+    const daysElapsed = Math.min(today.getDate(), daysInMonth);
+    const elapsedRatio = daysInMonth > 0 ? daysElapsed / daysInMonth : 1;
+
+    const expectedIncomeToDate = income.budgetedIncome * elapsedRatio;
+    const expectedSpendingToDate = budgetTotal * elapsedRatio;
+    const expectedBillsToDate = bills.monthlyEstimate * elapsedRatio;
+
+    const incomeGap = income.actualIncome - expectedIncomeToDate;
+    const spendingGap = expenses.total - expectedSpendingToDate;
     const plannedSavings = income.budgetedIncome - budgetTotal - bills.monthlyEstimate;
     const actualSavings = income.actualIncome - expenses.total - bills.monthlyEstimate;
-    const savingsGap = actualSavings - plannedSavings;
+    const expectedSavingsToDate =
+      expectedIncomeToDate - expectedSpendingToDate - expectedBillsToDate;
+    const savingsGap = actualSavings - expectedSavingsToDate;
 
     // Calculate alerts
     const negativeCashFlow = income.actualIncome < expenses.total + bills.monthlyEstimate;
