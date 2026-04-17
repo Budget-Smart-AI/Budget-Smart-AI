@@ -61,6 +61,9 @@ interface SplitExpenseWithParticipants extends SplitExpense {
 
 interface BalanceData {
   balances: Array<{ from: string; to: string; amount: number }>;
+  // UAT-6 P1-14: server now returns these so the UI stops re-summing.
+  iOwe?: number;
+  owedToMe?: number;
   members: Array<HouseholdMember & { user: User }>;
 }
 
@@ -589,11 +592,13 @@ export default function SplitExpenses() {
   const balances = balanceData?.balances || [];
   const currentUserId = session.userId;
 
-  const iOwe = balances
+  // UAT-6 P1-14: trust server-computed totals; fall back to a client sum only
+  // for backwards compatibility if an older server response is cached.
+  const iOwe = balanceData?.iOwe ?? balances
     .filter(b => b.from === currentUserId)
     .reduce((sum, b) => sum + b.amount, 0);
 
-  const owedToMe = balances
+  const owedToMe = balanceData?.owedToMe ?? balances
     .filter(b => b.to === currentUserId)
     .reduce((sum, b) => sum + b.amount, 0);
 

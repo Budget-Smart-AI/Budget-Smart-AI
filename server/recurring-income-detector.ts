@@ -20,6 +20,46 @@ import { format, differenceInDays, parseISO } from "date-fns";
 
 const MIN_INCOME_THRESHOLD = 200; // Ignore deposits under $200
 
+/**
+ * PFC v2 prefixes and legacy Plaid categories that identify non-income credits.
+ * UAT-6 P1-15: internal account transfers (savings → checking, Venmo-to-bank)
+ * were leaking into auto-detected income because the detector only filtered by
+ * amount sign/threshold. The Plaid adapter already has this logic — duplicating
+ * the minimum set here to keep this module self-contained before we move it
+ * behind the adapter layer in the next refactor pass.
+ */
+const NON_INCOME_PFC_DETAILED_PREFIXES = [
+  "TRANSFER_IN_",
+  "TRANSFER_OUT_",
+  "LOAN_PAYMENTS_",
+  "BANK_FEES_",
+];
+
+const NON_INCOME_CATEGORY_VALUES = new Set([
+  "transfer",
+  "credit card",
+  "payment",
+  "loan",
+  "loan payments",
+  "internal account transfer",
+  "transfer_in",
+  "transfer_out",
+  "loan_payments",
+  "bank_fees",
+]);
+
+/** True if a Plaid tx row is a transfer/loan/fee, not real income. */
+function isNonIncomeTx(t: any): boolean {
+  const pfcDetailed = String(t.personalFinanceCategoryDetailed || "").toUpperCase();
+  if (pfcDetailed && NON_INCOME_PFC_DETAILED_PREFIXES.some((p) => pfcDetailed.startsWith(p))) {
+    return true;
+  }
+  const cat = String(t.category || t.personalCategory || "").toLowerCase();
+  if (NON_INCOME_CATEGORY_VALUES.has(cat)) return true;
+  if (t.isTransfer === true || t.isTransfer === "true") return true;
+  return false;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function avg(arr: number[]): number {
@@ -96,9 +136,16 @@ export async function detectRecurringIncome(userId: string): Promise<DetectionRe
     endDate: format(endDate, "yyyy-MM-dd"),
   });
 
-  // Filter to inflows only (negative amounts = credits in Plaid) above threshold
+  // Filter to inflows only (negative amounts = credits in Plaid) above threshold.
+  // UAT-6 P1-15: also reject transfers, loan payments, and bank-fee credits —
+  // those produce false "recurring income" entries (savings → checking, card
+  // payments reversing as credits, etc.). The Plaid adapter already classifies
+  // these via PFC v2; we apply the same rules here before fingerprinting.
   const inflows = transactions.filter(
-    (t) => parseFloat(t.amount) < 0 && Math.abs(parseFloat(t.amount)) >= MIN_INCOME_THRESHOLD
+    (t) =>
+      parseFloat(t.amount) < 0 &&
+      Math.abs(parseFloat(t.amount)) >= MIN_INCOME_THRESHOLD &&
+      !isNonIncomeTx(t)
   );
 
   if (inflows.length === 0) {

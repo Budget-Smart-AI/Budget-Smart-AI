@@ -108,6 +108,13 @@ export default function OtherExpenses() {
       }
     });
 
+  // UAT-6 P1-13: This total is intentionally client-side because it reflects
+  // the *filtered* result set (search + category), which changes per-keystroke.
+  // Engine-side totals for the unfiltered month are available via
+  // /api/engine/expenses if the UI ever needs to show a "month total" alongside
+  // this "filtered total". Only numeric summation — no categorization,
+  // transfer-detection, or income logic — happens here. Engine remains the
+  // source of truth for the underlying per-row amounts.
   const monthlyTotal = filteredExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
 
   // Get unique categories from bank-imported expenses

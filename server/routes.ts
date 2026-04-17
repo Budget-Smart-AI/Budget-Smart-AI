@@ -15098,7 +15098,21 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
         }
       }
 
-      res.json({ balances: simplifiedBalances, members });
+      // UAT-6 P1-14: compute per-user totals server-side so the client no
+      // longer re-sums. Monarch parity: the "You owe / Owed to you" cards are
+      // authoritative numbers, not UI arithmetic. Zero-length filters still
+      // yield 0 (not NaN) because reduce has an explicit initial value.
+      const currentUserId = (req.session as any)?.userId ?? null;
+      let iOwe = 0;
+      let owedToMe = 0;
+      if (currentUserId) {
+        for (const b of simplifiedBalances) {
+          if (b.from === currentUserId) iOwe += b.amount;
+          else if (b.to === currentUserId) owedToMe += b.amount;
+        }
+      }
+
+      res.json({ balances: simplifiedBalances, members, iOwe, owedToMe });
     } catch (error) {
       console.error("Error calculating balances:", error);
       res.status(500).json({ error: "Failed to calculate balances" });

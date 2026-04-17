@@ -29,20 +29,46 @@ function expectedSpend(budget: number, progress: number): number {
 /**
  * Calculate projected end-of-month spending based on current pace
  * If we've spent $100 and we're 1/3 through the month, we'll spend ~$300
+ *
+ * Sanity-capped: early in the month (progress < 0.15, i.e. first ~4 days of a
+ * 30-day month) a naive `spent / progress` extrapolation explodes — spending
+ * $30 on day 1 would project $900/mo. We cap the projection at the larger of
+ * 2x the budget or 1.2x current spend during that window, so the UI doesn't
+ * blast false "over-pace" alarms in the first few days of each month.
+ * UAT-6 P0-5: Monarch's pace widget never shows "projected $900" on day 1.
  */
-function projectedSpend(spent: number, progress: number): number {
+function projectedSpend(spent: number, progress: number, budget: number = 0): number {
   if (progress <= 0) return 0;
-  return spent / progress;
+  const naive = spent / progress;
+  if (progress < 0.15) {
+    const cap = Math.max(budget * 2, spent * 1.2);
+    if (cap > 0) return Math.min(naive, cap);
+  }
+  return naive;
 }
 
 /**
  * Determine pace status based on spending vs expected
- * - over-budget: total spent exceeds budgeted amount
+ * - unbudgeted: category has $0 budget but spend > 0 (neutral, not alarming)
+ * - over-budget: total spent exceeds budgeted amount (only when budget > 0)
  * - over-pace: spending >115% of expected for this point in month
  * - on-pace: spending 85-115% of expected
  * - under: spending <85% of expected
+ *
+ * Early-month pace dampening: during the first ~15% of the month we require
+ * spending to exceed 150% of expected (vs 115% later) before flagging
+ * "over-pace". This prevents single large transactions on day 1-2 from
+ * producing scary-red UI that the user can't act on yet.
  */
 function getPaceStatus(spent: number, budget: number, progress: number): PaceStatus {
+  // Zero-budget categories are unbudgeted, not "over-budget". A $0 budget with
+  // spend > 0 means the user never set a budget for that category, which is
+  // expected for new categories — we treat this as neutral and surface it
+  // separately in the UI rather than lighting up red.
+  if (budget <= 0) {
+    return 'on-pace';
+  }
+
   // If we've already spent more than budgeted, we're over budget
   if (spent > budget) {
     return 'over-budget';
@@ -55,10 +81,11 @@ function getPaceStatus(spent: number, budget: number, progress: number): PaceSta
   }
 
   const ratio = spent / expected;
+  const overPaceThreshold = progress < 0.15 ? 1.5 : 1.15;
 
   if (ratio <= 0.85) {
     return 'under';
-  } else if (ratio <= 1.15) {
+  } else if (ratio <= overPaceThreshold) {
     return 'on-pace';
   } else {
     return 'over-pace';
@@ -134,7 +161,7 @@ export function calculateBudgets(params: {
     .map((budget) => {
       const spent = expensesByCategory[budget.category] || 0;
       const expected = expectedSpend(budget.amount, progress);
-      const projected = projectedSpend(spent, progress);
+      const projected = projectedSpend(spent, progress, budget.amount);
       const paceStatus = getPaceStatus(spent, budget.amount, progress);
       const paceLabel = getPaceLabel(paceStatus, spent, budget.amount, projected);
 

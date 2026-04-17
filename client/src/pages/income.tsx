@@ -587,9 +587,28 @@ export default function IncomePage() {
     },
   });
 
+  // UAT-6 P1-15: belt-and-suspenders filter for transfer-sourced rows that
+  // slipped in before the server-side detector was hardened (2026-04-17). The
+  // server now rejects TRANSFER_IN_*/TRANSFER_OUT_*/LOAN_PAYMENTS_*/BANK_FEES_*
+  // credits at detect-time, but legacy rows can still exist in the Income
+  // table. Drop any row whose source/category reads as a transfer so it never
+  // paints on the /income page. No data is deleted — just hidden.
+  const TRANSFER_HINTS = [
+    "transfer", "internal transfer", "account transfer",
+    "venmo", "zelle", "credit card payment", "loan payment",
+    "card payment", "payment from", "payment to",
+  ];
+  const looksLikeTransfer = (inc: Income) => {
+    const src = (inc.source || "").toLowerCase();
+    const cat = (inc.category || "").toLowerCase();
+    if (cat === "transfer" || cat === "loan_payments" || cat === "bank_fees") return true;
+    return TRANSFER_HINTS.some((h) => src.includes(h));
+  };
+
   // Filter income list based on search and category (for the data table)
   const filteredIncome = allIncome
     .filter((inc) => {
+      if (looksLikeTransfer(inc)) return false;
       // Filter by selected month
       const incDate = new Date(inc.date);
       if (incDate < monthStart || incDate > monthEnd) return false;

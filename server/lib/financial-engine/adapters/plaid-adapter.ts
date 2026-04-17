@@ -24,18 +24,66 @@ import {
   AccountCategory,
 } from "../normalized-types";
 
+// Categories that represent movement between accounts, not real income or expense.
+// Includes both legacy Plaid basic-category strings ("transfer", "payment") AND
+// PFC v2 primary enums ("TRANSFER_IN", "TRANSFER_OUT", "LOAN_PAYMENTS") because
+// `tx.category` now stores the PFC primary since the 2026-04 sync refactor.
+// UAT-6: TRANSFER_IN credits were leaking into actual-income sums, inflating
+// the /income page by 30-50% for users with frequent bank-to-bank moves.
 const TRANSFER_CATEGORIES = new Set([
+  // Legacy Plaid basic categories
   "transfer",
   "credit card",
   "payment",
   "loan",
   "loan payments",
   "internal account transfer",
+  // PFC v2 primary enums (lowercased for case-insensitive match)
+  "transfer_in",
+  "transfer_out",
+  "loan_payments",
+  "bank_fees",
 ]);
+
+// PFC v2 detailed prefixes that represent non-income credits / non-expense debits.
+// Used for prefix-based check when `tx.personalFinanceCategoryDetailed` is populated.
+const TRANSFER_DETAILED_PREFIXES = [
+  "TRANSFER_IN_",
+  "TRANSFER_OUT_",
+  "LOAN_PAYMENTS_",
+  "BANK_FEES_",
+];
 
 /**
  * Map Plaid subtype → normalized AccountCategory
+ *
+ * UAT-6 P3-23: widened investment-subtype coverage. Plaid's taxonomy includes
+ * far more retirement/brokerage subtypes than the original mapping handled
+ * ("brokerage/401k/ira/rrsp" only). Accounts under those other subtypes were
+ * falling through to "other" and therefore contributing $0 to the net-worth
+ * Assets side. The canonical Plaid type for all investment/retirement
+ * accounts is `type === "investment"`, so any tx with that type is now the
+ * primary trigger — the subtype list is a belt-and-suspenders fallback for
+ * Plaid quirks where `type` arrives empty or as something vendor-specific.
  */
+const INVESTMENT_SUBTYPES = new Set([
+  "brokerage", "cash management", "non-taxable brokerage account",
+  "mutual fund", "stock plan", "trust", "ugma", "utma",
+  // Retirement accounts (US + Canada + UK)
+  "401a", "401k", "403b", "457b", "ira", "roth", "roth 401k",
+  "sep ira", "simple ira", "sarsep", "keogh", "pension", "retirement",
+  "profit sharing plan", "non-custodial wallet",
+  "rrsp", "rssp", "rrif", "lif", "lira", "lrif", "lrsp", "prif", "rlif", "resp", "rdsp", "tfsa",
+  "isa", "cash isa", "sipp",
+  // Education & health-tax-advantaged
+  "529", "education savings account", "hsa", "health reimbursement arrangement",
+  // Annuities & insurance-linked
+  "fixed annuity", "variable annuity", "other annuity",
+  "life insurance", "other insurance",
+  // Guarantees / fixed-income wrappers
+  "gic",
+]);
+
 function mapPlaidAccountType(type?: string, subtype?: string): AccountCategory {
   const sub = (subtype || "").toLowerCase();
   const t = (type || "").toLowerCase();
@@ -47,7 +95,7 @@ function mapPlaidAccountType(type?: string, subtype?: string): AccountCategory {
   if (sub === "line of credit" || sub === "line_of_credit") return "line_of_credit";
   if (sub === "mortgage") return "mortgage";
   if (t === "loan" || sub.includes("loan") || sub === "auto") return "loan";
-  if (t === "investment" || sub === "brokerage" || sub === "401k" || sub === "ira" || sub === "rrsp" || sub === "rssp") return "investment";
+  if (t === "investment" || t === "brokerage" || INVESTMENT_SUBTYPES.has(sub)) return "investment";
   return "other";
 }
 
@@ -75,10 +123,18 @@ export class PlaidAdapter implements BankingAdapter {
       const category = tx.personalCategory || tx.category || "Other";
       const categoryLower = String(category).toLowerCase();
 
+      // Resolve PFC detailed (uppercase, stable) for precise transfer/loan detection.
+      const pfcDetailedRaw = tx.personalFinanceCategoryDetailed
+        ? String(tx.personalFinanceCategoryDetailed).toUpperCase()
+        : "";
+      const isTransferByDetailed = pfcDetailedRaw !== "" &&
+        TRANSFER_DETAILED_PREFIXES.some((p) => pfcDetailedRaw.startsWith(p));
+
       const isTransfer =
         tx.isTransfer === true ||
         tx.isTransfer === "true" ||
-        TRANSFER_CATEGORIES.has(categoryLower);
+        TRANSFER_CATEGORIES.has(categoryLower) ||
+        isTransferByDetailed;
 
       const isPending = tx.pending === true || tx.pending === "true";
 
@@ -104,9 +160,7 @@ export class PlaidAdapter implements BankingAdapter {
       // refactor in the `fix(enrichment)` commits earlier this month).
       // Both are nullable — the resolver tolerates absent fields.
       const pfcPrimary = pfcPrimaryRaw || null;
-      const pfcDetailed = tx.personalFinanceCategoryDetailed
-        ? String(tx.personalFinanceCategoryDetailed).toUpperCase()
-        : null;
+      const pfcDetailed = pfcDetailedRaw || null;
 
       return {
         id: tx.id,

@@ -330,6 +330,39 @@ export default function ResearchTab() {
   // Chart data — use lightweight shape
   const chartData = useMemo(() => series.map((p: TimeSeriesPoint) => ({ date: p.date, close: p.close })), [series]);
 
+  // UAT-6 P3-21: fall back to max/min of the 52W (1Y) timeseries when the
+  // overview endpoint is missing `fiftyTwoWeekHigh/Low` — Alpha Vantage's
+  // OVERVIEW sometimes returns nulls for smaller tickers or during off-hours.
+  // We still prefer the authoritative overview value when present.
+  const fiftyTwoWeekRangeFromSeries = useMemo(() => {
+    if (!series || series.length === 0) return null;
+    // Only use this fallback when the current range covers at least a year
+    // (shorter ranges don't have 52 weeks of data; we still clamp to 365 days
+    // below so 5Y/ALL don't pull far older extrema and mislead the user).
+    if (range !== "1Y" && range !== "5Y" && range !== "ALL") return null;
+    let high = -Infinity;
+    let low = Infinity;
+    // Bound to the last 365 days so 3Y/5Y ranges still give a true 52W number.
+    const cutoffMs = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    for (const p of series) {
+      const ts = Date.parse(p.date);
+      if (Number.isFinite(ts) && ts < cutoffMs) continue;
+      if (p.close > high) high = p.close;
+      if (p.close < low) low = p.close;
+    }
+    if (!Number.isFinite(high) || !Number.isFinite(low)) return null;
+    return { high, low };
+  }, [series, range]);
+
+  const effectiveFiftyTwoWeekHigh =
+    overview?.fiftyTwoWeekHigh && overview.fiftyTwoWeekHigh > 0
+      ? overview.fiftyTwoWeekHigh
+      : fiftyTwoWeekRangeFromSeries?.high ?? 0;
+  const effectiveFiftyTwoWeekLow =
+    overview?.fiftyTwoWeekLow && overview.fiftyTwoWeekLow > 0
+      ? overview.fiftyTwoWeekLow
+      : fiftyTwoWeekRangeFromSeries?.low ?? 0;
+
   // Earnings chart — show last 4 quarters ascending
   const earningsChartData = useMemo(() => {
     if (!earnings?.quarterlyEarnings) return [];
@@ -607,7 +640,7 @@ export default function ResearchTab() {
                     <div>
                       <div className="text-muted-foreground">52W range</div>
                       <div className="font-medium text-sm">
-                        ${fmtNumber(overview?.fiftyTwoWeekLow || 0)} – ${fmtNumber(overview?.fiftyTwoWeekHigh || 0)}
+                        ${fmtNumber(effectiveFiftyTwoWeekLow)} – ${fmtNumber(effectiveFiftyTwoWeekHigh)}
                       </div>
                     </div>
                     <div>

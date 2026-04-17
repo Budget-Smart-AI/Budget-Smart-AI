@@ -55,8 +55,6 @@ export type {
   MonthlyTrendPoint,
   ReportsData,
   TaxReportResult,
-  CalendarEvent,
-  CalendarResult,
   BankAccountsEngineResult,
 } from "./types";
 
@@ -138,5 +136,31 @@ export type {
   TaxCategoryBreakdown,
   TaxCountryConfig,
 } from "./tax";
+
+// ─── Refunds & Returns (engine module — Monarch-aligned) ──────────────────
+export {
+  calculateRefundsForPeriod,
+  calculateRefundsMonthlyTrend,
+  calculateThisMonthRefunds,
+  isRefundTransaction,
+} from "./refunds";
+export type {
+  RefundResult,
+  RefundsMonthlyTrend,
+} from "./refunds";
+
+// ─── Category resolution (Monarch-aligned) ────────────────────────────────
+export {
+  resolveCategory,
+  buildOverrideMap,
+  isTransfer as isTransferByCategory,
+  MONARCH_CATEGORIES,
+  MONARCH_CATEGORY_NAMES,
+} from "./categories";
+export type {
+  CategorySignals,
+  MerchantOverrideMap,
+  MerchantCategoryOverride,
+} from "./categories";
 
 // Cash flow is calculated inline in the dashboard endpoint (no separate module needed)

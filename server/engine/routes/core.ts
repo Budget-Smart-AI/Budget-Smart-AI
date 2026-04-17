@@ -17,7 +17,7 @@
  */
 
 import { Router, Request, Response } from "express";
-import { startOfMonth, endOfMonth, parseISO, format, subMonths, startOfYear } from "date-fns";
+import { startOfMonth, endOfMonth, parseISO, format, subMonths, startOfYear, getDaysInMonth } from "date-fns";
 import { EngineStorage } from "../storage";
 import {
   getAllNormalizedAccounts,
@@ -36,6 +36,11 @@ import {
   calculateHealthScore,
   calculateSavingsGoals,
   calculateSafeToSpend,
+  calculateTaxSummary,
+  calculateRefundsForPeriod,
+  calculateRefundsMonthlyTrend,
+  buildOverrideMap,
+  resolveCategory,
   type NormalizedTransaction,
   type NormalizedAccount,
   type DashboardData,
@@ -53,6 +58,7 @@ import {
   type MonthlyTrendPoint,
   type BankAccountsEngineResult,
   type NetWorthParams,
+  type MerchantOverrideMap,
 } from "../../lib/financial-engine";
 
 const router = Router();
@@ -194,11 +200,17 @@ router.get("/dashboard", async (req: Request, res: Response) => {
 
     // Calculate alerts
     const negativeCashFlow = income.actualIncome < expenses.total + bills.monthlyEstimate;
-    const budgetOverage = expenses.total > budgetTotal;
-    const budgetOveragePercent = (budgetTotal || 1) > 0
-      ? ((expenses.total / (budgetTotal || 1)) - 1) * 100
+    const budgetOverage = budgetTotal > 0 && expenses.total > budgetTotal;
+    // UAT-6 P1-12b: `(budgetTotal || 1)` fallback produced a nonsense 457,722%
+    // when the user had no budget rows at all — it was computing
+    // (expenses / 1 - 1) * 100. Real fix: if there is no budget, there can be
+    // no "overage percentage", so return 0 and let `budgetOverage=false` keep
+    // the banner hidden.
+    const budgetOveragePercent = budgetTotal > 0
+      ? ((expenses.total / budgetTotal) - 1) * 100
       : 0;
-    const planVsRealityMismatch = Math.abs(incomeGap) > income.budgetedIncome * 0.1;
+    const planVsRealityMismatch = income.budgetedIncome > 0
+      && Math.abs(incomeGap) > income.budgetedIncome * 0.1;
 
     const response: DashboardData = {
       income,
@@ -382,21 +394,69 @@ router.get("/net-worth", async (req: Request, res: Response) => {
  */
 router.get("/debts", async (req: Request, res: Response) => {
   try {
-    const { userId } = requireContext(req);
+    const { userId, householdUserIds } = requireContext(req);
     const extraPayment = parseFloat(req.query.extraPayment as string) || 0;
 
-    // Fetch raw debt details from storage and map to engine DebtItem format
+    // 1. Manual debt details (user-entered with APR, min payment, etc.)
     const rawDebts = await EngineStorage.getDebtDetails(userId);
-
-    const debts = rawDebts.map((d) => ({
+    const manualDebts = rawDebts.map((d) => ({
       id: d.id,
       name: d.name ?? d.debtType ?? "Unknown Debt",
       balance: parseFloat(String(d.currentBalance ?? 0)),
       interestRate: parseFloat(String(d.apr ?? 0)),
       minimumPayment: parseFloat(String(d.minimumPayment ?? 0)),
       category: d.debtType ?? "Other",
-      source: "manual",
+      source: "manual" as const,
+      linkedPlaidAccountId: d.linkedPlaidAccountId ?? null,
     }));
+
+    // 2. Plaid liability accounts (credit cards, loans, mortgages, LOC) —
+    //    unioned in with manual debts so users see a complete debt picture
+    //    without double-entering. Accounts already linked to a manual debt
+    //    (via linkedPlaidAccountId) are skipped to avoid double-counting.
+    const linkedPlaidIds = new Set(
+      manualDebts
+        .map((d) => d.linkedPlaidAccountId)
+        .filter((id): id is string => !!id)
+    );
+
+    const plaidAccts = await getAllNormalizedAccounts(householdUserIds ?? [userId]);
+    const plaidDebts = plaidAccts
+      .filter(
+        (a) =>
+          !linkedPlaidIds.has(a.id) &&
+          a.isActive !== false &&
+          a.provider === "Plaid" &&
+          (a.accountType === "credit" ||
+            a.accountType === "loan" ||
+            a.accountType === "mortgage" ||
+            a.accountType === "line_of_credit")
+      )
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        balance: Math.abs(parseFloat(String(a.balance ?? 0))),
+        // APR unknown from Plaid — default to 0 so payoff schedules still run
+        // (treated as interest-free); user can override by creating a manual
+        // debt_details entry and linking it via linkedPlaidAccountId.
+        interestRate: 0,
+        // Minimum payment unknown from Plaid — zero means payoff needs an
+        // explicit extraPayment to make progress. Flagged in UI.
+        minimumPayment: 0,
+        category: a.accountType,
+        source: "plaid" as const,
+        linkedPlaidAccountId: null,
+      }));
+
+    // Strip the internal linkedPlaidAccountId before passing to the engine —
+    // the engine expects DebtItem shape without that field. Category is
+    // coerced to a plain string (AccountCategory enum is a subset of string).
+    const debts = [...manualDebts, ...plaidDebts].map(
+      ({ linkedPlaidAccountId: _omit, category, ...d }) => ({
+        ...d,
+        category: String(category),
+      })
+    );
 
     const result = calculateDebtPayoff({ debts, extraPayment });
 
@@ -742,6 +802,345 @@ router.get("/investments", async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/engine/safe-to-spend
+ * Safe-to-spend for the current month — amount remaining after bills and
+ * committed expenses, plus a daily allowance. Mirrors the composite
+ * dashboard's `safeToSpend` field but queryable on its own so the
+ * money-timeline widget and other lightweight consumers don't need to
+ * pull the entire dashboard payload.
+ * UAT-6 P1-7: was "not_found" because no dedicated endpoint existed.
+ */
+router.get("/safe-to-spend", async (req: Request, res: Response) => {
+  try {
+    const { householdUserIds: userIds } = requireContext(req);
+
+    const today = new Date();
+    const monthStart = startOfMonth(today);
+    const monthEnd = endOfMonth(today);
+
+    const [billsData, incomeData, expensesData, transactions] = await Promise.all([
+      EngineStorage.getBillsByUserIds(userIds),
+      EngineStorage.getIncomesByUserIds(userIds),
+      EngineStorage.getExpensesByUserIds(userIds),
+      getAllNormalizedTransactions(userIds, monthStart, monthEnd),
+    ]);
+
+    const income = calculateIncomeForPeriod({
+      income: incomeData,
+      transactions,
+      monthStart,
+      monthEnd,
+    });
+    const expenses = calculateExpensesForPeriod({
+      expenses: expensesData,
+      transactions,
+      monthStart,
+      monthEnd,
+      prevMonthStart: startOfMonth(subMonths(today, 1)),
+      prevMonthEnd: endOfMonth(subMonths(today, 1)),
+    });
+    const bills = calculateBillsForPeriod({
+      bills: billsData,
+      monthStart,
+      monthEnd,
+    });
+
+    const result = calculateSafeToSpend({
+      effectiveIncome: income.effectiveIncome,
+      totalSpent: expenses.total,
+      billsTotal: bills.monthlyEstimate,
+      today,
+    });
+
+    res.json(result as SafeToSpendResult);
+  } catch (error) {
+    console.error("[engine.safe-to-spend]", error);
+    res.status(500).json({ error: "Failed to fetch safe-to-spend data" });
+  }
+});
+
+/**
+ * GET /api/engine/tax?country=US&year=2026
+ * Tax summary: deductible amounts by category, estimated savings at
+ * marginal rate. Transactions are pulled for the tax year (defaults to
+ * the current calendar year).
+ * UAT-6 P1-8: replaces the legacy route that errored.
+ */
+router.get("/tax", async (req: Request, res: Response) => {
+  try {
+    const { householdUserIds: userIds } = requireContext(req);
+
+    const countryInput = String(req.query.country ?? "US").toUpperCase();
+    const country = (countryInput === "CA" ? "CA" : "US") as "US" | "CA";
+
+    const yearInput = req.query.year ? parseInt(String(req.query.year), 10) : NaN;
+    const targetYear = Number.isFinite(yearInput) ? yearInput : new Date().getFullYear();
+
+    const yearStart = new Date(targetYear, 0, 1);
+    const yearEnd = new Date(targetYear, 11, 31);
+
+    const [expensesData, transactions] = await Promise.all([
+      EngineStorage.getExpensesByUserIds(userIds),
+      getAllNormalizedTransactions(userIds, yearStart, yearEnd),
+    ]);
+
+    // Shape expenses as TaxTransaction records the engine expects.
+    // We merge manual expenses (user-flagged deductible) with transaction
+    // data (for auto-suggested deductibles from category mapping).
+    const txForTax = transactions
+      .filter((t) => t.direction === "debit" && !t.isTransfer && !t.isPending)
+      .map((t) => ({
+        id: t.id,
+        date: t.date,
+        merchant: t.merchant,
+        category: t.category,
+        amount: t.amount,
+        taxDeductible: false,
+        taxCategory: null as string | null,
+        isBusinessExpense: false,
+        // Map normalized "Plaid" / "MX" / "Manual" → the TaxTransaction union
+        source: (t.provider === "Plaid" ? "plaid" : t.provider === "MX" ? "mx" : "manual") as
+          "plaid" | "mx" | "manual",
+      }));
+
+    const manualForTax = expensesData
+      .map((e) => ({
+        id: e.id,
+        date: e.date,
+        merchant: e.merchant,
+        category: e.category ?? "Other",
+        amount: parseFloat(String(e.amount ?? 0)) || 0,
+        // `expenses.taxDeductible` is a Postgres text column storing "true"/"false".
+        // Drizzle surfaces it as `string | null`, so we only need the string check.
+        taxDeductible: String(e.taxDeductible) === "true",
+        taxCategory: e.taxCategory ?? null,
+        isBusinessExpense: String((e as any).isBusinessExpense) === "true",
+        source: "manual" as const,
+      }))
+      .filter((e) => {
+        try {
+          const d = parseISO(e.date);
+          return d >= yearStart && d <= yearEnd;
+        } catch {
+          return false;
+        }
+      });
+
+    // Caller must pass a marginal rate; default to 0 so the savings estimate is
+    // neutral when the user hasn't set one in their profile. The UI layer picks
+    // up `marginalRate` from the tax-smart page and re-runs if set.
+    const marginalRateNum = Number(req.query.marginalRate ?? 0) || 0;
+    const summary = calculateTaxSummary(
+      [...manualForTax, ...txForTax],
+      country,
+      targetYear,
+      marginalRateNum,
+    );
+
+    res.json(summary);
+  } catch (error) {
+    console.error("[engine.tax]", error);
+    res.status(500).json({ error: "Failed to fetch tax summary" });
+  }
+});
+
+/**
+ * GET /api/engine/refunds?startDate=yyyy-MM-dd&endDate=yyyy-MM-dd
+ * Refunds & returns for the requested period. Also returns a 12-month
+ * trend (monthly totals) so the refunds dashboard widget can render its
+ * spark-line without a second round trip.
+ * UAT-6 P1-9: replaces the legacy route that errored.
+ */
+router.get("/refunds", async (req: Request, res: Response) => {
+  try {
+    const { householdUserIds: userIds } = requireContext(req);
+    const { startDate, endDate } = parseDateRange(
+      req.query.startDate as string | undefined,
+      req.query.endDate as string | undefined
+    );
+
+    // 12-month window for the trend chart (ends at the requested period end).
+    const trendStart = subMonths(endDate, 11);
+
+    // One fetch that covers both windows — whichever starts earlier.
+    const fetchStart = trendStart < startDate ? trendStart : startDate;
+    const transactions = await getAllNormalizedTransactions(
+      userIds,
+      fetchStart,
+      endDate
+    );
+
+    // Empty override map: when DB-backed merchant-category overrides land
+    // (schema TBD), load them here via EngineStorage. Today the resolver
+    // falls back to Plaid PFC / MX mappings, which is the correct Monarch
+    // default when the user hasn't customised anything.
+    const overrides: MerchantOverrideMap = buildOverrideMap([]);
+
+    const period = calculateRefundsForPeriod(
+      transactions,
+      overrides,
+      startDate,
+      endDate
+    );
+    const trend = calculateRefundsMonthlyTrend(
+      transactions,
+      overrides,
+      trendStart,
+      endDate
+    );
+
+    res.json({ ...period, monthlyTrend: trend });
+  } catch (error) {
+    console.error("[engine.refunds]", error);
+    res.status(500).json({ error: "Failed to fetch refunds data" });
+  }
+});
+
+/**
+ * GET /api/engine/categories/stats?startDate=yyyy-MM-dd&endDate=yyyy-MM-dd
+ * Per-category stats for the requested period — tx count, total spend,
+ * MoM delta, average per transaction. Powered by the Monarch-aligned
+ * category resolver so categorisation matches Monarch 1:1.
+ * UAT-6 P1-10: replaces the legacy route that errored.
+ */
+router.get("/categories/stats", async (req: Request, res: Response) => {
+  try {
+    const { householdUserIds: userIds } = requireContext(req);
+    const { startDate, endDate } = parseDateRange(
+      req.query.startDate as string | undefined,
+      req.query.endDate as string | undefined
+    );
+
+    // Previous period for MoM deltas. Same length as the current window.
+    const rangeDays = Math.max(
+      1,
+      Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000)
+    );
+    const prevStart = new Date(startDate.getTime() - rangeDays * 86_400_000);
+    const prevEnd = new Date(endDate.getTime() - rangeDays * 86_400_000);
+
+    const [currentTx, previousTx] = await Promise.all([
+      getAllNormalizedTransactions(userIds, startDate, endDate),
+      getAllNormalizedTransactions(userIds, prevStart, prevEnd),
+    ]);
+
+    const overrides: MerchantOverrideMap = buildOverrideMap([]);
+
+    type Stat = {
+      category: string;
+      count: number;
+      total: number;
+      avgPerTx: number;
+      previousTotal: number;
+      momDelta: number;
+      momDeltaPercent: number;
+    };
+    const stats = new Map<string, Stat>();
+
+    // Current period — debits only, skipping transfers/pending. The
+    // resolver gives Monarch names; we key stats by those.
+    for (const tx of currentTx) {
+      if (tx.direction !== "debit" || tx.isTransfer || tx.isPending) continue;
+      const category = resolveCategory(
+        {
+          pfcPrimary: tx.pfcPrimary,
+          pfcDetailed: tx.pfcDetailed,
+          mxCategory: tx.mxCategory,
+          mxTopLevel: tx.mxTopLevel,
+          category: tx.category,
+          merchant: tx.merchant,
+          provider: tx.provider,
+        },
+        overrides
+      );
+      let s = stats.get(category);
+      if (!s) {
+        s = {
+          category,
+          count: 0,
+          total: 0,
+          avgPerTx: 0,
+          previousTotal: 0,
+          momDelta: 0,
+          momDeltaPercent: 0,
+        };
+        stats.set(category, s);
+      }
+      s.count += 1;
+      s.total += tx.amount;
+    }
+
+    // Previous period — only need totals for MoM deltas.
+    const prevTotals = new Map<string, number>();
+    for (const tx of previousTx) {
+      if (tx.direction !== "debit" || tx.isTransfer || tx.isPending) continue;
+      const category = resolveCategory(
+        {
+          pfcPrimary: tx.pfcPrimary,
+          pfcDetailed: tx.pfcDetailed,
+          mxCategory: tx.mxCategory,
+          mxTopLevel: tx.mxTopLevel,
+          category: tx.category,
+          merchant: tx.merchant,
+          provider: tx.provider,
+        },
+        overrides
+      );
+      prevTotals.set(category, (prevTotals.get(category) ?? 0) + tx.amount);
+    }
+
+    // Finalise each stat row.
+    for (const s of stats.values()) {
+      s.avgPerTx = s.count > 0 ? s.total / s.count : 0;
+      s.previousTotal = prevTotals.get(s.category) ?? 0;
+      s.momDelta = s.total - s.previousTotal;
+      s.momDeltaPercent = s.previousTotal > 0
+        ? (s.momDelta / s.previousTotal) * 100
+        : 0;
+    }
+
+    // Categories that had activity LAST period but not this one — surface
+    // them as zero-spend rows so the UI can flag drop-offs ("you didn't
+    // spend on Groceries at all this period").
+    for (const [category, prevTotal] of prevTotals) {
+      if (stats.has(category)) continue;
+      stats.set(category, {
+        category,
+        count: 0,
+        total: 0,
+        avgPerTx: 0,
+        previousTotal: prevTotal,
+        momDelta: -prevTotal,
+        momDeltaPercent: -100,
+      });
+    }
+
+    const rows = Array.from(stats.values()).sort((a, b) => b.total - a.total);
+    const grandTotal = rows.reduce((sum, r) => sum + r.total, 0);
+
+    res.json({
+      period: { start: format(startDate, "yyyy-MM-dd"), end: format(endDate, "yyyy-MM-dd") },
+      previousPeriod: { start: format(prevStart, "yyyy-MM-dd"), end: format(prevEnd, "yyyy-MM-dd") },
+      grandTotal: Math.round(grandTotal * 100) / 100,
+      categories: rows.map((r) => ({
+        ...r,
+        total: Math.round(r.total * 100) / 100,
+        avgPerTx: Math.round(r.avgPerTx * 100) / 100,
+        previousTotal: Math.round(r.previousTotal * 100) / 100,
+        momDelta: Math.round(r.momDelta * 100) / 100,
+        momDeltaPercent: Math.round(r.momDeltaPercent * 100) / 100,
+        percentOfTotal: grandTotal > 0
+          ? Math.round((r.total / grandTotal) * 10000) / 100
+          : 0,
+      })),
+    });
+  } catch (error) {
+    console.error("[engine.categories.stats]", error);
+    res.status(500).json({ error: "Failed to fetch category stats" });
+  }
+});
+
+/**
  * GET /api/engine/reports?startDate=yyyy-MM-dd&endDate=yyyy-MM-dd
  * Full reports data for a period (includes trends, top merchants, YTD)
  */
@@ -797,17 +1196,38 @@ router.get("/reports", async (req: Request, res: Response) => {
     // Use engine-computed category totals (includes both manual expenses AND bank transactions)
     const categoryTotals = currentMonthExpenses.byCategory;
 
-    // Build daily spending totals
+    // Build daily spending totals (transfers and pending excluded — they
+    // aren't real spending and artificially inflate the daily average).
     const dailyTotals: Record<string, number> = {};
     let totalMonthlySpending = 0;
     for (const tx of transactionsForRange) {
-      if (tx.direction === "debit") {
-        totalMonthlySpending += tx.amount;
-        dailyTotals[tx.date] = (dailyTotals[tx.date] ?? 0) + tx.amount;
-      }
+      if (tx.direction !== "debit") continue;
+      if (tx.isTransfer || tx.isPending) continue;
+      totalMonthlySpending += tx.amount;
+      dailyTotals[tx.date] = (dailyTotals[tx.date] ?? 0) + tx.amount;
     }
-    const dayCount = Math.max(1, Object.keys(dailyTotals).length);
-    const dailyAvg = totalMonthlySpending / dayCount;
+
+    // UAT-6 P1-11 fix: dailyAvg must divide by ELAPSED calendar days in the
+    // window, NOT "number of unique spending days". The old logic
+    // `totalSpending / daysWithSpending` produced a per-active-day average
+    // that, when multiplied by 30 below for projectedMonthly, scaled ~10x
+    // too high for users who spend on only a few days a month.
+    // We cap elapsed at the window length so future-dated transactions
+    // (rare, but possible for pending credit-card holds) don't collapse
+    // the denominator.
+    const rangeDays = Math.max(
+      1,
+      Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
+    );
+    const todayMs = new Date().getTime();
+    const elapsedDays = Math.max(
+      1,
+      Math.min(
+        rangeDays,
+        Math.round((Math.min(todayMs, endDate.getTime()) - startDate.getTime()) / 86_400_000) + 1
+      )
+    );
+    const dailyAvg = totalMonthlySpending / elapsedDays;
 
     // Top merchants from transactions
     const merchantTotals: Record<string, { total: number; count: number }> = {};
@@ -876,7 +1296,10 @@ router.get("/reports", async (req: Request, res: Response) => {
       monthlyTrend,
       dailySpending: {
         dailyAvg,
-        projectedMonthly: dailyAvg * 30,
+        // UAT-6 P1-11: use actual days in the current month so the
+        // projection matches the calendar (28/29/30/31), not a
+        // hardcoded 30.
+        projectedMonthly: dailyAvg * getDaysInMonth(today),
         dailyTotals,
       },
       topMerchants,

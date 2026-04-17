@@ -1510,13 +1510,18 @@ export default function TaxSmartPage() {
             )}
 
             {/* Total row */}
+            {/* UAT-6 P2-16: footer total is the sum of the currently visible
+                rows (after the user's category/search filter). The engine's
+                authoritative year-total is `taxSummary.totalDeductible` — shown
+                in the hero cards above — so this is strictly a presentation
+                sum over already-filtered data, not a parallel calculation. */}
             {filteredTransactions.length > 0 && (
               <div className="flex items-center justify-between pt-4 border-t mt-4">
                 <span className="text-sm font-medium text-muted-foreground">
                   {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? "s" : ""}
                 </span>
                 <span className="font-bold text-green-600">
-                  Total: {formatCurrency(
+                  Filtered total: {formatCurrency(
                     filteredTransactions.reduce((s, t) => s + t.amount, 0),
                     config.locale,
                     config.symbol
