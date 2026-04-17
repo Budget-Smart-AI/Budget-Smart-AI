@@ -377,7 +377,31 @@ export default function TaxSmartPage() {
     MARGINAL_RATE_BRACKETS.CA[2].rate
   );
   const [customMarginalRate, setCustomMarginalRate] = useState<number | null>(null);
-  const [showDisclaimer, setShowDisclaimer] = useState(true);
+  // Disclaimer acknowledgement is persisted in localStorage so the "Before
+  // you continue" modal only shows on the first visit per device/browser.
+  // The key is versioned: bump `_v1` → `_v2` if the disclaimer text changes
+  // materially and we need every user to re-acknowledge the new wording.
+  const [showDisclaimer, setShowDisclaimer] = useState(() => {
+    try {
+      return !localStorage.getItem("taxsmart_disclaimer_ack_v1");
+    } catch {
+      // If localStorage is blocked (private mode, etc.) show the modal to
+      // be safe — better a re-ack than skipping the disclosure entirely.
+      return true;
+    }
+  });
+
+  const handleAcknowledgeDisclaimer = () => {
+    try {
+      localStorage.setItem(
+        "taxsmart_disclaimer_ack_v1",
+        new Date().toISOString(),
+      );
+    } catch {
+      // ignore — modal will just reappear next visit, acceptable fallback.
+    }
+    setShowDisclaimer(false);
+  };
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -709,7 +733,7 @@ export default function TaxSmartPage() {
           </div>
 
           <DialogFooter>
-            <Button onClick={() => setShowDisclaimer(false)} className="w-full">
+            <Button onClick={handleAcknowledgeDisclaimer} className="w-full">
               I understand — Continue to TaxSmart AI
             </Button>
           </DialogFooter>

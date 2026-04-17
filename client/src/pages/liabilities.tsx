@@ -544,7 +544,7 @@ export default function LiabilitiesPage() {
             Liabilities
             <HelpTooltip
               title="Liabilities"
-              content="All your debts in one place â credit cards, mortgages, and loans pulled from your linked bank accounts, plus any manually tracked debts."
+              content="All your debts in one place — credit cards, mortgages, and loans pulled from your linked bank accounts, plus any manually tracked debts."
             />
           </h1>
           <p className="text-muted-foreground">Everything you owe in one place</p>
@@ -682,7 +682,7 @@ export default function LiabilitiesPage() {
                                   <p className="text-xs text-muted-foreground">{institution}</p>
                                 )}
                                 {account.mask && (
-                                  <p className="text-xs text-muted-foreground">â¢â¢â¢â¢{account.mask}</p>
+                                  <p className="text-xs text-muted-foreground">••••{account.mask}</p>
                                 )}
                                 <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
                                   {account.subtype || account.type}
@@ -714,7 +714,7 @@ export default function LiabilitiesPage() {
             <Pencil className="h-5 w-5 text-muted-foreground" />
             Manually Tracked
             <span className="text-sm font-normal text-muted-foreground">
-              â for loans not connected to Plaid
+              — for loans not connected to Plaid
             </span>
           </h2>
           <Button variant="outline" size="sm" onClick={handleOpenCreate} data-testid="button-add-manual-debt">
