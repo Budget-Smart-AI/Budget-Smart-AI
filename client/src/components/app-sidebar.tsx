@@ -114,8 +114,11 @@ interface NavGroupDef {
   defaultOpen: boolean;
 }
 
-// TODO(badges): replace hardcoded counts with real data once
-// NotificationsContext / BillsContext expose these totals.
+// Dynamic badge counts (Security Alerts, Bills & Subscriptions) are wired
+// inside AppSidebar — see `dynamicBadges` below. They read from the same
+// React Query cache the Dashboard already populates (matching query keys),
+// so no extra network requests. Static tag badges (NEW / Pro) live on the
+// nav item directly.
 const NAV_GROUPS: NavGroupDef[] = [
   {
     id: "home",
@@ -128,7 +131,6 @@ const NAV_GROUPS: NavGroupDef[] = [
         title: "Security Alerts",
         url: "/anomalies",
         icon: ShieldAlert,
-        badge: { kind: "danger", count: 3 },
       },
     ],
   },
@@ -144,7 +146,6 @@ const NAV_GROUPS: NavGroupDef[] = [
         title: "Bills & Subscriptions",
         url: "/bills",
         icon: CreditCard,
-        badge: { kind: "count", count: 5 },
       },
       { title: "Accounts", url: "/accounts", icon: Building2 },
     ],
@@ -326,6 +327,39 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
   const logoutMutation = useLogout(onLogout);
 
+  // Live badge counts. Query keys match Dashboard's exactly so React Query
+  // dedupes — no extra network requests on routes that already fetch these.
+  // Returning `undefined` when the count is zero hides the badge entirely
+  // (cleaner than rendering a "0" pill).
+  const { data: anomalyData } = useQuery<{
+    alerts: Array<{ id: string; isDismissed: boolean }>;
+  }>({
+    queryKey: ["/api/anomalies"],
+  });
+  const { data: dashboardData } = useQuery<{
+    bills?: { upcomingBills?: Array<{ isPaused: boolean }> };
+  }>({
+    queryKey: ["/api/engine/dashboard"],
+  });
+
+  const unresolvedAlertsCount = (anomalyData?.alerts ?? []).filter(
+    (a: { isDismissed: boolean }) => !a.isDismissed
+  ).length;
+  const upcomingBillsCount = (dashboardData?.bills?.upcomingBills ?? []).filter(
+    (b: { isPaused: boolean }) => !b.isPaused
+  ).length;
+
+  const dynamicBadges: Record<string, NavBadge | undefined> = {
+    "Security Alerts":
+      unresolvedAlertsCount > 0
+        ? { kind: "danger", count: unresolvedAlertsCount }
+        : undefined,
+    "Bills & Subscriptions":
+      upcomingBillsCount > 0
+        ? { kind: "count", count: upcomingBillsCount }
+        : undefined,
+  };
+
   const s = session as any;
   const displayName = s?.displayName || s?.firstName || username || "User";
   const avatarUrl = s?.avatarUrl || null;
@@ -371,6 +405,9 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     const showLock = isFree && state?.upgradeRequired;
     const isActive = isItemActive(item);
     const testId = `nav-${item.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+    // Static (NEW/Pro) badges live on the item; dynamic counts come from
+    // the live-data lookup. Item-level wins if both are present.
+    const resolvedBadge = item.badge ?? dynamicBadges[item.title];
 
     if (showLock) {
       return (
@@ -383,7 +420,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           >
             <item.icon className="h-4 w-4 shrink-0" />
             <span className="flex-1 truncate">{item.title}</span>
-            {item.badge ? <Badge badge={item.badge} /> : null}
+            {resolvedBadge ? <Badge badge={resolvedBadge} /> : null}
             <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -401,7 +438,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           <Link href={item.url}>
             <item.icon className="h-4 w-4 shrink-0" />
             <span className="flex-1 truncate">{item.title}</span>
-            {item.badge ? <Badge badge={item.badge} /> : null}
+            {resolvedBadge ? <Badge badge={resolvedBadge} /> : null}
           </Link>
         </SidebarMenuButton>
       </SidebarMenuItem>
