@@ -88,6 +88,8 @@ import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
 import { ConnectBankWizard } from "@/components/connect-bank-wizard";
 import { FloatingChatbot } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
+import { AccountsByTypeView } from "@/components/accounts/accounts-by-type-view";
+import { AccountsSummarySidebar, type AccountsViewMode } from "@/components/accounts/accounts-summary-sidebar";
 // Category color map mirrors server/merchant-categories.ts CATEGORY_COLORS
 const CATEGORY_COLORS: Record<string, string> = {
   'Food & Dining':    '#f97316',
@@ -1375,6 +1377,10 @@ export default function BankAccounts() {
   // Manual accounts state
   const [activeTab, setActiveTab] = useState("bank");
   const [showManualAccountDialog, setShowManualAccountDialog] = useState(false);
+
+  // Monarch-style view mode — dropdown in the Summary sidebar. Kept on the
+  // page so both the by-type list and the sidebar can react to it later.
+  const [accountsViewMode, setAccountsViewMode] = useState<AccountsViewMode>("balances");
   
   // Provider selection state
   const [showProviderSelection, setShowProviderSelection] = useState(false);
@@ -2017,6 +2023,32 @@ export default function BankAccounts() {
         </TabsContent>
 
         <TabsContent value="bank" className="space-y-6 mt-6">
+
+      {/* Monarch-style Accounts overview — grouped by type on the left,
+          summary + breakdown on the right. Rendered only when at least one
+          account exists; the "no accounts" empty state below still fires
+          when none are connected. */}
+      {(accountGroups.length > 0 || mxMembers.length > 0 || manualAccounts.length > 0) && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div>
+            <AccountsByTypeView
+              plaidGroups={accountGroups}
+              mxMembers={mxMembers}
+              manualAccounts={manualAccounts}
+              isLoading={accountsLoading || mxAccountsLoading || manualAccountsLoading}
+            />
+          </div>
+          <div>
+            <AccountsSummarySidebar
+              plaidGroups={accountGroups}
+              mxMembers={mxMembers}
+              manualAccounts={manualAccounts}
+              viewMode={accountsViewMode}
+              onViewModeChange={setAccountsViewMode}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       {(accountGroups.length > 0 || mxMembers.length > 0 || manualAccounts.length > 0) && (

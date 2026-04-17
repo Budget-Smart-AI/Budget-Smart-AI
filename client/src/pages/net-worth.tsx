@@ -4,7 +4,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Progress } from "@/components/ui/progress";
 import { TrendingUp, TrendingDown, Wallet, Building2, Car, Home, CreditCard, Landmark, PiggyBank, Camera } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -73,7 +72,22 @@ export default function NetWorth() {
       queryClient.invalidateQueries({ queryKey: ["/api/engine/net-worth/history"] });
       toast({ title: "Snapshot saved successfully" });
     },
-    onError: () => toast({ title: "Failed to save snapshot", variant: "destructive" }),
+    onError: (err: unknown) => {
+      // Surface the real reason — was silently swallowed before (CORS on engine
+      // POST vs. canWrite=false vs. network error all looked the same to the user).
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+          ? err
+          : "Unknown error";
+      console.error("[net-worth] snapshot failed:", err);
+      toast({
+        title: "Failed to save snapshot",
+        description: message,
+        variant: "destructive",
+      });
+    },
   });
 
   if (netWorthLoading || historyLoading) {
@@ -163,41 +177,51 @@ export default function NetWorth() {
         </Button>
       </div>
 
-      {/* Main Net Worth Card â 3-line breakdown */}
+      {/* Main Net Worth Card — label/number pairs in a 3-column grid so labels
+          stay anchored to their values instead of drifting to the left edge on
+          wide screens. */}
       <Card className="bg-gradient-to-br from-primary/10 to-primary/5">
-        <CardHeader>
+        <CardHeader className="pb-3">
           <CardDescription>Net Worth Summary</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {/* Total Assets */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-muted-foreground">Total Assets</span>
-            <span className="text-lg font-semibold text-green-600">
-              {formatCurrencyFull(netWorth.totalAssets)}
-            </span>
-          </div>
-          {/* Total Liabilities */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-muted-foreground">Total Liabilities</span>
-            <span className="text-lg font-semibold text-red-600">
-              {formatCurrencyFull(Math.abs(netWorth.totalLiabilities))}
-            </span>
-          </div>
-          {/* Divider */}
-          <div className="border-t border-border/60 pt-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-base font-semibold">Net Worth</span>
-                {netWorth.latestChange !== 0 && (
-                  <div className={`flex items-center gap-1 text-xs mt-0.5 ${netWorth.latestChange >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    {netWorth.latestChange >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                    {formatCurrency(Math.abs(netWorth.latestChange))} vs last snapshot
-                  </div>
-                )}
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+            {/* Total Assets */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                <TrendingUp className="h-3.5 w-3.5 text-green-600" />
+                Total Assets
               </div>
-              <span className={`text-3xl font-bold ${isPositive ? "text-green-600" : "text-red-600"}`}>
+              <div className="text-2xl font-semibold text-green-600">
+                {formatCurrencyFull(netWorth.totalAssets)}
+              </div>
+            </div>
+
+            {/* Total Liabilities */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                <TrendingDown className="h-3.5 w-3.5 text-red-600" />
+                Total Liabilities
+              </div>
+              <div className="text-2xl font-semibold text-red-600">
+                {formatCurrencyFull(Math.abs(netWorth.totalLiabilities))}
+              </div>
+            </div>
+
+            {/* Net Worth */}
+            <div className="space-y-1 sm:border-l sm:border-border/60 sm:pl-6">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Net Worth
+              </div>
+              <div className={`text-3xl font-bold ${isPositive ? "text-green-600" : "text-red-600"}`}>
                 {formatCurrencyFull(netWorth.netWorth)}
-              </span>
+              </div>
+              {netWorth.latestChange !== 0 && (
+                <div className={`flex items-center gap-1 text-xs ${netWorth.latestChange >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {netWorth.latestChange >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                  {formatCurrency(Math.abs(netWorth.latestChange))} vs last snapshot
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -242,7 +266,7 @@ export default function NetWorth() {
                 <CardTitle className="text-lg">Liabilities</CardTitle>
               </div>
               <Link href="/liabilities" className="text-xs text-primary hover:underline">
-                View all liabilities â
+                View all liabilities →
               </Link>
             </div>
             <CardTitle className="text-2xl text-red-600">{formatCurrencyFull(Math.abs(netWorth.totalLiabilities))}</CardTitle>
@@ -303,31 +327,60 @@ export default function NetWorth() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Net Worth Breakdown</CardTitle>
+            <CardTitle>Assets vs Liabilities</CardTitle>
+            <CardDescription>Share of your total balance sheet</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span>Assets</span>
-                  <span className="text-green-600">{formatCurrencyFull(netWorth.totalAssets)}</span>
+            {(() => {
+              const absLiab = Math.abs(netWorth.totalLiabilities);
+              const total = netWorth.totalAssets + absLiab;
+              const assetShare = total > 0 ? (netWorth.totalAssets / total) * 100 : 0;
+              const liabShare = total > 0 ? (absLiab / total) * 100 : 0;
+              return (
+                <div className="space-y-4">
+                  {/* Proportional horizontal bar: green segment = assets, red = liabilities.
+                      Built with flex widths rather than Progress so both colors render correctly. */}
+                  <div className="w-full h-4 rounded-full overflow-hidden flex bg-muted">
+                    {assetShare > 0 && (
+                      <div
+                        className="h-full bg-green-500 transition-all"
+                        style={{ width: `${assetShare}%` }}
+                        data-testid="bar-assets"
+                      />
+                    )}
+                    {liabShare > 0 && (
+                      <div
+                        className="h-full bg-red-500 transition-all"
+                        style={{ width: `${liabShare}%` }}
+                        data-testid="bar-liabilities"
+                      />
+                    )}
+                  </div>
+
+                  {/* Legend + amounts */}
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex items-start gap-2">
+                      <div className="w-3 h-3 rounded-full bg-green-500 mt-1 shrink-0" />
+                      <div>
+                        <div className="font-medium">Assets · {assetShare.toFixed(0)}%</div>
+                        <div className="text-green-600">
+                          {formatCurrencyFull(netWorth.totalAssets)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-500 mt-1 shrink-0" />
+                      <div>
+                        <div className="font-medium">Liabilities · {liabShare.toFixed(0)}%</div>
+                        <div className="text-red-600">
+                          {formatCurrencyFull(absLiab)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <Progress
-                  value={assetPct}
-                  className="h-3 bg-red-200"
-                />
-              </div>
-              <div className="flex items-center justify-center gap-8 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-green-500" />
-                  <span>Assets ({assetPct.toFixed(0)}%)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-red-500" />
-                  <span>Liabilities ({(100 - assetPct).toFixed(0)}%)</span>
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
