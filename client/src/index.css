@@ -1,8 +1,24 @@
+/* Fonts — loaded once, used by both themes. Sora = display / headings.   */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE - Modern vibrant financial app with gradient accents */
+/* ═══════════════════════════════════════════════════════════════════════════
+ * THEME SYSTEM — 2 MODES ONLY
+ *
+ * Only Light and Dark ship. Both use the same emerald (#22C55E) → teal
+ * (#0D9488) brand gradient. :root holds the Light defaults (kept so pages
+ * without an explicit theme class still render). .theme-light and
+ * .theme-dark are applied by ThemeContextProvider to <html>; .dark is
+ * mirrored alongside .theme-dark for Tailwind's dark: variants.
+ *
+ * Legacy theme classes (theme-aurora/midnight/ocean/nebula/slate/abyss)
+ * were removed April 2026 — ThemeContextProvider migrates stored ids.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* LIGHT MODE — glassmorphism + emerald brand */
 :root {
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
@@ -114,10 +130,43 @@
   --color-warning:     245 158 11;   /* amber-500  #f59e0b  */
   --color-warning-fg:  255 255 255;  /* white               */
 
-  --font-sans: 'Inter', sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Sora', 'Inter', system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   --radius: .5rem; /* 8px */
+
+  /* ── Glassmorphism tokens (Light) ─────────────────────────────────────
+   * Consumed by .glass-surface utility + sidebar / card overrides. Dark
+   * theme overrides these in .dark below with darker semi-transparency. */
+  --glass-surface:       255 255 255 / 0.55;
+  --glass-surface-strong: 255 255 255 / 0.72;
+  --glass-border:        255 255 255 / 0.6;
+  --glass-border-soft:   15 23 42 / 0.06;
+  --glass-blur:          20px;
+  --glass-saturate:      180%;
+  --glass-shadow:        0 8px 32px rgba(34, 197, 94, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --glass-shadow-lg:     0 12px 40px rgba(34, 197, 94, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  /* Body backdrop — layered radial gradients (the "blobs") + base linear */
+  --bg-base:       linear-gradient(135deg, #F5FDF8 0%, #E8F7F0 50%, #DCF3E8 100%);
+  --bg-blob-1:     rgba(34, 197, 94, 0.18);   /* emerald, top-left */
+  --bg-blob-2:     rgba(13, 148, 136, 0.22);  /* teal, top-right */
+  --bg-blob-3:     rgba(132, 204, 22, 0.12);  /* lime, bottom */
+  --bg-noise-opacity: 0.04;
+
+  /* Brand gradients — consumed by logo, CTAs, accents */
+  --brand-gradient:       linear-gradient(135deg, #22C55E 0%, #0D9488 100%);
+  --brand-gradient-soft:  linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(13,148,136,0.15) 100%);
+
+  /* Nav-item active state (used by sidebar — differs per theme for contrast) */
+  --nav-active-bg:     linear-gradient(135deg, rgba(34,197,94,0.22) 0%, rgba(13,148,136,0.22) 100%);
+  --nav-active-border: rgba(34, 197, 94, 0.4);
+  --nav-active-shadow: 0 2px 12px rgba(34, 197, 94, 0.15);
+  --nav-active-fg:     #0D9488;
+  --nav-fg:            #1A3020;
+  --nav-muted-fg:      #3F6B47;
+  --nav-group-label:   #3F6B47;
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.03);
   --shadow-xs: 0px 1px 3px 0px rgba(0,0,0,0.04);
   --shadow-sm: 0px 1px 3px 0px rgba(0,0,0,0.05), 0px 1px 2px -1px rgba(0,0,0,0.05);
@@ -265,6 +314,36 @@
   --color-warning:     251 191 36;   /* amber-400  #fbbf24  */
   --color-warning-fg:  255 255 255;  /* white               */
 
+  /* ── Glassmorphism tokens (Dark) ─────────────────────────────────────── */
+  --glass-surface:       10 31 23 / 0.55;
+  --glass-surface-strong: 10 31 23 / 0.75;
+  --glass-border:        255 255 255 / 0.08;
+  --glass-border-soft:   255 255 255 / 0.05;
+  --glass-blur:          24px;
+  --glass-saturate:      180%;
+  --glass-shadow:        0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-shadow-lg:     0 12px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* Body backdrop — deep forest with emerald/teal glow */
+  --bg-base:       linear-gradient(135deg, #051410 0%, #0A1F17 50%, #0D2520 100%);
+  --bg-blob-1:     rgba(34, 197, 94, 0.35);
+  --bg-blob-2:     rgba(13, 148, 136, 0.35);
+  --bg-blob-3:     rgba(132, 204, 22, 0.20);
+  --bg-noise-opacity: 0.06;
+
+  /* Brand gradients — same brand, adjusted alpha for dark contrast */
+  --brand-gradient:       linear-gradient(135deg, #22C55E 0%, #0D9488 100%);
+  --brand-gradient-soft:  linear-gradient(135deg, rgba(34,197,94,0.25) 0%, rgba(13,148,136,0.25) 100%);
+
+  /* Nav-item active state for dark mode */
+  --nav-active-bg:     linear-gradient(135deg, rgba(34,197,94,0.25) 0%, rgba(13,148,136,0.25) 100%);
+  --nav-active-border: rgba(34, 197, 94, 0.4);
+  --nav-active-shadow: 0 2px 12px rgba(34, 197, 94, 0.2);
+  --nav-active-fg:     #4ADE80;
+  --nav-fg:            #C1E3CC;
+  --nav-muted-fg:      #7DCC98;
+  --nav-group-label:   #7DCC98;
+
 }
 
 @layer base {
@@ -274,14 +353,42 @@
 
   body {
     @apply font-sans antialiased text-foreground;
-    background-color: hsl(var(--background));
+    /* Layered glass backdrop: 3 radial "blobs" floating over a base gradient.
+     * Each theme overrides --bg-base / --bg-blob-* so the recipe stays the
+     * same and only colour tokens change. */
     background-image:
-      radial-gradient(ellipse at 0% 0%, var(--gradient-accent-1) 0%, transparent 50%),
-      radial-gradient(ellipse at 100% 0%, var(--gradient-accent-2) 0%, transparent 50%),
-      radial-gradient(ellipse at 100% 100%, var(--gradient-accent-3) 0%, transparent 50%),
-      radial-gradient(ellipse at 0% 100%, var(--gradient-accent-4) 0%, transparent 50%);
+      radial-gradient(ellipse 800px 600px at 0% 0%,   var(--bg-blob-1) 0%, transparent 50%),
+      radial-gradient(ellipse 600px 500px at 100% 0%, var(--bg-blob-2) 0%, transparent 50%),
+      radial-gradient(ellipse 700px 500px at 50% 100%, var(--bg-blob-3) 0%, transparent 50%),
+      var(--bg-base);
     background-attachment: fixed;
+    background-repeat: no-repeat;
     min-height: 100vh;
+    position: relative;
+  }
+
+  /* Subtle noise overlay for texture — makes the glass feel less plastic. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: var(--bg-noise-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+
+  /* Keep app content above the noise layer. */
+  body > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Display font for headings — applied globally for h1/h2/h3 + opt-in class. */
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
   }
 }
 
@@ -486,412 +593,153 @@ iframe[src*="plaid"] {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * NAMED THEMES
- * Each theme class sets the full CSS-variable palette used by Tailwind.
- * Dark themes also receive the `.dark` class via ThemeContextProvider so
- * that all `dark:` Tailwind variants continue to work automatically.
+ * THEME CLASS ALIASES
+ *
+ * ThemeContextProvider applies .theme-light or .theme-dark to <html>. These
+ * blocks just re-declare the exact same token values as :root and .dark so
+ * the cascade works identically whether the user's stored preference or the
+ * OS default is in effect.
+ *
+ * All 6 legacy theme classes (theme-aurora/midnight/ocean/nebula/slate/abyss)
+ * were removed; ThemeContextProvider migrates stored ids on load.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── theme-aurora ─── (light · teal-green · default) ───────────────────── */
-/* Mirrors :root – kept in sync.  Override :root defaults here when needed. */
-.theme-aurora {
+.theme-light {
   color-scheme: light;
-
-  --button-outline: rgba(0,0,0, .10);
-  --badge-outline: rgba(0,0,0, .05);
-  --opaque-button-border-intensity: -8;
-  --elevate-1: rgba(0,0,0, .03);
-  --elevate-2: rgba(0,0,0, .08);
-
-  --background: 240 20% 98%;
-  --gradient-accent-1: rgba(16, 185, 129, 0.06);
-  --gradient-accent-2: rgba(34, 197, 94, 0.04);
-  --gradient-accent-3: rgba(20, 184, 166, 0.04);
-  --gradient-accent-4: rgba(16, 185, 129, 0.03);
-  --foreground: 240 10% 10%;
-  --border: 240 10% 90%;
-  --card: 0 0% 100%;
-  --card-foreground: 240 10% 10%;
-  --card-border: 240 10% 90%;
-  --sidebar: 152 25% 97%;
-  --sidebar-foreground: 152 30% 15%;
-  --sidebar-border: 152 20% 88%;
-  --sidebar-primary: 152 68% 42%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 152 25% 92%;
-  --sidebar-accent-foreground: 152 68% 32%;
-  --sidebar-ring: 152 68% 42%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 10%;
-  --popover-border: 240 10% 90%;
-  --primary: 152 68% 42%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 240 10% 96%;
-  --secondary-foreground: 240 10% 10%;
-  --muted: 240 10% 96%;
-  --muted-foreground: 240 5% 46%;
-  --accent: 152 30% 94%;
-  --accent-foreground: 152 68% 32%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 240 10% 90%;
-  --ring: 152 68% 42%;
-  --chart-1: 152 68% 42%;
-  --chart-2: 173 80% 40%;
-  --chart-3: 142 71% 45%;
-  --chart-4: 38 92% 50%;
-  --chart-5: 340 82% 52%;
-  --gradient-purple: 152 68% 42%;
-  --gradient-blue: 217 91% 60%;
-  --gradient-green: 142 71% 45%;
-  --gradient-orange: 25 95% 53%;
-  --gradient-pink: 340 82% 52%;
-  --color-bg: 249 249 251;
-  --color-fg: 23 23 28;
-  --color-surface: 255 255 255;
-  --color-surface-fg: 23 23 28;
-  --color-income: 22 163 74;
-  --color-expense: 220 38 38;
-  --color-warning: 245 158 11;
-  --color-warning-fg: 255 255 255;
+  /* All tokens inherit from :root — nothing to re-declare. This class
+   * exists purely to tag the active mode on <html> for any selectors that
+   * want to scope by theme (e.g. `.theme-dark .foo`). */
 }
 
-/* ── theme-midnight ── (dark · deep-teal) ───────────────────────────────── */
-/* Mirrors .dark – kept in sync. */
-.theme-midnight {
-  color-scheme: dark;
-
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
-
-  --background: 160 25% 6%;
-  --gradient-accent-1: rgba(16, 185, 129, 0.08);
-  --gradient-accent-2: rgba(34, 197, 94, 0.06);
-  --gradient-accent-3: rgba(20, 184, 166, 0.06);
-  --gradient-accent-4: rgba(16, 185, 129, 0.05);
-  --foreground: 0 0% 98%;
-  --border: 160 18% 14%;
-  --card: 160 22% 9%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 160 18% 14%;
-  --sidebar: 160 28% 7%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 160 18% 14%;
-  --sidebar-primary: 152 68% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 160 22% 13%;
-  --sidebar-accent-foreground: 152 60% 65%;
-  --sidebar-ring: 152 68% 50%;
-  --popover: 160 22% 9%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 160 18% 14%;
-  --primary: 152 68% 50%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 160 18% 14%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 160 18% 14%;
-  --muted-foreground: 150 5% 60%;
-  --accent: 160 22% 13%;
-  --accent-foreground: 152 60% 65%;
-  --destructive: 0 62% 50%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 160 18% 20%;
-  --ring: 152 68% 50%;
-  --chart-1: 152 68% 50%;
-  --chart-2: 173 80% 50%;
-  --chart-3: 142 71% 50%;
-  --chart-4: 38 92% 55%;
-  --chart-5: 340 82% 60%;
-  --gradient-purple: 152 68% 50%;
-  --gradient-blue: 217 91% 65%;
-  --gradient-green: 142 71% 50%;
-  --gradient-orange: 25 95% 58%;
-  --gradient-pink: 340 82% 60%;
-  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
-  --shadow: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
-  --shadow-md: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 2px 4px -1px rgba(0,0,0,0.30);
-  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 4px 6px -1px rgba(0,0,0,0.30);
-  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 8px 10px -1px rgba(0,0,0,0.30);
-  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --color-bg: 11 19 17;
-  --color-fg: 250 250 250;
-  --color-surface: 18 28 25;
-  --color-surface-fg: 250 250 250;
-  --color-income: 74 222 128;
-  --color-expense: 248 113 113;
-  --color-warning: 251 191 36;
-  --color-warning-fg: 255 255 255;
+.theme-dark {
+  /* Dark mode: we already define the full palette under .dark (so Tailwind
+   * `dark:` variants work). ThemeContextProvider adds both .theme-dark and
+   * .dark together, so tokens resolve via the .dark block. This class is
+   * again purely a semantic tag. */
 }
 
-/* ── theme-ocean ───── (light · blue) ───────────────────────────────────── */
-.theme-ocean {
-  color-scheme: light;
+/* ═══════════════════════════════════════════════════════════════════════════
+ * GLASSMORPHISM UTILITIES
+ *
+ * .glass-surface      – standard frosted card background (Sidebar, Topbar)
+ * .glass-surface-lg   – stronger alpha + bigger shadow (hero cards, modals)
+ * .glass-inset        – thin highlight line on top edge; layer over glass
+ * .hide-scrollbar     – visually remove scrollbar (used in sidebar)
+ * .sidebar-scroll     – thin 6px custom scrollbar matching the mockup
+ * .nav-sub-connector  – L-bend used by nested sub-nav items
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
-  --button-outline: rgba(0,0,0, .10);
-  --badge-outline: rgba(0,0,0, .05);
-  --opaque-button-border-intensity: -8;
-  --elevate-1: rgba(0,0,0, .03);
-  --elevate-2: rgba(0,0,0, .08);
+@layer utilities {
+  .glass-surface {
+    background: rgb(var(--glass-surface));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid rgb(var(--glass-border));
+    box-shadow: var(--glass-shadow);
+  }
 
-  --background: 210 40% 98%;
-  --gradient-accent-1: rgba(37, 99, 235, 0.06);
-  --gradient-accent-2: rgba(59, 130, 246, 0.04);
-  --gradient-accent-3: rgba(14, 165, 233, 0.04);
-  --gradient-accent-4: rgba(37, 99, 235, 0.03);
-  --foreground: 215 25% 12%;
-  --border: 214 30% 88%;
-  --card: 0 0% 100%;
-  --card-foreground: 215 25% 12%;
-  --card-border: 214 30% 88%;
-  --sidebar: 210 30% 96%;
-  --sidebar-foreground: 215 30% 20%;
-  --sidebar-border: 214 25% 86%;
-  --sidebar-primary: 217 91% 55%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 210 30% 91%;
-  --sidebar-accent-foreground: 217 91% 40%;
-  --sidebar-ring: 217 91% 55%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 215 25% 12%;
-  --popover-border: 214 30% 88%;
-  --primary: 217 91% 55%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 214 25% 94%;
-  --secondary-foreground: 215 25% 12%;
-  --muted: 214 25% 94%;
-  --muted-foreground: 215 15% 48%;
-  --accent: 210 30% 91%;
-  --accent-foreground: 217 80% 40%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 214 30% 88%;
-  --ring: 217 91% 55%;
-  --chart-1: 217 91% 55%;
-  --chart-2: 199 89% 48%;
-  --chart-3: 173 80% 40%;
-  --chart-4: 38 92% 50%;
-  --chart-5: 340 82% 52%;
-  --gradient-purple: 217 91% 55%;
-  --gradient-blue: 199 89% 48%;
-  --gradient-green: 173 80% 40%;
-  --gradient-orange: 25 95% 53%;
-  --gradient-pink: 340 82% 52%;
-  --color-bg: 240 248 255;
-  --color-fg: 15 23 42;
-  --color-surface: 255 255 255;
-  --color-surface-fg: 15 23 42;
-  --color-income: 22 163 74;
-  --color-expense: 220 38 38;
-  --color-warning: 245 158 11;
-  --color-warning-fg: 255 255 255;
+  .glass-surface-strong {
+    background: rgb(var(--glass-surface-strong));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid rgb(var(--glass-border));
+    box-shadow: var(--glass-shadow-lg);
+  }
+
+  .brand-gradient-bg {
+    background: var(--brand-gradient);
+  }
+
+  .brand-gradient-text {
+    background: var(--brand-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Fully hides native scrollbar but keeps content scrollable. */
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  /* Thin, glass-tinted scrollbar for the sidebar. */
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background: rgba(34, 197, 94, 0.18);
+    border-radius: 3px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(34, 197, 94, 0.35);
+  }
+
+  /* L-connector for nested sub-nav items. Applied via data-slot="sub" on
+   * the sub-nav button. The ::before draws a left border + bottom border
+   * with rounded corner so the item visually "hangs" off the parent. */
+  .nav-sub-item {
+    position: relative;
+    padding-left: 2.25rem !important;
+  }
+  .nav-sub-item::before {
+    content: "";
+    position: absolute;
+    left: 1.125rem;
+    top: -0.25rem;
+    width: 0.75rem;
+    height: 1.125rem;
+    border-left: 1.5px solid rgba(127, 161, 140, 0.35);
+    border-bottom: 1.5px solid rgba(127, 161, 140, 0.35);
+    border-bottom-left-radius: 4px;
+  }
+  .theme-dark .nav-sub-item::before {
+    border-color: rgba(125, 204, 152, 0.3);
+  }
 }
 
-/* ── theme-nebula ──── (dark · violet-purple) ───────────────────────────── */
-.theme-nebula {
-  color-scheme: dark;
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SIDEBAR GLASS OVERRIDES
+ *
+ * The shadcn Sidebar primitive hardcodes `bg-sidebar` on its inner
+ * wrappers (both the desktop `sidebar-inner` div and the mobile Sheet's
+ * content). We can't pass the glass utility through props, so target
+ * those slots directly and swap in the translucent background + backdrop
+ * blur so the layered radial backdrop shows through.
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
-
-  --background: 265 30% 8%;
-  --gradient-accent-1: rgba(139, 92, 246, 0.10);
-  --gradient-accent-2: rgba(167, 139, 250, 0.07);
-  --gradient-accent-3: rgba(192, 132, 252, 0.07);
-  --gradient-accent-4: rgba(139, 92, 246, 0.06);
-  --foreground: 0 0% 97%;
-  --border: 265 20% 16%;
-  --card: 265 25% 11%;
-  --card-foreground: 0 0% 97%;
-  --card-border: 265 20% 16%;
-  --sidebar: 265 32% 7%;
-  --sidebar-foreground: 0 0% 97%;
-  --sidebar-border: 265 20% 16%;
-  --sidebar-primary: 265 60% 65%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 265 25% 15%;
-  --sidebar-accent-foreground: 265 55% 78%;
-  --sidebar-ring: 265 60% 65%;
-  --popover: 265 25% 11%;
-  --popover-foreground: 0 0% 97%;
-  --popover-border: 265 20% 16%;
-  --primary: 265 60% 65%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 265 20% 16%;
-  --secondary-foreground: 0 0% 97%;
-  --muted: 265 20% 16%;
-  --muted-foreground: 260 5% 60%;
-  --accent: 265 25% 15%;
-  --accent-foreground: 265 55% 78%;
-  --destructive: 0 62% 50%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 265 20% 22%;
-  --ring: 265 60% 65%;
-  --chart-1: 265 60% 65%;
-  --chart-2: 280 55% 60%;
-  --chart-3: 250 65% 55%;
-  --chart-4: 38 92% 55%;
-  --chart-5: 340 82% 60%;
-  --gradient-purple: 265 60% 65%;
-  --gradient-blue: 250 65% 60%;
-  --gradient-green: 280 55% 55%;
-  --gradient-orange: 25 95% 58%;
-  --gradient-pink: 320 70% 60%;
-  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
-  --shadow: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
-  --shadow-md: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 2px 4px -1px rgba(0,0,0,0.30);
-  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 4px 6px -1px rgba(0,0,0,0.30);
-  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 8px 10px -1px rgba(0,0,0,0.30);
-  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --color-bg: 14 11 30;
-  --color-fg: 247 247 247;
-  --color-surface: 26 21 48;
-  --color-surface-fg: 247 247 247;
-  --color-income: 74 222 128;
-  --color-expense: 248 113 113;
-  --color-warning: 251 191 36;
-  --color-warning-fg: 255 255 255;
+/* Desktop inner container */
+[data-slot="sidebar-inner"] {
+  background: rgb(var(--glass-surface-strong)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-right: 1px solid rgb(var(--glass-border));
 }
 
-/* ── theme-abyss ───── (dark · deep-blue) ───────────────────────────────── */
-.theme-abyss {
-  color-scheme: dark;
-
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
-
-  --background: 222 47% 7%;
-  --gradient-accent-1: rgba(59, 130, 246, 0.10);
-  --gradient-accent-2: rgba(96, 165, 250, 0.07);
-  --gradient-accent-3: rgba(37, 99, 235, 0.07);
-  --gradient-accent-4: rgba(59, 130, 246, 0.06);
-  --foreground: 0 0% 97%;
-  --border: 222 30% 16%;
-  --card: 222 40% 10%;
-  --card-foreground: 0 0% 97%;
-  --card-border: 222 30% 16%;
-  --sidebar: 222 50% 6%;
-  --sidebar-foreground: 0 0% 97%;
-  --sidebar-border: 222 30% 16%;
-  --sidebar-primary: 213 94% 62%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 222 40% 14%;
-  --sidebar-accent-foreground: 213 80% 75%;
-  --sidebar-ring: 213 94% 62%;
-  --popover: 222 40% 10%;
-  --popover-foreground: 0 0% 97%;
-  --popover-border: 222 30% 16%;
-  --primary: 213 94% 62%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 222 30% 16%;
-  --secondary-foreground: 0 0% 97%;
-  --muted: 222 30% 16%;
-  --muted-foreground: 220 8% 60%;
-  --accent: 222 40% 14%;
-  --accent-foreground: 213 80% 75%;
-  --destructive: 0 62% 50%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 222 30% 20%;
-  --ring: 213 94% 62%;
-  --chart-1: 213 94% 62%;
-  --chart-2: 199 89% 55%;
-  --chart-3: 230 80% 65%;
-  --chart-4: 38 92% 55%;
-  --chart-5: 340 82% 60%;
-  --gradient-purple: 230 80% 65%;
-  --gradient-blue: 213 94% 62%;
-  --gradient-green: 199 89% 55%;
-  --gradient-orange: 25 95% 58%;
-  --gradient-pink: 340 82% 60%;
-  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
-  --shadow: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 1px 2px -1px rgba(0,0,0,0.30);
-  --shadow-md: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 2px 4px -1px rgba(0,0,0,0.30);
-  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 4px 6px -1px rgba(0,0,0,0.30);
-  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0,0.30), 0px 8px 10px -1px rgba(0,0,0,0.30);
-  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0,0.30);
-  --color-bg: 8 14 26;
-  --color-fg: 247 247 247;
-  --color-surface: 15 26 46;
-  --color-surface-fg: 247 247 247;
-  --color-income: 74 222 128;
-  --color-expense: 248 113 113;
-  --color-warning: 251 191 36;
-  --color-warning-fg: 255 255 255;
+/* Mobile Sheet content */
+[data-sidebar="sidebar"][data-mobile="true"] {
+  background: rgb(var(--glass-surface-strong)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-right: 1px solid rgb(var(--glass-border));
 }
 
-/* ── theme-slate ───── (light · neutral-gray) ───────────────────────────── */
-.theme-slate {
-  color-scheme: light;
-
-  --button-outline: rgba(0,0,0, .10);
-  --badge-outline: rgba(0,0,0, .05);
-  --opaque-button-border-intensity: -8;
-  --elevate-1: rgba(0,0,0, .03);
-  --elevate-2: rgba(0,0,0, .08);
-
-  --background: 210 20% 98%;
-  --gradient-accent-1: rgba(100, 116, 139, 0.05);
-  --gradient-accent-2: rgba(148, 163, 184, 0.04);
-  --gradient-accent-3: rgba(100, 116, 139, 0.04);
-  --gradient-accent-4: rgba(71, 85, 105, 0.03);
-  --foreground: 215 25% 12%;
-  --border: 215 15% 88%;
-  --card: 0 0% 100%;
-  --card-foreground: 215 25% 12%;
-  --card-border: 215 15% 88%;
-  --sidebar: 215 15% 96%;
-  --sidebar-foreground: 215 20% 20%;
-  --sidebar-border: 215 12% 86%;
-  --sidebar-primary: 215 40% 50%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 215 15% 91%;
-  --sidebar-accent-foreground: 215 40% 38%;
-  --sidebar-ring: 215 40% 50%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 215 25% 12%;
-  --popover-border: 215 15% 88%;
-  --primary: 215 40% 50%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 215 15% 94%;
-  --secondary-foreground: 215 25% 12%;
-  --muted: 215 12% 94%;
-  --muted-foreground: 215 8% 48%;
-  --accent: 215 15% 91%;
-  --accent-foreground: 215 35% 38%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 215 15% 88%;
-  --ring: 215 40% 50%;
-  --chart-1: 215 40% 50%;
-  --chart-2: 200 50% 45%;
-  --chart-3: 180 45% 42%;
-  --chart-4: 38 92% 50%;
-  --chart-5: 340 82% 52%;
-  --gradient-purple: 215 40% 50%;
-  --gradient-blue: 200 50% 45%;
-  --gradient-green: 180 45% 42%;
-  --gradient-orange: 25 95% 53%;
-  --gradient-pink: 340 82% 52%;
-  --color-bg: 248 250 252;
-  --color-fg: 15 23 42;
-  --color-surface: 255 255 255;
-  --color-surface-fg: 15 23 42;
-  --color-income: 22 163 74;
-  --color-expense: 220 38 38;
-  --color-warning: 245 158 11;
-  --color-warning-fg: 255 255 255;
+/* Strip the default border color divider on the desktop outer container
+ * now that the inner container carries its own glass border. */
+[data-slot="sidebar-container"].group-data-\[side\=left\]\:border-r {
+  border-color: transparent;
 }
+

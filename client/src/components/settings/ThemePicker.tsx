@@ -4,12 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const THEME_DESCRIPTIONS: Record<ThemeId, string> = {
-  "theme-aurora": "Fresh teal-green, light & airy",
-  "theme-midnight": "Deep teal with dark surfaces",
-  "theme-ocean": "Cool blue, clean & focused",
-  "theme-nebula": "Dark violet, moody & rich",
-  "theme-slate": "Neutral gray, minimal & calm",
-  "theme-abyss": "Deep navy blue, bold & immersive",
+  light: "Fresh emerald glass, light & airy",
+  dark: "Deep teal glass, rich & immersive",
 };
 
 /**
