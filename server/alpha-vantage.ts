@@ -296,6 +296,141 @@ export async function fetchNewsSentiment(symbol: string, limit = 3): Promise<New
   }
 }
 
+
+// ─── New functions for Research tab ──────────────────────────────────────────
+
+export interface SymbolSearchResult {
+  symbol: string;
+  name: string;
+  type: string;
+  region: string;
+  currency: string;
+  matchScore: number;
+}
+
+/**
+ * Search for symbols matching a query (SYMBOL_SEARCH endpoint)
+ */
+export async function searchSymbols(query: string): Promise<SymbolSearchResult[]> {
+  if (!API_KEY || !query.trim()) return [];
+
+  try {
+    const url = `${ALPHA_VANTAGE_BASE_URL}?function=SYMBOL_SEARCH&keywords=${encodeURIComponent(query)}&apikey=${API_KEY}`;
+    const data = await rateLimitedFetch(url);
+
+    const matches: any[] = data?.bestMatches ?? [];
+    return matches.map((m: any) => ({
+      symbol: m["1. symbol"] ?? "",
+      name: m["2. name"] ?? "",
+      type: m["3. type"] ?? "",
+      region: m["4. region"] ?? "",
+      currency: m["8. currency"] ?? "USD",
+      matchScore: parseFloat(m["9. matchScore"] ?? "0"),
+    })).filter((r) => r.symbol);
+  } catch (error) {
+    console.error(`Error searching symbols for "${query}":`, error);
+    return [];
+  }
+}
+
+export interface TimeSeriesPoint {
+  date: string;       // yyyy-MM-dd
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/**
+ * Get daily time series for a symbol (TIME_SERIES_DAILY endpoint)
+ * outputSize: "compact" = last 100 points, "full" = 20+ years
+ */
+export async function getDailyTimeSeries(
+  symbol: string,
+  outputSize: "compact" | "full" = "compact",
+): Promise<TimeSeriesPoint[]> {
+  if (!API_KEY) return [];
+
+  try {
+    const url = `${ALPHA_VANTAGE_BASE_URL}?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&outputsize=${outputSize}&apikey=${API_KEY}`;
+    const data = await rateLimitedFetch(url);
+
+    const series = data["Time Series (Daily)"];
+    if (!series) return [];
+
+    const points: TimeSeriesPoint[] = Object.entries(series).map(([date, values]: [string, any]) => ({
+      date,
+      open: parseFloat(values["1. open"]) || 0,
+      high: parseFloat(values["2. high"]) || 0,
+      low: parseFloat(values["3. low"]) || 0,
+      close: parseFloat(values["4. close"]) || 0,
+      volume: parseInt(values["5. volume"]) || 0,
+    }));
+
+    // Sort ascending by date
+    points.sort((a, b) => a.date.localeCompare(b.date));
+    return points;
+  } catch (error) {
+    console.error(`Error fetching time series for ${symbol}:`, error);
+    return [];
+  }
+}
+
+export interface EarningsQuarter {
+  fiscalDateEnding: string;
+  reportedDate: string;
+  reportedEPS: number | null;
+  estimatedEPS: number | null;
+  surprise: number | null;
+  surprisePercentage: number | null;
+}
+
+export interface EarningsData {
+  symbol: string;
+  quarterlyEarnings: EarningsQuarter[];
+}
+
+/**
+ * Get earnings data for a symbol (EARNINGS endpoint)
+ */
+export async function getEarnings(symbol: string): Promise<EarningsData | null> {
+  if (!API_KEY) return null;
+
+  try {
+    const url = `${ALPHA_VANTAGE_BASE_URL}?function=EARNINGS&symbol=${encodeURIComponent(symbol)}&apikey=${API_KEY}`;
+    const data = await rateLimitedFetch(url);
+
+    if (!data.symbol) return null;
+
+    const q: any[] = data.quarterlyEarnings ?? [];
+    const quarterlyEarnings: EarningsQuarter[] = q.slice(0, 8).map((item: any) => {
+      const parseOrNull = (v: any): number | null => {
+        if (v === undefined || v === null || v === "None" || v === "") return null;
+        const n = parseFloat(v);
+        return isNaN(n) ? null : n;
+      };
+      return {
+        fiscalDateEnding: item.fiscalDateEnding ?? "",
+        reportedDate: item.reportedDate ?? "",
+        reportedEPS: parseOrNull(item.reportedEPS),
+        estimatedEPS: parseOrNull(item.estimatedEPS),
+        surprise: parseOrNull(item.surprise),
+        surprisePercentage: parseOrNull(item.surprisePercentage),
+      };
+    });
+
+    return {
+      symbol: data.symbol,
+      quarterlyEarnings,
+    };
+  } catch (error) {
+    console.error(`Error fetching earnings for ${symbol}:`, error);
+    return null;
+  }
+}
+
+
 /**
  * Generate AI-friendly analysis summary for a stock
  */
