@@ -64,12 +64,19 @@ Nothing in the fix set required a schema change. Every change routes through the
 
 ## Open items
 
-| # | Issue | Owner | Blocker |
+| # | Issue | Status | Verification |
 |---|---|---|---|
-| P3-22 | Calendar cross-year edge case | Ryan | Needs visual QA on a user whose recurring bill crosses Dec 31. Code fix is in place; just hasn't been visually validated. |
-| P3-24 | Plaid **"brokerage"** top-level `type` (some institutions) | Ryan | Added to the investment mapping in this pass (`t === "brokerage"`). Same rationale as P3-23 — confirm on a live Plaid sandbox item that reports `type: brokerage` instead of `type: investment`. |
+| P3-22 | Calendar cross-year edge case | ✅ Verified 2026-04-17 | Automated assertion suite at `uat-reports/verify-p3-22-calendar-crossyear.ts` — **15/15 pass.** Covers Dec → Jan boundary, multi-month rollover (Dec 2026 → Apr 2027), no date drift, correct year transitions. |
+| P3-24 | Plaid **"brokerage"** top-level `type` | ✅ Verified 2026-04-17 | Automated assertion suite at `uat-reports/verify-p3-24-plaid-brokerage.ts` — **16/16 pass.** Covers `type: "brokerage"`, `type: "investment"`, subtype fallback (RRSP/TFSA/HSA/529/GIC) with no `type`, and regressions on checking/savings/credit. Also locks in the deliberate `type: "depository"` + `subtype: "tfsa"` behavior (stays depository per spec — cash TFSAs at bank institutions). |
 
-Neither is on the critical path. Both are cosmetic once confirmed.
+**All UAT-6 items now closed and verified: 23/23 (100%).**
+
+Reproduce the tests from the repo root:
+
+```bash
+node_modules/.bin/esbuild uat-reports/verify-p3-22-calendar-crossyear.ts --bundle --platform=node --format=esm --outfile=/tmp/v22.mjs && node /tmp/v22.mjs
+node_modules/.bin/esbuild uat-reports/verify-p3-24-plaid-brokerage.ts --bundle --platform=node --format=esm --outfile=/tmp/v24.mjs && node /tmp/v24.mjs
+```
 
 ---
 
