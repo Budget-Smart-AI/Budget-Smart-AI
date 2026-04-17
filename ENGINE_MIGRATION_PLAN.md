@@ -229,3 +229,143 @@ After all fixes:
 - [ ] Global grep for remaining violations: `grep -rn "\.reduce(" client/src/pages/ | grep -i "parseFloat\|amount\|balance\|value"`
 - [ ] All financial totals on every page trace back to an engine endpoint
 - [ ] No page does its own currency arithmetic
+
+---
+
+## Part 6: UAT-6 Pre-Flight Re-Audit (2026-04-16)
+
+Full re-scan of all 65 client pages in `client/src/pages/` before UAT testing 6. Patterns searched: `.reduce(`, `parseFloat` + `+`, `Math.{abs,round,floor,ceil,max,min}` on financial data, `.toFixed()` on math results.
+
+### Status of the Original 6 Violations
+
+All six have been remediated. Evidence:
+
+| # | Page | Status | Evidence |
+|---|------|--------|----------|
+| 1 | dashboard.tsx | ✅ FIXED | Line 749 iterates `dashboard.expenses.topCategories` directly; no local `categoryTotals` reduce remains. Only `parseFloat` remaining is inside a display formatter at line 120. |
+| 2 | calendar.tsx | ✅ FIXED | Lines 79–80 read `calendarData?.monthlyBillsTotal` and `calendarData?.monthlyIncomeTotal` from the `/api/calendar/events` response; no local reduce. |
+| 3 | assets.tsx | ✅ FIXED | Totals come from engine (verified at lines 274–276); line 266 `.reduce()` is UI grouping only, not a totals calculation. Line 364–366 `parseFloat` is in a per-item display formatter. |
+| 4 | reports.tsx | ✅ FIXED | Lines 580–584 read `billsEngine?.byRecurrence?.{monthly,weekly,biweekly,yearly}` and `billsEngine?.annualEstimate`; remaining `parseFloat`s at lines 368/378/613/626/639/652 are all single-bill display formatters, not aggregations. |
+| 5 | investments.tsx | ✅ FIXED (primary) | Line 1397 uses `investmentsSummary?.byAccount?.find(...)` for per-account values with local fallback only. Line 1095 retains a `.reduce()` to pick the worst-performing holding by `gainLossPct` — classified as minor (see Violation 7 below). |
+| 6 | liabilities.tsx | ✅ FIXED | Line 643 uses `engineData?.liabilityBreakdown?.[group.label]` with a local reduce as fallback only. This is the correct engine-first pattern. |
+
+### Newly Discovered Violations
+
+#### Violation 7: Investments (`investments.tsx` line 1095) — minor, unplanned
+
+**What it calculates locally:**
+- `.reduce()` over `portfolio.holdings` to pick the holding with the lowest `gainLossPct`, used to populate an AI-advisor suggested prompt ("Why am I down so much on AAPL?").
+
+**What it produces:** `worstPerformer.symbol` (a string used in UI copy).
+
+**Engine endpoint it calls:** `/api/engine/investments`
+
+**Does the engine already return this?** NO — Phase 2 of the original plan proposed adding `bestPerformer`/`worstPerformer` to `InvestmentsResult` but this hasn't been shipped.
+
+**Fix type:** 🟡 **EXTEND ENDPOINT (deferred to Phase 2)** — Not a calculation of a *value*, just a `min-by-key` pick on already-engine-computed per-holding `gainLossPct`. Zero drift risk. Safe to ship as-is for UAT-6; replace when Phase 2 lands.
+
+---
+
+#### Violation 8: Other Expenses (`other-expenses.tsx` line 111) — NEW
+
+**What it calculates locally:**
+- `const monthlyTotal = filteredExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);`
+- Filters user's expenses in-memory, then sums `amount` across all matching rows.
+
+**What it produces:** `monthlyTotal: number` — displayed prominently as the "total" for the other-expenses view.
+
+**Engine endpoint it calls:** None — page fetches `/api/expenses` raw.
+
+**Does the engine already return this?** PARTIALLY — `/api/engine/expenses` returns `total` and `byCategory`, but the filter scheme on this page (its own subset of expenses) doesn't match a current engine breakdown.
+
+**Fix type:** 🟡 **EXTEND OR SIMPLE SWAP** — Either (a) the page should be calling `/api/engine/expenses` and using `total` directly (if the filter matches), or (b) add a scoped endpoint. Probably (a) — this page is showing the same data the dashboard sees, just in a different layout.
+
+---
+
+#### Violation 9: Split Expenses (`split-expenses.tsx` lines 594, 598) — NEW
+
+**What it calculates locally:**
+```ts
+const iOwe = balances.filter(b => b.from === currentUserId).reduce((sum, b) => sum + b.amount, 0);
+const owedToMe = balances.filter(b => b.to === currentUserId).reduce((sum, b) => sum + b.amount, 0);
+```
+
+**What it produces:** `iOwe` and `owedToMe` — the two headline numbers on the split-expenses page.
+
+**Engine endpoint it calls:** `/api/split-expenses/balance` (not an engine endpoint; returns raw `balances` array).
+
+**Does the engine already return this?** NO — split-expenses is not yet represented in the engine.
+
+**Fix type:** 🟡 **EXTEND EXISTING ENDPOINT** — Cheapest fix: add `iOwe` and `owedToMe` to the `/api/split-expenses/balance` response payload (compute server-side before returning the balances array). No new engine endpoint needed for UAT-6.
+
+---
+
+#### Violation 10: Tax Smart (`tax-smart.tsx` line 1521) — NEW
+
+**What it calculates locally:**
+- `filteredTransactions.reduce((s, t) => s + t.amount, 0)` — sum of user-filtered tax-deductible transactions for display in a total row.
+
+**What it produces:** A "Total: $X" badge below the tax-category transaction table.
+
+**Engine endpoint it calls:** Uses local filter over a transactions array pulled from elsewhere. `/api/tax-smart/*` endpoints exist but the total is recomputed on the client.
+
+**Does the engine already return this?** PARTIALLY — `taxSummary.totalDeductible` (already read at line 569) is the grand total. The per-filter total (what the user sees below the table) is client-computed because the filter is client-side.
+
+**Fix type:** 🟡 **SERVER-SIDE FILTERING** — Move the filter to a query param and return the filtered total from the server. Or, acceptable for UAT-6 if we accept that this is a UI-filtered subtotal and the grand total (which is the auditable number) comes from the engine.
+
+---
+
+### Borderline Cases (Derived-from-Engine Math)
+
+These pages do arithmetic on values that were *themselves* computed by the engine. Drift risk is low because both operands come from the same engine response, but they still violate the strict "no page does its own currency arithmetic" rule. Batch these together as a cleanup pass — **none are blockers for UAT-6**.
+
+| Page | Line | Expression | What to ask the engine to return instead |
+|------|------|------------|------------------------------------------|
+| debt-payoff.tsx | 486 | `totalDebt / totalMinPayments` | `debtToPaymentRatioMonthly` |
+| debt-payoff.tsx | 488 | `debtToPaymentRatioMonthly / 12` | `debtToPaymentRatioAnnual` |
+| budgets.tsx | 472 | `Math.max(engineData.totalBudget - engineData.totalSpent, 0)` | `totalRemaining` on `/api/engine/budgets` |
+| budgets.tsx | 755 | `Math.max(limit - spent, 0)` (per-budget) | `remaining` on each budget item |
+| budgets.tsx | 853 | `Math.round((spent / limit) * 100)` when over-budget | Already have `budget.percentage` — remove this re-computation (use the engine field directly, don't cap it at 100 in the engine) |
+| liabilities.tsx | 254 | `Object.entries(breakdown).filter(...).reduce((s, [,v]) => s+v, 0)` for `plaidTotal` | `plaidLiabilitiesTotal` on net-worth response |
+
+### Inspected and Skipped (True False Positives)
+
+These matched the grep but are not engine violations:
+
+| File | Pattern | Why it's fine |
+|------|---------|---------------|
+| dashboard.tsx:120, investments.tsx:183, assets.tsx:66, liabilities.tsx:114 | `parseFloat` in `formatCurrency` / `toNum` helper | Display-only formatter, no calculation |
+| expenses.tsx:841 | `Math.ceil(filteredExpenses.length / PAGE_SIZE)` | Pagination math on row count, not money |
+| expenses.tsx:1076 | `expenseStats?.momChangePercent?.toFixed(1)` | Display formatting of engine-returned value |
+| vault.tsx:98–99 | `(bytes / 1024).toFixed(1)` | File-size formatter, not money |
+| upgrade.tsx:171, 174 | `price?.toFixed(2).split(".")` | Price display splitter for typographic formatting |
+| debts.tsx:130, 248–250, 443–469 | `.toFixed(2)`, `Math.abs(parseFloat(...))` | Form setValue (pre-populating edit forms from Plaid data) — correct use of `parseFloat` to parse server-returned strings for an input field, not a calculation |
+| liabilities.tsx:279, 491, 500, 511, 664 | `Math.abs(parseFloat(account.balanceCurrent))` | Absolute value of a single balance for display or form pre-fill — not an aggregation |
+| debt-payoff.tsx:334 | `apr.toFixed(2)` in PUT body | Input normalization before server write |
+| subscriptions.tsx:427, 545, 853 | `sub.amount.toFixed(2)`, `Math.round(sub.confidence * 100)` | Display-only formatting |
+| split-expenses.tsx:140–141, 293 | `shareAmount.toFixed(2)`, `(100 / selectedMembers.length).toFixed(2)` | Form-input prefill for an equal-split preset; user can override |
+| budgets.tsx:76, 359, 391, 560 | `Math.ceil(days)`, `s.suggestedAmount.toFixed(2)` | Days-until-payday (not money) and suggestion-prefill formatting |
+| tax-smart.tsx:337, 569, 571, 741, 1431 | `t.amount.toFixed(2)`, `taxSummary.totalDeductible.toFixed(2)`, `Math.floor(brackets.length/2)` | CSV export formatting, engine-value display, bracket array indexing |
+| dashboard.tsx:330 | `Math.round(((realSpending - budgetSpending) / budgetSpending) * 100)` | Derived display metric from two engine values — low drift risk (same comment as borderline cases above) |
+| affiliate.tsx | Commission projection calculator | Public pricing × user-chosen referral count — marketing projection tool, not user financial data |
+| admin-ai-management.tsx:284, admin-users.tsx:403 | Summing AI costs/call counts | Admin-only analytics, outside the "user financial engine" scope |
+| admin-plan-features.tsx:119 | `.reduce()` grouping features by category | String grouping, not money |
+| investments.tsx:507, 522, 1488–1489 | `parseFloat(values.currentPrice) * parseFloat(values.quantity)`, per-row `parseFloat(holding.currentValue)` | (507/522) Form default calculation inside `form.setValue`; (1488–1489) per-row display read of a server-provided string, not aggregation |
+| investments.tsx:1399 | `parseFloat(account.balance || "0")` | Fallback when engine data unavailable for an account — acceptable |
+
+---
+
+### UAT-6 Go/No-Go Recommendation
+
+**GO for UAT-6.** The original 6 violations that prompted the migration plan have all been remediated with the correct engine-first pattern (engine value with local fallback only when engine data is unavailable). The three newly-discovered violations (Violations 8, 9, 10) all live on secondary pages (other-expenses, split-expenses, tax-smart) and produce numbers that are visible to the user but don't feed into the core financial "source of truth" surfaces (dashboard, net-worth, bills, investments, liabilities). They should be tracked and fixed in the next post-UAT cleanup pass.
+
+Violation 7 (the AI-advisor prompt composer on investments.tsx:1095) and the borderline-derived-math cases carry effectively zero drift risk and should be folded into a future engine-field cleanup batch rather than blocking UAT-6.
+
+### Recommended Post-UAT-6 Cleanup Order
+
+1. Fix Violation 8 (other-expenses.tsx) — likely a single-line swap to call `/api/engine/expenses`.
+2. Fix Violation 9 (split-expenses.tsx) — small server-side addition to `/api/split-expenses/balance`.
+3. Fix Violation 10 (tax-smart.tsx) — evaluate whether the filter should move server-side.
+4. Batch cleanup: add the derived-math fields from the "Borderline Cases" table to the relevant engine endpoints in one PR (debtToPaymentRatio*, totalRemaining, per-budget remaining, plaidLiabilitiesTotal), then delete the local math at the listed call sites.
+5. When Phase 2 of the original plan lands (extending `/api/engine/investments` with best/worst performer fields), remove the `.reduce()` at investments.tsx:1095.
+

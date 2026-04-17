@@ -74,6 +74,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INVESTMENT_ACCOUNT_TYPES, HOLDING_TYPES, type InvestmentAccount, type Holding, type PlaidAccount } from "@shared/schema";
 import { useChartColors } from "@/hooks/useChartColors";
 import { FeatureGate } from "@/components/FeatureGate";
+import ResearchTab from "@/components/investments/ResearchTab";
 
 const accountFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -308,134 +309,6 @@ function StockPriceChart({ symbol, currentPrice, onClose }: { symbol: string; cu
   );
 }
 
-function StockResearchPanel() {
-  const [searchSymbol, setSearchSymbol] = useState("");
-  const [activeSymbol, setActiveSymbol] = useState<string | null>(null);
-  const { toast } = useToast();
-
-  const { data: analysis, isLoading: analysisLoading } = useQuery<any>({
-    queryKey: [`/api/stocks/${activeSymbol}/analysis`],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/stocks/${activeSymbol}/analysis`);
-      return res;
-    },
-    enabled: !!activeSymbol,
-  });
-
-  const handleSearch = () => {
-    const sym = searchSymbol.trim().toUpperCase();
-    if (!sym) {
-      toast({ title: "Enter a stock symbol", variant: "destructive" });
-      return;
-    }
-    setActiveSymbol(sym);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
-        <Input
-          placeholder="Enter stock symbol (e.g. AAPL)"
-          value={searchSymbol}
-          onChange={(e) => setSearchSymbol(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          className="max-w-xs"
-        />
-        <Button onClick={handleSearch} disabled={analysisLoading}>
-          {analysisLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <TrendingUp className="h-4 w-4 mr-2" />}
-          Analyze
-        </Button>
-      </div>
-
-      {activeSymbol && (
-        <>
-          <StockPriceChart
-            symbol={activeSymbol}
-            currentPrice={analysis?.quote?.price}
-            onClose={() => setActiveSymbol(null)}
-          />
-
-          {analysisLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
-            </div>
-          ) : analysis ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {analysis.quote && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Quote Details</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-1 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Open</span><span>{formatCurrency(analysis.quote.open)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">High</span><span>{formatCurrency(analysis.quote.high)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Low</span><span>{formatCurrency(analysis.quote.low)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Previous Close</span><span>{formatCurrency(analysis.quote.previousClose)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Volume</span><span>{analysis.quote.volume?.toLocaleString()}</span></div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {analysis.overview && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Fundamentals</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-1 text-sm">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Sector</span><span className="text-right max-w-[150px] truncate">{analysis.overview.sector}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">P/E Ratio</span><span>{analysis.overview.peRatio > 0 ? analysis.overview.peRatio.toFixed(2) : "N/A"}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">EPS</span><span>{analysis.overview.eps > 0 ? formatCurrency(analysis.overview.eps) : "N/A"}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Market Cap</span><span>{analysis.overview.marketCap > 0 ? "$" + (analysis.overview.marketCap / 1e9).toFixed(1) + "B" : "N/A"}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Dividend Yield</span><span>{analysis.overview.dividendYield > 0 ? (analysis.overview.dividendYield * 100).toFixed(2) + "%" : "N/A"}</span></div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {analysis.rsi && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Technical Indicators</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">RSI (14)</span>
-                      <span className={analysis.rsi.value > 70 ? "text-red-600" : analysis.rsi.value < 30 ? "text-green-600" : ""}>
-                        {analysis.rsi.value.toFixed(1)} {analysis.rsi.value > 70 ? "(Overbought)" : analysis.rsi.value < 30 ? "(Oversold)" : "(Neutral)"}
-                      </span>
-                    </div>
-                    {analysis.sma50 && <div className="flex justify-between"><span className="text-muted-foreground">50-Day SMA</span><span>{formatCurrency(analysis.sma50.value)}</span></div>}
-                    {analysis.sma200 && <div className="flex justify-between"><span className="text-muted-foreground">200-Day SMA</span><span>{formatCurrency(analysis.sma200.value)}</span></div>}
-                    {analysis.sma50 && analysis.sma200 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Trend</span>
-                        <Badge variant={analysis.sma50.value > analysis.sma200.value ? "default" : "destructive"} className="text-xs">
-                          {analysis.sma50.value > analysis.sma200.value ? "Bullish (Golden Cross)" : "Bearish (Death Cross)"}
-                        </Badge>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {analysis.summary && (
-                <Card className="md:col-span-2">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">Analysis Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">{analysis.summary}</pre>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          ) : null}
-        </>
-      )}
-    </div>
-  );
-}
 
 function formatAccountType(type: string) {
   return type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -1825,7 +1698,7 @@ export default function Investments() {
               <CardDescription>Look up any stock for detailed analysis powered by Alpha Vantage</CardDescription>
             </CardHeader>
             <CardContent>
-              <StockResearchPanel />
+              <ResearchTab />
             </CardContent>
           </Card>
         </TabsContent>
