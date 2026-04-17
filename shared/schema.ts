@@ -2207,3 +2207,18 @@ export const insertExchangeRateSchema = createInsertSchema(exchangeRates).omit({
 
 export type ExchangeRate = typeof exchangeRates.$inferSelect;
 export type InsertExchangeRate = z.infer<typeof insertExchangeRateSchema>;
+
+// ============ INVESTOR RESEARCH TABLES ============
+
+// Per-user stock watchlist for the Research tab
+export const userWatchlists = pgTable("user_watchlists", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  symbol: text("symbol").notNull(),
+  addedAt: timestamp("added_at").defaultNow().notNull(),
+});
+
+export const insertUserWatchlistSchema = createInsertSchema(userWatchlists).omit({ id: true, addedAt: true });
+
+export type UserWatchlist = typeof userWatchlists.$inferSelect;
+export type InsertUserWatchlist = z.infer<typeof insertUserWatchlistSchema>;
