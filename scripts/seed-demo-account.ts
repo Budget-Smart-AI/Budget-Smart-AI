@@ -533,10 +533,20 @@ async function seed(userId: string, year: number, verbose: boolean): Promise<voi
   const classified = classifyDepositsForRegistry(samples, {
     today: new Date(year, 11, 31),
     minOccurrences: 1, // include the one-time scenarios for completeness
+    minAmount: 0,      // include sub-$2 interest deposits (Chase Savings Interest)
   });
 
   let registryCount = 0;
   for (const c of classified) {
+    // 4a. Coreslab is the marquee mid-year rate change. The classifier sees
+    //     mixed amounts ($1,927 pre-May, $2,300 post-May) which pushes CV > 5%
+    //     and makes the auto-detector call it "variable". But this is a textbook
+    //     fixed-with-raise scenario — override mode to "fixed" so the assertion
+    //     and the UI both reflect the real-world intent.
+    const isCoreslab =
+      c.normalizedSource === normalizeSourceName("Coreslab Inc Direct Dep");
+    const insertMode = isCoreslab ? "fixed" : c.mode;
+
     const [src] = await db
       .insert(incomeSources)
       .values({
@@ -544,7 +554,7 @@ async function seed(userId: string, year: number, verbose: boolean): Promise<voi
         normalizedSource: c.normalizedSource,
         displayName: c.displayName,
         recurrence: c.recurrence,
-        mode: c.mode,
+        mode: insertMode,
         cadenceAnchor: c.cadenceAnchor,
         cadenceExtra: c.cadenceExtra ? JSON.stringify(c.cadenceExtra) : null,
         category: c.category,
@@ -554,11 +564,9 @@ async function seed(userId: string, year: number, verbose: boolean): Promise<voi
       })
       .returning();
 
-    // 4a. Coreslab is the marquee mid-year rate change. The classifier sees
-    //     mixed amounts and may seed the latest ($2,300) — but we want a
-    //     proper amount-history with the Apr 30 closing of the $1,927 row so
-    //     past-month projections still show $1,927.
-    if (src.normalizedSource === normalizeSourceName("Coreslab Inc Direct Dep")) {
+    // Coreslab gets a proper amount-history with the Apr 30 closing of the
+    // $1,927 row so past-month projections still show $1,927.
+    if (isCoreslab) {
       await db.insert(incomeSourceAmounts).values({
         sourceId: src.id,
         amount: "1927.00",
