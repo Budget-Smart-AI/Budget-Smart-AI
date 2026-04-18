@@ -60,6 +60,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INCOME_CATEGORIES, RECURRENCE_OPTIONS, type Income } from "@shared/schema";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
+import { IncomeRegistryManager } from "@/components/income-registry-manager";
 
 const incomeFormSchema = z.object({
   source: z.string().min(1, "Source is required"),
@@ -96,6 +97,21 @@ function formatCurrency(amount: string | number) {
     style: "currency",
     currency: "USD",
   }).format(num);
+}
+
+/**
+ * Step 7 — keep this normaliser in lockstep with the server's
+ * `normalizeSourceName` (server/lib/financial-engine/income.ts) and
+ * the classifier copy in registry-classifier.ts. Used here purely for
+ * client-side fuzzy matching of typed source names against registry rows.
+ */
+function normalizeSourceForMatch(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b(direct dep|dir dep|payroll|deposit|payment|pay|inc|ltd|llc|corp|co)\b/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function IncomeForm({
@@ -137,6 +153,71 @@ function IncomeForm({
   const isRecurring = form.watch("isRecurring");
   const recurrence = form.watch("recurrence");
   const customDates = form.watch("customDates") || [];
+
+  // ─── Step 7: Prefill from registry ───────────────────────────────────────
+  // When ADDING a new income row (not editing), pull the user's registered
+  // sources so we can:
+  //   (a) offer a "Prefill from a known source" picker, and
+  //   (b) auto-fill amount/category/recurrence when the typed source matches
+  //       a registry entry (only fields the user hasn't customised yet).
+  // This is the fix for "the Add button shows different prefilled amounts
+  // depending on which month I'm viewing" — the registry's active unit
+  // amount is calendar-stable, so the prefill is now month-agnostic.
+  type RegistrySrc = {
+    id: string;
+    displayName: string;
+    normalizedSource: string;
+    recurrence: string;
+    category: string;
+    cadenceAnchor: string;
+    activeUnitAmount: number | null;
+  };
+  const { data: registryData } = useQuery<{ sources: RegistrySrc[] }>({
+    queryKey: ["/api/income/registry"],
+    enabled: !isEditing,
+  });
+  const registrySources: RegistrySrc[] = registryData?.sources ?? [];
+
+  // Apply a registry source to the form. Only overwrites fields that are
+  // empty / at-default so we don't blow away user keystrokes.
+  const applyRegistrySource = (sourceId: string) => {
+    const src = registrySources.find((s: RegistrySrc) => s.id === sourceId);
+    if (!src) return;
+    form.setValue("source", src.displayName);
+    if (src.activeUnitAmount !== null && (form.getValues("amount") === "" || form.getValues("amount") === "0")) {
+      form.setValue("amount", src.activeUnitAmount.toFixed(2));
+    }
+    form.setValue("category", src.category as typeof INCOME_CATEGORIES[number]);
+    if (src.recurrence && src.recurrence !== "irregular" && src.recurrence !== "one_time") {
+      form.setValue("isRecurring", true);
+      form.setValue("recurrence", src.recurrence as typeof RECURRENCE_OPTIONS[number]);
+    }
+    // Anchor day-of-month from the cadence anchor (yyyy-MM-dd).
+    if (src.cadenceAnchor && /^\d{4}-\d{2}-\d{2}$/.test(src.cadenceAnchor)) {
+      const day = parseInt(src.cadenceAnchor.slice(8, 10), 10);
+      if (Number.isFinite(day)) form.setValue("dueDay", day);
+    }
+  };
+
+  // Auto-prefill on source-field blur if the typed text matches a registry
+  // row by normalized name. Triggers a one-shot apply.
+  const sourceField = form.watch("source");
+  useEffect(() => {
+    if (isEditing) return;
+    if (!sourceField || sourceField.length < 3) return;
+    const typed = normalizeSourceForMatch(sourceField);
+    if (!typed) return;
+    const match = registrySources.find((s) =>
+      s.normalizedSource === typed || s.normalizedSource.includes(typed) || typed.includes(s.normalizedSource),
+    );
+    if (!match) return;
+    // Only auto-apply if amount is still blank (don't fight the user's typing).
+    const currentAmount = form.getValues("amount");
+    if (currentAmount === "" || currentAmount === "0") {
+      applyRegistrySource(match.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceField, registrySources.length, isEditing]);
 
   const preparePayload = (values: IncomeFormValues) => {
     return {
@@ -190,6 +271,37 @@ function IncomeForm({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        {!isEditing && registrySources.length > 0 && (
+          <div className="rounded-md border bg-primary/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary shrink-0" />
+              <p className="text-xs font-medium text-primary">
+                Prefill from a known income source
+              </p>
+            </div>
+            <Select onValueChange={applyRegistrySource}>
+              <SelectTrigger className="h-8 text-sm" data-testid="select-registry-prefill">
+                <SelectValue placeholder="Pick a registered source…" />
+              </SelectTrigger>
+              <SelectContent>
+                {registrySources.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.displayName}
+                    {s.activeUnitAmount !== null && (
+                      <span className="ml-2 text-muted-foreground text-xs">
+                        ${s.activeUnitAmount.toFixed(2)} • {s.recurrence}
+                      </span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground">
+              Picks the active unit amount and cadence — same values the engine uses to project this stream.
+            </p>
+          </div>
+        )}
+
         <FormField
           control={form.control}
           name="source"
@@ -389,6 +501,8 @@ function IncomeForm({
 export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDetectDialogOpen, setIsDetectDialogOpen] = useState(false);
+  // Step 6: registry manager dialog (rate changes + mode classification)
+  const [isRegistryOpen, setIsRegistryOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | undefined>();
   const [deletingIncome, setDeleteingIncome] = useState<Income | undefined>();
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -722,6 +836,14 @@ export default function IncomePage() {
           <p className="text-muted-foreground">Track your income sources</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setIsRegistryOpen(true)}
+            data-testid="button-open-registry"
+          >
+            <Sparkles className="h-4 w-4 mr-2" />
+            Manage Sources
+          </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => setEditingIncome(undefined)}>
@@ -765,6 +887,9 @@ export default function IncomePage() {
           </Button>
         </div>
       )}
+
+      {/* Registry Manager Dialog (Step 6) */}
+      <IncomeRegistryManager open={isRegistryOpen} onOpenChange={setIsRegistryOpen} />
 
       {/* Detect Income Dialog */}
       <Dialog open={isDetectDialogOpen} onOpenChange={(open) => !isDetecting && setIsDetectDialogOpen(open)}>

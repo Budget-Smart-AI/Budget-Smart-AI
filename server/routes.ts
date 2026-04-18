@@ -1457,6 +1457,256 @@ Return JSON: { "income": [...] }`;
     }
   });
 
+  /**
+   * POST /api/income/registry/refresh
+   *
+   * Auto-classifier for the income-source registry. Pulls the last 6 months
+   * of inflow transactions across all providers (Plaid + MX + Manual), runs
+   * the registry classifier, and upserts each detected stream into
+   * `income_sources` with a seed `income_source_amounts` row dated `today`.
+   *
+   * This is the single source of truth that drives the new projection path
+   * in `calculateIncomeForPeriod`. Idempotent — safe to call repeatedly. A
+   * future amount row inserted via PATCH (Step 6) is preserved because
+   * `upsertIncomeSource` only seeds when no amount history exists.
+   */
+  app.post("/api/income/registry/refresh", requireAuth, requireWriteAccess, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const today = new Date();
+      const startDate = new Date(today);
+      startDate.setMonth(startDate.getMonth() - 6);
+
+      const { plaidAdapter, mxAdapter, manualAdapter } = await import("./lib/financial-engine");
+      const { classifyDepositsForRegistry } = await import("./lib/financial-engine/categories/registry-classifier");
+
+      const startStr = startDate.toISOString().split("T")[0];
+      const endStr = today.toISOString().split("T")[0];
+
+      // Aggregate normalized transactions across providers
+      const normalized: any[] = [];
+
+      // Plaid — only include explicitly-active accounts
+      const plaidItems = await storage.getPlaidItems(userId);
+      for (const item of plaidItems) {
+        const accounts = await storage.getPlaidAccounts(item.id);
+        const activeIds = accounts.filter(a => a.isActive === "true").map(a => a.id);
+        if (activeIds.length === 0) continue;
+        const raw = await storage.getPlaidTransactions(activeIds, { startDate: startStr, endDate: endStr });
+        normalized.push(...plaidAdapter.normalizeTransactions(raw));
+      }
+
+      // MX
+      const mxAccounts = await storage.getMxAccountsByUserId(userId);
+      const mxActiveIds = mxAccounts
+        .filter((a: any) => a.isActive === "true" || a.isActive === true)
+        .map((a: any) => a.id || a.guid);
+      if (mxActiveIds.length > 0) {
+        const rawMx = await storage.getMxTransactions(mxActiveIds, { startDate: startStr, endDate: endStr });
+        normalized.push(...mxAdapter.normalizeTransactions(rawMx));
+      }
+
+      // Manual
+      const rawManual = await storage.getManualTransactionsByUser(userId, { startDate: startStr, endDate: endStr });
+      normalized.push(...manualAdapter.normalizeTransactions(rawManual));
+
+      // Project to DepositSample[] — credits only, ignore transfers between
+      // the user's own accounts. The classifier itself drops < $100 means.
+      const deposits = normalized
+        .filter(tx => tx.direction === "credit" && !tx.isTransfer && tx.amount > 0)
+        .map(tx => ({
+          date: tx.date,
+          amount: tx.amount,
+          merchant: tx.merchant || "",
+          pfcPrimary: tx.pfcPrimary ?? null,
+          pfcDetailed: tx.pfcDetailed ?? null,
+        }));
+
+      const classifications = classifyDepositsForRegistry(deposits, { today });
+
+      const todayStr = today.toISOString().split("T")[0];
+      const results: any[] = [];
+
+      for (const c of classifications) {
+        const src = await storage.upsertIncomeSource(
+          userId,
+          {
+            normalizedSource: c.normalizedSource,
+            displayName: c.displayName,
+            recurrence: c.recurrence as any,
+            mode: c.mode as any,
+            cadenceAnchor: c.cadenceAnchor,
+            cadenceExtra: c.cadenceExtra ?? null,
+            category: c.category,
+            isActive: true,
+            autoDetected: true,
+            detectedAt: today,
+          } as any,
+          { amount: c.unitAmount.toFixed(2), effectiveFrom: todayStr },
+        );
+        results.push({
+          id: src.id,
+          source: c.displayName,
+          normalizedSource: c.normalizedSource,
+          mode: c.mode,
+          recurrence: c.recurrence,
+          cadenceAnchor: c.cadenceAnchor,
+          cadenceExtra: c.cadenceExtra,
+          category: c.category,
+          unitAmount: c.unitAmount,
+          occurrences: c.occurrences,
+          amountCv: c.amountCv,
+          confidence:
+            c.mode === "fixed" ? "high" : c.mode === "variable" ? "medium" : "low",
+        });
+      }
+
+      res.json({
+        success: true,
+        windowStart: startStr,
+        windowEnd: endStr,
+        depositsAnalyzed: deposits.length,
+        sourcesDetected: results.length,
+        sources: results,
+      });
+    } catch (error: any) {
+      console.error("Income registry refresh error:", error);
+      res.status(500).json({ error: error.message || "Failed to refresh income registry" });
+    }
+  });
+
+  /**
+   * GET /api/income/registry
+   *
+   * Returns the user's active income-source registry rows joined with their
+   * effective-dated amount history. Drives the Step 6 UI for editing rate
+   * changes + mode classifications.
+   */
+  app.get("/api/income/registry", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const sources = await storage.getIncomeSourcesByUserIds([userId]);
+      if (sources.length === 0) return res.json({ sources: [] });
+      const amounts = await storage.getIncomeSourceAmountsBySourceIds(sources.map(s => s.id));
+      const byId: Record<string, any[]> = {};
+      for (const a of amounts) {
+        (byId[a.sourceId] = byId[a.sourceId] || []).push(a);
+      }
+      const today = new Date().toISOString().split("T")[0];
+      const out = sources.map(s => {
+        const history = (byId[s.id] || []).sort((a, b) =>
+          a.effectiveFrom.localeCompare(b.effectiveFrom)
+        );
+        // Active amount = the row whose [effectiveFrom, effectiveTo) covers today.
+        const active = history.find(
+          a => a.effectiveFrom <= today && (!a.effectiveTo || a.effectiveTo > today)
+        ) ?? history[history.length - 1];
+        return {
+          ...s,
+          amounts: history,
+          activeUnitAmount: active ? Number(active.amount) : null,
+        };
+      });
+      res.json({ sources: out });
+    } catch (error: any) {
+      console.error("Income registry list error:", error);
+      res.status(500).json({ error: error.message || "Failed to load income registry" });
+    }
+  });
+
+  /**
+   * PATCH /api/income/registry/:id
+   *
+   * Edit a registry source's display name, recurrence, mode, category, or
+   * cadence config. The `normalizedSource` field is intentionally NOT editable
+   * — renaming would break the unique-index dedup with future detection runs.
+   * To rename, deactivate this source and create a new one.
+   */
+  app.patch("/api/income/registry/:id", requireAuth, requireWriteAccess, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const id = req.params.id as string;
+      const patchSchema = z.object({
+        displayName: z.string().min(1).optional(),
+        recurrence: z.enum(RECURRENCE_OPTIONS).optional(),
+        mode: z.enum(["fixed", "variable", "irregular"] as const).optional(),
+        cadenceAnchor: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        cadenceExtra: z.string().nullable().optional(),
+        category: z.string().optional(),
+        isActive: z.boolean().optional(),
+      });
+      const parsed = patchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid update", details: parsed.error });
+      }
+      const updated = await storage.updateIncomeSource(userId, id, parsed.data as any);
+      if (!updated) return res.status(404).json({ error: "Income source not found" });
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Income source update error:", error);
+      res.status(500).json({ error: error.message || "Failed to update income source" });
+    }
+  });
+
+  /**
+   * DELETE /api/income/registry/:id
+   *
+   * Soft-delete via `isActive = false` so historical projections still
+   * resolve their FK. The detector will not auto-resurrect an inactive
+   * source unless the user explicitly recreates it.
+   */
+  app.delete("/api/income/registry/:id", requireAuth, requireWriteAccess, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const id = req.params.id as string;
+      await storage.deactivateIncomeSource(userId, id);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Income source deactivate error:", error);
+      res.status(500).json({ error: error.message || "Failed to deactivate income source" });
+    }
+  });
+
+  /**
+   * POST /api/income/registry/:id/rate
+   *
+   * Schedule a rate change. Closes the currently-active amount row by setting
+   * its `effective_to` to the day before the new effective date, then inserts
+   * a new open-ended row. Use this for raises, tax-bracket changes, etc. —
+   * Coreslab's May 1st $1,927 → $2,300 case is exactly this operation.
+   *
+   * Body: { amount: string|number, effectiveFrom: "yyyy-MM-dd", reason?: string }
+   */
+  app.post("/api/income/registry/:id/rate", requireAuth, requireWriteAccess, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const id = req.params.id as string;
+      const bodySchema = z.object({
+        amount: z.union([z.string(), z.number()]).transform(v => String(v)),
+        effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        reason: z.string().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid rate-change payload", details: parsed.error });
+      }
+      // Confirm ownership before inserting amount rows.
+      const sources = await storage.getIncomeSourcesByUserIds([userId]);
+      const owned = sources.find(s => s.id === id);
+      if (!owned) return res.status(404).json({ error: "Income source not found" });
+      const row = await storage.insertIncomeSourceAmount(
+        id,
+        parsed.data.amount,
+        parsed.data.effectiveFrom,
+        parsed.data.reason,
+      );
+      res.status(201).json(row);
+    } catch (error: any) {
+      console.error("Income rate-change error:", error);
+      res.status(500).json({ error: error.message || "Failed to schedule rate change" });
+    }
+  });
+
   app.post("/api/income", requireAuth, requireWriteAccess, async (req, res) => {
     try {
       const userId = req.session.userId!;

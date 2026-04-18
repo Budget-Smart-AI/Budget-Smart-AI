@@ -23,6 +23,7 @@ import {
   NormalizedTransaction,
   AccountCategory,
 } from "../normalized-types";
+import { classifyIncomeTransaction } from "../categories/income-classifier";
 
 // Categories that represent movement between accounts, not real income or expense.
 // Includes both legacy Plaid basic-category strings ("transfer", "payment") AND
@@ -138,21 +139,31 @@ export class PlaidAdapter implements BankingAdapter {
 
       const isPending = tx.pending === true || tx.pending === "true";
 
-      // PFC v2 income detection: counterpartyType "INCOME_SOURCE" identifies employers/gov payers.
-      // Also check PFC primary category — if Plaid says it's income, trust that.
-      // Note: we do NOT treat all credits as income — refunds, corrections, and
-      // merchant credits are credits but not income. We rely on Plaid's PFC
-      // classification and counterparty type for accurate income detection.
+      // Income classification is delegated to the central classifier. It
+      // applies a deterministic priority chain (PFC detailed → PFC primary →
+      // counterparty → amount-based fallback → legacy keyword scan), and
+      // critically does NOT use the broad /income/i regex that previously
+      // caused INCOME_INTEREST_EARNED, INCOME_DIVIDENDS, etc. to be tagged
+      // as generic income / Salary on the Income page.
+      //
+      // The classifier returns BOTH an INCOME_CATEGORIES value (for storing
+      // on income rows during auto-import) and the boolean isIncome flag
+      // (for inclusion in the actual-income sum on the Income page).
       const pfcPrimaryRaw = (tx.category || "").toUpperCase();
       const counterpartyType = tx.counterpartyType || null;
-      const isIncomeByPFC = pfcPrimaryRaw === "INCOME";
-      const isIncomeByCounterparty = counterpartyType === "INCOME_SOURCE";
-      // Also check the mapped category for income-related keywords
-      const isIncomeByCategory = /salary|payroll|income|wages|employment/i.test(category);
-      // A credit is only income if Plaid explicitly classifies it as such,
-      // OR the mapped category is income-related. Plain credits (refunds,
-      // corrections, merchant credits) are NOT income.
-      const isIncome = isIncomeByPFC || isIncomeByCounterparty || (isCredit && !isTransfer && isIncomeByCategory);
+
+      const classification = classifyIncomeTransaction({
+        pfcDetailed: pfcDetailedRaw || null,
+        pfcPrimary: pfcPrimaryRaw || null,
+        counterpartyType,
+        amount,
+        isCredit,
+        isTransfer,
+        legacyCategory: String(category),
+        merchant: tx.counterpartyName || tx.merchantName || tx.name || null,
+      });
+      const isIncome = classification.isIncome;
+      const incomeCategory = classification.category;
 
       // Expose Plaid PFC fields for the Monarch category resolver. The PFC
       // primary lives at `tx.category` (existing column), the detailed at
@@ -181,6 +192,8 @@ export class PlaidAdapter implements BankingAdapter {
         // Provider category signals consumed by `categories/resolver.ts`.
         pfcPrimary,
         pfcDetailed,
+        // Resolved income bucket (null for non-income rows).
+        incomeCategory: isIncome ? incomeCategory : null,
       } as NormalizedTransaction;
     });
   }

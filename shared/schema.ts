@@ -97,13 +97,35 @@ export const EXPENSE_CATEGORIES = [
 ] as const;
 
 // Recurrence options
+//
+// Added 2026-04-17 for the income-source registry:
+//   - "semimonthly" — exactly 2 paychecks per month on a configured day-pair
+//     (e.g. 15th + last day). Anchored via cadence_extra.semimonthly_days.
+//     Distinct from "biweekly" because semi-monthly never produces a
+//     3-paycheck month (biweekly does).
+//   - "irregular" — entrepreneurs / freelancers with no detectable cadence.
+//     Future-month projections return $0 for these sources; the Income page
+//     falls back to actual deposits only.
 export const RECURRENCE_OPTIONS = [
   "weekly",
   "biweekly",
+  "semimonthly",
   "monthly",
   "yearly",
   "custom",
+  "irregular",
   "one_time"
+] as const;
+
+// Income source classification mode — controls how future income is projected.
+//   - "fixed"     — unit_amount × occurrences in window (Coreslab, Roche)
+//   - "variable"  — rolling 3-mo avg × occurrences, marked as "estimated"
+//                   (contractors, OT-heavy salaried employees)
+//   - "irregular" — no projection at all (entrepreneurs, freelancers)
+export const INCOME_SOURCE_MODES = [
+  "fixed",
+  "variable",
+  "irregular",
 ] as const;
 
 // Manual account types for cash/non-bank spending
@@ -194,8 +216,16 @@ export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type Expense = typeof expenses.$inferSelect;
 
 // Income categories
+//
+// Aligned with Monarch's income breakdown: Paychecks (Salary), Interest,
+// Investments, Other (catch-all). Pre-existing buckets (Freelance, Business,
+// Rental, Gifts, Refunds) kept for backward compatibility with existing user
+// records; new auto-imports will only ever be assigned to Salary / Interest /
+// Investments / Other (selected by the categorizeIncomeTransaction helper in
+// server/lib/financial-engine/categories/income-classifier.ts).
 export const INCOME_CATEGORIES = [
   "Salary",
+  "Interest",
   "Freelance",
   "Business",
   "Investments",
@@ -253,6 +283,127 @@ export const updateIncomeSchema = insertIncomeSchema.partial();
 
 export type InsertIncome = z.infer<typeof insertIncomeSchema>;
 export type Income = typeof income.$inferSelect;
+
+// ─── Income Source Registry (added 2026-04-17) ───────────────────────────────
+//
+// One row per recurring income stream the user has — Coreslab paycheck, Roche
+// paycheck, Amare affiliate, an investment dividend, etc. This is the single
+// source of truth for cadence + unit amount, replacing the practice of
+// projecting from rows in `income`. The `income` table is now strictly a
+// journal of actual paychecks (auto-imported from bank txs + any one-off
+// manual entries). All projection math reads from this table instead.
+//
+// Why we needed this:
+//   - The duplicate-recurring-income bug (April Coreslab projecting at 2× the
+//     real amount) was caused by multiple recurring rows in `income` for the
+//     same source. A unique (user_id, normalized_source) index prevents that.
+//   - Effective-dated unit_amount via `income_source_amounts` so a May 1st
+//     tax-bracket change can be modeled without losing prior-period history.
+//   - Mode classification (fixed / variable / irregular) handles contractors
+//     and entrepreneurs without forcing them into a single projection model.
+export const incomeSources = pgTable("income_sources", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  // Normalised source name (lowercase, noise-words stripped, collapsed
+  // whitespace). Computed by the same `normalizeSourceName` helper the engine
+  // uses so dedup matches. Used as the unique key alongside user_id.
+  normalizedSource: text("normalized_source").notNull(),
+  // Display name preserved as the user (or detector) saw it — "Coreslab Inc"
+  // not "coreslab".
+  displayName: text("display_name").notNull(),
+  // Recurrence cadence; one of RECURRENCE_OPTIONS. "irregular" means no
+  // projection — the engine returns $0 for future months and shows actuals
+  // only for past/current.
+  recurrence: text("recurrence").notNull(),
+  // Classification mode; one of INCOME_SOURCE_MODES.
+  mode: text("mode").notNull().default("fixed"),
+  // Anchor date used by the cadence engine. For weekly: day-of-week is taken
+  // from this date. For biweekly: walks 2-week intervals from this date. For
+  // semimonthly: ignored (uses cadence_extra). Stored as yyyy-MM-dd string to
+  // match the rest of the codebase.
+  cadenceAnchor: text("cadence_anchor").notNull(),
+  // Cadence-specific extra config as JSON.
+  //   semimonthly: { semimonthlyDays: [15, "last"] | [1, 15] | ... }
+  //   custom:      { customDays: number[] }
+  // Other recurrences ignore this field.
+  cadenceExtra: text("cadence_extra"), // JSON string
+  // Income category bucket — one of INCOME_CATEGORIES.
+  category: text("category").notNull().default("Salary"),
+  // Whether to include this source in projections. Soft-delete via this flag
+  // rather than DELETE so historical records still resolve their source FK.
+  isActive: boolean("is_active").notNull().default(true),
+  // Whether the source was discovered automatically by the recurring-income
+  // detector vs created by the user manually.
+  autoDetected: boolean("auto_detected").notNull().default(false),
+  // When the detector last refreshed this source's classification.
+  detectedAt: timestamp("detected_at"),
+  // Foreign key (logical) to plaid_accounts so re-classifications stay
+  // scoped to the correct account if the user has multiple paychecks routed
+  // to different banks.
+  linkedPlaidAccountId: varchar("linked_plaid_account_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  // Prevents the duplicate-source bug at the DB level. Any future detection
+  // pass MUST upsert against this index, not insert blindly.
+  uniqUserSource: uniqueIndex("income_sources_user_source_uniq")
+    .on(t.userId, t.normalizedSource),
+}));
+
+export const insertIncomeSourceSchema = createInsertSchema(incomeSources).omit({
+  id: true,
+  userId: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  userId: z.string().optional(),
+  recurrence: z.enum(RECURRENCE_OPTIONS),
+  mode: z.enum(INCOME_SOURCE_MODES).optional(),
+  category: z.enum(INCOME_CATEGORIES).optional(),
+  cadenceExtra: z.string().nullable().optional(),
+  detectedAt: z.date().nullable().optional(),
+});
+
+export type InsertIncomeSource = z.infer<typeof insertIncomeSourceSchema>;
+export type IncomeSource = typeof incomeSources.$inferSelect;
+
+// ─── Effective-dated Unit Amounts ────────────────────────────────────────────
+//
+// Each recurring source has one or more rows here representing what the
+// per-paycheck amount was during a given window. Closing out a row (setting
+// effective_to to the day before a change) and inserting a new row models a
+// raise, tax-bracket change, etc. without losing history. The active row at
+// any given calendar date is the one with effective_from <= date AND
+// (effective_to IS NULL OR effective_to >= date).
+export const incomeSourceAmounts = pgTable("income_source_amounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceId: varchar("source_id").notNull(), // FK to income_sources.id
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  effectiveFrom: text("effective_from").notNull(), // yyyy-MM-dd
+  effectiveTo: text("effective_to"),               // yyyy-MM-dd, NULL = currently active
+  // Free-form note for why the amount changed — "Coreslab raise May 2026",
+  // "Tax bracket change", etc. Surface in the UI for audit trail.
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  // Each source can only have one currently-active (effective_to IS NULL) row
+  // per period start. This is enforced at insert time by application code,
+  // not by the DB, because partial unique indexes vary by Postgres version.
+  // The natural constraint is that effective_from windows don't overlap.
+}));
+
+export const insertIncomeSourceAmountSchema = createInsertSchema(incomeSourceAmounts).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  amount: z.string().or(z.number()).transform((val) => String(val)),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+});
+
+export type InsertIncomeSourceAmount = z.infer<typeof insertIncomeSourceAmountSchema>;
+export type IncomeSourceAmount = typeof incomeSourceAmounts.$inferSelect;
 
 // Budgets table - monthly budget limits per category
 export const budgets = pgTable("budgets", {

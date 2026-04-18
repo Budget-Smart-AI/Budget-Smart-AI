@@ -3,6 +3,8 @@ import {
   type Bill, type InsertBill,
   type Expense, type InsertExpense,
   type Income, type InsertIncome,
+  type IncomeSource, type InsertIncomeSource,
+  type IncomeSourceAmount, type InsertIncomeSourceAmount,
   type Budget, type InsertBudget,
   type SavingsGoal, type InsertSavingsGoal,
   type PlaidItem, type InsertPlaidItem,
@@ -58,7 +60,7 @@ import {
   type SupportTicketMessage, type InsertSupportTicketMessage,
   type FinancialProfessional,
   supportTickets, supportTicketMessages,
-  users, bills, expenses, income, budgets, savingsGoals,
+  users, bills, expenses, income, incomeSources, incomeSourceAmounts, budgets, savingsGoals,
   plaidItems, plaidAccounts, plaidTransactions,
   mxMembers, mxAccounts, mxTransactions,
   type MxMember, type InsertMxMember,
@@ -997,6 +999,16 @@ export class MemStorage implements IStorage {
   async getBillsByUserIds(_userIds: string[]): Promise<Bill[]> { return []; }
   async getExpensesByUserIds(_userIds: string[]): Promise<Expense[]> { return []; }
   async getIncomesByUserIds(_userIds: string[]): Promise<Income[]> { return []; }
+  async getIncomeSourcesByUserIds(_userIds: string[]): Promise<IncomeSource[]> { return []; }
+  async getIncomeSourceAmountsBySourceIds(_sourceIds: string[]): Promise<IncomeSourceAmount[]> { return []; }
+  async upsertIncomeSource(_userId: string, _src: any, _initial?: any): Promise<IncomeSource> {
+    throw new Error("upsertIncomeSource not supported on stub storage");
+  }
+  async insertIncomeSourceAmount(_sourceId: string, _amount: string, _effectiveFrom: string, _reason?: string): Promise<IncomeSourceAmount> {
+    throw new Error("insertIncomeSourceAmount not supported on stub storage");
+  }
+  async deactivateIncomeSource(_userId: string, _sourceId: string): Promise<void> {}
+  async updateIncomeSource(_userId: string, _sourceId: string, _patch: any): Promise<IncomeSource | undefined> { return undefined; }
   async getBudgetsByUserIds(_userIds: string[]): Promise<Budget[]> { return []; }
   async getBudgetsByUserIdsAndMonth(_userIds: string[], _month: string): Promise<Budget[]> { return []; }
   async getSavingsGoalsByUserIds(_userIds: string[]): Promise<SavingsGoal[]> { return []; }
@@ -2402,6 +2414,124 @@ export class DatabaseStorage implements IStorage {
   async getIncomesByUserIds(userIds: string[]): Promise<Income[]> {
     if (userIds.length === 0) return [];
     return db.select().from(income).where(inArray(income.userId, userIds));
+  }
+
+  // ─── Income Source Registry (added 2026-04-17 for income overhaul) ─────────
+  // Single source of truth for recurring income streams. The engine reads from
+  // here when projecting future months; the legacy `income` table is now a
+  // pure journal of actual paychecks.
+
+  async getIncomeSourcesByUserIds(userIds: string[]): Promise<IncomeSource[]> {
+    if (userIds.length === 0) return [];
+    return db.select().from(incomeSources).where(
+      and(inArray(incomeSources.userId, userIds), eq(incomeSources.isActive, true))
+    );
+  }
+
+  async getIncomeSourceAmountsBySourceIds(sourceIds: string[]): Promise<IncomeSourceAmount[]> {
+    if (sourceIds.length === 0) return [];
+    return db.select().from(incomeSourceAmounts)
+      .where(inArray(incomeSourceAmounts.sourceId, sourceIds));
+  }
+
+  async upsertIncomeSource(
+    userId: string,
+    src: Omit<InsertIncomeSource, "userId">,
+    initialAmount?: { amount: string; effectiveFrom: string },
+  ): Promise<IncomeSource> {
+    // Upsert against the (user_id, normalized_source) unique index. Using
+    // raw onConflictDoUpdate so detection passes are idempotent.
+    const [row] = await db.insert(incomeSources).values({
+      ...src,
+      userId,
+    } as any).onConflictDoUpdate({
+      target: [incomeSources.userId, incomeSources.normalizedSource],
+      set: {
+        displayName: src.displayName,
+        recurrence: src.recurrence,
+        mode: src.mode ?? "fixed",
+        cadenceAnchor: src.cadenceAnchor,
+        cadenceExtra: src.cadenceExtra ?? null,
+        category: src.category ?? "Salary",
+        isActive: src.isActive ?? true,
+        autoDetected: src.autoDetected ?? false,
+        detectedAt: src.detectedAt ?? new Date(),
+        linkedPlaidAccountId: src.linkedPlaidAccountId ?? null,
+        updatedAt: new Date(),
+      },
+    } as any).returning();
+
+    // If this is a brand-new source AND no amount history exists, seed an
+    // open-ended amount row so projections have something to read.
+    if (initialAmount) {
+      const existing = await db.select().from(incomeSourceAmounts)
+        .where(eq(incomeSourceAmounts.sourceId, row.id));
+      if (existing.length === 0) {
+        await db.insert(incomeSourceAmounts).values({
+          sourceId: row.id,
+          amount: initialAmount.amount,
+          effectiveFrom: initialAmount.effectiveFrom,
+          effectiveTo: null,
+        });
+      }
+    }
+    return row;
+  }
+
+  async insertIncomeSourceAmount(
+    sourceId: string,
+    amount: string,
+    effectiveFrom: string,
+    reason?: string,
+  ): Promise<IncomeSourceAmount> {
+    // Close out the currently-active row (effectiveTo IS NULL) by setting its
+    // effectiveTo to the day before the new effective_from. This is the
+    // "schedule a rate change" operation.
+    const dayBefore = effectiveFrom; // We'll close on the same day; the caller
+    // is expected to compute effectiveFrom = changeDate.
+    await db.update(incomeSourceAmounts)
+      .set({ effectiveTo: dayBefore })
+      .where(and(
+        eq(incomeSourceAmounts.sourceId, sourceId),
+        sql`${incomeSourceAmounts.effectiveTo} IS NULL`,
+      ));
+    const [row] = await db.insert(incomeSourceAmounts).values({
+      sourceId,
+      amount,
+      effectiveFrom,
+      effectiveTo: null,
+      reason: reason ?? null,
+    }).returning();
+    return row;
+  }
+
+  async deactivateIncomeSource(userId: string, sourceId: string): Promise<void> {
+    await db.update(incomeSources)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(and(eq(incomeSources.id, sourceId), eq(incomeSources.userId, userId)));
+  }
+
+  async updateIncomeSource(
+    userId: string,
+    sourceId: string,
+    patch: Partial<Omit<InsertIncomeSource, "userId" | "normalizedSource">>,
+  ): Promise<IncomeSource | undefined> {
+    // Whitelist editable fields — normalizedSource is immutable (the unique
+    // index would collide on rename); userId is scoped via the WHERE clause.
+    const set: Record<string, unknown> = { updatedAt: new Date() };
+    if (patch.displayName !== undefined) set.displayName = patch.displayName;
+    if (patch.recurrence !== undefined) set.recurrence = patch.recurrence;
+    if (patch.mode !== undefined) set.mode = patch.mode;
+    if (patch.cadenceAnchor !== undefined) set.cadenceAnchor = patch.cadenceAnchor;
+    if (patch.cadenceExtra !== undefined) set.cadenceExtra = patch.cadenceExtra;
+    if (patch.category !== undefined) set.category = patch.category;
+    if (patch.isActive !== undefined) set.isActive = patch.isActive;
+    if (patch.linkedPlaidAccountId !== undefined) set.linkedPlaidAccountId = patch.linkedPlaidAccountId;
+    const [row] = await db.update(incomeSources)
+      .set(set as any)
+      .where(and(eq(incomeSources.id, sourceId), eq(incomeSources.userId, userId)))
+      .returning();
+    return row;
   }
 
   async getBudgetsByUserIds(userIds: string[]): Promise<Budget[]> {
