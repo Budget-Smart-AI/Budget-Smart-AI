@@ -77,6 +77,31 @@ function parseDateRange(
   return { startDate: startOfMonth(today), endDate: endOfMonth(today) };
 }
 
+/**
+ * Load both halves of the income-source registry for a household.
+ *
+ * The registry path in `calculateIncomeForPeriod` needs the active sources
+ * AND their effective-dated unit amounts. Sources come from the household
+ * fan-out; amounts have a sourceId FK so we have to fetch them in a second
+ * pass. The two together are still O(2) round-trips — small compared to the
+ * normalized transactions load that all callers already pay for.
+ *
+ * Returns `{ sources: [], amounts: [] }` for households without any
+ * registered sources, which is the back-compat signal that
+ * `calculateIncomeForPeriod` interprets as "use the legacy path".
+ */
+async function loadIncomeRegistry(userIds: string[]): Promise<{
+  sources: Awaited<ReturnType<typeof EngineStorage.getIncomeSourcesByUserIds>>;
+  amounts: Awaited<ReturnType<typeof EngineStorage.getIncomeSourceAmountsBySourceIds>>;
+}> {
+  const sources = await EngineStorage.getIncomeSourcesByUserIds(userIds);
+  if (sources.length === 0) return { sources, amounts: [] };
+  const amounts = await EngineStorage.getIncomeSourceAmountsBySourceIds(
+    sources.map((s) => s.id),
+  );
+  return { sources, amounts };
+}
+
 // ─── Endpoints ─────────────────────────────────────────────────────────────
 
 /**
@@ -96,6 +121,7 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     const [
       billsData,
       incomeData,
+      incomeRegistry,
       expensesData,
       budgetsData,
       savingsGoalsData,
@@ -108,6 +134,7 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     ] = await Promise.all([
       EngineStorage.getBillsByUserIds(userIds),
       EngineStorage.getIncomesByUserIds(userIds),
+      loadIncomeRegistry(userIds),
       EngineStorage.getExpensesByUserIds(userIds),
       EngineStorage.getBudgetsByUserIds(userIds),
       EngineStorage.getSavingsGoalsByUserIds(userIds),
@@ -144,9 +171,12 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     // Calculate all components
     const income = calculateIncomeForPeriod({
       income: incomeData,
+      incomeSources: incomeRegistry.sources,
+      incomeSourceAmounts: incomeRegistry.amounts,
       transactions,
       monthStart,
       monthEnd,
+      today,
     });
     const expenses = calculateExpensesForPeriod({
       expenses: expensesData,
@@ -323,14 +353,17 @@ router.get("/income", async (req: Request, res: Response) => {
     // identified even when no deposit has landed in the current month yet.
     const lookbackStart = startOfMonth(subMonths(startDate, 3));
 
-    const [incomeData, transactions, historicalTransactions] = await Promise.all([
+    const [incomeData, incomeRegistry, transactions, historicalTransactions] = await Promise.all([
       EngineStorage.getIncomesByUserIds(userIds),
+      loadIncomeRegistry(userIds),
       getAllNormalizedTransactions(userIds, startDate, endDate),
       getAllNormalizedTransactions(userIds, lookbackStart, endDate),
     ]);
 
     const result = calculateIncomeForPeriod({
       income: incomeData,
+      incomeSources: incomeRegistry.sources,
+      incomeSourceAmounts: incomeRegistry.amounts,
       transactions,
       historicalTransactions,
       monthStart: startDate,
@@ -571,9 +604,10 @@ router.get("/health-score", async (req: Request, res: Response) => {
 
     const userIds = requireContext(req).householdUserIds;
 
-    const [incomeData, budgetsData, billsData, savingsGoalsData, expensesData, transactions] =
+    const [incomeData, incomeRegistry, budgetsData, billsData, savingsGoalsData, expensesData, transactions] =
       await Promise.all([
         EngineStorage.getIncomesByUserIds(userIds),
+        loadIncomeRegistry(userIds),
         EngineStorage.getBudgetsByUserIds(userIds),
         EngineStorage.getBillsByUserIds(userIds),
         EngineStorage.getSavingsGoalsByUserIds(userIds),
@@ -583,9 +617,12 @@ router.get("/health-score", async (req: Request, res: Response) => {
 
     const income = calculateIncomeForPeriod({
       income: incomeData,
+      incomeSources: incomeRegistry.sources,
+      incomeSourceAmounts: incomeRegistry.amounts,
       transactions,
       monthStart,
       monthEnd,
+      today,
     });
     const expenses = calculateExpensesForPeriod({
       expenses: expensesData,
@@ -834,18 +871,22 @@ router.get("/safe-to-spend", async (req: Request, res: Response) => {
     const monthStart = startOfMonth(today);
     const monthEnd = endOfMonth(today);
 
-    const [billsData, incomeData, expensesData, transactions] = await Promise.all([
+    const [billsData, incomeData, incomeRegistry, expensesData, transactions] = await Promise.all([
       EngineStorage.getBillsByUserIds(userIds),
       EngineStorage.getIncomesByUserIds(userIds),
+      loadIncomeRegistry(userIds),
       EngineStorage.getExpensesByUserIds(userIds),
       getAllNormalizedTransactions(userIds, monthStart, monthEnd),
     ]);
 
     const income = calculateIncomeForPeriod({
       income: incomeData,
+      incomeSources: incomeRegistry.sources,
+      incomeSourceAmounts: incomeRegistry.amounts,
       transactions,
       monthStart,
       monthEnd,
+      today,
     });
     const expenses = calculateExpensesForPeriod({
       expenses: expensesData,
@@ -1176,9 +1217,10 @@ router.get("/reports", async (req: Request, res: Response) => {
     const monthEnd = endOfMonth(today);
 
     // Get all base data
-    const [expensesData, incomeData, billsData] = await Promise.all([
+    const [expensesData, incomeData, incomeRegistry, billsData] = await Promise.all([
       EngineStorage.getExpensesByUserIds(userIds),
       EngineStorage.getIncomesByUserIds(userIds),
+      loadIncomeRegistry(userIds),
       EngineStorage.getBillsByUserIds(userIds),
     ]);
 
@@ -1199,9 +1241,12 @@ router.get("/reports", async (req: Request, res: Response) => {
     });
     const currentMonthIncome = calculateIncomeForPeriod({
       income: incomeData,
+      incomeSources: incomeRegistry.sources,
+      incomeSourceAmounts: incomeRegistry.amounts,
       transactions: transactionsForMonth,
       monthStart,
       monthEnd,
+      today,
     });
     const currentMonthBills = calculateBillsForPeriod({
       bills: billsData,

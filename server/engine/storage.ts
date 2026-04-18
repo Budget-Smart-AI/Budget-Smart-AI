@@ -26,6 +26,8 @@ import type {
   Bill,
   Expense,
   Income,
+  IncomeSource,
+  IncomeSourceAmount,
   Budget,
   SavingsGoal,
   DebtDetails,
@@ -46,6 +48,17 @@ export const EngineStorage = {
 
   getIncomesByUserIds(userIds: string[]): Promise<Income[]> {
     return storage.getIncomesByUserIds(userIds);
+  },
+
+  // Registry reads — drive the new projection path in calculateIncomeForPeriod.
+  // Both methods return [] for empty user lists; the engine checks for non-zero
+  // length before preferring the registry over the legacy `Income` rows.
+  getIncomeSourcesByUserIds(userIds: string[]): Promise<IncomeSource[]> {
+    return storage.getIncomeSourcesByUserIds(userIds);
+  },
+
+  getIncomeSourceAmountsBySourceIds(sourceIds: string[]): Promise<IncomeSourceAmount[]> {
+    return storage.getIncomeSourceAmountsBySourceIds(sourceIds);
   },
 
   getExpensesByUserIds(userIds: string[]): Promise<Expense[]> {

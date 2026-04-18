@@ -1,61 +1,14 @@
 /**
  * Alpha Vantage API Integration
- * Provides stock quotes, technical indicators, and fundamental data.
- *
- * Cache layer: every call is memoized in-process with a per-function TTL so
- * repeat views of the same symbol do not burn the free-tier daily call quota
- * (25/day) or trip the 5-calls-per-minute throttle. Cache is best-effort
- * (process-local, evicted on restart) — for multi-replica deployments move to
- * Redis.
+ * Provides stock quotes, technical indicators, and fundamental data
  */
 
 const ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query";
 const API_KEY = process.env.ALPHA_ADVANTAGE_API || "";
 
-// ── Rate limiting ───────────────────────────────────────────────────────────
-// Free tier allows 25 requests/day, 5 requests/minute.
+// Rate limiting: Free tier allows 25 requests/day, 5 requests/minute
 let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 12000; // 12 seconds between requests (5/min limit)
-
-// ── In-memory cache ─────────────────────────────────────────────────────────
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-const responseCache = new Map<string, CacheEntry<any>>();
-const MAX_CACHE_ENTRIES = 500;
-
-function cacheGet<T>(key: string): T | undefined {
-  const entry = responseCache.get(key);
-  if (!entry) return undefined;
-  if (entry.expiresAt < Date.now()) {
-    responseCache.delete(key);
-    return undefined;
-  }
-  return entry.value as T;
-}
-
-function cacheSet<T>(key: string, value: T, ttlMs: number): void {
-  // Simple LRU-ish bound: when full, drop the oldest entry.
-  if (responseCache.size >= MAX_CACHE_ENTRIES) {
-    const firstKey = responseCache.keys().next().value;
-    if (firstKey !== undefined) responseCache.delete(firstKey);
-  }
-  responseCache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
-
-// Per-function TTLs, tuned to how often each dataset realistically changes.
-const TTL = {
-  quote: 60 * 1000,                // 1 minute — intraday price
-  overview: 24 * 60 * 60 * 1000,   // 24 hours — fundamentals
-  earnings: 24 * 60 * 60 * 1000,   // 24 hours — quarterly
-  timeseriesCompact: 30 * 60 * 1000, // 30 minutes — last 100 days
-  timeseriesFull: 4 * 60 * 60 * 1000,  // 4 hours — historical
-  rsi: 4 * 60 * 60 * 1000,         // 4 hours — technical indicator
-  sma: 4 * 60 * 60 * 1000,         // 4 hours — technical indicator
-  news: 60 * 60 * 1000,            // 1 hour — news sentiment
-  search: 24 * 60 * 60 * 1000,     // 24 hours — symbol search
-} as const;
 
 async function rateLimitedFetch(url: string): Promise<any> {
   const now = Date.now();
@@ -78,12 +31,8 @@ async function rateLimitedFetch(url: string): Promise<any> {
   if (data["Error Message"]) {
     throw new Error(data["Error Message"]);
   }
-  if (data["Note"] || data["Information"]) {
-    // Both "Note" (throttle) and "Information" (quota exhausted) mean the
-    // response is not real data. Surface as error so caller can fall back.
-    const msg = data["Note"] || data["Information"];
-    console.warn("Alpha Vantage rate-limit / quota notice:", msg);
-    throw new Error(`Alpha Vantage throttled: ${msg}`);
+  if (data["Note"]) {
+    console.warn("Alpha Vantage rate limit warning:", data["Note"]);
   }
 
   return data;
@@ -137,10 +86,6 @@ export async function getStockQuote(symbol: string): Promise<StockQuote | null> 
     return null;
   }
 
-  const cacheKey = `quote:${symbol.toUpperCase()}`;
-  const cached = cacheGet<StockQuote>(cacheKey);
-  if (cached) return cached;
-
   try {
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
@@ -150,7 +95,7 @@ export async function getStockQuote(symbol: string): Promise<StockQuote | null> 
       return null;
     }
 
-    const result: StockQuote = {
+    return {
       symbol: quote["01. symbol"],
       price: parseFloat(quote["05. price"]),
       change: parseFloat(quote["09. change"]),
@@ -162,8 +107,6 @@ export async function getStockQuote(symbol: string): Promise<StockQuote | null> 
       high: parseFloat(quote["03. high"]),
       low: parseFloat(quote["04. low"]),
     };
-    cacheSet(cacheKey, result, TTL.quote);
-    return result;
   } catch (error) {
     console.error(`Error fetching quote for ${symbol}:`, error);
     return null;
@@ -176,10 +119,6 @@ export async function getStockQuote(symbol: string): Promise<StockQuote | null> 
 export async function getRSI(symbol: string, interval: string = "daily", timePeriod: number = 14): Promise<TechnicalIndicator | null> {
   if (!API_KEY) return null;
 
-  const cacheKey = `rsi:${symbol.toUpperCase()}:${interval}:${timePeriod}`;
-  const cached = cacheGet<TechnicalIndicator>(cacheKey);
-  if (cached) return cached;
-
   try {
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=RSI&symbol=${encodeURIComponent(symbol)}&interval=${interval}&time_period=${timePeriod}&series_type=close&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
@@ -190,14 +129,12 @@ export async function getRSI(symbol: string, interval: string = "daily", timePer
     const latestDate = Object.keys(technicalData)[0];
     const latestValue = technicalData[latestDate];
 
-    const result: TechnicalIndicator = {
+    return {
       symbol,
       indicator: "RSI",
       value: parseFloat(latestValue.RSI),
       timestamp: latestDate,
     };
-    cacheSet(cacheKey, result, TTL.rsi);
-    return result;
   } catch (error) {
     console.error(`Error fetching RSI for ${symbol}:`, error);
     return null;
@@ -210,10 +147,6 @@ export async function getRSI(symbol: string, interval: string = "daily", timePer
 export async function getSMA(symbol: string, interval: string = "daily", timePeriod: number = 50): Promise<TechnicalIndicator | null> {
   if (!API_KEY) return null;
 
-  const cacheKey = `sma:${symbol.toUpperCase()}:${interval}:${timePeriod}`;
-  const cached = cacheGet<TechnicalIndicator>(cacheKey);
-  if (cached) return cached;
-
   try {
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=SMA&symbol=${encodeURIComponent(symbol)}&interval=${interval}&time_period=${timePeriod}&series_type=close&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
@@ -224,14 +157,12 @@ export async function getSMA(symbol: string, interval: string = "daily", timePer
     const latestDate = Object.keys(technicalData)[0];
     const latestValue = technicalData[latestDate];
 
-    const result: TechnicalIndicator = {
+    return {
       symbol,
       indicator: `SMA${timePeriod}`,
       value: parseFloat(latestValue.SMA),
       timestamp: latestDate,
     };
-    cacheSet(cacheKey, result, TTL.sma);
-    return result;
   } catch (error) {
     console.error(`Error fetching SMA for ${symbol}:`, error);
     return null;
@@ -244,17 +175,13 @@ export async function getSMA(symbol: string, interval: string = "daily", timePer
 export async function getCompanyOverview(symbol: string): Promise<CompanyOverview | null> {
   if (!API_KEY) return null;
 
-  const cacheKey = `overview:${symbol.toUpperCase()}`;
-  const cached = cacheGet<CompanyOverview>(cacheKey);
-  if (cached) return cached;
-
   try {
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
 
     if (!data.Symbol) return null;
 
-    const result: CompanyOverview = {
+    return {
       symbol: data.Symbol,
       name: data.Name,
       description: data.Description,
@@ -272,8 +199,6 @@ export async function getCompanyOverview(symbol: string): Promise<CompanyOvervie
       twoHundredDayMA: parseFloat(data["200DayMovingAverage"]) || 0,
       analystTargetPrice: parseFloat(data.AnalystTargetPrice) || 0,
     };
-    cacheSet(cacheKey, result, TTL.overview);
-    return result;
   } catch (error) {
     console.error(`Error fetching overview for ${symbol}:`, error);
     return null;
@@ -344,16 +269,12 @@ export interface NewsArticle {
 export async function fetchNewsSentiment(symbol: string, limit = 3): Promise<NewsArticle[]> {
   if (!API_KEY) return [];
 
-  const cacheKey = `news:${symbol.toUpperCase()}:${limit}`;
-  const cached = cacheGet<NewsArticle[]>(cacheKey);
-  if (cached) return cached;
-
   try {
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(symbol)}&limit=${limit}&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
 
     const feed: any[] = data?.feed ?? [];
-    const results = feed.slice(0, limit).map((item: any) => {
+    return feed.slice(0, limit).map((item: any) => {
       // Alpha Vantage returns per-ticker sentiment inside ticker_sentiment array
       const tickerSentiment = (item.ticker_sentiment as any[])?.find(
         (t: any) => t.ticker?.toUpperCase() === symbol.toUpperCase(),
@@ -369,8 +290,6 @@ export async function fetchNewsSentiment(symbol: string, limit = 3): Promise<New
         url: item.url ?? "",
       };
     });
-    cacheSet(cacheKey, results, TTL.news);
-    return results;
   } catch (error) {
     console.error(`Error fetching news for ${symbol}:`, error);
     return [];
@@ -395,26 +314,19 @@ export interface SymbolSearchResult {
 export async function searchSymbols(query: string): Promise<SymbolSearchResult[]> {
   if (!API_KEY || !query.trim()) return [];
 
-  const normalized = query.trim().toLowerCase();
-  const cacheKey = `search:${normalized}`;
-  const cached = cacheGet<SymbolSearchResult[]>(cacheKey);
-  if (cached) return cached;
-
   try {
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=SYMBOL_SEARCH&keywords=${encodeURIComponent(query)}&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
 
     const matches: any[] = data?.bestMatches ?? [];
-    const results = matches.map((m: any) => ({
+    return matches.map((m: any) => ({
       symbol: m["1. symbol"] ?? "",
       name: m["2. name"] ?? "",
       type: m["3. type"] ?? "",
       region: m["4. region"] ?? "",
       currency: m["8. currency"] ?? "USD",
       matchScore: parseFloat(m["9. matchScore"] ?? "0"),
-    })).filter((r: SymbolSearchResult) => r.symbol);
-    cacheSet(cacheKey, results, TTL.search);
-    return results;
+    })).filter((r) => r.symbol);
   } catch (error) {
     console.error(`Error searching symbols for "${query}":`, error);
     return [];
@@ -440,13 +352,7 @@ export async function getDailyTimeSeries(
 ): Promise<TimeSeriesPoint[]> {
   if (!API_KEY) return [];
 
-  const cacheKey = `timeseries:${symbol.toUpperCase()}:${outputSize}`;
-  const cached = cacheGet<TimeSeriesPoint[]>(cacheKey);
-  if (cached) return cached;
-
   try {
-    // TIME_SERIES_DAILY is the free-tier endpoint; TIME_SERIES_DAILY_ADJUSTED
-    // moved to a paid plan in late 2023. Do not swap back without a key upgrade.
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&outputsize=${outputSize}&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
 
@@ -464,9 +370,6 @@ export async function getDailyTimeSeries(
 
     // Sort ascending by date
     points.sort((a, b) => a.date.localeCompare(b.date));
-
-    const ttl = outputSize === "full" ? TTL.timeseriesFull : TTL.timeseriesCompact;
-    cacheSet(cacheKey, points, ttl);
     return points;
   } catch (error) {
     console.error(`Error fetching time series for ${symbol}:`, error);
@@ -494,10 +397,6 @@ export interface EarningsData {
 export async function getEarnings(symbol: string): Promise<EarningsData | null> {
   if (!API_KEY) return null;
 
-  const cacheKey = `earnings:${symbol.toUpperCase()}`;
-  const cached = cacheGet<EarningsData>(cacheKey);
-  if (cached) return cached;
-
   try {
     const url = `${ALPHA_VANTAGE_BASE_URL}?function=EARNINGS&symbol=${encodeURIComponent(symbol)}&apikey=${API_KEY}`;
     const data = await rateLimitedFetch(url);
@@ -521,12 +420,10 @@ export async function getEarnings(symbol: string): Promise<EarningsData | null> 
       };
     });
 
-    const result: EarningsData = {
+    return {
       symbol: data.symbol,
       quarterlyEarnings,
     };
-    cacheSet(cacheKey, result, TTL.earnings);
-    return result;
   } catch (error) {
     console.error(`Error fetching earnings for ${symbol}:`, error);
     return null;
@@ -587,4 +484,78 @@ export function generateAnalysisSummary(analysis: {
   }
 
   return parts.join('\n');
+}
+
+export interface HistoricalPrice {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/**
+ * Get historical daily prices for a symbol.
+ * Uses TIME_SERIES_DAILY for 1M/3M, TIME_SERIES_MONTHLY for 1Y/5Y.
+ * @param symbol - Stock ticker symbol
+ * @param range - Time range: "1M", "3M", "1Y", "5Y"
+ */
+export async function getHistoricalPrices(
+  symbol: string,
+  range: "1M" | "3M" | "1Y" | "5Y" = "1M"
+): Promise<HistoricalPrice[]> {
+  if (!API_KEY) {
+    console.warn("Alpha Vantage API key not configured");
+    return [];
+  }
+
+  try {
+    let fn: string;
+    let timeSeriesKey: string;
+    let outputsize = "compact"; // compact = last 100 data points
+
+    if (range === "1Y" || range === "5Y") {
+      fn = "TIME_SERIES_MONTHLY";
+      timeSeriesKey = "Monthly Time Series";
+      outputsize = "full";
+    } else {
+      fn = "TIME_SERIES_DAILY";
+      timeSeriesKey = "Time Series (Daily)";
+      outputsize = range === "3M" ? "full" : "compact";
+    }
+
+    const url = `${ALPHA_VANTAGE_BASE_URL}?function=${fn}&symbol=${encodeURIComponent(symbol)}&outputsize=${outputsize}&apikey=${API_KEY}`;
+    const data = await rateLimitedFetch(url);
+
+    const timeSeries = data[timeSeriesKey];
+    if (!timeSeries) return [];
+
+    const entries = Object.entries(timeSeries) as [string, any][];
+    // Sort by date descending
+    entries.sort((a, b) => b[0].localeCompare(a[0]));
+
+    // Limit based on range
+    const limitMap: Record<string, number> = {
+      "1M": 22,   // ~22 trading days
+      "3M": 66,   // ~66 trading days
+      "1Y": 12,   // 12 months
+      "5Y": 60,   // 60 months
+    };
+    const limit = limitMap[range] || 22;
+    const limited = entries.slice(0, limit);
+
+    // Return in chronological order (oldest first) for charting
+    return limited.reverse().map(([date, values]: [string, any]) => ({
+      date,
+      open: parseFloat(values["1. open"]),
+      high: parseFloat(values["2. high"]),
+      low: parseFloat(values["3. low"]),
+      close: parseFloat(values["4. close"]),
+      volume: parseInt(values["5. volume"]),
+    }));
+  } catch (error) {
+    console.error(`Error fetching historical prices for ${symbol}:`, error);
+    return [];
+  }
 }

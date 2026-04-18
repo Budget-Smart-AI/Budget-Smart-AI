@@ -35,6 +35,9 @@ export type {
 export type {
   DateRange,
   IncomeResult,
+  IncomeBySourceEntry,
+  IncomeProjectionConfidence,
+  IncomeSourceMode,
   ExpenseResult,
   BillOccurrence,
   BillsResult,
@@ -78,6 +81,7 @@ export { plaidAdapter, mxAdapter, manualAdapter } from "./adapters";
 export {
   calculateMonthlyIncomeTotal,
   calculateIncomeForPeriod,
+  normalizeSourceName,
 } from "./income";
 
 export {

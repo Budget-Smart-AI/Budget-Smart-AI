@@ -61,6 +61,12 @@ export interface NormalizedTransaction {
   mxCategory?: string | null;
   /** MX top-level category, e.g. `Food & Dining`. */
   mxTopLevel?: string | null;
+
+  /** Resolved INCOME_CATEGORIES value when `isIncome === true`. Computed by
+   * the `classifyIncomeTransaction` helper and used by the auto-reconciler
+   * when creating new income rows so we never default to "Salary" for
+   * interest, dividends, or affiliate credits. Null for non-income rows. */
+  incomeCategory?: string | null;
 }
 
 // ─── Normalized Account ───────────────────────────────────────────────────

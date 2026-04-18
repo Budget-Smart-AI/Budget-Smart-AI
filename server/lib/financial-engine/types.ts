@@ -19,6 +19,51 @@ export interface DateRange {
 
 // ─── Income ────────────────────────────────────────────────────────────────
 
+/**
+ * Confidence the engine has in a projected (future-month) source amount.
+ *  - "high"   — Fixed-mode source backed by an active income_source_amounts row
+ *               and historical actuals match the unit amount within 5%.
+ *  - "medium" — Variable-mode source projected from rolling avg, OR fixed-mode
+ *               source whose history shows >5% drift but is internally
+ *               consistent (raise / tax change recently).
+ *  - "low"    — Detected pattern only (no registry row), or registry mode
+ *               irregular/variable with thin history.
+ *  - "none"   — Past/current actuals; no projection involved.
+ */
+export type IncomeProjectionConfidence = "high" | "medium" | "low" | "none";
+
+export type IncomeSourceMode = "fixed" | "variable" | "irregular";
+
+export interface IncomeBySourceEntry {
+  source: string;
+  /**
+   * Display amount for the row. For past/current months this is the sum of
+   * actual deposits in the window. For future months it's the projected
+   * total computed from the registry (unit_amount × occurrences).
+   */
+  amount: number;
+  category: string;
+  isRecurring: boolean;
+  frequency?: string;
+  /** Registry classification mode, when the source has a registry entry. */
+  mode?: IncomeSourceMode;
+  /** Confidence in the displayed amount (only meaningful for projections). */
+  confidence?: IncomeProjectionConfidence;
+  /**
+   * What the engine *expected* to see this month based on the registry
+   * (unit_amount × occurrences). Surfaced separately from `amount` so the
+   * Income page can show a side-by-side actual-vs-expected comparison
+   * without losing the actual.
+   */
+  expectedAmount?: number;
+  /** Per-paycheck amount taken from the active income_source_amounts row. */
+  unitAmount?: number;
+  /** Number of paycheck dates the cadence engine projected for this month. */
+  expectedOccurrences?: number;
+  /** Number of qualifying deposits actually observed for this month. */
+  actualOccurrences?: number;
+}
+
 export interface IncomeResult {
   /** Total monthly income from user-entered recurring/one-time income records */
   budgetedIncome: number;
@@ -29,7 +74,7 @@ export interface IncomeResult {
   /** Whether we have real bank data to compare against */
   hasBankData: boolean;
   /** Breakdown by income source */
-  bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean; frequency?: string }>;
+  bySource: IncomeBySourceEntry[];
 }
 
 // ─── Expenses ──────────────────────────────────────────────────────────────

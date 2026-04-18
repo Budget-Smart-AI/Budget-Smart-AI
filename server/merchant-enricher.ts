@@ -1,6 +1,8 @@
 import { db } from './db';
 import { routeAI } from './ai-router';
 import { mapProviderCategory } from './merchant-categories';
+import { mapPlaidCategoryDetailed, mapPlaidCategory } from './plaid';
+import { getMerchantOverride } from './merchant-overrides';
 
 export interface EnrichmentResult {
   cleanName: string;
@@ -104,11 +106,39 @@ export async function enrichTransaction(params: {
   rawDescription: string;
   amount: number;
   providerCategory?: string;
+  /**
+   * Plaid Personal Finance Category detailed enum (e.g. RENT_AND_UTILITIES_TELEPHONE).
+   * When available, this is the highest-confidence source and Monarch-parity categorization.
+   */
+  plaidCategoryDetailed?: string | null;
+  /**
+   * Plaid Personal Finance Category primary enum (e.g. RENT_AND_UTILITIES).
+   * Used as a second-tier fallback when detailed is absent.
+   */
+  plaidCategoryPrimary?: string | null;
 }): Promise<EnrichmentResult> {
-  const { rawDescription, amount, providerCategory } = params;
+  const { rawDescription, amount, providerCategory, plaidCategoryDetailed, plaidCategoryPrimary } = params;
   const normalized = normalizeRawDescription(rawDescription);
 
-  // Check cache first
+  // 1. Hardcoded merchant override — for known-wrong-from-Plaid merchants
+  //    (Bell Canada flagged as Medical, Rogers as Shopping, etc.)
+  //    These take absolute priority over everything else.
+  const hardcoded = getMerchantOverride(normalized);
+  if (hardcoded) {
+    return {
+      cleanName: hardcoded.cleanName,
+      category: hardcoded.category,
+      subcategory: hardcoded.subcategory,
+      merchantType: hardcoded.merchantType,
+      isSubscription: hardcoded.isSubscription,
+      logoUrl: null,
+      website: null,
+      confidence: 1.0,
+      source: 'override',
+    };
+  }
+
+  // 2. Check cache (merchant_enrichment table holds both AI results and user corrections)
   try {
     const pool = (db as any).$client as import('pg').Pool;
     const cached = await pool.query(
@@ -137,20 +167,52 @@ export async function enrichTransaction(params: {
     console.error('[Enricher] Cache lookup:', err);
   }
 
-  // Use provider category mapping as base if available
+  // 3. Use Plaid's detailed PFC enum when available — this is Monarch-parity.
+  //    Plaid's ML on `personal_finance_category.detailed` is more accurate than our AI for
+  //    well-known merchants. We only fall through to AI when Plaid returns nothing.
+  const plaidDetailedMapped = plaidCategoryDetailed
+    ? mapPlaidCategoryDetailed(plaidCategoryDetailed)
+    : null;
+  const plaidPrimaryMapped = plaidCategoryPrimary
+    ? mapPlaidCategory(plaidCategoryPrimary)
+    : null;
+
+  // 4. Legacy provider-category fallback (MX and historical Plaid basic categories)
   const providerMapped = providerCategory ? mapProviderCategory(providerCategory) : null;
 
-  // Run AI enrichment
+  // 5. Run AI enrichment (still useful for subcategory, merchantType, isSubscription)
   const aiResult = await enrichWithAI(rawDescription, normalized, amount, providerCategory);
 
-  // Merge results — use provider category as fallback if AI confidence is low
-  // Logo is sourced from Plaid (merchant.logo_url / counterparties[0].logo_url) or MX — not fetched here
+  // 6. Merge with priority: Plaid detailed > Plaid primary (if high confidence) >
+  //    low-confidence AI overridden by provider map > AI
+  let finalCategory = aiResult.category;
+  let finalSubcategory = aiResult.subcategory;
+  let finalSource = aiResult.source;
+  let finalConfidence = aiResult.confidence;
+
+  if (plaidDetailedMapped) {
+    finalCategory = plaidDetailedMapped;
+    finalSubcategory = aiResult.subcategory; // keep AI's more specific subcategory
+    finalSource = 'plaid_detailed';
+    finalConfidence = Math.max(aiResult.confidence, 0.85);
+  } else if (plaidPrimaryMapped && plaidPrimaryMapped !== 'Other') {
+    finalCategory = plaidPrimaryMapped;
+    finalSource = 'plaid_primary';
+    finalConfidence = Math.max(aiResult.confidence, 0.75);
+  } else if (providerMapped && aiResult.confidence < 0.6) {
+    finalCategory = providerMapped.category;
+    finalSubcategory = providerMapped.subcategory;
+    finalSource = 'provider_map';
+  }
+
   const final: EnrichmentResult = {
     ...aiResult,
     logoUrl: null,
     website: null,
-    category: (providerMapped && aiResult.confidence < 0.6) ? providerMapped.category : aiResult.category,
-    subcategory: (providerMapped && aiResult.confidence < 0.6) ? providerMapped.subcategory : aiResult.subcategory,
+    category: finalCategory,
+    subcategory: finalSubcategory,
+    source: finalSource,
+    confidence: finalConfidence,
   };
 
   // Cache the result
@@ -184,9 +246,10 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
   const pool = (db as any).$client as import('pg').Pool;
   let count = 0;
 
-  // Enrich plaid_transactions
+  // Enrich plaid_transactions — also pass through Plaid's detailed PFC enum
   const plaidPending = await pool.query(
-    `SELECT t.id, t.name AS description, t.amount, t.category
+    `SELECT t.id, t.name AS description, t.amount, t.category,
+            t.personal_finance_category_detailed
      FROM plaid_transactions t
      JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
      WHERE pa.plaid_item_id IN (SELECT id FROM plaid_items WHERE user_id = $1)
@@ -202,18 +265,21 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
         rawDescription: tx.description,
         amount: Math.abs(parseFloat(tx.amount)),
         providerCategory: tx.category,
+        plaidCategoryDetailed: tx.personal_finance_category_detailed || null,
+        plaidCategoryPrimary: tx.category,
       });
       await pool.query(
         `UPDATE plaid_transactions SET
           merchant_clean_name = $1,
           merchant_logo_url = $2,
-          subcategory = $3,
-          merchant_type = $4,
-          is_subscription = $5,
-          enrichment_source = $6,
-          enrichment_confidence = $7
-         WHERE id = $8`,
-        [result.cleanName, result.logoUrl, result.subcategory, result.merchantType,
+          personal_category = $3,
+          subcategory = $4,
+          merchant_type = $5,
+          is_subscription = $6,
+          enrichment_source = $7,
+          enrichment_confidence = $8
+         WHERE id = $9`,
+        [result.cleanName, result.logoUrl, result.category, result.subcategory, result.merchantType,
          result.isSubscription ? 'true' : 'false', result.source, result.confidence, tx.id]
       );
       count++;
@@ -223,7 +289,7 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
     }
   }
 
-  // Enrich mx_transactions
+  // Enrich mx_transactions (MX doesn't have PFC detailed)
   const mxPending = await pool.query(
     `SELECT t.id, t.description, t.amount, t.category
      FROM mx_transactions t

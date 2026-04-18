@@ -1,0 +1,307 @@
+﻿diff --git a/server/routes.ts b/server/routes.ts
+index 47634d8..4adeb7c 100644
+--- a/server/routes.ts
++++ b/server/routes.ts
+@@ -45,10 +45,11 @@ import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPass
+ import passport from "passport";
+ import { authRateLimiter, apiRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
+ import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending, getBillsInRange, getIncomeInRange } from "./cash-flow";
+-import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices, getHistoricalPrices } from "./alpha-vantage";
++import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices, getHistoricalPrices, getCompanyOverview, fetchNewsSentiment, searchSymbols, getDailyTimeSeries, getEarnings } from "./alpha-vantage";
++import { routeAI } from "./ai-router";
+ import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
+ import { salesChat, getGreeting } from "./sales-chatbot";
+-import { salesLeadFormSchema, billPayments, spendingAlerts, insertSpendingAlertSchema, updateSpendingAlertSchema, plaidItems, expenses, plaidTransactions } from "@shared/schema";
++import { salesLeadFormSchema, billPayments, spendingAlerts, insertSpendingAlertSchema, updateSpendingAlertSchema, plaidItems, expenses, plaidTransactions, userWatchlists, holdings as holdingsTable, investmentAccounts as investmentAccountsTable } from "@shared/schema";
+ import { eq, and, ne, isNull } from "drizzle-orm";
+ import receiptsRouter from "./routes/receipts";
+ import vaultRouter from "./routes/vault";
+@@ -14153,6 +14154,288 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
+     }
+   });
+ 
++  // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
++  // INVESTOR RESEARCH TAB ROUTES (Alpha Vantage-backed stock research)
++  // ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
++  //
++  // All routes mounted under /api/investments/research/*. Protected by
++  // requireAuth. Rate limiting is handled by Alpha Vantage's server-side limits
++  // (5/min free tier) plus an in-process throttle in server/alpha-vantage.ts.
++  //
++  // Note: AI disclaimer is appended to every /ai-query response. No paywall
++  // gate in v1 ΓÇö follow-up work will add feature flag + tier check once the
++  // commercial AV license is signed.
++
++  const RESEARCH_AI_DISCLAIMER =
++    "\n\n_Not financial advice. For informational purposes only. BudgetSmart AI is not a registered investment advisor._";
++
++  // Symbol autocomplete search
++  app.get("/api/investments/research/search", requireAuth, async (req, res) => {
++    try {
++      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
++      if (!q) return res.json({ results: [] });
++      const results = await searchSymbols(q);
++      res.json({ results });
++    } catch (error) {
++      console.error("Error in research/search:", error);
++      res.status(500).json({ error: "Failed to search symbols" });
++    }
++  });
++
++  // Real-time quote
++  app.get("/api/investments/research/quote/:symbol", requireAuth, async (req, res) => {
++    try {
++      const symbol = String(req.params.symbol || "").toUpperCase();
++      const quote = await getStockQuote(symbol);
++      if (!quote) return res.status(404).json({ error: "Quote not available" });
++      res.json({ quote });
++    } catch (error) {
++      console.error("Error in research/quote:", error);
++      res.status(500).json({ error: "Failed to fetch quote" });
++    }
++  });
++
++  // Company fundamentals / overview
++  app.get("/api/investments/research/overview/:symbol", requireAuth, async (req, res) => {
++    try {
++      const symbol = String(req.params.symbol || "").toUpperCase();
++      const overview = await getCompanyOverview(symbol);
++      if (!overview) return res.status(404).json({ error: "Overview not available" });
++      res.json({ overview });
++    } catch (error) {
++      console.error("Error in research/overview:", error);
++      res.status(500).json({ error: "Failed to fetch overview" });
++    }
++  });
++
++  // Daily price time series (range-trimmed server-side)
++  app.get("/api/investments/research/timeseries/:symbol", requireAuth, async (req, res) => {
++    try {
++      const symbol = String(req.params.symbol || "").toUpperCase();
++      const range = String(req.query.range || "1M").toUpperCase();
++      // Use full output for 1Y+ queries, compact (100 days) otherwise
++      const needsFull = ["1Y", "5Y", "ALL"].includes(range);
++      const series = await getDailyTimeSeries(symbol, needsFull ? "full" : "compact");
++
++      const days: Record<string, number> = {
++        "1D": 2, "1W": 7, "1M": 31, "6M": 185, "1Y": 370, "5Y": 1830, "ALL": 99999,
++      };
++      const cutoff = days[range] ?? 31;
++      const sliced = series.slice(-cutoff);
++      res.json({ series: sliced, range });
++    } catch (error) {
++      console.error("Error in research/timeseries:", error);
++      res.status(500).json({ error: "Failed to fetch time series" });
++    }
++  });
++
++  // Recent news articles with sentiment
++  app.get("/api/investments/research/news/:symbol", requireAuth, async (req, res) => {
++    try {
++      const symbol = String(req.params.symbol || "").toUpperCase();
++      const limit = Math.max(1, Math.min(20, parseInt(String(req.query.limit || "5"), 10) || 5));
++      const articles = await fetchNewsSentiment(symbol, limit);
++      res.json({ articles });
++    } catch (error) {
++      console.error("Error in research/news:", error);
++      res.status(500).json({ error: "Failed to fetch news" });
++    }
++  });
++
++  // Quarterly earnings
++  app.get("/api/investments/research/earnings/:symbol", requireAuth, async (req, res) => {
++    try {
++      const symbol = String(req.params.symbol || "").toUpperCase();
++      const earnings = await getEarnings(symbol);
++      if (!earnings) return res.status(404).json({ error: "Earnings not available" });
++      res.json({ earnings });
++    } catch (error) {
++      console.error("Error in research/earnings:", error);
++      res.status(500).json({ error: "Failed to fetch earnings" });
++    }
++  });
++
++  // Cross-reference user's linked holdings for the symbol. Shows shares held,
++  // current value, cost basis, and unrealized P/L. Returns null if not held.
++  app.get("/api/investments/research/portfolio-position/:symbol", requireAuth, async (req, res) => {
++    try {
++      const userId = req.session.userId!;
++      const symbol = String(req.params.symbol || "").toUpperCase();
++
++      const userHoldings = await storage.getHoldingsByUser(userId);
++      const matches = userHoldings.filter((h) => (h.symbol || "").toUpperCase() === symbol);
++
++      if (matches.length === 0) {
++        return res.json({ position: null });
++      }
++
++      // Aggregate across accounts
++      let totalShares = 0;
++      let totalCostBasis = 0;
++      let latestPrice = 0;
++      for (const h of matches) {
++        const shares = parseFloat(h.quantity || "0");
++        const cost = parseFloat(h.costBasis || "0");
++        const price = parseFloat(h.currentPrice || "0");
++        totalShares += shares;
++        totalCostBasis += cost;
++        if (price > latestPrice) latestPrice = price;
++      }
++
++      // If we don't have a current price in DB, try a live quote
++      if (latestPrice <= 0) {
++        const live = await getStockQuote(symbol);
++        if (live) latestPrice = live.price;
++      }
++
++      const currentValue = totalShares * latestPrice;
++      const gainLoss = currentValue - totalCostBasis;
++      const gainLossPct = totalCostBasis > 0 ? (gainLoss / totalCostBasis) * 100 : 0;
++
++      res.json({
++        position: {
++          symbol,
++          shares: totalShares,
++          costBasis: totalCostBasis,
++          currentPrice: latestPrice,
++          currentValue,
++          gainLoss,
++          gainLossPct,
++          accountCount: matches.length,
++        },
++      });
++    } catch (error) {
++      console.error("Error in research/portfolio-position:", error);
++      res.status(500).json({ error: "Failed to fetch position" });
++    }
++  });
++
++  // AI Q&A about a specific stock, enriched with live AV context
++  app.post("/api/investments/research/ai-query", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
++    try {
++      const userId = req.session.userId!;
++      const symbol = String(req.body?.symbol || "").toUpperCase();
++      const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
++
++      if (!symbol) return res.status(400).json({ error: "Symbol is required" });
++      if (!question) return res.status(400).json({ error: "Question is required" });
++
++      // Pull fresh context from Alpha Vantage (all cached at the AV wrapper
++      // layer via rate-limited fetch, so repeated calls for the same symbol
++      // are cheap).
++      const [overview, quote, news] = await Promise.all([
++        getCompanyOverview(symbol),
++        getStockQuote(symbol),
++        fetchNewsSentiment(symbol, 5),
++      ]);
++
++      const context: string[] = [`You are researching ${symbol}.`];
++      if (overview) {
++        context.push(
++          `Company: ${overview.name}. Sector: ${overview.sector}. Industry: ${overview.industry}.`,
++          `Market cap: $${overview.marketCap.toLocaleString()}. P/E: ${overview.peRatio}. EPS: ${overview.eps}. Beta: ${overview.beta}.`,
++          `52-week range: $${overview.fiftyTwoWeekLow} - $${overview.fiftyTwoWeekHigh}.`,
++          `Dividend yield: ${(overview.dividendYield * 100).toFixed(2)}%.`,
++          overview.description ? `About: ${overview.description.slice(0, 400)}` : "",
++        );
++      }
++      if (quote) {
++        context.push(
++          `Latest price: $${quote.price.toFixed(2)} (${quote.changePercent >= 0 ? "+" : ""}${quote.changePercent.toFixed(2)}% today).`,
++          `Day range: $${quote.low.toFixed(2)} - $${quote.high.toFixed(2)}. Volume: ${quote.volume.toLocaleString()}.`,
++        );
++      }
++      if (news.length > 0) {
++        context.push("Recent news headlines:");
++        news.forEach((n) => {
++          context.push(`- [${n.sentiment}] ${n.headline} (${n.source})`);
++        });
++      }
++
++      const systemPrompt =
++        "You are a concise stock research assistant for BudgetSmart users. Use the context provided to answer factually and specifically. If the data does not support a claim, say so. Keep answers under 250 words. Do NOT recommend buying or selling. Do NOT predict prices. This is educational information only.";
++
++      const result = await routeAI({
++        taskSlot: "planning_advisor",
++        userId,
++        featureContext: "research_ai_query",
++        maxTokens: 600,
++        temperature: 0.4,
++        messages: [
++          { role: "system", content: systemPrompt },
++          { role: "user", content: `Context:\n${context.filter(Boolean).join("\n")}\n\nQuestion: ${question}` },
++        ],
++      });
++
++      const answer = (result.content || "").trim() + RESEARCH_AI_DISCLAIMER;
++      res.json({ answer, symbol, generatedAt: new Date().toISOString() });
++    } catch (error) {
++      console.error("Error in research/ai-query:", error);
++      res.status(500).json({ error: "Failed to generate answer" });
++    }
++  });
++
++  // ΓöÇΓöÇΓöÇ Watchlist ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++
++  app.get("/api/investments/research/watchlist", requireAuth, async (req, res) => {
++    try {
++      const userId = req.session.userId!;
++      const rows = await db
++        .select()
++        .from(userWatchlists)
++        .where(eq(userWatchlists.userId, userId));
++      res.json({ watchlist: rows.map((r) => r.symbol) });
++    } catch (error) {
++      console.error("Error fetching watchlist:", error);
++      res.status(500).json({ error: "Failed to fetch watchlist" });
++    }
++  });
++
++  app.post("/api/investments/research/watchlist", requireAuth, async (req, res) => {
++    try {
++      const userId = req.session.userId!;
++      const symbol = String(req.body?.symbol || "").toUpperCase().trim();
++      if (!symbol) return res.status(400).json({ error: "Symbol is required" });
++      if (symbol.length > 20) return res.status(400).json({ error: "Symbol too long" });
++
++      // Upsert ΓÇö uniqueness enforced by idx_user_watchlists_user_symbol
++      try {
++        await db.insert(userWatchlists).values({ userId, symbol });
++      } catch (e: any) {
++        // Ignore unique-violation; treat as idempotent
++        if (!/duplicate key|unique/i.test(String(e?.message || ""))) throw e;
++      }
++
++      const rows = await db
++        .select()
++        .from(userWatchlists)
++        .where(eq(userWatchlists.userId, userId));
++      res.json({ watchlist: rows.map((r) => r.symbol) });
++    } catch (error) {
++      console.error("Error adding to watchlist:", error);
++      res.status(500).json({ error: "Failed to add to watchlist" });
++    }
++  });
++
++  app.delete("/api/investments/research/watchlist/:symbol", requireAuth, async (req, res) => {
++    try {
++      const userId = req.session.userId!;
++      const symbol = String(req.params.symbol || "").toUpperCase();
++      await db
++        .delete(userWatchlists)
++        .where(and(eq(userWatchlists.userId, userId), eq(userWatchlists.symbol, symbol)));
++
++      const rows = await db
++        .select()
++        .from(userWatchlists)
++        .where(eq(userWatchlists.userId, userId));
++      res.json({ watchlist: rows.map((r) => r.symbol) });
++    } catch (error) {
++      console.error("Error removing from watchlist:", error);
++      res.status(500).json({ error: "Failed to remove from watchlist" });
++    }
++  });
++
+   // Import investment account from Plaid
+   app.post("/api/investment-accounts/import-from-plaid", requireAuth, async (req, res) => {
+     try {

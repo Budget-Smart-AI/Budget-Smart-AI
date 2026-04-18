@@ -136,39 +136,55 @@
   --font-display: 'Sora', 'Inter', system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
-  --radius: .5rem; /* 8px */
 
-  /* ── Glassmorphism tokens (Light) ─────────────────────────────────────
-   * Consumed by .glass-surface utility + sidebar / card overrides. Dark
-   * theme overrides these in .dark below with darker semi-transparency. */
-  --glass-surface:       255 255 255 / 0.55;
-  --glass-surface-strong: 255 255 255 / 0.72;
-  --glass-border:        255 255 255 / 0.6;
-  --glass-border-soft:   15 23 42 / 0.06;
-  --glass-blur:          20px;
-  --glass-saturate:      180%;
-  --glass-shadow:        0 8px 32px rgba(34, 197, 94, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  --glass-shadow-lg:     0 12px 40px rgba(34, 197, 94, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  /* ── Radius scale (Phase 3.0, April 2026) ───────────────────────────────
+   * Bumped from 0.5rem → 1rem so Card / Button / Input / Dialog all inherit
+   * the rounder production-SaaS feel of the mockup. Two larger tokens added
+   * for hero surfaces that need more radius than the default. */
+  --radius:          1rem;     /* 16px — base for Card / Button / Input */
+  --radius-card-lg:  1.5rem;   /* 24px — KPI hero cards, dashboard panels */
+  --radius-island:   1.75rem;  /* 28px — sidebar island, topbar search pill */
 
-  /* Body backdrop — layered radial gradients (the "blobs") + base linear */
-  --bg-base:       linear-gradient(135deg, #F5FDF8 0%, #E8F7F0 50%, #DCF3E8 100%);
-  --bg-blob-1:     rgba(34, 197, 94, 0.18);   /* emerald, top-left */
-  --bg-blob-2:     rgba(13, 148, 136, 0.22);  /* teal, top-right */
-  --bg-blob-3:     rgba(132, 204, 22, 0.12);  /* lime, bottom */
+  /* ── Glassmorphism tokens (Light, Phase 3.0) ────────────────────────────
+   * Consumed by .glass-surface utility + sidebar / card overrides.
+   *
+   * Previous values were `255 255 255 / 0.55` — the glass was literally white
+   * so the mint backdrop never showed through. New values are mint-tinted
+   * (≈ #ECFAF3) with an emerald border and teal drop-shadow, giving cards
+   * the "green glass on mint page" look from the mockup. Dark theme keeps
+   * its own darker tokens in .dark below. */
+  --glass-surface:        236 250 243 / 0.60;   /* ≈ #ECFAF3 @ 60% */
+  --glass-surface-strong: 219 244 231 / 0.78;   /* ≈ #DBF4E7 @ 78% */
+  --glass-border:         34 197 94 / 0.18;     /* emerald @ 18% */
+  --glass-border-soft:    13 148 136 / 0.10;    /* teal @ 10% */
+  --glass-blur:           20px;
+  --glass-saturate:       180%;
+  --glass-shadow:         0 8px 32px rgba(13, 148, 136, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --glass-shadow-lg:      0 12px 40px rgba(13, 148, 136, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  /* Body backdrop — layered radial gradients (the "blobs") + base linear.
+   * Phase 3.0: deeper mint base + higher blob saturation so the mist-behind-
+   * glass effect actually reads through the new translucent surfaces. */
+  --bg-base:       linear-gradient(135deg, #E8F7EF 0%, #D5F0E2 50%, #C3E9D4 100%);
+  --bg-blob-1:     rgba(34, 197, 94, 0.28);   /* emerald, top-left */
+  --bg-blob-2:     rgba(13, 148, 136, 0.32);  /* teal, top-right */
+  --bg-blob-3:     rgba(132, 204, 22, 0.18);  /* lime, bottom */
   --bg-noise-opacity: 0.04;
 
   /* Brand gradients — consumed by logo, CTAs, accents */
   --brand-gradient:       linear-gradient(135deg, #22C55E 0%, #0D9488 100%);
   --brand-gradient-soft:  linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(13,148,136,0.15) 100%);
 
-  /* Nav-item active state (used by sidebar — differs per theme for contrast) */
+  /* Nav-item active state (used by sidebar — differs per theme for contrast).
+   * Phase 3.0: bumped --nav-fg darker and --nav-group-label to brand teal so
+   * labels read cleanly against the deeper mint-glass sidebar surface. */
   --nav-active-bg:     linear-gradient(135deg, rgba(34,197,94,0.22) 0%, rgba(13,148,136,0.22) 100%);
   --nav-active-border: rgba(34, 197, 94, 0.4);
   --nav-active-shadow: 0 2px 12px rgba(34, 197, 94, 0.15);
   --nav-active-fg:     #0D9488;
-  --nav-fg:            #1A3020;
-  --nav-muted-fg:      #3F6B47;
-  --nav-group-label:   #3F6B47;
+  --nav-fg:            #0D2818;
+  --nav-muted-fg:      #2F5739;
+  --nav-group-label:   #0D9488;
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.03);
   --shadow-xs: 0px 1px 3px 0px rgba(0,0,0,0.04);
   --shadow-sm: 0px 1px 3px 0px rgba(0,0,0,0.05), 0px 1px 2px -1px rgba(0,0,0,0.05);

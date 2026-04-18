@@ -1,0 +1,777 @@
+﻿client/src/App.tsx(19,42): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/App.tsx(83,25): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/app-sidebar.tsx(3,393): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/bank-provider-selection.tsx(13,89): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/cash-flow-forecast.tsx(20,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/cash-flow-forecast.tsx(176,49): error TS7006: Parameter 'proj' implicitly has an 'any' type.
+client/src/components/cash-flow-forecast.tsx(181,48): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/components/cash-flow-forecast.tsx(182,48): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/components/connect-bank-wizard.tsx(49,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/cookie-consent.tsx(4,69): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/demo-banner.tsx(6,53): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/FeatureGate.tsx(18,25): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/financial-health-score.tsx(23,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/financial-health-score.tsx(394,43): error TS7006: Parameter 'tip' implicitly has an 'any' type.
+client/src/components/financial-health-score.tsx(394,48): error TS7006: Parameter 'index' implicitly has an 'any' type.
+client/src/components/floating-chatbot.tsx(21,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/floating-chatbot.tsx(367,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/components/floating-chatbot.tsx(427,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/components/help-module-card.tsx(2,71): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/help-nav-sidebar.tsx(1,33): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/help-tooltip.tsx(1,28): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/household-settings.tsx(7,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/components/household-settings.tsx(35,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/household-settings.tsx(603,47): error TS7006: Parameter 'member' implicitly has an 'any' type.
+client/src/components/household-settings.tsx(662,53): error TS7006: Parameter 'inv' implicitly has an 'any' type.
+client/src/components/investments/ResearchTab.tsx(13,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/logo.tsx(1,28): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/mobile-receipt-scanner.tsx(2,110): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/module-ai-chat.tsx(4,49): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/money-leaks-widget.tsx(6,76): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/money-leaks-widget.tsx(106,44): error TS7006: Parameter 'leak' implicitly has an 'any' type.
+client/src/components/money-leaks-widget.tsx(106,50): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/components/money-timeline.tsx(18,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/money-timeline.tsx(122,46): error TS7006: Parameter '_' implicitly has an 'any' type.
+client/src/components/money-timeline.tsx(122,49): error TS7006: Parameter 'index' implicitly has an 'any' type.
+client/src/components/money-timeline.tsx(196,32): error TS7006: Parameter 'point' implicitly has an 'any' type.
+client/src/components/money-timeline.tsx(196,39): error TS7006: Parameter 'index' implicitly has an 'any' type.
+client/src/components/money-timeline.tsx(197,64): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/money-timeline.tsx(237,54): error TS7006: Parameter 'event' implicitly has an 'any' type.
+client/src/components/money-timeline.tsx(237,61): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/components/notifications-dropdown.tsx(15,91): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/notifications-dropdown.tsx(121,46): error TS7006: Parameter 'notification' implicitly has an 'any' type.
+client/src/components/onboarding-wizard.tsx(51,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/onboarding-wizard.tsx(234,58): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/onboarding-wizard.tsx(235,53): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/onboarding-wizard.tsx(236,50): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/pwa-install-prompt.tsx(25,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/receipt-scanner.tsx(4,191): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/referral-program.tsx(4,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/components/referral-program.tsx(24,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/referral-program.tsx(285,31): error TS7006: Parameter 'referral' implicitly has an 'any' type.
+client/src/components/sales-chatbot.tsx(25,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/sales-chatbot.tsx(203,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/components/sales-chatbot.tsx(362,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/components/settings-layout.tsx(17,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/settings/ThemePicker.tsx(1,23): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/smart-savings.tsx(22,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/smart-savings.tsx(222,40): error TS7006: Parameter 'rec' implicitly has an 'any' type.
+client/src/components/smart-savings.tsx(222,45): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/components/spendability-widget.tsx(6,73): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/spendability-widget.tsx(79,45): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ safe: string; caution: string; danger: string; }'.
+client/src/components/spendability-widget.tsx(86,15): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ safe: string; caution: string; danger: string; }'.
+client/src/components/spendability-widget.tsx(87,15): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ safe: string; caution: string; danger: string; }'.
+client/src/components/spendability-widget.tsx(101,11): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ safe: string; caution: string; danger: string; }'.
+client/src/components/spendability-widget.tsx(104,50): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type '{ safe: string; caution: string; danger: string; }'.
+client/src/components/subscription-gate.tsx(12,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/subscription-gate.tsx(156,46): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/subscription-gate.tsx(158,38): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/subscription-gate.tsx(160,42): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/subscription-gate.tsx(162,27): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/components/subscription-gate.tsx(323,64): error TS7006: Parameter 'plan' implicitly has an 'any' type.
+client/src/components/system-alert-banner.tsx(14,66): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/system-alert-banner.tsx(80,20): error TS7006: Parameter 'alert' implicitly has an 'any' type.
+client/src/components/system-alert-banner.tsx(81,23): error TS7053: Element implicitly has an 'any' type because expression of type 'any' can't be used to index type 'Record<"success" | "warning" | "critical" | "info", { bg: string; text: string; border: string; icon: ElementType<any, keyof IntrinsicElements>; }>'.
+client/src/components/theme-toggle.tsx(1,32): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/TopNavBar.tsx(6,59): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/transaction-drilldown.tsx(49,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/transaction-drilldown.tsx(165,36): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(195,64): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(200,49): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(200,54): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(217,66): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(222,51): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(222,56): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(240,63): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(245,48): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(245,53): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(273,47): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(274,41): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(274,46): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(277,8): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(287,16): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(288,16): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(288,21): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(291,16): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(295,16): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(295,21): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(317,36): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/components/transaction-drilldown.tsx(353,36): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/components/ui/accordion.tsx(3,29): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/breadcrumb.tsx(3,46): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/calendar.tsx(2,43): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/carousel.tsx(5,39): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/checkbox.tsx(3,23): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/command.tsx(4,24): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/context-menu.tsx(3,45): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/dialog.tsx(5,19): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/dropdown-menu.tsx(3,45): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/input-otp.tsx(3,21): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/menubar.tsx(5,45): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/navigation-menu.tsx(4,29): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/pagination.tsx(2,59): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/radio-group.tsx(3,24): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/resizable.tsx(3,30): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/select.tsx(5,47): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/sheet.tsx(6,19): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/sidebar.tsx(6,31): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/ThemeQuickSwitcher.tsx(2,45): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/ui/toast.tsx(4,19): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/UpgradeModal.tsx(14,28): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/UsageSummaryWidget.tsx(7,56): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/components/UsageSummaryWidget.tsx(77,34): error TS7006: Parameter 'f' implicitly has an 'any' type.
+client/src/components/UsageSummaryWidget.tsx(155,58): error TS7006: Parameter 'feature' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(56,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-ai-management.tsx(359,52): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(382,16): error TS2322: Type 'unknown' is not assignable to type 'Key | null | undefined'.
+client/src/pages/admin-ai-management.tsx(384,15): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+client/src/pages/admin-ai-management.tsx(388,26): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(389,23): error TS7006: Parameter 'slot' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(440,12): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(440,15): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(443,58): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(555,43): error TS7006: Parameter 'entry' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(555,50): error TS7006: Parameter 'index' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(623,60): error TS7006: Parameter 'u' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(623,63): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(702,42): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/admin-ai-management.tsx(759,23): error TS7006: Parameter 'res' implicitly has an 'any' type.
+client/src/pages/admin-ai-models.tsx(32,86): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-ai-models.tsx(294,53): error TS7006: Parameter 'c' implicitly has an 'any' type.
+client/src/pages/admin-ai-models.tsx(309,17): error TS7006: Parameter '_' implicitly has an 'any' type.
+client/src/pages/admin-ai-models.tsx(309,22): error TS7031: Binding element 'feature' implicitly has an 'any' type.
+client/src/pages/admin-ai-models.tsx(317,29): error TS7031: Binding element 'feature' implicitly has an 'any' type.
+client/src/pages/admin-ai-models.tsx(491,47): error TS7006: Parameter 'c' implicitly has an 'any' type.
+client/src/pages/admin-ai-models.tsx(511,39): error TS7006: Parameter 'config' implicitly has an 'any' type.
+client/src/pages/admin-audit-log.tsx(23,72): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-audit-log.tsx(173,31): error TS7006: Parameter 'r' implicitly has an 'any' type.
+client/src/pages/admin-audit-log.tsx(325,29): error TS7006: Parameter 'row' implicitly has an 'any' type.
+client/src/pages/admin-bank-providers.tsx(16,74): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-bank-providers.tsx(198,43): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/admin-bank-providers.tsx(253,46): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/admin-bank-providers.tsx(275,35): error TS7006: Parameter 'provider' implicitly has an 'any' type.
+client/src/pages/admin-bank-providers.tsx(300,35): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/admin-communications.tsx(74,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-communications.tsx(331,34): error TS7006: Parameter 'row' implicitly has an 'any' type.
+client/src/pages/admin-communications.tsx(408,32): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/pages/admin-communications.tsx(581,35): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/admin-communications.tsx(761,39): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/admin-communications.tsx(762,40): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/admin-communications.tsx(887,36): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/admin-communications.tsx(943,50): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/admin-landing.tsx(40,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-plan-features.tsx(18,79): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-plan-features.tsx(40,20): error TS2554: Expected 2-3 arguments, but got 1.
+client/src/pages/admin-plan-features.tsx(46,76): error TS2345: Argument of type '{ method: string; headers: { "Content-Type": string; }; body: string; }' is not assignable to parameter of type 'string'.
+client/src/pages/admin-plan-features.tsx(65,68): error TS2345: Argument of type '{ method: string; }' is not assignable to parameter of type 'string'.
+client/src/pages/admin-plan-features.tsx(119,53): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+client/src/pages/admin-plan-features.tsx(119,58): error TS7006: Parameter 'feature' implicitly has an 'any' type.
+client/src/pages/admin-plan-features.tsx(218,41): error TS18046: 'features' is of type 'unknown'.
+client/src/pages/admin-plan-features.tsx(233,18): error TS18046: 'features' is of type 'unknown'.
+client/src/pages/admin-plan-features.tsx(233,32): error TS7006: Parameter 'feature' implicitly has an 'any' type.
+client/src/pages/admin-sales-chat.tsx(48,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-sales-chat.tsx(177,29): error TS7006: Parameter 'msg' implicitly has an 'any' type.
+client/src/pages/admin-sales-chat.tsx(416,32): error TS7006: Parameter 'session' implicitly has an 'any' type.
+client/src/pages/admin-sales-chat.tsx(476,6): error TS7006: Parameter 'lead' implicitly has an 'any' type.
+client/src/pages/admin-sales-chat.tsx(529,37): error TS7006: Parameter 'lead' implicitly has an 'any' type.
+client/src/pages/admin-sales-chat.tsx(590,58): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/admin-sales-chat.tsx(592,34): error TS7006: Parameter 'l' implicitly has an 'any' type.
+client/src/pages/admin-support.tsx(13,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-support.tsx(254,32): error TS7006: Parameter 'msg' implicitly has an 'any' type.
+client/src/pages/admin-support.tsx(377,36): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/pages/admin-support.tsx(491,34): error TS7006: Parameter 'ticket' implicitly has an 'any' type.
+client/src/pages/admin-system-status.tsx(14,131): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-system-status.tsx(314,39): error TS7006: Parameter 'row' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(4,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/admin-users.tsx(70,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/admin-users.tsx(403,71): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(403,74): error TS7006: Parameter 'f' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(416,41): error TS7006: Parameter 'f' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(567,29): error TS7006: Parameter 'f' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(691,47): error TS7006: Parameter 'u' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(691,50): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(725,55): error TS7006: Parameter 'f' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(765,65): error TS7006: Parameter 'u' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(1455,31): error TS7006: Parameter 'user' implicitly has an 'any' type.
+client/src/pages/admin-users.tsx(1504,44): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/affiliate-terms.tsx(4,83): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/affiliate.tsx(9,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/ai-assistant.tsx(17,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/ai-assistant.tsx(253,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/ai-assistant.tsx(361,49): error TS7006: Parameter 'suggestion' implicitly has an 'any' type.
+client/src/pages/ai-assistant.tsx(361,61): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/ai-assistant.tsx(411,37): error TS7006: Parameter 'suggestion' implicitly has an 'any' type.
+client/src/pages/ai-assistant.tsx(411,49): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/anomalies.tsx(9,77): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/anomalies.tsx(78,38): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/anomalies.tsx(85,28): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/anomalies.tsx(86,29): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/anomalies.tsx(87,31): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/anomalies.tsx(88,28): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/anomalies.tsx(89,34): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/anomalies.tsx(139,32): error TS7006: Parameter 'alert' implicitly has an 'any' type.
+client/src/pages/assets.tsx(5,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/assets.tsx(45,87): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/assets.tsx(266,43): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+client/src/pages/assets.tsx(266,48): error TS7006: Parameter 'asset' implicitly has an 'any' type.
+client/src/pages/assets.tsx(363,20): error TS18046: 'categoryAssets' is of type 'unknown'.
+client/src/pages/assets.tsx(363,39): error TS7006: Parameter 'asset' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(77,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/bank-accounts.tsx(84,118): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/bank-accounts.tsx(478,9): error TS2304: Cannot find name 'setMxIntentId'.
+client/src/pages/bank-accounts.tsx(524,28): error TS2304: Cannot find name 'mxIntentId'.
+client/src/pages/bank-accounts.tsx(529,13): error TS2304: Cannot find name 'setMxIntentId'.
+client/src/pages/bank-accounts.tsx(547,56): error TS2304: Cannot find name 'mxIntentId'.
+client/src/pages/bank-accounts.tsx(1438,15): error TS7006: Parameter 'c' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1439,12): error TS7006: Parameter 'c' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1496,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1586,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1639,26): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1680,14): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1691,12): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1691,15): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1738,55): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1879,38): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(1976,54): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(2100,31): error TS7006: Parameter 'group' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(2124,38): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(2170,27): error TS7006: Parameter 'member' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(2196,39): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/pages/bank-accounts.tsx(2414,50): error TS7006: Parameter 'tx' implicitly has an 'any' type.
+client/src/pages/bills.tsx(6,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/bills.tsx(55,229): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/bills.tsx(62,38): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/bills.tsx(207,32): error TS7006: Parameter 'payment' implicitly has an 'any' type.
+client/src/pages/bills.tsx(990,46): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/bills.tsx(1061,14): error TS7006: Parameter 'bill' implicitly has an 'any' type.
+client/src/pages/bills.tsx(1066,12): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/bills.tsx(1066,15): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/bills.tsx(1496,39): error TS7006: Parameter 'bill' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(5,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/budgets.tsx(47,115): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/budgets.tsx(424,43): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(425,48): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(445,13): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(452,12): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(452,15): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(752,32): error TS7006: Parameter 'budget' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(789,67): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(796,74): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/budgets.tsx(1000,54): error TS2345: Argument of type 'string | number' is not assignable to parameter of type 'string'.
+  Type 'number' is not assignable to type 'string'.
+client/src/pages/budgets.tsx(1005,59): error TS2339: Property 'currentAmount' does not exist on type 'AiBudgetSuggestion'.
+client/src/pages/calendar.tsx(8,98): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/calendar.tsx(75,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/calendar.tsx(85,13): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/calendar.tsx(121,30): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/calendar.tsx(121,81): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/calendar.tsx(136,30): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/calendar.tsx(149,64): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/calendar.tsx(211,50): error TS7006: Parameter 'event' implicitly has an 'any' type.
+client/src/pages/calendar.tsx(249,37): error TS7006: Parameter 'event' implicitly has an 'any' type.
+client/src/pages/categories.tsx(21,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/categories.tsx(330,53): error TS7006: Parameter 'c' implicitly has an 'any' type.
+client/src/pages/categories.tsx(331,52): error TS7006: Parameter 'c' implicitly has an 'any' type.
+client/src/pages/categories.tsx(332,50): error TS7006: Parameter 'c' implicitly has an 'any' type.
+client/src/pages/categories.tsx(392,43): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+client/src/pages/categories.tsx(429,42): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+client/src/pages/categories.tsx(466,40): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+client/src/pages/ccpa.tsx(4,62): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/contact.tsx(3,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/contact.tsx(12,63): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/cookies.tsx(4,57): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/dashboard.tsx(27,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/dashboard.tsx(556,70): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/dashboard.tsx(580,31): error TS7006: Parameter 'alert' implicitly has an 'any' type.
+client/src/pages/dashboard.tsx(749,60): error TS7006: Parameter 'item' implicitly has an 'any' type.
+client/src/pages/dashboard.tsx(813,69): error TS7006: Parameter 'bill' implicitly has an 'any' type.
+client/src/pages/dashboard.tsx(996,68): error TS7006: Parameter 'goal' implicitly has an 'any' type.
+client/src/pages/data-retention.tsx(4,37): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/debt-payoff.tsx(52,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/debt-payoff.tsx(306,25): error TS2339: Property 'category' does not exist on type '{ id: string; name: string; userId: string; isActive: string | null; notes: string | null; dueDay: number | null; startDate: string | null; linkedPlaidAccountId: string | null; createdAt: string | null; ... 10 more ...; updatedAt: string | null; }'.
+client/src/pages/debt-payoff.tsx(307,27): error TS2339: Property 'interestRate' does not exist on type '{ id: string; name: string; userId: string; isActive: string | null; notes: string | null; dueDay: number | null; startDate: string | null; linkedPlaidAccountId: string | null; createdAt: string | null; ... 10 more ...; updatedAt: string | null; }'.
+client/src/pages/debt-payoff.tsx(308,45): error TS2339: Property 'category' does not exist on type '{ id: string; name: string; userId: string; isActive: string | null; notes: string | null; dueDay: number | null; startDate: string | null; linkedPlaidAccountId: string | null; createdAt: string | null; ... 10 more ...; updatedAt: string | null; }'.
+client/src/pages/debt-payoff.tsx(309,26): error TS2339: Property 'interestRate' does not exist on type '{ id: string; name: string; userId: string; isActive: string | null; notes: string | null; dueDay: number | null; startDate: string | null; linkedPlaidAccountId: string | null; createdAt: string | null; ... 10 more ...; updatedAt: string | null; }'.
+client/src/pages/debt-payoff.tsx(309,54): error TS2339: Property 'interestRate' does not exist on type '{ id: string; name: string; userId: string; isActive: string | null; notes: string | null; dueDay: number | null; startDate: string | null; linkedPlaidAccountId: string | null; createdAt: string | null; ... 10 more ...; updatedAt: string | null; }'.
+client/src/pages/debt-payoff.tsx(309,95): error TS2339: Property 'category' does not exist on type '{ id: string; name: string; userId: string; isActive: string | null; notes: string | null; dueDay: number | null; startDate: string | null; linkedPlaidAccountId: string | null; createdAt: string | null; ... 10 more ...; updatedAt: string | null; }'.
+client/src/pages/debt-payoff.tsx(475,47): error TS2304: Cannot find name 'parseISO'.
+client/src/pages/debt-payoff.tsx(901,61): error TS7006: Parameter 'name' implicitly has an 'any' type.
+client/src/pages/debt-payoff.tsx(901,67): error TS7006: Parameter 'index' implicitly has an 'any' type.
+client/src/pages/debts.tsx(5,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/debts.tsx(70,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/debts.tsx(186,36): error TS7006: Parameter 'group' implicitly has an 'any' type.
+client/src/pages/debts.tsx(193,33): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/debts.tsx(201,33): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/pages/debts.tsx(201,66): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/pages/debts.tsx(206,43): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/debts.tsx(440,42): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/debts.tsx(465,42): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/debts.tsx(641,31): error TS7006: Parameter 'debt' implicitly has an 'any' type.
+client/src/pages/debts.tsx(951,50): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/pages/demo.tsx(6,25): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/email-settings.tsx(11,88): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/expenses.tsx(4,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/expenses.tsx(88,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/expenses.tsx(752,17): error TS7006: Parameter '_' implicitly has an 'any' type.
+client/src/pages/expenses.tsx(752,20): error TS7006: Parameter 'ids' implicitly has an 'any' type.
+client/src/pages/expenses.tsx(766,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/expenses.tsx(847,44): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/expenses.tsx(1137,31): error TS2322: Type 'unknown' is not assignable to type 'Key | null | undefined'.
+client/src/pages/expenses.tsx(1137,41): error TS2322: Type 'unknown' is not assignable to type 'string'.
+client/src/pages/expenses.tsx(1137,53): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+client/src/pages/expenses.tsx(1371,50): error TS2304: Cannot find name 'effectiveCadAmount'.
+client/src/pages/forgot-password.tsx(3,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/forgot-password.tsx(12,56): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/forgot-password.tsx(44,17): error TS7006: Parameter '_' implicitly has an 'any' type.
+client/src/pages/forgot-password.tsx(44,20): error TS7006: Parameter 'variables' implicitly has an 'any' type.
+client/src/pages/gdpr.tsx(4,54): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/help.tsx(3,197): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/income.tsx(5,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/income.tsx(56,219): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/income.tsx(454,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/income.tsx(545,48): error TS7006: Parameter 'inc' implicitly has an 'any' type.
+client/src/pages/income.tsx(592,14): error TS7006: Parameter 'inc' implicitly has an 'any' type.
+client/src/pages/income.tsx(600,12): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/income.tsx(600,15): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/income.tsx(929,44): error TS7006: Parameter 'source' implicitly has an 'any' type.
+client/src/pages/income.tsx(929,52): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+client/src/pages/income.tsx(932,58): error TS7006: Parameter 'inc' implicitly has an 'any' type.
+client/src/pages/income.tsx(1030,38): error TS7006: Parameter 'inc' implicitly has an 'any' type.
+client/src/pages/investments.tsx(6,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/investments.tsx(71,193): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/investments.tsx(232,32): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/investments.tsx(394,52): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/investments.tsx(475,57): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/investments.tsx(485,39): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+client/src/pages/investments.tsx(779,52): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/investments.tsx(796,31): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/pages/investments.tsx(921,16): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/investments.tsx(922,14): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/investments.tsx(922,17): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/investments.tsx(923,26): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/investments.tsx(938,39): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1113,44): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1205,72): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1206,74): error TS7006: Parameter 'worst' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1206,81): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1338,17): error TS7006: Parameter '_data' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1338,24): error TS7006: Parameter 'variables' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1507,33): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1508,61): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1510,76): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1572,54): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1582,32): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1584,54): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/investments.tsx(1608,37): error TS7006: Parameter 'holding' implicitly has an 'any' type.
+client/src/pages/invitation.tsx(9,75): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/landing.tsx(13,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/landing.tsx(1206,28): error TS7006: Parameter 'feature' implicitly has an 'any' type.
+client/src/pages/landing.tsx(1206,37): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/landing.tsx(1273,36): error TS7006: Parameter 'row' implicitly has an 'any' type.
+client/src/pages/landing.tsx(1273,41): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/landing.tsx(1530,26): error TS7006: Parameter 'faq' implicitly has an 'any' type.
+client/src/pages/landing.tsx(1530,31): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(5,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/liabilities.tsx(65,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/liabilities.tsx(222,36): error TS7006: Parameter 'g' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(228,33): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(254,35): error TS18046: 'v' is of type 'unknown'.
+client/src/pages/liabilities.tsx(259,33): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(259,68): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(264,42): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(488,43): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(509,43): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(666,65): error TS7006: Parameter 'g' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(667,42): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(742,29): error TS7006: Parameter 'debt' implicitly has an 'any' type.
+client/src/pages/liabilities.tsx(1043,50): error TS7006: Parameter 'account' implicitly has an 'any' type.
+client/src/pages/login.tsx(3,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/login.tsx(12,70): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/login.tsx(112,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/login.tsx(194,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/merchants.tsx(6,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/merchants.tsx(24,59): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/merchants.tsx(53,38): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/merchants.tsx(160,30): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/merchants.tsx(160,33): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+client/src/pages/net-worth.tsx(8,113): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/net-worth.tsx(122,28): error TS18046: 'value' is of type 'unknown'.
+client/src/pages/net-worth.tsx(143,10): error TS7006: Parameter 'h' implicitly has an 'any' type.
+client/src/pages/net-worth.tsx(226,79): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+client/src/pages/net-worth.tsx(261,101): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+client/src/pages/not-found.tsx(2,29): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/other-expenses.tsx(42,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/other-expenses.tsx(79,6): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(83,56): error TS7006: Parameter 'expense' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(90,14): error TS7006: Parameter 'expense' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(95,12): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(95,15): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(111,49): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(111,54): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(114,70): error TS7006: Parameter 'e' implicitly has an 'any' type.
+client/src/pages/other-expenses.tsx(265,38): error TS7006: Parameter 'expense' implicitly has an 'any' type.
+client/src/pages/privacy.tsx(4,57): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/receipts.tsx(7,73): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/redeem.tsx(9,38): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/reports.tsx(33,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/reports.tsx(223,29): error TS18046: 'b' is of type 'unknown'.
+client/src/pages/reports.tsx(223,33): error TS18046: 'a' is of type 'unknown'.
+client/src/pages/reports.tsx(226,30): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/reports.tsx(235,7): error TS18046: 'amount' is of type 'unknown'.
+client/src/pages/reports.tsx(267,47): error TS7006: Parameter 'merchant' implicitly has an 'any' type.
+client/src/pages/reports.tsx(267,57): error TS7006: Parameter 'idx' implicitly has an 'any' type.
+client/src/pages/reports.tsx(287,89): error TS18046: 'b' is of type 'unknown'.
+client/src/pages/reports.tsx(287,93): error TS18046: 'a' is of type 'unknown'.
+client/src/pages/reports.tsx(310,46): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+client/src/pages/reports.tsx(320,43): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+client/src/pages/reports.tsx(327,45): error TS18046: 'total' is of type 'unknown'.
+client/src/pages/reports.tsx(330,91): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+client/src/pages/reports.tsx(342,20): error TS7006: Parameter 'bill' implicitly has an 'any' type.
+client/src/pages/reports.tsx(368,26): error TS7006: Parameter 'a' implicitly has an 'any' type.
+client/src/pages/reports.tsx(368,29): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(369,25): error TS7006: Parameter 'bill' implicitly has an 'any' type.
+client/src/pages/reports.tsx(392,43): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/reports.tsx(418,31): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/reports.tsx(463,41): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/reports.tsx(489,39): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/reports.tsx(489,42): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/reports.tsx(491,67): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/pages/reports.tsx(541,57): error TS7006: Parameter 'row' implicitly has an 'any' type.
+client/src/pages/reports.tsx(541,62): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/reports.tsx(574,40): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(575,39): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(576,41): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(577,39): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(610,38): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(623,37): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(636,39): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(649,37): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/reports.tsx(750,32): error TS7006: Parameter 'month' implicitly has an 'any' type.
+client/src/pages/reports.tsx(750,39): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/reports.tsx(785,42): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/reports.tsx(918,32): error TS7006: Parameter 'insight' implicitly has an 'any' type.
+client/src/pages/reports.tsx(959,32): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/reports.tsx(961,45): error TS18046: 'b' is of type 'unknown'.
+client/src/pages/reports.tsx(961,49): error TS18046: 'a' is of type 'unknown'.
+client/src/pages/reports.tsx(972,52): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+client/src/pages/reports.tsx(1158,65): error TS18046: 'amount' is of type 'unknown'.
+client/src/pages/reports.tsx(1169,77): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+client/src/pages/reports.tsx(1201,40): error TS7006: Parameter 'month' implicitly has an 'any' type.
+client/src/pages/reports.tsx(1201,47): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/reports.tsx(1229,13): error TS2304: Cannot find name 'renderReportContent'.
+client/src/pages/reset-password.tsx(3,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/reset-password.tsx(12,78): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/savings-goals.tsx(5,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/savings-goals.tsx(39,157): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/savings-goals.tsx(519,24): error TS7006: Parameter 'goal' implicitly has an 'any' type.
+client/src/pages/security.tsx(4,108): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/settings.tsx(4,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/settings.tsx(25,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/settings.tsx(48,121): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/settings.tsx(348,25): error TS7006: Parameter 'group' implicitly has an 'any' type.
+client/src/pages/settings.tsx(369,34): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+client/src/pages/settings.tsx(402,23): error TS7006: Parameter 'member' implicitly has an 'any' type.
+client/src/pages/settings.tsx(426,35): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+client/src/pages/settings.tsx(607,36): error TS7006: Parameter 'acc' implicitly has an 'any' type.
+client/src/pages/settings.tsx(974,56): error TS7006: Parameter 'feature' implicitly has an 'any' type.
+client/src/pages/settings.tsx(1517,20): error TS7006: Parameter 'alert' implicitly has an 'any' type.
+client/src/pages/setup-mfa.tsx(3,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/setup-mfa.tsx(16,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/setup-mfa.tsx(53,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/signup.tsx(2,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/signup.tsx(15,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/signup.tsx(173,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/signup.tsx(173,23): error TS7006: Parameter 'variables' implicitly has an 'any' type.
+client/src/pages/simulator.tsx(29,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/simulator.tsx(237,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/simulator.tsx(279,44): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/simulator.tsx(280,44): error TS7006: Parameter 'd' implicitly has an 'any' type.
+client/src/pages/simulator.tsx(329,43): error TS7006: Parameter 'bill' implicitly has an 'any' type.
+client/src/pages/simulator.tsx(361,43): error TS7006: Parameter 'debt' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(6,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/split-expenses.tsx(49,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/split-expenses.tsx(593,13): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(594,14): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(594,19): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(597,13): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(598,14): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(598,19): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(657,30): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(657,66): error TS7006: Parameter 'balance' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(657,75): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(658,45): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(694,30): error TS7006: Parameter 'b' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(694,64): error TS7006: Parameter 'balance' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(694,73): error TS7006: Parameter 'i' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(695,47): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(730,27): error TS7006: Parameter 'split' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(731,46): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(754,47): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/split-expenses.tsx(755,53): error TS7006: Parameter 'm' implicitly has an 'any' type.
+client/src/pages/subscriptions.tsx(15,167): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/subscriptions.tsx(597,28): error TS2339: Property 'dueDate' does not exist on type '{ id: string; name: string; userId: string; amount: string; category: string; notes: string | null; dueDay: number; recurrence: string; customDates: string | null; lastNotifiedCycle: string | null; ... 6 more ...; linkedPlaidAccountId: string | null; }'.
+client/src/pages/subscriptions.tsx(597,52): error TS2339: Property 'dueDate' does not exist on type '{ id: string; name: string; userId: string; amount: string; category: string; notes: string | null; dueDay: number; recurrence: string; customDates: string | null; lastNotifiedCycle: string | null; ... 6 more ...; linkedPlaidAccountId: string | null; }'.
+client/src/pages/subscriptions.tsx(611,17): error TS7006: Parameter '_' implicitly has an 'any' type.
+client/src/pages/subscriptions.tsx(611,20): error TS7006: Parameter 'date' implicitly has an 'any' type.
+client/src/pages/subscriptions.tsx(713,38): error TS7006: Parameter 'bill' implicitly has an 'any' type.
+client/src/pages/subscriptions.tsx(860,43): error TS7006: Parameter 'sub' implicitly has an 'any' type.
+client/src/pages/subscriptions.tsx(944,43): error TS7006: Parameter 'sub' implicitly has an 'any' type.
+client/src/pages/support.tsx(3,29): error TS7016: Could not find a declaration file for module '@hookform/resolvers/zod'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@hookform/resolvers/zod/dist/zod.mjs' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/hookform__resolvers` if it exists or add a new declaration (.d.ts) file containing `declare module '@hookform/resolvers/zod';`
+client/src/pages/support.tsx(20,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/support.tsx(218,29): error TS7006: Parameter 'msg' implicitly has an 'any' type.
+client/src/pages/support.tsx(258,21): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/pages/support.tsx(370,17): error TS7006: Parameter 'data' implicitly has an 'any' type.
+client/src/pages/tax-smart.tsx(51,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/tax-smart.tsx(439,43): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+client/src/pages/tax-smart.tsx(440,29): error TS7006: Parameter 't' implicitly has an 'any' type.
+client/src/pages/tax-smart.tsx(571,21): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+client/src/pages/tax-smart.tsx(853,77): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+client/src/pages/tax-smart.tsx(1318,56): error TS7006: Parameter 's' implicitly has an 'any' type.
+client/src/pages/tax-smart.tsx(1420,45): error TS7006: Parameter 'cat' implicitly has an 'any' type.
+client/src/pages/terms.tsx(4,70): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/trust.tsx(4,125): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/upgrade.tsx(6,64): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/upgrade.tsx(238,50): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/upgrade.tsx(251,27): error TS7006: Parameter 'p' implicitly has an 'any' type.
+client/src/pages/vault.tsx(11,8): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/vault.tsx(421,23): error TS7006: Parameter 'query' implicitly has an 'any' type.
+client/src/pages/vault.tsx(614,42): error TS7006: Parameter 'tag' implicitly has an 'any' type.
+client/src/pages/vault.tsx(743,37): error TS2322: Type '(directQuestion?: string) => Promise<void>' is not assignable to type 'MouseEventHandler<HTMLButtonElement>'.
+  Types of parameters 'directQuestion' and 'event' are incompatible.
+    Type 'MouseEvent<HTMLButtonElement, MouseEvent>' is not assignable to type 'string'.
+client/src/pages/vault.tsx(1255,26): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+client/src/pages/vault.tsx(1279,30): error TS7006: Parameter 'doc' implicitly has an 'any' type.
+client/src/pages/verify-email-pending.tsx(8,53): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+client/src/pages/verify-email.tsx(6,62): error TS7016: Could not find a declaration file for module 'lucide-react'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/lucide-react/dist/cjs/lucide-react.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/lucide-react` if it exists or add a new declaration (.d.ts) file containing `declare module 'lucide-react';`
+server/ai-teller.ts(576,28): error TS2367: This comparison appears to be unintentional because the types 'boolean | null' and 'string' have no overlap.
+server/email.ts(1380,7): error TS2322: Type '"fresh_start"' is not assignable to type 'EmailType'.
+server/lib/auto-reconciler.ts(395,63): error TS2551: Property 'transactionType' does not exist on type '{ id: string; name: string; date: string; isActive: string | null; transactionId: string; amount: string; category: string | null; taxDeductible: string | null; taxCategory: string | null; ... 30 more ...; transferPairId: string | null; }'. Did you mean 'transactionId'?
+server/lib/auto-reconciler.ts(731,140): error TS2551: Property 'transactionType' does not exist on type '{ id: string; name: string; date: string; isActive: string | null; transactionId: string; amount: string; category: string | null; taxDeductible: string | null; taxCategory: string | null; ... 30 more ...; transferPairId: string | null; }'. Did you mean 'transactionId'?
+server/lib/financial-engine/index.ts(58,3): error TS2305: Module '"./types"' has no exported member 'CalendarEvent'.
+server/lib/financial-engine/index.ts(59,3): error TS2305: Module '"./types"' has no exported member 'CalendarResult'.
+server/lib/planResolver.ts(60,34): error TS2367: This comparison appears to be unintentional because the types 'string | null' and 'boolean' have no overlap.
+server/receipt-scanner.ts(1,83): error TS7016: Could not find a declaration file for module '@aws-sdk/client-s3'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@aws-sdk/client-s3/dist-cjs/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/aws-sdk__client-s3` if it exists or add a new declaration (.d.ts) file containing `declare module '@aws-sdk/client-s3';`
+server/routes.ts(22,138): error TS7016: Could not find a declaration file for module '@aws-sdk/client-s3'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@aws-sdk/client-s3/dist-cjs/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/aws-sdk__client-s3` if it exists or add a new declaration (.d.ts) file containing `declare module '@aws-sdk/client-s3';`
+server/routes.ts(2836,9): error TS2353: Object literal may only specify known properties, and 'plan' does not exist in type '{ username: string; password?: string | null | undefined; } & { isAdmin?: boolean | undefined; isApproved?: boolean | undefined; email?: string | undefined; firstName?: string | undefined; ... 5 more ...; mfaRequired?: string | undefined; }'.
+server/routes.ts(3679,66): error TS7016: Could not find a declaration file for module '@aws-sdk/client-s3'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@aws-sdk/client-s3/dist-cjs/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/aws-sdk__client-s3` if it exists or add a new declaration (.d.ts) file containing `declare module '@aws-sdk/client-s3';`
+server/routes.ts(3721,44): error TS2551: Property 'getMxAccountsByMemberId' does not exist on type 'DatabaseStorage'. Did you mean 'deleteMxAccountsByMemberId'?
+server/routes.ts(4511,9): error TS2322: Type '"admin.user_unlocked"' is not assignable to type 'AuditEventType'.
+server/routes.ts(7587,11): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(left: PgColumn<{ name: "member_guid"; tableName: "mx_members"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}, {}>, right: string | SQLWrapper): SQL<...>', gave the following error.
+    Argument of type 'string | string[]' is not assignable to parameter of type 'string | SQLWrapper'.
+      Type 'string[]' is not assignable to type 'string | SQLWrapper'.
+  Overload 2 of 3, '(left: Aliased<string | string[]>, right: string | string[] | SQLWrapper): SQL<unknown>', gave the following error.
+    Argument of type 'PgColumn<{ name: "member_guid"; tableName: "mx_members"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}, {}>' is not assignable to parameter of type 'Aliased<string | string[]>'.
+      Type 'PgColumn<{ name: "member_guid"; tableName: "mx_members"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}, {}>' is missing the following properties from type 'Aliased<string | string[]>': sql, fieldAlias
+  Overload 3 of 3, '(left: never, right: unknown): SQL<unknown>', gave the following error.
+    Argument of type 'PgColumn<{ name: "member_guid"; tableName: "mx_members"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; notNull: true; hasDefault: false; isPrimaryKey: false; isAutoincrement: false; ... 4 more ...; generated: undefined; }, {}, {}>' is not assignable to parameter of type 'never'.
+server/routes.ts(7599,9): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes.ts(7937,23): error TS2339: Property 'type' does not exist on type '{ id: string; status: string | null; date: string; description: string; amount: string; category: string | null; taxDeductible: string | null; taxCategory: string | null; isBusinessExpense: string | null; ... 29 more ...; postedAt: string | null; }'.
+server/routes.ts(8130,11): error TS2322: Type '({ role: string; content: string; } | { role: "user"; content: any; })[]' is not assignable to type 'BedrockMessage[]'.
+  Type '{ role: string; content: string; } | { role: "user"; content: any; }' is not assignable to type 'BedrockMessage'.
+    Type '{ role: string; content: string; }' is not assignable to type 'BedrockMessage'.
+      Types of property 'role' are incompatible.
+        Type 'string' is not assignable to type '"user" | "assistant"'.
+server/routes.ts(8168,11): error TS2322: Type '({ role: string; content: string; } | { role: "user"; content: any; })[]' is not assignable to type 'BedrockMessage[]'.
+  Type '{ role: string; content: string; } | { role: "user"; content: any; }' is not assignable to type 'BedrockMessage'.
+    Type '{ role: string; content: string; }' is not assignable to type 'BedrockMessage'.
+      Types of property 'role' are incompatible.
+        Type 'string' is not assignable to type '"user" | "assistant"'.
+server/routes.ts(8216,81): error TS2345: Argument of type '{ transaction_id: any; source: any; merchant_name: any; amount: any; raw_amount: any; date: any; category: any; status: any; payment_channel: any; personal_finance_category: any; account_name: any; is_transfer: any; transfer_pair_id: any; } | null' is not assignable to parameter of type 'TransactionContext'.
+  Type 'null' is not assignable to type 'TransactionContext'.
+server/routes.ts(8225,9): error TS2322: Type '({ role: string; content: string; } | { role: "user"; content: any; })[]' is not assignable to type 'BedrockMessage[]'.
+  Type '{ role: string; content: string; } | { role: "user"; content: any; }' is not assignable to type 'BedrockMessage'.
+    Type '{ role: string; content: string; }' is not assignable to type 'BedrockMessage'.
+      Types of property 'role' are incompatible.
+        Type 'string' is not assignable to type '"user" | "assistant"'.
+server/routes.ts(9047,36): error TS2345: Argument of type '{ userId: string; source: string; amount: string; date: string; category: "Salary"; isRecurring: string; recurrence: "monthly"; dueDay: number; }' is not assignable to parameter of type '{ source: string; date: string; isActive: string; amount: string; category: "Investments" | "Other" | "Salary" | "Freelance" | "Business" | "Rental" | "Gifts" | "Refunds"; userId?: string | undefined; ... 10 more ...; detectedAt?: Date | ... 1 more ... | undefined; } & { ...; }'.
+  Property 'isActive' is missing in type '{ userId: string; source: string; amount: string; date: string; category: "Salary"; isRecurring: string; recurrence: "monthly"; dueDay: number; }' but required in type '{ source: string; date: string; isActive: string; amount: string; category: "Investments" | "Other" | "Salary" | "Freelance" | "Business" | "Rental" | "Gifts" | "Refunds"; userId?: string | undefined; ... 10 more ...; detectedAt?: Date | ... 1 more ... | undefined; }'.
+server/routes.ts(12213,20): error TS2304: Cannot find name 'plan'.
+server/routes.ts(12213,38): error TS2304: Cannot find name 'plan'.
+server/routes.ts(13559,23): error TS2367: This comparison appears to be unintentional because the types 'boolean | null' and 'string' have no overlap.
+server/routes.ts(17342,70): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes.ts(17345,9): error TS2322: Type 'string | string[]' is not assignable to type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+server/routes/admin-plans.ts(128,42): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ ai_assistant: number; receipt_scanning: number; portfolio_advisor: number; ai_budget_suggestions: number; ai_transaction_categorization: number; ai_savings_advisor: number; ai_insights: number; ... 49 more ...; payday_optimizer: number; }'.
+  No index signature with a parameter of type 'string' was found on type '{ ai_assistant: number; receipt_scanning: number; portfolio_advisor: number; ai_budget_suggestions: number; ai_transaction_categorization: number; ai_savings_advisor: number; ai_insights: number; ... 49 more ...; payday_optimizer: number; }'.
+server/routes/admin-plans.ts(129,40): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ ai_assistant: null; receipt_scanning: null; portfolio_advisor: null; ai_budget_suggestions: null; ai_transaction_categorization: null; ai_savings_advisor: null; ai_insights: null; ai_daily_coach: null; ... 48 more ...; payday_optimizer: null; }'.
+  No index signature with a parameter of type 'string' was found on type '{ ai_assistant: null; receipt_scanning: null; portfolio_advisor: null; ai_budget_suggestions: null; ai_transaction_categorization: null; ai_savings_advisor: null; ai_insights: null; ai_daily_coach: null; ... 48 more ...; payday_optimizer: null; }'.
+server/routes/admin-plans.ts(130,46): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ ai_assistant: null; receipt_scanning: null; portfolio_advisor: null; ai_budget_suggestions: null; ai_transaction_categorization: null; ai_savings_advisor: null; ai_insights: null; ai_daily_coach: null; ... 48 more ...; payday_optimizer: null; }'.
+  No index signature with a parameter of type 'string' was found on type '{ ai_assistant: null; receipt_scanning: null; portfolio_advisor: null; ai_budget_suggestions: null; ai_transaction_categorization: null; ai_savings_advisor: null; ai_insights: null; ai_daily_coach: null; ... 48 more ...; payday_optimizer: null; }'.
+server/routes/admin-plans.ts(183,7): error TS2322: Type '"settings.updated"' is not assignable to type 'AuditEventType'.
+server/routes/admin-plans.ts(241,7): error TS2322: Type '"settings.updated"' is not assignable to type 'AuditEventType'.
+server/routes/auth-password-reset.ts(179,9): error TS2322: Type '"auth.password_reset_requested"' is not assignable to type 'AuditEventType'.
+server/routes/auth-password-reset.ts(327,9): error TS2322: Type '"auth.password_reset_completed"' is not assignable to type 'AuditEventType'.
+server/routes/auth-password-reset.ts(383,11): error TS2322: Type '"auth.backup_code_failed"' is not assignable to type 'AuditEventType'.
+server/routes/auth-password-reset.ts(415,9): error TS2322: Type '"auth.backup_code_used"' is not assignable to type 'AuditEventType'.
+server/routes/auth-password-reset.ts(498,9): error TS2322: Type '"auth.backup_codes_regenerated"' is not assignable to type 'AuditEventType'.
+server/routes/vault.ts(5,83): error TS7016: Could not find a declaration file for module '@aws-sdk/client-s3'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@aws-sdk/client-s3/dist-cjs/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/aws-sdk__client-s3` if it exists or add a new declaration (.d.ts) file containing `declare module '@aws-sdk/client-s3';`
+server/routes/vault.ts(604,58): error TS7016: Could not find a declaration file for module '@aws-sdk/client-s3'. 'C:/Users/Claude/Documents/Budget-Smart-AI/node_modules/@aws-sdk/client-s3/dist-cjs/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/aws-sdk__client-s3` if it exists or add a new declaration (.d.ts) file containing `declare module '@aws-sdk/client-s3';`
+server/storage.ts(770,11): error TS2322: Type '{ id: `${string}-${string}-${string}-${string}-${string}`; userId: string; notes: string | null; taxDeductible: string | null; taxCategory: string | null; isBusinessExpense: string | null; date: string; amount: string; category: "Communications" | ... 26 more ... | "Business Auto Expenses"; merchant: string; externa...' is not assignable to type '{ id: string; date: string; userId: string; amount: string; category: string; notes: string | null; merchant: string; taxDeductible: string | null; taxCategory: string | null; isBusinessExpense: string | null; externalTransactionId: string | null; }'.
+  Types of property 'externalTransactionId' are incompatible.
+    Type 'string | null | undefined' is not assignable to type 'string | null'.
+      Type 'undefined' is not assignable to type 'string | null'.
+server/storage.ts(811,11): error TS2322: Type '{ id: `${string}-${string}-${string}-${string}-${string}`; userId: string; isRecurring: string; recurrence: "custom" | "monthly" | "yearly" | "weekly" | "biweekly" | "one_time" | null; dueDay: number | null; ... 12 more ...; detectedAt?: Date | ... 1 more ... | undefined; }' is not assignable to type '{ source: string; id: string; date: string; userId: string; isActive: string | null; amount: string; category: string; notes: string | null; dueDay: number | null; recurrence: string | null; ... 7 more ...; detectedAt: Date | null; }'.
+  Types of property 'plaidTransactionId' are incompatible.
+    Type 'string | null | undefined' is not assignable to type 'string | null'.
+      Type 'undefined' is not assignable to type 'string | null'.
+server/storage.ts(930,70): error TS2322: Type '{ cursor: string | null; status: string; institutionId: string | null; institutionName: string | null; createdAt: string | null; accessTokenEnc: null; itemIdEnc: null; userId: string; ... 4 more ...; id: `${string}-${string}-${string}-${string}-${string}`; }' is not assignable to type '{ id: string; cursor: string | null; status: string | null; userId: string; accessToken: string; isSyncing: boolean | null; institutionName: string | null; createdAt: string | null; ... 4 more ...; itemIdEnc: string | null; }'.
+  Types of property 'isSyncing' are incompatible.
+    Type 'boolean | null | undefined' is not assignable to type 'boolean | null'.
+      Type 'undefined' is not assignable to type 'boolean | null'.
+server/sync-scheduler.ts(226,31): error TS2339: Property 'length' does not exist on type 'void'.

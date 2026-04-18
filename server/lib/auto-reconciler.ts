@@ -26,6 +26,7 @@ import { billPayments, bills as billsTable, spendingAlerts, notifications, users
 import { eq, and, ilike, desc, sql, isNull, ne } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 import { sendSpendingAlertEmail } from "../email";
+import { classifyIncomeTransaction } from "./financial-engine/categories/income-classifier";
 
 // ─── Fix 5: Startup migration — backfill externalTransactionId on existing expenses ─
 
@@ -704,22 +705,12 @@ export async function autoReconcile(userId: string): Promise<{
     const txAmount = parseFloat(tx.amount as string);
     const cat = (tx.category || "").toUpperCase();
     const personalCat = (tx.personalCategory || "").toLowerCase();
+    const pfcDetailedRaw = (tx as any).personalFinanceCategoryDetailed
+      ? String((tx as any).personalFinanceCategoryDetailed).toUpperCase()
+      : "";
 
-    // Income transactions: category === 'INCOME' OR personalCategory === 'Salary'
-    // AND amount is NEGATIVE (Plaid uses negative for money coming IN on checking accounts)
-    // Expanded income detection: catch all common income/payroll categories
-    const isIncomeCategory =
-      cat === "INCOME" ||
-      cat === "PAYROLL" ||
-      cat === "DIRECT_DEPOSIT" ||
-      personalCat === "salary" ||
-      personalCat === "payroll" ||
-      personalCat === "income" ||
-      personalCat === "direct_deposit" ||
-      personalCat === "wages";
-    if (!isIncomeCategory) continue;
     if (txAmount >= 0) continue; // must be negative (money in)
-
+    const absAmount = Math.abs(txAmount);
     const source = tx.merchantCleanName || tx.name || "Unknown";
 
     // ── UNIVERSAL TRANSFER DETECTION: skip any transaction Plaid categorises
@@ -731,8 +722,26 @@ export async function autoReconcile(userId: string): Promise<{
       console.log(`[AutoReconciler] Skipping transfer transaction: "${source}" (Plaid category: ${tx.personalCategory || tx.category || tx.transactionType})`);
       continue;
     }
-    const absAmount = Math.abs(txAmount);
-    const incomeCategory = personalCat === "salary" ? "Salary" : "Other";
+
+    // Delegate income classification to the central classifier. The classifier
+    // returns isIncome=true only for credits Plaid actually flags as income
+    // (PFC starts with INCOME_*, counterparty is INCOME_SOURCE, sub-$2 likely
+    // interest, or legacy salary/payroll keyword match). It also returns the
+    // correct INCOME_CATEGORIES bucket — Salary / Interest / Investments /
+    // Refunds / Other — so we never default to "Salary" for $0.72 interest
+    // deposits or affiliate payouts.
+    const classification = classifyIncomeTransaction({
+      pfcDetailed: pfcDetailedRaw || null,
+      pfcPrimary: cat || null,
+      counterpartyType: (tx as any).counterpartyType || null,
+      amount: absAmount,
+      isCredit: true,
+      isTransfer: false,
+      legacyCategory: personalCat || cat || null,
+      merchant: source,
+    });
+    if (!classification.isIncome) continue;
+    const incomeCategory = classification.category;
 
     // ── PRIMARY DEDUP: check by Plaid transaction ID stored in notes ─────
     // We store the Plaid transaction ID in notes as "plaid_tx:<id>" to allow
