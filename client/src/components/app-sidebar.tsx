@@ -79,6 +79,8 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { UpgradeModal, type UpgradeModalFeature } from "@/components/UpgradeModal";
+import { ReferralModal } from "@/components/ReferralModal";
+import { Heart } from "lucide-react";
 import { trackUpgradeCta } from "@/lib/trackUpgradeCta";
 import { cn } from "@/lib/utils";
 
@@ -289,6 +291,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   const [location, navigate] = useLocation();
   const [upgradeModalFeature, setUpgradeModalFeature] = useState<UpgradeModalFeature | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
   const { plan, getFeatureState, usageMap } = useFeatureUsage();
 
   // Collapse state: Set of group ids that are collapsed. Initialized from
@@ -692,6 +695,26 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
                   <TooltipContent side="top">AI Financial Assistant</TooltipContent>
                 </Tooltip>
 
+                {/* Gold-heart Refer-a-friend button. Visible to all users —
+                 * the modal itself will degrade gracefully if the Partnero
+                 * referral program is disabled server-side. */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setReferralOpen(true)}
+                      className="h-9 w-9 flex items-center justify-center rounded-md text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 transition-colors"
+                      aria-label="Refer a friend — 30% off + $30"
+                      data-testid="sidebar-referral-button"
+                    >
+                      <Heart className="h-4 w-4 fill-amber-500" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Refer a friend — 30% off + $30
+                  </TooltipContent>
+                </Tooltip>
+
                 {import.meta.env.VITE_PARTNERO_ENABLED === "true" && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -722,6 +745,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
         )}
       </Sidebar>
       <FloatingChatbot externalOpen={chatOpen} onExternalClose={() => setChatOpen(false)} />
+      <ReferralModal open={referralOpen} onOpenChange={setReferralOpen} />
     </>
   );
 }

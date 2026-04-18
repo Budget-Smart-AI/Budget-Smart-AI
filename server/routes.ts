@@ -63,6 +63,8 @@ import adminCommunicationsRouter from "./routes/admin-communications";
 // reach the engine path.
 // import { createEngineApp } from "./engine/app";
 import { registerPasswordResetRoutes } from "./routes/auth-password-reset";
+import { registerReferralRoutes } from "./routes/referrals";
+import { enrollCustomerInReferralProgram, partneroReferralEnabled } from "./partnero-referral";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt, decrypt } from "./encryption";
 import { auditLogFromRequest, getClientIp } from "./audit-logger";
 import { checkAndConsume, getFeatureLimit } from "./lib/featureGate";
@@ -155,6 +157,8 @@ export async function registerRoutes(
   // Admin communications hub (email log, templates, broadcast, health, system alerts)
   app.use("/api/admin/communications", adminCommunicationsRouter);
   registerPasswordResetRoutes(app);
+  // Customer-referral proxy routes (Partnero-backed). No-ops if PARTNERO_REFERRAL_ENABLED != "true".
+  registerReferralRoutes(app, requireAuth);
 
   // Field encryption status endpoint (admin only)
   app.get("/api/encryption/status", requireAuth, requireAdmin, (_req, res) => {
@@ -3113,6 +3117,38 @@ Return JSON: { "income": [...] }`;
         emailVerified: "false",
         mfaRequired: "true",
       });
+
+      // Fire-and-forget Partnero customer-referral enrollment.
+      // Never blocks signup — Partnero outages must not break registration.
+      // Safe to call even if referrer_code is absent (organic signup).
+      if (partneroReferralEnabled()) {
+        const referrerCode =
+          typeof (req.body as any)?.referrer_code === "string"
+            ? (req.body as any).referrer_code
+            : typeof (req.body as any)?.referralCode === "string"
+              ? (req.body as any).referralCode
+              : undefined;
+        enrollCustomerInReferralProgram({
+          key: email,
+          email,
+          name: `${firstName ?? ""} ${lastName ?? ""}`.trim() || null,
+          referrer_code: referrerCode,
+        })
+          .then((r) => {
+            if (!r.ok) {
+              console.warn(
+                `[PartneroReferral] enroll on signup returned not-ok for ${email}:`,
+                r.error,
+              );
+            }
+          })
+          .catch((err) =>
+            console.error(
+              "[PartneroReferral] enroll on signup threw:",
+              err?.message || err,
+            ),
+          );
+      }
 
       // Generate verification token and send email
       const verificationToken = crypto.randomBytes(32).toString('hex');

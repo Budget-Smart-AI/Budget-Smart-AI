@@ -70,6 +70,7 @@ import AdminAIModels from "@/pages/admin-ai-models";
 import AnomaliesPage from "@/pages/anomalies";
 import AffiliatePage from "@/pages/affiliate";
 import AffiliateTerms from "@/pages/affiliate-terms";
+import ReferralsPage from "@/pages/referrals";
 import SignupPage from "@/pages/signup";
 import Simulator from "@/pages/simulator";
 import Receipts from "@/pages/receipts";
@@ -157,6 +158,9 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/redeem" component={RedeemPage} />
       <Route path="/support" component={Support} />
       <Route path="/help" component={Help} />
+      {/* Customer referral program — per-user code, stats, shareable link.
+       * Distinct from /affiliate (public commission-only partner program). */}
+      <Route path="/referrals" component={ReferralsPage} />
       {isAdmin && (
         <>
           <Route path="/admin/users" component={AdminUsers} />
