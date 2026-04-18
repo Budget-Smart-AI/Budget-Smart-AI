@@ -720,34 +720,51 @@ iframe[src*="plaid"] {
     top: -0.25rem;
     width: 0.75rem;
     height: 1.125rem;
-    border-left: 1.5px solid rgba(127, 161, 140, 0.35);
-    border-bottom: 1.5px solid rgba(127, 161, 140, 0.35);
+    /* Phase 3.1: bump to teal @ 45% so the L-connector holds up against
+     * the deeper mint-glass sidebar island (was too washed out at 35%). */
+    border-left: 1.5px solid rgba(13, 148, 136, 0.45);
+    border-bottom: 1.5px solid rgba(13, 148, 136, 0.45);
     border-bottom-left-radius: 4px;
   }
   .theme-dark .nav-sub-item::before {
-    border-color: rgba(125, 204, 152, 0.3);
+    border-color: rgba(125, 204, 152, 0.4);
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- * SIDEBAR GLASS OVERRIDES
+ * SIDEBAR GLASS OVERRIDES + FLOATING ISLAND (Phase 3.1)
  *
  * The shadcn Sidebar primitive hardcodes `bg-sidebar` on its inner
  * wrappers (both the desktop `sidebar-inner` div and the mobile Sheet's
  * content). We can't pass the glass utility through props, so target
  * those slots directly and swap in the translucent background + backdrop
  * blur so the layered radial backdrop shows through.
+ *
+ * With `variant="floating"` on <Sidebar>, shadcn wraps the island in a
+ * padded outer (`sidebar-container`). We bump that padding to 0.75rem
+ * and give the inner container a 28px radius + full border + deeper
+ * drop shadow so it reads as a distinct floating island instead of a
+ * flush rail.
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Desktop inner container */
+/* Desktop inner container — the floating island itself */
 [data-slot="sidebar-inner"] {
   background: rgb(var(--glass-surface-strong)) !important;
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  border-right: 1px solid rgb(var(--glass-border));
+  border: 1px solid rgb(var(--glass-border));
+  border-radius: var(--radius-island);
+  box-shadow: var(--glass-shadow-lg);
 }
 
-/* Mobile Sheet content */
+/* Floating variant: extra padding around the island so it doesn't touch
+ * the viewport edges. Overrides shadcn's default `p-2`. */
+[data-slot="sidebar-container"][data-variant="floating"] {
+  padding: 0.75rem;
+}
+
+/* Mobile Sheet content — keeps full-height rail treatment (no island
+ * margin inside a modal), but uses the same glass surface. */
 [data-sidebar="sidebar"][data-mobile="true"] {
   background: rgb(var(--glass-surface-strong)) !important;
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -759,5 +776,25 @@ iframe[src*="plaid"] {
  * now that the inner container carries its own glass border. */
 [data-slot="sidebar-container"].group-data-\[side\=left\]\:border-r {
   border-color: transparent;
+}
+
+/* Phase 3.1c — Active-state accent bar.
+ * A 3px-wide vertical emerald bar hugs the left edge of the active menu
+ * button, offset 6px in, so the active state is instantly scannable
+ * even without the background tint. Works alongside (not instead of)
+ * the existing data-active bg treatment from the primitive. */
+[data-slot="sidebar-menu-button"][data-active="true"] {
+  position: relative;
+}
+[data-slot="sidebar-menu-button"][data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 25%;
+  bottom: 25%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--brand-gradient);
+  pointer-events: none;
 }
 
