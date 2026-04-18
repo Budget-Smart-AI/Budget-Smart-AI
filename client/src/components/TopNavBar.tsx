@@ -97,8 +97,9 @@ export function TopNavBar() {
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 flex h-20 shrink-0 items-center gap-3",
-        "border-b border-border/40 bg-background/60 backdrop-blur-xl supports-[backdrop-filter]:bg-background/40",
+        // Phase 3.2: h-24 for bigger greeting breathing room + glass tokens for the sticky backdrop
+        "sticky top-0 z-40 flex h-24 shrink-0 items-center gap-3",
+        "border-b border-[color:rgb(var(--glass-border))] bg-[color:rgb(var(--glass-surface))] backdrop-blur-xl",
         "px-4 md:px-6"
       )}
       data-testid="top-nav-bar"
@@ -110,13 +111,16 @@ export function TopNavBar() {
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger data-testid="button-sidebar-toggle" className="md:h-8 md:w-8 shrink-0" />
         <div className="min-w-0 hidden sm:block">
+          {/* Phase 3.2: solid charcoal (text-foreground), bigger + tighter leading, drop the brand gradient.
+           * Gradient stays on the logo + CTAs — off the greeting so the dash reads as a product UI
+           * rather than a marketing page. */}
           <h1
-            className="font-display text-xl md:text-2xl font-bold leading-tight truncate brand-gradient-text"
+            className="font-display text-2xl md:text-3xl lg:text-[36px] font-bold leading-[1.05] truncate text-foreground tracking-[-0.02em]"
             data-testid="topbar-greeting"
           >
             {greeting}, {greetingName}
           </h1>
-          <p className="text-xs md:text-sm text-muted-foreground leading-tight truncate">
+          <p className="text-sm md:text-base text-muted-foreground/90 leading-tight truncate">
             Here's your financial snapshot for {monthYear}
           </p>
         </div>
@@ -125,15 +129,17 @@ export function TopNavBar() {
       {/* Center: Search (visual-only for now) */}
       <div className="flex-1 flex items-center justify-center min-w-0">
         <label className="group relative w-full max-w-md hidden md:flex items-center">
-          <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" aria-hidden />
+          {/* Phase 3.2: icon sits at left-3.5 to clear the bumped pl-10 padding */}
+          <Search className="absolute left-3.5 h-4 w-4 text-muted-foreground pointer-events-none" aria-hidden />
           <input
             type="search"
             placeholder="Search transactions, budgets, goals…"
             aria-label="Search"
             data-testid="topbar-search"
             className={cn(
-              "w-full h-9 pl-9 pr-3 text-sm rounded-full",
-              "bg-background/40 border border-border/50 backdrop-blur-sm",
+              // Phase 3.2: taller, fully-rounded pill with glass tokens to match the sidebar island
+              "w-full h-10 pl-10 pr-3 text-sm rounded-[var(--radius-island)]",
+              "bg-[color:rgb(var(--glass-surface))] border border-[color:rgb(var(--glass-border))] backdrop-blur-sm",
               "placeholder:text-muted-foreground/70 text-foreground",
               "focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/40",
               "transition-colors"
