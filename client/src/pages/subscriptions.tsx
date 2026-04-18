@@ -821,19 +821,19 @@ export default function Subscriptions() {
 
         {/* ── Stats Cards ────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4">
-          <Card>
+          <Card variant="glass">
             <CardHeader className="p-3 sm:pb-2 sm:p-6">
               <CardDescription className="text-xs sm:text-sm">Active</CardDescription>
               <CardTitle className="text-xl sm:text-3xl" data-testid="text-active-count">{activeSubscriptions.length}</CardTitle>
             </CardHeader>
           </Card>
-          <Card>
+          <Card variant="glass">
             <CardHeader className="p-3 sm:pb-2 sm:p-6">
               <CardDescription className="text-xs sm:text-sm">Monthly</CardDescription>
               <CardTitle className="text-lg sm:text-3xl" data-testid="text-monthly-total">{formatCurrency(monthlyTotal)}</CardTitle>
             </CardHeader>
           </Card>
-          <Card>
+          <Card variant="glass">
             <CardHeader className="p-3 sm:pb-2 sm:p-6">
               <CardDescription className="text-xs sm:text-sm">Yearly</CardDescription>
               <CardTitle className="text-lg sm:text-3xl" data-testid="text-yearly-total">{formatCurrency(yearlyTotal)}</CardTitle>
@@ -842,7 +842,7 @@ export default function Subscriptions() {
         </div>
 
         {/* ── Active Subscriptions ───────────────────────────────────────────── */}
-        <Card>
+        <Card variant="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CreditCard className="w-5 h-5" />
@@ -929,7 +929,7 @@ export default function Subscriptions() {
 
         {/* ── Paused Subscriptions ───────────────────────────────────────────── */}
         {pausedSubscriptions.length > 0 && (
-          <Card>
+          <Card variant="glass">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-muted-foreground">
                 <RefreshCw className="w-5 h-5" />

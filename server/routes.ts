@@ -477,6 +477,13 @@ export async function registerRoutes(
       // A "bill" is a recurring fixed-cost obligation: subscriptions, utilities,
       // insurance, loan payments, rent. NOT discretionary recurring spending like
       // groceries, restaurants, gas, or shopping (even if the merchant is recurring).
+      //
+      // NOTE: "Entertainment & Recreation" is intentionally NOT excluded here —
+      // Plaid categorizes streaming services (Netflix, Spotify, Disney+, Hulu,
+      // Apple TV+, HBO Max) under that bucket, and they ARE legitimate
+      // subscriptions. The downstream amount-consistency (5%) + frequency-band
+      // checks reliably separate true subscriptions from one-off entertainment
+      // purchases (concerts, movie tickets) without needing this category gate.
       const NON_BILL_CATEGORIES = new Set([
         "Groceries", "Grocery Store", "Grocery",
         "Restaurants", "Restaurant", "Restaurant & Bars", "Restaurants & Bars",
@@ -490,7 +497,6 @@ export async function registerRoutes(
         "Public Transit", "Taxi", "Ride Share", "Parking",
         "Office Supplies", "Office Supplies & Expenses",
         "Pet Supplies", "Personal Care", "Personal Care Products",
-        "Entertainment & Recreation",
       ]);
 
       // Map a personal/Plaid category to a valid BILL_CATEGORIES enum value.
@@ -682,11 +688,22 @@ export async function registerRoutes(
       // Sort by confidence and amount
       detected.sort((a, b) => b.confidence - a.confidence || b.amount - a.amount);
 
-      // Filter out items already saved as bills (any category) OR as subscriptions
+      // Filter out items already saved as bills (any category) OR as subscriptions.
+      // Use a name-similarity check that requires the shorter side to be ≥6 chars
+      // before substring matching — otherwise generic short names like "Insurance"
+      // or "Loan" would mass-filter every detection containing those substrings.
+      const namesMatch = (a: string, b: string): boolean => {
+        if (a === b) return true;
+        // Only allow substring containment when the shorter name is reasonably specific
+        const shorter = a.length <= b.length ? a : b;
+        const longer  = a.length >  b.length ? a : b;
+        if (shorter.length < 6) return false;
+        return longer.includes(shorter);
+      };
       const suggestions = detected.filter(s => {
         const nameLower = s.name.toLowerCase();
         // Exclude if already a bill
-        if (existingBillNames.some(existing => existing.includes(nameLower) || nameLower.includes(existing))) {
+        if (existingBillNames.some(existing => namesMatch(existing, nameLower))) {
           return false;
         }
         return true;
@@ -9724,6 +9741,13 @@ ${JSON.stringify(txSummary)}`;
       // A "subscription" or "bill" is a recurring fixed-cost obligation. NOT
       // discretionary recurring spending like groceries, restaurants, gas, or
       // shopping (even if the merchant is recurring).
+      //
+      // NOTE: "Entertainment & Recreation" is intentionally NOT excluded here —
+      // Plaid categorizes streaming services (Netflix, Spotify, Disney+, Hulu,
+      // Apple TV+, HBO Max) under that bucket, and they ARE legitimate
+      // subscriptions. The downstream amount-consistency (5%) + frequency-band
+      // checks reliably separate true subscriptions from one-off entertainment
+      // purchases (concerts, movie tickets) without needing this category gate.
       const NON_BILL_CATEGORIES = new Set([
         "Groceries", "Grocery Store", "Grocery",
         "Restaurants", "Restaurant", "Restaurant & Bars", "Restaurants & Bars",
@@ -9737,7 +9761,6 @@ ${JSON.stringify(txSummary)}`;
         "Public Transit", "Taxi", "Ride Share", "Parking",
         "Office Supplies", "Office Supplies & Expenses",
         "Pet Supplies", "Personal Care", "Personal Care Products",
-        "Entertainment & Recreation",
       ]);
 
       const mapToBillCategory = (rawCategory: string | null | undefined): string => {
@@ -9924,12 +9947,20 @@ ${JSON.stringify(txSummary)}`;
       // Sort by confidence and amount
       detected.sort((a, b) => b.confidence - a.confidence || b.amount - a.amount);
 
-      // Filter out items already saved as bills or subscriptions
+      // Filter out items already saved as bills or subscriptions.
+      // Use a name-similarity check that requires the shorter side to be ≥6 chars
+      // before substring matching — otherwise generic short names like "Insurance"
+      // or "Loan" would mass-filter every detection containing those substrings.
+      const namesMatch = (a: string, b: string): boolean => {
+        if (a === b) return true;
+        const shorter = a.length <= b.length ? a : b;
+        const longer  = a.length >  b.length ? a : b;
+        if (shorter.length < 6) return false;
+        return longer.includes(shorter);
+      };
       const suggestions = detected.filter(s => {
         const nameLower = s.name.toLowerCase();
-        return !existingBillNames.some(existing =>
-          existing.includes(nameLower) || nameLower.includes(existing)
-        );
+        return !existingBillNames.some(existing => namesMatch(existing, nameLower));
       });
 
       // Return both the legacy `subscriptions` field (for backward compat) and the new `suggestions` field

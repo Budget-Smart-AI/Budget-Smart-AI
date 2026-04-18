@@ -1172,7 +1172,7 @@ export default function Bills() {
       {/* Engine-powered summary cards */}
       {engineBills && (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
+          <Card variant="glass">
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-full bg-primary/10">
@@ -1187,7 +1187,7 @@ export default function Bills() {
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card variant="glass">
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-full bg-blue-500/10">
@@ -1202,7 +1202,7 @@ export default function Bills() {
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card variant="glass">
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-full bg-amber-500/10">
@@ -1217,7 +1217,7 @@ export default function Bills() {
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card variant="glass">
             <CardContent className="pt-4 pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-full bg-green-500/10">
@@ -1425,7 +1425,7 @@ export default function Bills() {
         </DialogContent>
       </Dialog>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <CardTitle className="flex items-center gap-2">
