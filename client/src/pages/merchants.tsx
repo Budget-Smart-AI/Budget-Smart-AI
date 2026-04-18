@@ -132,7 +132,7 @@ export default function MerchantsPage() {
         />
       </div>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Store className="h-4 w-4" />

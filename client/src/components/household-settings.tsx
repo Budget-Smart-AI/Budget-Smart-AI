@@ -358,7 +358,7 @@ export function HouseholdSettings() {
 
   if (isLoading) {
     return (
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Home className="w-5 h-5" />
@@ -380,7 +380,7 @@ export function HouseholdSettings() {
   return (
     <div className="space-y-6">
       {/* Section 1: Household General */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Home className="w-5 h-5" />
@@ -523,7 +523,7 @@ export function HouseholdSettings() {
       </Card>
 
       {/* Section 2: Household Members */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="w-5 h-5" />
@@ -843,7 +843,7 @@ export function HouseholdSettings() {
       </Card>
 
       {/* Section 3: Financial Professional Access */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="w-5 h-5" />

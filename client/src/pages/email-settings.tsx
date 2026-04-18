@@ -151,7 +151,7 @@ export default function EmailSettings() {
         </Button>
       </div>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="w-5 h-5" />
@@ -267,7 +267,7 @@ export default function EmailSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
@@ -311,7 +311,7 @@ export default function EmailSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="w-5 h-5" />
@@ -357,7 +357,7 @@ export default function EmailSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle>Digest Reports</CardTitle>
           <CardDescription>Periodic summary reports of your finances</CardDescription>
@@ -410,7 +410,7 @@ export default function EmailSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle>In-App Notifications</CardTitle>
           <CardDescription>Notifications shown within the app</CardDescription>

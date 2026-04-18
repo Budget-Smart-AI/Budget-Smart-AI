@@ -366,7 +366,7 @@ export default function Categories() {
       />
 
       <div className="space-y-6">
-        <Card>
+        <Card variant="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ShoppingBag className="w-5 h-5 text-primary" />
@@ -403,7 +403,7 @@ export default function Categories() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card variant="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-green-500" />
@@ -440,7 +440,7 @@ export default function Categories() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card variant="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Receipt className="w-5 h-5 text-orange-500" />

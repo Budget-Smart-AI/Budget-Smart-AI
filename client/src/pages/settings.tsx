@@ -326,13 +326,13 @@ function AccountsTab() {
       </div>
 
       {isLoading && (
-        <Card>
+        <Card variant="glass">
           <CardContent className="py-8 text-center text-muted-foreground">Loading accounts…</CardContent>
         </Card>
       )}
 
       {!isLoading && hasNoAccounts && (
-        <Card>
+        <Card variant="glass">
           <CardContent className="py-12 text-center space-y-3">
             <Building2 className="h-10 w-10 mx-auto text-muted-foreground" />
             <p className="text-muted-foreground">No bank accounts linked yet.</p>
@@ -346,7 +346,7 @@ function AccountsTab() {
 
       {/* Plaid institution groups */}
       {plaidGroups.map((group) => (
-        <Card key={group.id}>
+        <Card key={group.id} variant="glass">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -400,7 +400,7 @@ function AccountsTab() {
 
       {/* MX institution groups */}
       {mxMembers.map((member) => (
-        <Card key={member.id}>
+        <Card key={member.id} variant="glass">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -479,7 +479,7 @@ function CategoriesTab() {
   const [, navigate] = useLocation();
   return (
     <div className="space-y-4">
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Tag className="h-5 w-5" />
@@ -565,7 +565,7 @@ function DataTab() {
   return (
     <div className="space-y-4">
       {/* Export Transactions Card */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileDown className="h-5 w-5" />
@@ -646,7 +646,7 @@ function DataTab() {
       </Card>
 
       {/* Privacy Card */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
@@ -726,7 +726,7 @@ function PrivacyTab({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="space-y-6">
       {/* Download My Data */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
@@ -752,7 +752,7 @@ function PrivacyTab({ onLogout }: { onLogout: () => void }) {
       </Card>
 
       {/* Data Retention Policy */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
@@ -951,7 +951,7 @@ function PlanUsageSection() {
   })();
 
   return (
-    <Card>
+    <Card variant="glass">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <BarChart3 className="w-5 h-5" />
@@ -1048,7 +1048,7 @@ function BillingTab() {
     return (
       <div className="space-y-6">
       <PlanUsageSection />
-      <Card>
+      <Card variant="glass">
         <CardContent className="py-10 text-center space-y-4">
           <CreditCard className="w-10 h-10 mx-auto text-muted-foreground" />
           <p className="text-lg font-medium">No active subscription found.</p>
@@ -1131,7 +1131,7 @@ Start a Plan
     <div className="space-y-6">
       <PlanUsageSection />
       {/* Current Plan */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5" />
@@ -1168,7 +1168,7 @@ Start a Plan
       </Card>
 
       {/* Next Payment */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
@@ -1203,7 +1203,7 @@ Start a Plan
 
       {/* Payment Method */}
       {b.paymentMethod && (
-        <Card>
+        <Card variant="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CreditCard className="w-5 h-5" />
@@ -1235,7 +1235,7 @@ Start a Plan
       )}
 
       {/* Manage Subscription */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <SlidersHorizontal className="w-5 h-5" />
@@ -1261,7 +1261,7 @@ Start a Plan
       </Card>
 
       {/* Invoice History */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Download className="w-5 h-5" />
@@ -1494,7 +1494,7 @@ function SpendingAlertsTab() {
       </div>
 
       {isLoading && (
-        <Card>
+        <Card variant="glass">
           <CardContent className="py-8 text-center">
             <Loader2 className="h-6 w-6 animate-spin mx-auto" />
           </CardContent>
@@ -1502,7 +1502,7 @@ function SpendingAlertsTab() {
       )}
 
       {!isLoading && alerts.length === 0 && (
-        <Card>
+        <Card variant="glass">
           <CardContent className="py-12 text-center space-y-3">
             <BellRing className="h-10 w-10 mx-auto text-muted-foreground" />
             <p className="text-muted-foreground">No spending alerts configured yet.</p>
@@ -1515,7 +1515,7 @@ function SpendingAlertsTab() {
       )}
 
       {alerts.map((alert) => (
-        <Card key={alert.id} className={!alert.isActive ? "opacity-60" : ""}>
+        <Card key={alert.id} variant="glass" className={!alert.isActive ? "opacity-60" : ""}>
           <CardContent className="py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -2141,7 +2141,7 @@ export default function Settings({ onLogout }: SettingsProps) {
       {activeTab === "profile" && (<>
 
       {/* ── Profile Information Card ── */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <User className="w-5 h-5" />
@@ -2420,7 +2420,7 @@ export default function Settings({ onLogout }: SettingsProps) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="w-5 h-5" />
@@ -2440,7 +2440,7 @@ export default function Settings({ onLogout }: SettingsProps) {
       </Card>
 
       {/* Subscription Management */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CreditCard className="w-5 h-5" />
@@ -2535,7 +2535,7 @@ export default function Settings({ onLogout }: SettingsProps) {
       {activeTab === "security" && (<>
 
       {/* ── Security Card ── */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="w-5 h-5" />
@@ -2864,7 +2864,7 @@ export default function Settings({ onLogout }: SettingsProps) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <LogOut className="w-5 h-5" />
@@ -3439,14 +3439,14 @@ export default function Settings({ onLogout }: SettingsProps) {
       {activeTab === "preferences" && (<>
 
       {/* ── Appearance / Theme Picker ── */}
-      <Card>
+      <Card variant="glass">
         <CardContent className="pt-6">
           <ThemePicker />
         </CardContent>
       </Card>
 
       {/* ── Preferences Card ── */}
-      <Card>
+      <Card variant="glass">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <SlidersHorizontal className="w-5 h-5" />
