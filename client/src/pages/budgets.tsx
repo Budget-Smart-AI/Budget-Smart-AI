@@ -723,7 +723,7 @@ export default function BudgetsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {isLoading ? (
           [1, 2, 3, 4].map((i) => (
-            <Card key={i}>
+            <Card key={i} variant="glass">
               <CardContent className="pt-6">
                 <Skeleton className="h-24 w-full" />
               </CardContent>
@@ -762,12 +762,16 @@ export default function BudgetsPage() {
             return (
               <div
                 key={budget.id}
+                // Phase 3.4: neutral (on-pace) cards opt into glass-surface so
+                // they sit on the mint theme substrate. Over-budget / over-pace
+                // KEEP their warning colors — those are functional cues, not
+                // theme choices. See feedback_color_palette_policy.md.
                 className={`rounded-xl border p-4 transition-all ${
                   isOverBudget
                     ? "border-red-500/30 bg-red-500/5"
                     : isOverPace
                     ? "border-amber-500/20 bg-amber-500/5"
-                    : "border-border"
+                    : "border-0 glass-surface"
                 }`}
               >
                 {/* Header row */}

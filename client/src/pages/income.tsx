@@ -985,7 +985,10 @@ export default function IncomePage() {
         </DialogContent>
       </Dialog>
 
-      <Card>
+      {/* Phase 3.4: Income-sources panel opts into the mint-glass surface so
+       * it sits on the same substrate as the dashboard hero row rather than
+       * the flat card that used to paint over the themed bg. */}
+      <Card variant="glass">
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <CardTitle className="flex items-center gap-2">

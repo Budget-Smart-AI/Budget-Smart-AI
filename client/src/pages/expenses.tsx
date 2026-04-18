@@ -1028,8 +1028,8 @@ export default function ExpensesPage() {
 
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1 – Total This Month */}
-        <Card>
+        {/* Card 1 – Total This Month (Phase 3.4: glass surface) */}
+        <Card variant="glass">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total This Month</CardTitle>
           </CardHeader>
@@ -1045,8 +1045,8 @@ export default function ExpensesPage() {
           </CardContent>
         </Card>
 
-        {/* Card 2 – Total Last Month */}
-        <Card>
+        {/* Card 2 – Total Last Month (Phase 3.4: glass surface) */}
+        <Card variant="glass">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Last Month</CardTitle>
           </CardHeader>
@@ -1062,8 +1062,8 @@ export default function ExpensesPage() {
           </CardContent>
         </Card>
 
-        {/* Card 3 – Month-over-Month Change */}
-        <Card>
+        {/* Card 3 – Month-over-Month Change (Phase 3.4: glass surface) */}
+        <Card variant="glass">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">MoM Change</CardTitle>
           </CardHeader>
@@ -1083,8 +1083,8 @@ export default function ExpensesPage() {
           </CardContent>
         </Card>
 
-        {/* Card 4 – Top Category */}
-        <Card>
+        {/* Card 4 – Top Category (Phase 3.4: glass surface) */}
+        <Card variant="glass">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Top Category</CardTitle>
           </CardHeader>
@@ -1103,8 +1103,8 @@ export default function ExpensesPage() {
         </Card>
       </div>
 
-      {/* ── Main Table Card ── */}
-      <Card>
+      {/* ── Main Table Card (Phase 3.4: glass surface) ── */}
+      <Card variant="glass">
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <CardTitle className="flex items-center gap-2">

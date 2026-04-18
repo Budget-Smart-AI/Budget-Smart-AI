@@ -126,21 +126,26 @@ function formatCurrency(amount: string | number) {
 }
 
 // Section Header Component
-function SectionHeader({ 
-  title, 
-  subtitle, 
-  icon: Icon, 
-  variant 
-}: { 
-  title: string; 
-  subtitle: string; 
-  icon: React.ElementType; 
+// Section Header — both variants now live in the teal/emerald family. The
+// old "real" variant was red/orange which painted the dashboard amber and
+// fought the mint-glass theme. "real" is now a slightly cooler teal→emerald
+// so it still reads distinct from the "plan" gradient (emerald→teal) without
+// introducing a second accent colour.
+function SectionHeader({
+  title,
+  subtitle,
+  icon: Icon,
+  variant
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ElementType;
   variant: "real" | "plan";
 }) {
-  const colors = variant === "real" 
-    ? "from-red-500 to-orange-500" 
+  const colors = variant === "real"
+    ? "from-teal-500 to-emerald-500"
     : "from-emerald-500 to-teal-500";
-  
+
   return (
     <div className="flex items-center gap-3 mb-4">
       <div className={`p-2 rounded-lg bg-gradient-to-br ${colors}`}>
@@ -619,10 +624,11 @@ export default function Dashboard() {
           variant="real"
         />
         
-        {/* Section wrapper — was orange/red gradient which made the entire
-         * page feel amber. Swapped to translucent emerald/teal glass so it
-         * visually owns "Real Cash Flow" without fighting the mint bg. */}
-        <div className="p-4 rounded-lg border border-emerald-200/60 dark:border-emerald-700/30 bg-gradient-to-br from-emerald-50/40 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10 backdrop-blur-sm">
+        {/* Section wrapper — Phase 3.3 uses the shared `glass-surface`
+         * utility (see index.css tokens) so this row lives on the same
+         * mint-glass substrate as the hero KPI cards. Dropped the explicit
+         * emerald gradient so we only theme the cards, not the container. */}
+        <div className="glass-surface rounded-[var(--radius-card-lg)] p-4">
           {/* Real Stats Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <RealCashFlowCard
@@ -942,7 +948,9 @@ export default function Dashboard() {
           variant="plan"
         />
         
-        <div className="p-4 rounded-lg border-2 border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10">
+        {/* Plan section wrapper — same glass treatment as Real Cash Flow.
+         * Border-2 emerald is gone: the cards inside do the work. */}
+        <div className="glass-surface rounded-[var(--radius-card-lg)] p-4">
           {/* Plan Stats Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <PlanStatCard

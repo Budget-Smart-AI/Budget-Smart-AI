@@ -126,7 +126,11 @@ export function AccountsSummarySidebar({
   };
 
   return (
-    <Card data-testid="accounts-summary-sidebar" className="lg:sticky lg:top-4">
+    <Card
+      data-testid="accounts-summary-sidebar"
+      variant="glass"
+      className="lg:sticky lg:top-4"
+    >
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base">Summary</CardTitle>
