@@ -409,6 +409,13 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     // the live-data lookup. Item-level wins if both are present.
     const resolvedBadge = item.badge ?? dynamicBadges[item.title];
 
+    // Phase 3.1: main nav items read as medium-weight with 18px icons so
+    // they're visibly heavier than sub-items (which keep default weight +
+    // indent via `.nav-sub-item`). This matches the mockup's two-level
+    // hierarchy inside each group.
+    const labelClass = cn("flex-1 truncate", !item.sub && "font-medium");
+    const iconClass = "h-[18px] w-[18px] shrink-0";
+
     if (showLock) {
       return (
         <SidebarMenuItem key={item.title} className={item.sub ? "relative" : undefined}>
@@ -418,8 +425,8 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
             onClick={(e: React.MouseEvent) => handleNavClick(item, e)}
             className={cn("cursor-pointer", item.sub && "nav-sub-item")}
           >
-            <item.icon className="h-4 w-4 shrink-0" />
-            <span className="flex-1 truncate">{item.title}</span>
+            <item.icon className={iconClass} />
+            <span className={labelClass}>{item.title}</span>
             {resolvedBadge ? <Badge badge={resolvedBadge} /> : null}
             <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </SidebarMenuButton>
@@ -436,8 +443,8 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           className={cn(item.sub && "nav-sub-item")}
         >
           <Link href={item.url}>
-            <item.icon className="h-4 w-4 shrink-0" />
-            <span className="flex-1 truncate">{item.title}</span>
+            <item.icon className={iconClass} />
+            <span className={labelClass}>{item.title}</span>
             {resolvedBadge ? <Badge badge={resolvedBadge} /> : null}
           </Link>
         </SidebarMenuButton>
@@ -459,7 +466,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
 
   return (
     <>
-      <Sidebar className="!border-r-0">
+      <Sidebar variant="floating" className="!border-r-0">
         <SidebarHeader className="p-4">
           <BudgetSmartLogoWithText showTagline={true} />
         </SidebarHeader>
@@ -528,10 +535,13 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
                   aria-expanded={isOpen}
                   data-testid={`nav-group-${group.id}`}
                   className={cn(
-                    "w-full flex items-center justify-between px-2 py-1 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                    // Phase 3.1: beefier group header -- teal brand label with
+                    // wider letter-spacing reads cleanly as a section divider
+                    // above the menu items below.
+                    "w-full flex items-center justify-between px-3 py-2 text-[12px] font-bold uppercase tracking-[0.08em] transition-colors",
                     hasActive
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "text-[color:var(--nav-group-label)]"
+                      : "text-muted-foreground/80 hover:text-foreground"
                   )}
                 >
                   <span>{group.label}</span>
@@ -554,7 +564,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
 
           {isAdmin && (
             <SidebarGroup className="px-1 py-1.5">
-              <div className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <div className="px-3 py-2 text-[12px] font-bold uppercase tracking-[0.08em] text-muted-foreground/80">
                 Administration
               </div>
               <SidebarGroupContent className="mt-0.5">
