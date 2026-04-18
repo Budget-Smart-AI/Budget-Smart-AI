@@ -1698,20 +1698,23 @@ function FaqTab({ faqs }: { faqs: LandingFaq[] }) {
 }
 
 // Affiliate Tab Component
+//
+// Two-tier lifetime-recurring model (locked-in 2026-04-17):
+//   • Standard 40% on every active referral.
+//   • Boosted 50% once an affiliate hits 250+ active referrals (re-rates ALL).
+//   • 180-day attribution cookie · $100 PayPal minimum payout.
 function AffiliateTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
-    commissionPercent: 50,
-    partneroUrl: "https://budgetsmart.partnero.com/programs/3WUVSPIW",
-    bonusTier1Customers: 100,
-    bonusTier1Amount: 500,
-    bonusTier2Customers: 250,
-    bonusTier2Amount: 1500,
-    bonusTier3Customers: 500,
-    bonusTier3Amount: 5000,
-    tier2CommissionPercent: 55,
-    tier3CommissionPercent: 60,
+    commissionPercent: 40,
+    boostedCommissionPercent: 50,
+    boostedAfterReferrals: 250,
+    cookieDurationDays: 180,
+    payoutMethod: "PayPal",
+    payoutMinimum: 100,
+    commissionRecurrence: "lifetime",
+    partneroUrl: "https://affiliate.budgetsmart.io",
   });
   const [hasLoaded, setHasLoaded] = useState(false);
 
@@ -1727,16 +1730,14 @@ function AffiliateTab() {
   // Load settings into form when they arrive
   if (settings && !hasLoaded) {
     setFormData({
-      commissionPercent: settings.commissionPercent || 50,
-      partneroUrl: settings.partneroUrl || "https://budgetsmart.partnero.com/programs/3WUVSPIW",
-      bonusTier1Customers: settings.bonusTier1Customers || 100,
-      bonusTier1Amount: settings.bonusTier1Amount || 500,
-      bonusTier2Customers: settings.bonusTier2Customers || 250,
-      bonusTier2Amount: settings.bonusTier2Amount || 1500,
-      bonusTier3Customers: settings.bonusTier3Customers || 500,
-      bonusTier3Amount: settings.bonusTier3Amount || 5000,
-      tier2CommissionPercent: settings.tier2CommissionPercent || 55,
-      tier3CommissionPercent: settings.tier3CommissionPercent || 60,
+      commissionPercent: settings.commissionPercent ?? 40,
+      boostedCommissionPercent: settings.boostedCommissionPercent ?? 50,
+      boostedAfterReferrals: settings.boostedAfterReferrals ?? 250,
+      cookieDurationDays: settings.cookieDurationDays ?? 180,
+      payoutMethod: settings.payoutMethod ?? "PayPal",
+      payoutMinimum: settings.payoutMinimum ?? 100,
+      commissionRecurrence: settings.commissionRecurrence ?? "lifetime",
+      partneroUrl: settings.partneroUrl || "https://affiliate.budgetsmart.io",
     });
     setHasLoaded(true);
   }
@@ -1767,7 +1768,11 @@ function AffiliateTab() {
       <Card>
         <CardHeader>
           <CardTitle>Affiliate Program Settings</CardTitle>
-          <CardDescription>Configure commission rates, bonus tiers, and Partnero integration</CardDescription>
+          <CardDescription>
+            Two-tier lifetime recurring commissions. Standard rate kicks in from
+            day one; the boosted rate unlocks once an affiliate reaches the
+            referral threshold and re-rates all of their referrals.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Partnero Integration */}
@@ -1779,140 +1784,95 @@ function AffiliateTab() {
                 <Input
                   value={formData.partneroUrl}
                   onChange={(e) => setFormData({ ...formData, partneroUrl: e.target.value })}
-                  placeholder="https://budgetsmart.partnero.com/programs/3WUVSPIW"
+                  placeholder="https://affiliate.budgetsmart.io"
                 />
                 <p className="text-xs text-muted-foreground">
-                  This is where affiliates will be redirected to sign up and manage their account
+                  Public URL where affiliates sign up and manage their account.
+                  Use the custom-domain CNAME (affiliate.budgetsmart.io), not the partnero.com URL.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Commission Settings */}
+          {/* Commission Rates */}
           <div className="space-y-4 border-t pt-6">
             <h3 className="font-semibold text-lg">Commission Rates</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>Base Commission (%)</Label>
+                <Label>Standard Commission (%)</Label>
                 <Input
                   type="number"
                   min={1}
                   max={100}
                   value={formData.commissionPercent}
-                  onChange={(e) => setFormData({ ...formData, commissionPercent: parseInt(e.target.value) || 50 })}
+                  onChange={(e) => setFormData({ ...formData, commissionPercent: parseInt(e.target.value) || 40 })}
                 />
-                <p className="text-xs text-muted-foreground">Default commission for new affiliates</p>
+                <p className="text-xs text-muted-foreground">Lifetime recurring rate from day one</p>
               </div>
               <div className="space-y-2">
-                <Label>Tier 2 Commission (%)</Label>
+                <Label>Boosted Commission (%)</Label>
                 <Input
                   type="number"
                   min={1}
                   max={100}
-                  value={formData.tier2CommissionPercent}
-                  onChange={(e) => setFormData({ ...formData, tier2CommissionPercent: parseInt(e.target.value) || 55 })}
+                  value={formData.boostedCommissionPercent}
+                  onChange={(e) => setFormData({ ...formData, boostedCommissionPercent: parseInt(e.target.value) || 50 })}
                 />
-                <p className="text-xs text-muted-foreground">After reaching Tier 2 milestone</p>
+                <p className="text-xs text-muted-foreground">Re-rates ALL of the affiliate's referrals</p>
               </div>
               <div className="space-y-2">
-                <Label>Tier 3 Commission (%)</Label>
+                <Label>Boost Threshold (referrals)</Label>
                 <Input
                   type="number"
                   min={1}
-                  max={100}
-                  value={formData.tier3CommissionPercent}
-                  onChange={(e) => setFormData({ ...formData, tier3CommissionPercent: parseInt(e.target.value) || 60 })}
+                  value={formData.boostedAfterReferrals}
+                  onChange={(e) => setFormData({ ...formData, boostedAfterReferrals: parseInt(e.target.value) || 250 })}
                 />
-                <p className="text-xs text-muted-foreground">After reaching Tier 3 milestone</p>
+                <p className="text-xs text-muted-foreground">Active paying referrals required to unlock boost</p>
               </div>
             </div>
           </div>
 
-          {/* Bonus Tiers */}
+          {/* Attribution & Payouts */}
           <div className="space-y-4 border-t pt-6">
-            <h3 className="font-semibold text-lg">Milestone Bonuses</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Tier 1 */}
-              <Card className="bg-slate-100 dark:bg-slate-800">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">Silver Tier</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Customers Required</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={formData.bonusTier1Customers}
-                      onChange={(e) => setFormData({ ...formData, bonusTier1Customers: parseInt(e.target.value) || 100 })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Cash Bonus ($)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={formData.bonusTier1Amount}
-                      onChange={(e) => setFormData({ ...formData, bonusTier1Amount: parseInt(e.target.value) || 500 })}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Tier 2 */}
-              <Card className="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">Gold Tier</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Customers Required</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={formData.bonusTier2Customers}
-                      onChange={(e) => setFormData({ ...formData, bonusTier2Customers: parseInt(e.target.value) || 250 })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Cash Bonus ($)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={formData.bonusTier2Amount}
-                      onChange={(e) => setFormData({ ...formData, bonusTier2Amount: parseInt(e.target.value) || 1500 })}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Tier 3 */}
-              <Card className="bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">Diamond Tier</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Customers Required</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={formData.bonusTier3Customers}
-                      onChange={(e) => setFormData({ ...formData, bonusTier3Customers: parseInt(e.target.value) || 500 })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Cash Bonus ($)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={formData.bonusTier3Amount}
-                      onChange={(e) => setFormData({ ...formData, bonusTier3Amount: parseInt(e.target.value) || 5000 })}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+            <h3 className="font-semibold text-lg">Attribution & Payouts</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Cookie Duration (days)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={formData.cookieDurationDays}
+                  onChange={(e) => setFormData({ ...formData, cookieDurationDays: parseInt(e.target.value) || 180 })}
+                />
+                <p className="text-xs text-muted-foreground">Attribution window from first click to signup</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Payout Method</Label>
+                <Input
+                  value={formData.payoutMethod}
+                  onChange={(e) => setFormData({ ...formData, payoutMethod: e.target.value })}
+                  placeholder="PayPal"
+                />
+                <p className="text-xs text-muted-foreground">Method shown on the public affiliate page</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Minimum Payout ($)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={formData.payoutMinimum}
+                  onChange={(e) => setFormData({ ...formData, payoutMinimum: parseInt(e.target.value) || 100 })}
+                />
+                <p className="text-xs text-muted-foreground">Below this, balance rolls over</p>
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              These values display on the public affiliate page and in the
+              affiliate-terms doc. The actual cookie + payout enforcement
+              happens inside Partnero — keep this UI in sync with the Partnero
+              portal settings.
+            </p>
           </div>
 
           {/* Save Button */}

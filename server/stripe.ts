@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { storage } from "./storage";
 import { auditLog } from "./audit-logger";
 import { sendUpgradeConfirmationEmail } from "./email";
+import { trackPartneroPayment, trackPartneroRefund } from "./partnero";
 
 // Initialize Stripe with the secret key
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
@@ -270,6 +271,14 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
         break;
       }
 
+      case "charge.refunded": {
+        // Reverse Partnero commission when a payment is refunded. We only act
+        // on this for affiliate attribution — no DB state changes here.
+        const charge = event.data.object as Stripe.Charge;
+        await handleChargeRefunded(charge);
+        break;
+      }
+
       // Removed trial_will_end handler - no trials in freemium model
 
       default:
@@ -527,14 +536,135 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
 }
 
 /**
- * Handle successful invoice payment
+ * Handle successful invoice payment.
+ *
+ * Two responsibilities:
+ *  1. Sync subscription status from Stripe (existing behaviour).
+ *  2. Notify Partnero so the affiliate gets credited for EVERY renewal,
+ *     not just the initial conversion that the frontend universal.js fires.
+ *     This is a defensive backstop: Partnero's native Stripe integration
+ *     also fires for `invoice.payment_succeeded`, and Partnero dedupes by
+ *     `transaction_key` (the Stripe invoice id), so duplicate calls are a
+ *     no-op (HTTP 409 → handled as success in trackPartneroPayment).
  */
 async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
-  // Update subscription status if applicable
+  // 1. Subscription sync (must run first so DB reflects truth even if
+  //    Partnero call fails — partnero is wrapped in try/catch and never throws).
   const inv = invoice as any;
   if (inv.subscription) {
     const subscription = await stripe.subscriptions.retrieve(inv.subscription as string);
     await handleSubscriptionUpdate(subscription);
+  }
+
+  // 2. Affiliate attribution. Skip $0 invoices (trial conversions, proration
+  //    credits) so we don't muddy the affiliate's commission ledger.
+  const amountPaid = invoice.amount_paid ?? 0;
+  if (amountPaid <= 0) {
+    return;
+  }
+
+  try {
+    const customerId = invoice.customer as string;
+    const user = customerId
+      ? await storage.getUserByStripeCustomerId(customerId)
+      : null;
+
+    // We need an email to match the frontend `po('customer','signup', { email })`
+    // call — the customer key on Partnero IS the email. Without it we can't
+    // attribute, so log and bail rather than sending a nameless event.
+    const email = user?.email || invoice.customer_email || null;
+    if (!email) {
+      console.warn(
+        `[Partnero] skipping payment attribution — no email for customer ${customerId} (invoice ${invoice.id})`,
+      );
+      return;
+    }
+
+    // Compose a display name from whatever the user record has — Partnero
+    // uses this for affiliate-portal readability only, never for matching.
+    const name =
+      user?.displayName ||
+      [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+      null;
+
+    await trackPartneroPayment({
+      customer: {
+        key: email,
+        email,
+        name: name || null,
+      },
+      amount: amountPaid, // already in cents from Stripe
+      currency: (invoice.currency || "usd").toLowerCase(),
+      transaction_key: invoice.id || `${customerId}-${invoice.created}`,
+    });
+  } catch (err: any) {
+    // Defence-in-depth: trackPartneroPayment already swallows its own errors,
+    // but a thrown error here (e.g. storage lookup failure) must NOT bubble
+    // up — Stripe would retry the webhook and eventually disable it.
+    console.warn("[Partnero] handleInvoicePaid attribution error:", err?.message || err);
+  }
+}
+
+/**
+ * Handle a refund (full or partial). Notifies Partnero so the affiliate's
+ * commission for that payment is reversed proportionally. The Stripe Charge
+ * carries `amount_refunded` (running total) and `invoice` (so we can tie back
+ * to the same `transaction_key` we used in handleInvoicePaid).
+ *
+ * No DB state changes here — subscription cancellation is a separate event
+ * (`customer.subscription.deleted`). A refund alone doesn't end the sub.
+ */
+async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
+  const refundedAmount = charge.amount_refunded ?? 0;
+  if (refundedAmount <= 0) {
+    return;
+  }
+
+  try {
+    const customerId = (charge.customer as string) || "";
+    const user = customerId
+      ? await storage.getUserByStripeCustomerId(customerId)
+      : null;
+    const email =
+      user?.email ||
+      charge.billing_details?.email ||
+      charge.receipt_email ||
+      null;
+
+    if (!email) {
+      console.warn(
+        `[Partnero] skipping refund attribution — no email for customer ${customerId} (charge ${charge.id})`,
+      );
+      return;
+    }
+
+    const name =
+      user?.displayName ||
+      [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+      charge.billing_details?.name ||
+      null;
+
+    // Use the invoice id (same transaction_key as the original payment) when
+    // present, falling back to the charge id for one-off charges. The Stripe
+    // SDK types in our pinned API version don't expose `charge.invoice`, but
+    // it IS on the runtime object — cast through `any` to read it without
+    // adding noisy ambient declarations.
+    const chargeAny = charge as any;
+    const txnKey =
+      (typeof chargeAny.invoice === "string" ? chargeAny.invoice : null) ||
+      charge.id;
+
+    await trackPartneroRefund({
+      customer: { key: email, email, name },
+      amount: refundedAmount, // cents
+      currency: (charge.currency || "usd").toLowerCase(),
+      transaction_key: txnKey,
+    });
+  } catch (err: any) {
+    console.warn(
+      "[Partnero] handleChargeRefunded attribution error:",
+      err?.message || err,
+    );
   }
 }
 

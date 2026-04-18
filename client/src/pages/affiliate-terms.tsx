@@ -29,7 +29,7 @@ export default function AffiliateTerms() {
             </CardTitle>
             <p className="text-lg font-medium text-muted-foreground">Budget Smart AI</p>
             <div className="text-sm text-muted-foreground space-y-1">
-              <p>Last Updated: January 2026</p>
+              <p>Last Updated: April 2026</p>
             </div>
           </CardHeader>
           <CardContent className="prose prose-sm dark:prose-invert max-w-none">
@@ -50,59 +50,65 @@ export default function AffiliateTerms() {
 
             <h2 className="text-xl font-semibold mt-8 mb-4">2. Commission Structure</h2>
             <p className="text-muted-foreground mb-4">
-              Affiliates earn recurring commissions based on the number of paying customers they refer.
+              Affiliates earn lifetime recurring commissions on every active paying customer they refer. The program has two rates:
             </p>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse border border-border rounded-lg">
                 <thead>
                   <tr className="bg-muted/50">
                     <th className="border border-border p-3 text-left font-semibold">Tier</th>
-                    <th className="border border-border p-3 text-left font-semibold">Qualified Sales</th>
+                    <th className="border border-border p-3 text-left font-semibold">Active Referrals</th>
                     <th className="border border-border p-3 text-left font-semibold">Commission</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
                     <td className="border border-border p-3">Standard</td>
-                    <td className="border border-border p-3">1–99 sales</td>
-                    <td className="border border-border p-3 font-medium text-primary">40% lifetime</td>
+                    <td className="border border-border p-3">1–249</td>
+                    <td className="border border-border p-3 font-medium text-primary">40% lifetime recurring</td>
                   </tr>
                   <tr className="bg-muted/30">
-                    <td className="border border-border p-3">Growth</td>
-                    <td className="border border-border p-3">100–249 sales</td>
-                    <td className="border border-border p-3 font-medium text-primary">50% lifetime</td>
-                  </tr>
-                  <tr>
-                    <td className="border border-border p-3">Elite</td>
-                    <td className="border border-border p-3">250+ sales</td>
-                    <td className="border border-border p-3 font-medium text-primary">60% lifetime</td>
+                    <td className="border border-border p-3">Boosted</td>
+                    <td className="border border-border p-3">250+</td>
+                    <td className="border border-border p-3 font-medium text-primary">50% lifetime recurring</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <p className="text-muted-foreground mt-4">
-              "Lifetime" means the affiliate will receive commissions for as long as the referred customer remains an active paying subscriber of Budget Smart AI.
+              "Lifetime recurring" means the affiliate will receive a commission on every successful payment for as long as the referred customer remains an active paying subscriber of Budget Smart AI, including renewals.
+            </p>
+            <p className="text-muted-foreground mt-3">
+              When an affiliate reaches 250 active paying referrals, the boosted 50% rate applies to <strong>all</strong> of that affiliate's referrals — including those acquired before the boost was unlocked. The boost remains active for the lifetime of the affiliate account.
+            </p>
+            <p className="text-muted-foreground mt-3">
+              Attribution uses a 180-day first-click cookie. If a visitor clicks an affiliate link and signs up for a paid plan within 180 days, the referral is credited to that affiliate.
             </p>
 
-            <h2 className="text-xl font-semibold mt-8 mb-4">3. Payout Timing</h2>
+            <h2 className="text-xl font-semibold mt-8 mb-4">3. Payouts</h2>
             <p className="text-muted-foreground">
-              All commissions are subject to a 60-day holding period to allow for refunds, chargebacks, fraud detection, and billing verification.
+              Commissions are paid via PayPal once an affiliate's accrued balance reaches the $100 minimum payout threshold. Balances below $100 roll over to the next month.
             </p>
-            <p className="text-muted-foreground mt-3">Payouts are released only after:</p>
+            <p className="text-muted-foreground mt-3">
+              All commissions are subject to a 30-day holding period to allow for refunds, chargebacks, fraud detection, and billing verification. Payouts are released only after:
+            </p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
-              <li>The customer remains active for 60 days</li>
-              <li>Payment is successfully processed</li>
-              <li>No refunds or disputes are issued</li>
+              <li>The customer payment has cleared and remains valid 30 days after the charge</li>
+              <li>The referral is not flagged for fraud or self-referral</li>
+              <li>No refunds or chargebacks have been issued against the payment</li>
             </ul>
+            <p className="text-muted-foreground mt-3">
+              Refunds, chargebacks, or subscription cancellations within the holding period reverse the associated commission. Refunds processed after the holding period are deducted from the affiliate's next payout.
+            </p>
 
             <h2 className="text-xl font-semibold mt-8 mb-4">4. What Counts as a Qualified Referral</h2>
             <p className="text-muted-foreground mb-3">A referral is valid only if:</p>
             <ul className="list-disc list-inside text-muted-foreground space-y-1">
-              <li>The user clicks your unique affiliate link</li>
-              <li>Creates a new Budget Smart AI account</li>
-              <li>Purchases a paid plan</li>
-              <li>Does not request a refund</li>
-              <li>Does not violate fraud or abuse rules</li>
+              <li>The user clicks your unique affiliate link within the 180-day attribution window</li>
+              <li>Creates a new Budget Smart AI account using a different email than the affiliate's</li>
+              <li>Purchases a paid plan and the payment successfully clears</li>
+              <li>Does not request a refund within the 30-day holding period</li>
+              <li>Does not violate fraud, abuse, or self-referral rules</li>
             </ul>
             <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-start gap-3 mt-4">
               <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />

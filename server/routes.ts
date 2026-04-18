@@ -16737,19 +16737,28 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
     try {
       const settings = await storage.getAffiliateSettings();
 
-      // Convert to object with defaults
+      // Convert to object with defaults.
+      //
+      // Two-tier model (locked-in 2026-04-17):
+      //   • Standard 40% lifetime recurring on every active referral.
+      //   • Boosted 50% lifetime recurring once an affiliate has 250+
+      //     active referrals (applies to ALL their referrals, new and old).
+      //   • 180-day attribution cookie.
+      //   • $100 minimum payout via PayPal.
+      //
+      // Legacy bonus-tier keys (bonusTier1*, tier2*, tier3*) are intentionally
+      // omitted so the frontend falls through to the simplified UI. Any rows
+      // still in the DB from the old 4-tier model are ignored unless an admin
+      // re-populates the new keys via the admin UI.
       const settingsMap: Record<string, any> = {
         commissionPercent: 40,
+        boostedCommissionPercent: 50,
+        boostedAfterReferrals: 250,
+        cookieDurationDays: 180,
+        payoutMethod: "PayPal",
+        payoutMinimum: 100,
+        commissionRecurrence: "lifetime",
         partneroUrl: "https://affiliate.budgetsmart.io",
-        bonusTier1Customers: 100,
-        bonusTier1Amount: 250,
-        bonusTier2Customers: 250,
-        bonusTier2Amount: 1000,
-        bonusTier3Customers: 500,
-        bonusTier3Amount: 2500,
-        tier1CommissionPercent: 50,
-        tier2CommissionPercent: 55,
-        tier3CommissionPercent: 60,
       };
 
       for (const setting of settings) {

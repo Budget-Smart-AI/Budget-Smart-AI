@@ -27,18 +27,18 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 
+// Two-tier lifetime-recurring model (locked-in 2026-04-17).
+// Standard 40% on every active referral, boosted to 50% once an affiliate
+// has 250+ active referrals (boost applies to ALL referrals, not just new ones).
 interface AffiliateSettings {
   commissionPercent: number;
+  boostedCommissionPercent: number;
+  boostedAfterReferrals: number;
+  cookieDurationDays: number;
+  payoutMethod: string;
+  payoutMinimum: number;
+  commissionRecurrence: string;
   partneroUrl: string;
-  bonusTier1Customers: number;
-  bonusTier1Amount: number;
-  bonusTier2Customers: number;
-  bonusTier2Amount: number;
-  bonusTier3Customers: number;
-  bonusTier3Amount: number;
-  tier1CommissionPercent: number;
-  tier2CommissionPercent: number;
-  tier3CommissionPercent: number;
 }
 
 // Email funnel templates
@@ -303,26 +303,28 @@ export default function AffiliatePage() {
     queryFn: async () => {
       const res = await fetch("/api/affiliate/settings");
       if (!res.ok) {
-        // Return defaults if not configured
+        // Hardcoded fallback — must match server/routes.ts /api/affiliate/settings defaults.
         return {
           commissionPercent: 40,
+          boostedCommissionPercent: 50,
+          boostedAfterReferrals: 250,
+          cookieDurationDays: 180,
+          payoutMethod: "PayPal",
+          payoutMinimum: 100,
+          commissionRecurrence: "lifetime",
           partneroUrl: "https://affiliate.budgetsmart.io",
-          bonusTier1Customers: 100,
-          bonusTier1Amount: 250,
-          bonusTier2Customers: 250,
-          bonusTier2Amount: 1000,
-          bonusTier3Customers: 500,
-          bonusTier3Amount: 2500,
-          tier1CommissionPercent: 50,
-          tier2CommissionPercent: 55,
-          tier3CommissionPercent: 60,
         };
       }
       return res.json();
     },
   });
 
-  const commissionPercent = settings?.commissionPercent || 50;
+  const commissionPercent = settings?.commissionPercent ?? 40;
+  const boostedCommissionPercent = settings?.boostedCommissionPercent ?? 50;
+  const boostedAfterReferrals = settings?.boostedAfterReferrals ?? 250;
+  const cookieDurationDays = settings?.cookieDurationDays ?? 180;
+  const payoutMethod = settings?.payoutMethod ?? "PayPal";
+  const payoutMinimum = settings?.payoutMinimum ?? 100;
   const partneroUrl = settings?.partneroUrl || "https://affiliate.budgetsmart.io";
 
   // Pricing
@@ -439,9 +441,9 @@ export default function AffiliatePage() {
           >
             {[
               { label: "Commission Rate", value: `${commissionPercent}%`, icon: DollarSign },
-              { label: "Cookie Duration", value: "90 Days", icon: Clock },
+              { label: "Cookie Duration", value: `${cookieDurationDays} Days`, icon: Clock },
               { label: "Recurring", value: "Lifetime", icon: TrendingUp },
-              { label: "Payout", value: "Monthly", icon: CheckCircle2 },
+              { label: "Payout", value: `$${payoutMinimum} ${payoutMethod}`, icon: CheckCircle2 },
             ].map((stat, i) => (
               <Card key={i} className="bg-slate-900/50 border-slate-800">
                 <CardContent className="pt-6 text-center">
@@ -479,7 +481,7 @@ export default function AffiliatePage() {
               {
                 step: 3,
                 title: "Earn",
-                description: `Earn ${commissionPercent}% of every payment your referrals make—forever. Monthly payouts via PayPal or bank transfer.`,
+                description: `Earn ${commissionPercent}% of every payment your referrals make — for the full lifetime of their subscription. Payouts via ${payoutMethod} once you reach $${payoutMinimum}.`,
                 icon: DollarSign,
               },
             ].map((item, i) => (
@@ -511,75 +513,73 @@ export default function AffiliatePage() {
         </div>
       </section>
 
-      {/* Bonus Tiers */}
+      {/* Commission Boost — single milestone replaces the old 3-tier bonus grid */}
       <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
             <Badge className="mb-4 bg-yellow-500/10 text-yellow-400 border-yellow-500/20">
               <Trophy className="h-4 w-4 mr-2" />
-              Milestone Bonuses
+              Commission Boost
             </Badge>
-            <h2 className="text-3xl font-bold text-white mb-4">Unlock Bigger Rewards</h2>
-            <p className="text-slate-400">Hit milestones and earn cash bonuses plus higher commission tiers</p>
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Hit {boostedAfterReferrals} Referrals,{" "}
+              <span className="bg-gradient-to-r from-yellow-300 to-amber-400 bg-clip-text text-transparent">
+                Earn {boostedCommissionPercent}% Forever
+              </span>
+            </h2>
+            <p className="text-slate-400 max-w-2xl mx-auto">
+              Two tiers, no gimmicks. Everyone starts at {commissionPercent}% lifetime recurring.
+              Reach {boostedAfterReferrals} active paying referrals and your rate jumps to{" "}
+              {boostedCommissionPercent}% — applied to <strong className="text-white">every</strong>{" "}
+              referral on your account, including the ones already paying you.
+            </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {[
-              {
-                tier: "Growth",
-                customers: settings?.bonusTier1Customers || 100,
-                bonus: settings?.bonusTier1Amount || 250,
-                commission: settings?.tier1CommissionPercent || 50,
-                color: "from-slate-400 to-slate-500",
-                bgColor: "bg-slate-500/10",
-                borderColor: "border-slate-500/30",
-              },
-              {
-                tier: "Elite",
-                customers: settings?.bonusTier2Customers || 250,
-                bonus: settings?.bonusTier2Amount || 1000,
-                commission: settings?.tier2CommissionPercent || 55,
-                color: "from-yellow-400 to-amber-500",
-                bgColor: "bg-yellow-500/10",
-                borderColor: "border-yellow-500/30",
-              },
-              {
-                tier: "Diamond",
-                customers: settings?.bonusTier3Customers || 500,
-                bonus: settings?.bonusTier3Amount || 2500,
-                commission: settings?.tier3CommissionPercent || 60,
-                color: "from-cyan-400 to-blue-500",
-                bgColor: "bg-cyan-500/10",
-                borderColor: "border-cyan-500/30",
-              },
-            ].map((tier, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-              >
-                <Card className={`${tier.bgColor} ${tier.borderColor} border-2 h-full`}>
-                  <CardHeader className="text-center">
-                    <div className={`mx-auto w-16 h-16 rounded-full bg-gradient-to-r ${tier.color} flex items-center justify-center mb-4`}>
-                      <Trophy className="h-8 w-8 text-white" />
-                    </div>
-                    <CardTitle className="text-white text-2xl">{tier.tier} Tier</CardTitle>
-                    <CardDescription>Reach {tier.customers} customers</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="text-center">
-                      <div className="text-4xl font-bold text-white">${tier.bonus}</div>
-                      <div className="text-slate-400">Cash Bonus</div>
-                    </div>
-                    <div className="text-center pt-4 border-t border-slate-700">
-                      <div className="text-2xl font-bold text-emerald-400">{tier.commission}%</div>
-                      <div className="text-slate-400">Commission Rate</div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card className="bg-slate-900 border-slate-800 h-full">
+              <CardHeader className="text-center pb-2">
+                <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 flex items-center justify-center mb-3">
+                  <Star className="h-8 w-8 text-white" />
+                </div>
+                <CardTitle className="text-white text-2xl">Standard</CardTitle>
+                <CardDescription>From day one — no minimums</CardDescription>
+              </CardHeader>
+              <CardContent className="text-center space-y-3 pt-4">
+                <div>
+                  <div className="text-5xl font-bold text-emerald-400">{commissionPercent}%</div>
+                  <div className="text-slate-400 text-sm mt-1">Lifetime recurring commission</div>
+                </div>
+                <ul className="text-sm text-slate-300 space-y-1 pt-4 border-t border-slate-800 text-left mx-auto inline-block">
+                  <li>✓ Paid every month a referral stays active</li>
+                  <li>✓ {cookieDurationDays}-day attribution cookie</li>
+                  <li>✓ ${payoutMinimum} minimum payout via {payoutMethod}</li>
+                </ul>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-yellow-500/10 to-amber-500/5 border-2 border-yellow-500/30 h-full relative overflow-hidden">
+              <div className="absolute -top-2 -right-2 bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-900 text-xs font-bold px-3 py-1 rounded-bl-lg">
+                BOOSTED
+              </div>
+              <CardHeader className="text-center pb-2">
+                <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-r from-yellow-400 to-amber-500 flex items-center justify-center mb-3">
+                  <Trophy className="h-8 w-8 text-white" />
+                </div>
+                <CardTitle className="text-white text-2xl">Boosted</CardTitle>
+                <CardDescription>{boostedAfterReferrals}+ active referrals</CardDescription>
+              </CardHeader>
+              <CardContent className="text-center space-y-3 pt-4">
+                <div>
+                  <div className="text-5xl font-bold text-yellow-400">{boostedCommissionPercent}%</div>
+                  <div className="text-slate-400 text-sm mt-1">Lifetime recurring commission</div>
+                </div>
+                <ul className="text-sm text-slate-300 space-y-1 pt-4 border-t border-yellow-500/20 text-left mx-auto inline-block">
+                  <li>✓ Boost applies to <strong>all</strong> your referrals</li>
+                  <li>✓ Old + new — everyone re-rates to {boostedCommissionPercent}%</li>
+                  <li>✓ Locked in once unlocked</li>
+                </ul>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </section>
@@ -850,19 +850,23 @@ export default function AffiliatePage() {
             {[
               {
                 q: "How do I get paid?",
-                a: "We pay affiliates monthly via PayPal or direct bank transfer through Partnero. You'll receive your earnings by the 15th of each month for the previous month's commissions."
+                a: `We pay affiliates monthly via ${payoutMethod} through Partnero. You'll receive your earnings by the 15th of each month for the previous month's commissions.`
               },
               {
                 q: "Is there a minimum payout?",
-                a: "Yes, the minimum payout threshold is $50. If you haven't reached $50, your earnings will roll over to the next month."
+                a: `Yes, the minimum payout threshold is $${payoutMinimum}. If you haven't reached $${payoutMinimum}, your earnings will roll over to the next month.`
               },
               {
                 q: "How long does the cookie last?",
-                a: "Our tracking cookie lasts 90 days. If someone clicks your link and signs up within 90 days, you get credit for the referral."
+                a: `Our attribution cookie lasts ${cookieDurationDays} days. If someone clicks your link and signs up within ${cookieDurationDays} days, you get credit for the referral.`
               },
               {
                 q: "Do I earn commission on renewals?",
-                a: `Yes! You earn ${commissionPercent}% on EVERY payment your referrals make—forever. That's true lifetime recurring commissions.`
+                a: `Yes — every renewal pays. You earn ${commissionPercent}% on EVERY payment your referrals make for the lifetime of their subscription. Hit ${boostedAfterReferrals} active referrals and your rate jumps to ${boostedCommissionPercent}% on all of them, old and new.`
+              },
+              {
+                q: `How does the ${boostedCommissionPercent}% boost work?`,
+                a: `Once you have ${boostedAfterReferrals} active paying referrals on your account, your commission rate increases from ${commissionPercent}% to ${boostedCommissionPercent}% — and the new rate applies to every referral you've ever brought in, not just the ones from that point forward.`
               },
               {
                 q: "Can I promote on social media?",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Switch, Route, useLocation, Redirect, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient";
@@ -373,6 +373,28 @@ function PricingRoute() {
   return <LandingPage />;
 }
 
+// /affiliate and /affiliate-terms are marketing/legal pages — they belong on
+// www.budgetsmart.io. When someone hits app.budgetsmart.io/affiliate (e.g.
+// from an old Partnero link or an in-app menu item), bounce them to the
+// canonical marketing URL so SEO and bookmarks consolidate to one host.
+//
+// The page itself still renders on www, so this is just a host-level
+// redirect — no functionality changes for end users.
+function AffiliateRoute({ children }: { children: ReactNode }) {
+  const isAppDomain = window.location.hostname === 'app.budgetsmart.io';
+  if (isAppDomain) {
+    const target = `https://www.budgetsmart.io${window.location.pathname}${window.location.search}${window.location.hash}`;
+    window.location.replace(target);
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <span className="ml-2">Redirecting…</span>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 function AppContent() {
   return (
     <Switch>
@@ -385,8 +407,12 @@ function AppContent() {
       <Route path="/cookies" component={CookiePolicy} />
       <Route path="/gdpr" component={GdprPolicy} />
       <Route path="/ccpa" component={CcpaPolicy} />
-      <Route path="/affiliate" component={AffiliatePage} />
-      <Route path="/affiliate-terms" component={AffiliateTerms} />
+      <Route path="/affiliate">
+        <AffiliateRoute><AffiliatePage /></AffiliateRoute>
+      </Route>
+      <Route path="/affiliate-terms">
+        <AffiliateRoute><AffiliateTerms /></AffiliateRoute>
+      </Route>
       <Route path="/contact" component={Contact} />
       <Route path="/data-retention" component={DataRetention} />
       <Route path="/security" component={Security} />
