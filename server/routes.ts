@@ -45,7 +45,7 @@ import { requireAuth, requireAdmin, requireWriteAccess, verifyPassword, hashPass
 import passport from "passport";
 import { authRateLimiter, apiRateLimiter, sensitiveApiRateLimiter } from "./rate-limiter";
 import { generateCashFlowForecast, findNextIncomeDate, calculateAverageDailySpending, getBillsInRange, getIncomeInRange } from "./cash-flow";
-import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices, getHistoricalPrices, getCompanyOverview, fetchNewsSentiment, searchSymbols, getDailyTimeSeries, getEarnings } from "./alpha-vantage";
+import { getStockQuote, getStockAnalysis, generateAnalysisSummary, batchUpdatePrices, getCompanyOverview, fetchNewsSentiment, searchSymbols, getDailyTimeSeries, getEarnings } from "./alpha-vantage";
 import { routeAI } from "./ai-router";
 import { getAdvisorData, invalidateAdvisorCache, advisorChat, savePortfolioSnapshot, type ChatMessage } from "./investment-advisor";
 import { salesChat, getGreeting } from "./sales-chatbot";
@@ -14332,8 +14332,11 @@ The Budget Smart AI Team`,
       if (!validRanges.includes(range)) {
         return res.status(400).json({ error: "Invalid range. Use 1M, 3M, 1Y, or 5Y" });
       }
-      const prices = await getHistoricalPrices(symbol, range as "1M" | "3M" | "1Y" | "5Y");
-      res.json({ symbol, range, prices });
+      const needsFull = ["1Y", "5Y"].includes(range);
+      const series = await getDailyTimeSeries(symbol, needsFull ? "full" : "compact");
+      const daysCutoff: Record<string, number> = { "1M": 31, "3M": 93, "1Y": 370, "5Y": 1830 };
+      const sliced = series.slice(-(daysCutoff[range] ?? 31));
+      res.json({ symbol, range, prices: sliced });
     } catch (error) {
       console.error("Error fetching historical prices:", error);
       res.status(500).json({ error: "Failed to fetch historical prices" });
