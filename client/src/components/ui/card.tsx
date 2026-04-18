@@ -2,19 +2,38 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-const Card = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn(
-      "shadcn-card rounded-xl border bg-card border-card-border text-card-foreground shadow-sm",
-      className
-    )}
-    {...props}
-  />
-));
+/**
+ * Card variants (Phase 3.3c — 2026-04-17).
+ *
+ * `default` keeps the pre-Phase-3 flat look so existing uses don't regress
+ * when the Card primitive picks up a new token. `glass` opts into the
+ * mint-glass surface — use it for hero KPI rows, dashboard widgets, and the
+ * handful of cards the design pass explicitly calls out.
+ */
+type CardVariant = "default" | "glass";
+
+const cardVariants: Record<CardVariant, string> = {
+  default: "bg-card border border-card-border",
+  glass: "glass-surface border-0",
+};
+
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  variant?: CardVariant;
+}
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, variant = "default", ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn(
+        "shadcn-card rounded-xl text-card-foreground shadow-sm",
+        cardVariants[variant],
+        className
+      )}
+      {...props}
+    />
+  )
+);
 Card.displayName = "Card"
 
 const CardHeader = React.forwardRef<

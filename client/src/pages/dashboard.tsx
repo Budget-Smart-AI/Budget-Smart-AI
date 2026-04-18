@@ -36,6 +36,7 @@ import { MoneyLeaksWidget } from "@/components/money-leaks-widget";
 import { SpendabilityWidget } from "@/components/spendability-widget";
 import { FeatureGate } from "@/components/FeatureGate";
 import { Link } from "wouter";
+import { KpiCard, type KpiTone } from "@/components/kpi-card";
 
 // Dashboard data type from the centralized financial engine
 interface DashboardData {
@@ -176,11 +177,13 @@ function DataSourceLabel({ type }: { type: "bank" | "plan" }) {
   );
 }
 
-// Real Cash Flow Stat Card
+// Real Cash Flow Stat Card — Phase 3.3 thin wrapper over <KpiCard>.
+// Keeps the existing call signature so we can ship 3.3 without touching 8+
+// call sites in one diff; tone is chosen here from `title` + `isNegative`.
 function RealCashFlowCard({
   title,
   value,
-  icon: Icon,
+  icon,
   description,
   isLoading,
   isNegative = false,
@@ -194,42 +197,42 @@ function RealCashFlowCard({
   isNegative?: boolean;
   isWarning?: boolean;
 }) {
+  // Per-card tone table. Negatives always go red; positives pick emerald for
+  // inflow, teal for the net-flow card, amber for "bills due".
+  const tone: KpiTone = isNegative
+    ? "red"
+    : title.toLowerCase().includes("bills")
+    ? "amber"
+    : title.toLowerCase().includes("balance change") || title.toLowerCase().includes("cash flow")
+    ? "teal"
+    : title.toLowerCase().includes("outgoing")
+    ? "red"
+    : "emerald";
+
+  // A deposit growing is favorable; outgoing growing is not.
+  const favorableDirection: "up" | "down" =
+    title.toLowerCase().includes("outgoing") || title.toLowerCase().includes("bills") ? "down" : "up";
+
   return (
-    <Card className={`relative overflow-visible border ${
-      isWarning ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20" : ""
-    }`}>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2 px-4 pt-4">
-        <CardTitle className="text-xs font-medium text-muted-foreground truncate">
-          {title}
-        </CardTitle>
-        {/* Icon pill — negative stays red (money-leaving signal), positive
-         * uses the section's accent (emerald/teal glass) instead of orange
-         * to stay aligned with the mint theme. */}
-        <div className={`flex h-7 w-7 items-center justify-center rounded-md shrink-0 ${
-          isNegative ? "bg-red-100 dark:bg-red-950/50" : "bg-emerald-100 dark:bg-emerald-950/40"
-        }`}>
-          <Icon className={`h-3.5 w-3.5 ${isNegative ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`} />
-        </div>
-      </CardHeader>
-      <CardContent className="px-4 pb-4">
-        {isLoading ? (
-          <Skeleton className="h-7 w-20" />
-        ) : (
-          <div className={`text-xl font-bold truncate ${
-            isNegative ? "text-red-600 dark:text-red-400" : ""
-          }`}>{value}</div>
-        )}
-        <p className="text-[10px] text-muted-foreground mt-1 truncate">{description}</p>
-      </CardContent>
-    </Card>
+    <KpiCard
+      title={title}
+      value={value}
+      icon={icon}
+      description={description}
+      isLoading={isLoading}
+      tone={tone}
+      isNegative={isNegative}
+      isWarning={isWarning}
+      favorableDirection={favorableDirection}
+    />
   );
 }
 
-// Plan Stat Card
+// Plan Stat Card — Phase 3.3 thin wrapper over <KpiCard>.
 function PlanStatCard({
   title,
   value,
-  icon: Icon,
+  icon,
   description,
   isLoading,
   variant = "default",
@@ -241,37 +244,28 @@ function PlanStatCard({
   isLoading: boolean;
   variant?: "income" | "spending" | "savings" | "default";
 }) {
-  const colors = {
-    income: "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400",
-    spending: "bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400",
-    savings: "bg-teal-100 dark:bg-teal-950/50 text-teal-600 dark:text-teal-400",
-    default: "bg-muted text-muted-foreground",
+  const toneByVariant: Record<string, KpiTone> = {
+    income: "emerald",
+    spending: "blue",
+    savings: "teal",
+    default: "amber",
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2 px-4 pt-4">
-        <CardTitle className="text-xs font-medium text-muted-foreground truncate">
-          {title}
-        </CardTitle>
-        <div className={`flex h-7 w-7 items-center justify-center rounded-md shrink-0 ${colors[variant]}`}>
-          <Icon className="h-3.5 w-3.5" />
-        </div>
-      </CardHeader>
-      <CardContent className="px-4 pb-4">
-        {isLoading ? (
-          <Skeleton className="h-7 w-20" />
-        ) : (
-          <div className={`text-xl font-bold truncate ${
-            variant === "income" ? "text-emerald-600 dark:text-emerald-400" :
-            variant === "savings" ? "text-teal-600 dark:text-teal-400" : ""
-          }`}>{value}</div>
-        )}
-        <p className="text-[10px] text-muted-foreground mt-1 truncate">{description}</p>
-      </CardContent>
-    </Card>
+    <KpiCard
+      title={title}
+      value={value}
+      icon={icon}
+      description={description}
+      isLoading={isLoading}
+      tone={toneByVariant[variant] ?? "amber"}
+      favorableDirection={variant === "spending" ? "down" : "up"}
+    />
   );
 }
+
+// Legacy inline card bodies were removed in Phase 3.3 (2026-04-17).
+// Both RealCashFlowCard + PlanStatCard now delegate to <KpiCard>.
 
 // [REMOVED] WhereYourMoneyWent local-calc widget — replaced by engine-powered
 // inline rendering at line ~841 using dashboard.expenses.topCategories
