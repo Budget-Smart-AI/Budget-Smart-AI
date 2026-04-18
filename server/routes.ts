@@ -1099,7 +1099,14 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/income/:id", async (req, res) => {
+  app.get("/api/income/:id", async (req, res, next) => {
+    // GET /api/income/registry is declared further down as its own handler
+    // (line ~1585). Express matches routes in declaration order, so without
+    // this guard the :id parameter swallows "registry" and the registry
+    // endpoint is never reached — it silently returns 404 "Income not found"
+    // because "registry" isn't a UUID. next() falls through to the real
+    // handler, which has its own requireAuth + registry-loading logic.
+    if (req.params.id === "registry") return next();
     try {
       const income = await storage.getIncome(req.params.id);
       if (!income) {
