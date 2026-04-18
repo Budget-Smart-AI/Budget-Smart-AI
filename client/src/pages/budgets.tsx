@@ -317,12 +317,16 @@ export default function BudgetsPage() {
     queryKey: ["/api/budgets"],
   });
 
-  // Fetch budgets with calculations from the engine
+  // Fetch budgets with calculations from the engine.
+  // NOTE: must go through `apiRequest` (not bare `fetch`) so the request is
+  // routed to the isolated engine host (api.budgetsmart.io) in production
+  // — see resolveApiUrl in lib/queryClient.ts. Bare fetch hits the website
+  // host and 404s post engine-isolation, which leaves the UI in an empty
+  // state even when raw budgets exist.
   const { data: budgetsData, isLoading: budgetsDataLoading } = useQuery<BudgetsResult>({
     queryKey: ["/api/engine/budgets", monthStr],
     queryFn: async () => {
-      const res = await fetch(`/api/engine/budgets?month=${monthStr}`);
-      if (!res.ok) throw new Error("Failed to fetch budget data");
+      const res = await apiRequest("GET", `/api/engine/budgets?month=${monthStr}`);
       return res.json();
     },
   });

@@ -347,9 +347,10 @@ export default function SavingsGoalsPage() {
 
   const { data: goalsData, isLoading } = useQuery<SavingsGoalEngineResult>({
     queryKey: ["/api/engine/savings-goals"],
+    // Must use apiRequest so engine paths route to api.budgetsmart.io
+    // in production. Bare fetch hits the website host and 404s.
     queryFn: async () => {
-      const res = await fetch("/api/engine/savings-goals");
-      if (!res.ok) throw new Error("Failed to fetch savings goals");
+      const res = await apiRequest("GET", "/api/engine/savings-goals");
       return res.json();
     },
   });

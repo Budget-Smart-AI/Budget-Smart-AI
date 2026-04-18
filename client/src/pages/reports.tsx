@@ -143,20 +143,22 @@ export default function ReportsPage() {
     queryKey: ["/api/engine/bills"],
   });
 
-  // Main reports data from centralized financial engine
+  // Main reports data from centralized financial engine.
+  // Must go through `apiRequest` so production routes to the isolated
+  // engine host (api.budgetsmart.io). Bare `fetch` 404s post-isolation.
   const { data: reportsData, isLoading: reportsLoading } = useQuery<ReportsData>({
     queryKey: ["/api/engine/reports", format(monthStart, "yyyy-MM-dd"), format(monthEnd, "yyyy-MM-dd")],
     queryFn: async () => {
-      const res = await fetch(`/api/engine/reports?startDate=${format(monthStart, "yyyy-MM-dd")}&endDate=${format(monthEnd, "yyyy-MM-dd")}`);
+      const res = await apiRequest("GET", `/api/engine/reports?startDate=${format(monthStart, "yyyy-MM-dd")}&endDate=${format(monthEnd, "yyyy-MM-dd")}`);
       return res.json();
     },
   });
 
-  // Previous month reports data for expense change calculation
+  // Previous month reports data for expense change calculation.
   const { data: prevReportsData } = useQuery<ReportsData>({
     queryKey: ["/api/engine/reports", format(prevMonthStart, "yyyy-MM-dd"), format(prevMonthEnd, "yyyy-MM-dd")],
     queryFn: async () => {
-      const res = await fetch(`/api/engine/reports?startDate=${format(prevMonthStart, "yyyy-MM-dd")}&endDate=${format(prevMonthEnd, "yyyy-MM-dd")}`);
+      const res = await apiRequest("GET", `/api/engine/reports?startDate=${format(prevMonthStart, "yyyy-MM-dd")}&endDate=${format(prevMonthEnd, "yyyy-MM-dd")}`);
       return res.json();
     },
   });
