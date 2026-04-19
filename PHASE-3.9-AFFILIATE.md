@@ -14,7 +14,7 @@ plugs the gap that was preventing renewal commissions from being tracked.
 ## What changed in code
 
 ### New files
-- `server/partnero.ts` — server-side Partnero REST client (transactions + refunds). Gated behind `PARTNERO_ENABLED`, `PARTNERO_API_KEY`, `PARTNERO_PROGRAM_ID` (defaults `3WUVSPIW`). Uses Stripe invoice IDs as `transaction_key` for idempotency, treats HTTP 409 (duplicate) as success, swallows all errors so a Partnero outage cannot fail a Stripe webhook.
+- `server/partnero.ts` — server-side Partnero REST client (transactions + refunds). Gated behind `PARTNERO_ENABLED`, `PARTNERO_API_KEY`, `PARTNERO_PROGRAM_ID` (defaults `CJUSEXBQ`). Uses Stripe invoice IDs as `transaction_key` for idempotency, treats HTTP 409 (duplicate) as success, swallows all errors so a Partnero outage cannot fail a Stripe webhook.
 - `migrations/0033_simplify_affiliate_tiers.sql` — collapses the legacy 4-tier rows (Standard/Growth/Elite/Diamond + bonus amounts) down to the 2-tier model and seeds the new keys (commissionPercent, boostedCommissionPercent, boostedAfterReferrals, cookieDurationDays, payoutMethod, payoutMinimum, commissionRecurrence, partneroUrl).
 
 ### Modified files
@@ -58,7 +58,7 @@ On the **web** service (`app.budgetsmart.io`) and ideally also on the engine + w
 ```
 PARTNERO_ENABLED=true
 PARTNERO_API_KEY=<paste from Partnero Portal → Settings → API Keys>
-PARTNERO_PROGRAM_ID=3WUVSPIW
+PARTNERO_PROGRAM_ID=CJUSEXBQ
 ```
 `PARTNERO_API_BASE` defaults to `https://app.partnero.com` and shouldn't need to be set.
 

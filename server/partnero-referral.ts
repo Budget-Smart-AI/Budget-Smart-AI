@@ -2,7 +2,7 @@
  * Partnero Customer Referral module.
  *
  * This is SEPARATE from server/partnero.ts, which handles the Affiliate
- * program (program id 3WUVSPIW — public partners, commission-only).
+ * program (program id CJUSEXBQ — public partners, commission-only).
  *
  * The Customer Referral program (program id 12078, slug resolved at boot)
  * is the in-app user-to-user referral program:

@@ -1,7 +1,7 @@
 # Partnero Customer Referral — Portal Config Handoff
 
 **Status:** code shipped 2026-04-18 · portal config partially complete
-**Program type:** Refer-a-friend & Loyalty (separate from existing Affiliate program 3WUVSPIW)
+**Program type:** Refer-a-friend & Loyalty (separate from existing Affiliate program CJUSEXBQ)
 **Program ID:** `12078`
 
 This doc captures the remaining manual steps you (Ryan) need to complete

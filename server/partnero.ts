@@ -22,14 +22,14 @@
  *
  * Env vars (all optional — module no-ops if missing):
  *   PARTNERO_API_KEY      Bearer token for Partnero REST API
- *   PARTNERO_PROGRAM_ID   Public program slug (defaults to 3WUVSPIW)
+ *   PARTNERO_PROGRAM_ID   Public program slug (defaults to CJUSEXBQ)
  *   PARTNERO_API_BASE     Override base URL (defaults to https://app.partnero.com)
  *   PARTNERO_ENABLED      Set to 'true' to enable server-side calls (default: off)
  */
 
 const PARTNERO_API_BASE =
   process.env.PARTNERO_API_BASE || "https://app.partnero.com";
-const PARTNERO_PROGRAM_ID = process.env.PARTNERO_PROGRAM_ID || "3WUVSPIW";
+const PARTNERO_PROGRAM_ID = process.env.PARTNERO_PROGRAM_ID || "CJUSEXBQ";
 
 function isEnabled(): boolean {
   return (
