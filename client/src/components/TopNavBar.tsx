@@ -111,11 +111,11 @@ export function TopNavBar() {
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger data-testid="button-sidebar-toggle" className="md:h-8 md:w-8 shrink-0" />
         <div className="min-w-0 hidden sm:block">
-          {/* Phase 3.2: solid charcoal (text-foreground), bigger + tighter leading, drop the brand gradient.
-           * Gradient stays on the logo + CTAs — off the greeting so the dash reads as a product UI
-           * rather than a marketing page. */}
+          {/* Phase 3.2+: smaller green-glass greeting — matches the logo icon's emerald background
+           * with a glassy gradient, subtle text-shadow, and backdrop glow for standout. */}
           <h1
-            className="font-display text-2xl md:text-3xl lg:text-[36px] font-bold leading-[1.05] truncate text-foreground tracking-[-0.02em]"
+            className="font-display text-lg md:text-xl lg:text-2xl font-bold leading-[1.1] truncate tracking-[-0.01em] bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 bg-clip-text text-transparent drop-shadow-[0_1px_2px_rgba(16,185,129,0.35)]"
+            style={{ WebkitBackgroundClip: "text", textShadow: "0 0 20px rgba(16,185,129,0.15)" }}
             data-testid="topbar-greeting"
           >
             {greeting}, {greetingName}
