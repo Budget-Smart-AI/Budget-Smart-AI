@@ -1,0 +1,40 @@
+feat(affiliate): 2-tier 40/50% lifetime UI + server-side Partnero attribution
+
+Companion commit to migration 0033 (already on main). Locks in the operator
+decisions from 2026-04-17 and plugs the gap that was silently dropping
+renewal commissions.
+
+Server-side attribution:
+* New server/partnero.ts wraps Partnero REST API for transactions + refunds.
+  Gated by PARTNERO_ENABLED env var; idempotent on Stripe invoice ID; never
+  throws (so Partnero outages can't fail Stripe webhooks).
+* server/stripe.ts handleInvoicePaid now fires trackPartneroPayment for every
+  successful invoice including renewals — closes the lifetime-recurring
+  attribution gap (frontend universal.js only fires on signup + first payment).
+* New charge.refunded handler reverses commission via trackPartneroRefund.
+
+Two-tier commission UI:
+* Standard 40% lifetime recurring from day one.
+* Boosted 50% at 250 active referrals — re-rates ALL of an affiliate's
+  referrals, not just new ones from that point forward.
+* 180-day attribution cookie · $100 PayPal minimum payout.
+* Replaces 4-tier (Standard/Growth/Elite/Diamond) model from migration 0010.
+
+Files:
+* affiliate.tsx — new Standard-vs-Boosted hero, FAQ updated for $100/180d.
+* affiliate-terms.tsx — section 2 (commission table) and section 3 (payouts)
+  rewritten; 30-day holding period; explicit refund-reversal language.
+* admin-landing.tsx — AffiliateTab rewritten with three field groups
+  (rates / attribution & payouts / Partnero URL); default partneroUrl now
+  the custom-domain CNAME (affiliate.budgetsmart.io).
+* routes.ts — /api/affiliate/settings defaults rewritten for 2-tier keys.
+* App.tsx — AffiliateRoute wrapper redirects app.budgetsmart.io/affiliate
+  to www.budgetsmart.io/affiliate (same pattern as PricingRoute) so
+  marketing pages consolidate on www for SEO.
+
+Manual ops actions documented in PHASE-3.9-AFFILIATE.md:
+1. Update Stripe webhook URL to https://app.budgetsmart.io/api/stripe/webhook
+   (apex was failing — redirect strips POST body) + add charge.refunded event.
+2. Set PARTNERO_ENABLED=true + PARTNERO_API_KEY on Railway services.
+3. Verify Partnero portal commission/cookie/payout settings match this PR.
+4. Run npm run db:push (migration 0033 is already on main).

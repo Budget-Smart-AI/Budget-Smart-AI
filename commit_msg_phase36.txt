@@ -1,0 +1,16 @@
+fix(client): route engine queries through apiRequest so they hit api.budgetsmart.io
+
+Three pages — Budgets, Reports, Savings Goals — were calling /api/engine/*
+with bare fetch() from inside their useQuery queryFn. That bypassed
+resolveApiUrl() in lib/queryClient.ts, so production hit
+app.budgetsmart.io/api/engine/* and 404'd. The engine has been on
+api.budgetsmart.io since the 2026-04-14 isolation.
+
+Net effect on Budgets page: engineData stayed empty even when budgets
+existed in DB, which made "Set Budget" appear to no-op (form was disabled
+because availableCategories filtered out everything) and made AI Suggest
+return "All your spending categories already have budgets" — both behaviors
+exactly tracked the bug rather than the user's actual data.
+
+Same issue would have hit Reports (current + previous-month queries) and
+Savings Goals as soon as those pages were used in production.

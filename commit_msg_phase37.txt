@@ -1,0 +1,12 @@
+style(settings): opt remaining Settings panels into Card variant="glass"
+
+Sweeps every top-level Card on the Settings surface — Profile, Security,
+Household, Preferences, Accounts, Categories, Merchants, Data, Privacy,
+Billing, Notifications, Spending Alerts — and the standalone Categories
++ Merchants pages reached from Settings. 38 Cards total flipped to
+variant="glass" so they pick up the Phase 3.3c mint-glass treatment.
+
+The Delete My Account card (settings.tsx line 784, border-destructive/40)
+intentionally stays on the solid surface so its destructive border keeps
+its weight against a non-glassy backdrop, per the color palette policy
+(amber warnings + destructive states stay solid).

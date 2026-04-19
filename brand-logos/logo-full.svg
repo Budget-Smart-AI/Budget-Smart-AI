@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2720 512" width="2720" height="512" role="img" aria-label="BudgetSmart AI">
+  <title>BudgetSmart AI</title>
+
+  <!-- ====== Icon (copy of logo-icon.svg, anchored left) ====== -->
+  <g id="icon">
+    <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="#10B981"/>
+    <path d="M 290 72
+             L 138 280
+             L 232 280
+             L 214 440
+             L 374 232
+             L 274 232
+             Z"
+          fill="#FFFFFF"/>
+  </g>
+
+  <!-- ====== Wordmark ======
+       "BudgetSmart" in dark slate, " AI" in mint green.
+       Geometric sans stack: Inter / Plus Jakarta Sans / Poppins / system fallback.
+       Font-weight 800 + tight tracking to match the marketing-site feel.
+       Baseline y=370 visually centers the cap-height on the icon's 256 axis. -->
+  <text x="620"
+        y="370"
+        font-family="'Inter', 'Plus Jakarta Sans', 'Poppins', 'Geist', 'Helvetica Neue', Arial, sans-serif"
+        font-size="320"
+        font-weight="800"
+        letter-spacing="-8"
+        fill="#0F172A">BudgetSmart</text>
+
+  <text x="2700"
+        y="370"
+        font-family="'Inter', 'Plus Jakarta Sans', 'Poppins', 'Geist', 'Helvetica Neue', Arial, sans-serif"
+        font-size="320"
+        font-weight="800"
+        letter-spacing="-8"
+        fill="#10B981"
+        text-anchor="end">AI</text>
+</svg>

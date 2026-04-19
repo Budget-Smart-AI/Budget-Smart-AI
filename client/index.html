@@ -32,7 +32,7 @@
     <meta name="msapplication-tap-highlight" content="no" />
 
     <!-- Icons -->
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/png" href="https://files.budgetsmart.io/apple-touch-icon.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -48,7 +48,10 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
 
-    <!-- PartneroJS - Affiliate Tracking -->
+    <!-- PartneroJS - Customer Referral Tracking (program 12078 / public slug CJUSEXBQ).
+         Affiliate tracking (3WUVSPIW) lives on www.budgetsmart.io. Affiliate
+         attribution to app signups happens server-side via server/partnero.ts on
+         Stripe webhooks, so the app browser only needs the Customer Referral program. -->
     <script>
       (function(p,t,n,e,r,o){ p['__partnerObject']=r;function f(){
       var c={ a:arguments,q:[]};var r=this.push(c);return "number"!=typeof r?r:f.bind(c.q);}
@@ -56,8 +59,6 @@
       var _=t.getElementsByTagName(n)[0];o.async=1;o.src=e+'?v'+(~~(new Date().getTime()/1e6));
       _.parentNode.insertBefore(o,_);})(window, document, 'script', 'https://app.partnero.com/js/universal.js', 'po');
       po('settings', 'assets_host', 'https://assets.partnero.com');
-      po('program', '3WUVSPIW', 'load');
+      po('program', 'CJUSEXBQ', 'load');
     </script>
-    <!-- End PartneroJS -->
-  </body>
-</html>
+    <!--

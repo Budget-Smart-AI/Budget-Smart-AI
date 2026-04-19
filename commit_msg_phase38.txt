@@ -1,0 +1,34 @@
+fix(subscriptions): unblock Analyze + opt Bills/Subs panels into glass
+
+Two bundled changes for the Bills & Subscriptions surface:
+
+1. Glass opt-in (10 cards across bills.tsx + subscriptions.tsx)
+   - bills.tsx: 4 KPI summary cards (This Month / Monthly Estimate /
+     Annual Estimate / Upcoming) + All Bills list card → variant="glass"
+   - subscriptions.tsx: 3 stat cards (Active / Monthly / Yearly) + Active
+     Subscriptions list + Paused Subscriptions list → variant="glass"
+   - The primary-tinted Summary Banner (border-primary/20 bg-primary/5)
+     intentionally stays solid per the color palette policy — primary
+     accent reads better against a non-glassy backdrop.
+
+2. Fix "Analyze My Transactions" finding only 1 entry. Two root causes:
+
+   a. "Entertainment & Recreation" was in NON_BILL_CATEGORIES, which
+      filtered out Netflix / Spotify / Disney+ / Hulu / Apple TV+ /
+      HBO Max BEFORE they could be analyzed (Plaid categorizes streaming
+      services under that bucket). Removed — the downstream 5% amount-
+      consistency + frequency-band checks already reliably separate true
+      subscriptions from one-off entertainment purchases.
+
+   b. The dedupe filter against existing-bill names used bidirectional
+      substring containment. If the user had a generic short bill name
+      like "Insurance", "Loan", or "Subscription", every detection
+      containing that word got cascade-filtered (e.g., "State Farm
+      Insurance" → dropped because "state farm insurance".includes
+      ("insurance")). Replaced with a namesMatch helper that requires
+      the shorter side to be ≥6 chars before allowing substring matching.
+      Exact-match still works at any length.
+
+Both server-side fixes apply identically to /api/bills/detect and
+/api/subscriptions/detect — the two endpoints share the detection
+algorithm.

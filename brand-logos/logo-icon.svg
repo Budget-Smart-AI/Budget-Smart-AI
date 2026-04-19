@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="BudgetSmart AI">
+  <title>BudgetSmart AI</title>
+  <!-- Mint-green rounded square background -->
+  <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="#10B981"/>
+  <!-- White lightning bolt, geometrically balanced, centered -->
+  <path d="M 290 72
+           L 138 280
+           L 232 280
+           L 214 440
+           L 374 232
+           L 274 232
+           Z"
+        fill="#FFFFFF"
+        stroke="none"/>
+</svg>
