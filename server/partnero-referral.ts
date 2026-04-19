@@ -24,7 +24,7 @@
  *   PARTNERO_API_KEY                 Bearer token (shared with affiliate module)
  *   PARTNERO_REFERRAL_PROGRAM_ID     Customer-referral program id (default: 12078)
  *   PARTNERO_API_BASE                Override base URL (default: https://app.partnero.com)
- *   PARTNERO_REFERRAL_ENABLED        Set to 'true' to enable (default: off)
+ *   PARTNERO_REFERRAL_ENABLED        Set to 'false' to disable (default: on if API key present)
  */
 
 const PARTNERO_API_BASE =
@@ -33,8 +33,10 @@ const PARTNERO_REFERRAL_PROGRAM_ID =
   process.env.PARTNERO_REFERRAL_PROGRAM_ID || "12078";
 
 function isEnabled(): boolean {
+  // Kill-switch: set PARTNERO_REFERRAL_ENABLED=false to disable without
+  // removing the API key. Defaults to ON when a valid API key is present.
+  if (process.env.PARTNERO_REFERRAL_ENABLED === "false") return false;
   return (
-    process.env.PARTNERO_REFERRAL_ENABLED === "true" &&
     typeof process.env.PARTNERO_API_KEY === "string" &&
     process.env.PARTNERO_API_KEY.length > 0
   );
