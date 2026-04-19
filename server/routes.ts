@@ -865,10 +865,22 @@ export async function registerRoutes(
 
   // FEATURE: EXPENSE_TRACKING | tier: free | limit: 100 expenses/month
   // Expenses API
+  //
+  // Supports optional ?startDate=yyyy-MM-dd&endDate=yyyy-MM-dd query params.
+  // Without them the endpoint USED to return every expense ever — which meant
+  // a user with 1,500+ transactions triggered a 3-5s payload and the pages
+  // that filter client-side (expenses.tsx, dashboard) showed the wrong period.
+  // UAT-8 #135 root cause. Default is the current calendar month.
   app.get("/api/expenses", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
       const householdId = req.session.householdId;
+
+      // Default window: current calendar month. Callers that need the full
+      // history (CSV export, audit) can pass ?all=1 to opt out.
+      const startDate = (req.query.startDate as string | undefined) || undefined;
+      const endDate = (req.query.endDate as string | undefined) || undefined;
+      const returnAll = req.query.all === "1" || req.query.all === "true";
 
       let expenses;
       if (householdId) {
@@ -876,6 +888,24 @@ export async function registerRoutes(
         expenses = await storage.getExpensesByUserIds(memberIds);
       } else {
         expenses = await storage.getExpenses(userId);
+      }
+
+      if (!returnAll && (startDate || endDate)) {
+        expenses = expenses.filter((e: any) => {
+          const d = String(e.date ?? "");
+          if (startDate && d < startDate) return false;
+          if (endDate && d > endDate) return false;
+          return true;
+        });
+      } else if (!returnAll) {
+        // No explicit range and not asking for everything → default to the
+        // current calendar month so payload stays small and the UI shows the
+        // period the user is actually looking at.
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        expenses = expenses.filter(
+          (e: any) => typeof e.date === "string" && e.date.startsWith(ym)
+        );
       }
 
       res.json(expenses);
@@ -1540,14 +1570,18 @@ Return JSON: { "income": [...] }`;
 
       // Project to DepositSample[] — credits only, ignore transfers between
       // the user's own accounts. The classifier itself drops < $100 means.
+      // We pass the adapter-canonical `incomeCategory` as the provider-
+      // neutral routing input. Provider signals (PFC / MX top-level) are
+      // only read if the adapter chose to surface them on the normalized
+      // row — otherwise this works with any future aggregator.
       const deposits = normalized
         .filter(tx => tx.direction === "credit" && !tx.isTransfer && tx.amount > 0)
         .map(tx => ({
           date: tx.date,
           amount: tx.amount,
           merchant: tx.merchant || "",
-          pfcPrimary: tx.pfcPrimary ?? null,
-          pfcDetailed: tx.pfcDetailed ?? null,
+          incomeCategory: tx.incomeCategory ?? null,
+          providerSignals: tx.providerSignals ?? undefined,
         }));
 
       const classifications = classifyDepositsForRegistry(deposits, { today });
@@ -14112,28 +14146,10 @@ The Budget Smart AI Team`,
     }
   });
 
-  // Add deprecation headers to old expense endpoints
-  app.get("/api/expenses", requireAuth, async (req, res) => {
-    res.setHeader("Deprecation", "true");
-    res.setHeader("Link", '</api/transactions/manual>; rel="successor-version"');
-
-    try {
-      const userId = req.session.userId!;
-      const householdId = req.session.householdId;
-
-      let expenses;
-      if (householdId) {
-        const memberIds = await storage.getHouseholdMemberUserIds(householdId);
-        expenses = await storage.getExpensesByUserIds(memberIds);
-      } else {
-        expenses = await storage.getExpenses(userId);
-      }
-
-      res.json(expenses);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch expenses" });
-    }
-  });
+  // (Removed duplicate /api/expenses handler — Express route-matches first-
+  // wins, so the handler at line ~868 is the only one that ever served
+  // traffic. This second definition was dead code left over from an earlier
+  // deprecation experiment. UAT-8 #135 cleanup.)
 
   // FEATURE: INVESTMENT_TRACKING | tier: free | limit: unlimited
   // ============ INVESTMENT ACCOUNTS API ============

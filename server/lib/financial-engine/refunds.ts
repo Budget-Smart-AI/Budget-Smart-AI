@@ -34,8 +34,22 @@ import {
   format,
 } from "date-fns";
 import type { NormalizedTransaction } from "./normalized-types";
-import { resolveCategory, type MerchantOverrideMap } from "./categories";
+import type { MerchantOverrideMap } from "./categories";
 import { REFUND_CATEGORY } from "./categories/monarch-categories";
+
+/**
+ * Post-adapter canonical category lookup. Since the adapter now populates
+ * `tx.category` as a canonical Monarch string, we mostly just read it.
+ * Merchant overrides (user re-categorisations) still take precedence.
+ */
+function canonicalCategory(
+  tx: NormalizedTransaction,
+  overrides: MerchantOverrideMap
+): string {
+  const override = overrides?.get?.(tx.merchant?.toLowerCase?.() || "");
+  if (override) return override;
+  return tx.category || "Other";
+}
 
 // ─── Public types ─────────────────────────────────────────────────────────
 
@@ -78,20 +92,9 @@ export function isRefundTransaction(
   tx: NormalizedTransaction,
   overrides: MerchantOverrideMap
 ): boolean {
-  // Already-classified refund (resolver returns "Refunds & Returns" for
-  // PFC INCOME_TAX_REFUND and MX Refunds/Returns).
-  const monarchCat = resolveCategory(
-    {
-      pfcPrimary: tx.pfcPrimary,
-      pfcDetailed: tx.pfcDetailed,
-      mxCategory: tx.mxCategory,
-      mxTopLevel: tx.mxTopLevel,
-      category: tx.category,
-      merchant: tx.merchant,
-      provider: tx.provider,
-    },
-    overrides
-  );
+  // The adapter has already remapped tx.category to a canonical Monarch
+  // label, so we just read it directly (with override support).
+  const monarchCat = canonicalCategory(tx, overrides);
   if (monarchCat === REFUND_CATEGORY) return true;
 
   // Heuristic catch: a credit that is explicitly NOT income and NOT a
@@ -143,21 +146,10 @@ export function calculateRefundsForPeriod(
     if (isBefore(txDate, periodStart) || isAfter(txDate, periodEnd)) continue;
 
     // The "source category" is what the user was originally spending on.
-    // For Plaid PFC tax refunds, it's "Taxes". For merchant credits, we
-    // try to infer from the merchant by resolving the category as if the
-    // transaction were a debit (resolver doesn't care about direction).
-    const sourceCategory = resolveCategory(
-      {
-        pfcPrimary: tx.pfcPrimary,
-        pfcDetailed: tx.pfcDetailed,
-        mxCategory: tx.mxCategory,
-        mxTopLevel: tx.mxTopLevel,
-        category: tx.category,
-        merchant: tx.merchant,
-        provider: tx.provider,
-      },
-      overrides
-    );
+    // The adapter already produced a canonical Monarch category on
+    // tx.category — so we read it directly. Overrides still take precedence
+    // for user re-categorisations.
+    const sourceCategory = canonicalCategory(tx, overrides);
 
     refundTxs.push({
       tx,

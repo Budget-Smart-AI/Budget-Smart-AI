@@ -40,7 +40,6 @@ import {
   calculateRefundsForPeriod,
   calculateRefundsMonthlyTrend,
   buildOverrideMap,
-  resolveCategory,
   type NormalizedTransaction,
   type NormalizedAccount,
   type DashboardData,
@@ -459,24 +458,28 @@ router.get("/debts", async (req: Request, res: Response) => {
       linkedPlaidAccountId: d.linkedPlaidAccountId ?? null,
     }));
 
-    // 2. Plaid liability accounts (credit cards, loans, mortgages, LOC) —
-    //    unioned in with manual debts so users see a complete debt picture
+    // 2. Provider-synced liability accounts (credit cards, loans, mortgages,
+    //    LOC) from ANY banking provider (Plaid, MX, Finicity, future adapters)
+    //    — unioned with manual debts so users see a complete debt picture
     //    without double-entering. Accounts already linked to a manual debt
-    //    (via linkedPlaidAccountId) are skipped to avoid double-counting.
-    const linkedPlaidIds = new Set(
+    //    (via linkedPlaidAccountId — legacy column name, holds ANY provider's
+    //    account id) are skipped to avoid double-counting. The filter keys off
+    //    accountType alone, not provider, so adding a new adapter in the
+    //    future needs zero changes here (RC-2 provider-agnostic refactor).
+    const linkedProviderIds = new Set(
       manualDebts
         .map((d) => d.linkedPlaidAccountId)
         .filter((id): id is string => !!id)
     );
 
-    const plaidAccts = await getAllNormalizedAccounts(householdUserIds ?? [userId]);
-    const plaidDebts = plaidAccts
+    const providerAccts = await getAllNormalizedAccounts(householdUserIds ?? [userId]);
+    const providerDebts = providerAccts
       .filter(
         (a) =>
-          !linkedPlaidIds.has(a.id) &&
+          !linkedProviderIds.has(a.id) &&
           a.isActive !== false &&
-          a.provider === "Plaid" &&
           (a.accountType === "credit" ||
+            a.accountType === "credit_card" ||
             a.accountType === "loan" ||
             a.accountType === "mortgage" ||
             a.accountType === "line_of_credit")
@@ -485,22 +488,25 @@ router.get("/debts", async (req: Request, res: Response) => {
         id: a.id,
         name: a.name,
         balance: Math.abs(parseFloat(String(a.balance ?? 0))),
-        // APR unknown from Plaid — default to 0 so payoff schedules still run
-        // (treated as interest-free); user can override by creating a manual
-        // debt_details entry and linking it via linkedPlaidAccountId.
+        // APR unknown from bank feeds — default to 0 so payoff schedules still
+        // run (treated as interest-free); user can override by creating a
+        // manual debt_details entry and linking it via linkedPlaidAccountId.
         interestRate: 0,
-        // Minimum payment unknown from Plaid — zero means payoff needs an
+        // Minimum payment unknown from bank feeds — zero means payoff needs an
         // explicit extraPayment to make progress. Flagged in UI.
         minimumPayment: 0,
         category: a.accountType,
-        source: "plaid" as const,
+        // `source` carries the originating provider for provenance display
+        // ("plaid" | "mx" | "manual" | ...). The engine's payoff math does
+        // not branch on this value — it's UI-only.
+        source: a.provider.toLowerCase() as any,
         linkedPlaidAccountId: null,
       }));
 
     // Strip the internal linkedPlaidAccountId before passing to the engine —
     // the engine expects DebtItem shape without that field. Category is
     // coerced to a plain string (AccountCategory enum is a subset of string).
-    const debts = [...manualDebts, ...plaidDebts].map(
+    const debts = [...manualDebts, ...providerDebts].map(
       ({ linkedPlaidAccountId: _omit, category, ...d }) => ({
         ...d,
         category: String(category),
@@ -712,6 +718,115 @@ router.get("/bank-accounts", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[engine.bank-accounts]", error);
     res.status(500).json({ error: "Failed to fetch bank accounts data" });
+  }
+});
+
+/**
+ * GET /api/engine/accounts
+ *
+ * Provider-agnostic listing of ALL linked + manual accounts for the requesting
+ * user / household. Replaces the per-provider endpoints the UI used to hit
+ * (`/api/plaid/accounts`, `/api/mx/accounts`, `/api/investment-accounts`,
+ * `/api/assets`, `/api/debts`) and the client-side aggregation logic that
+ * lived in bank-accounts.tsx (UAT-8 #145 root cause).
+ *
+ * Response shape — one flat array of NormalizedAccount plus aggregate totals:
+ *   {
+ *     accounts: NormalizedAccount[],
+ *     byType: Record<AccountCategory, { count: number; total: number }>,
+ *     totals: { assets, liabilities, netWorth, cash, investments, debts },
+ *     connectionStatus: {
+ *       anyReauthRequired: boolean,
+ *       anyError: boolean,
+ *       problems: { accountId, institution, status }[]
+ *     }
+ *   }
+ *
+ * Calling code (bank-accounts.tsx, investments.tsx, liabilities.tsx) now reads
+ * from THIS endpoint alone and never branches on provider. Adding a new
+ * aggregator means wiring it into getAllNormalizedAccounts — zero UI changes.
+ */
+router.get("/accounts", async (req: Request, res: Response) => {
+  try {
+    const { userId } = requireContext(req);
+    const userIds = requireContext(req).householdUserIds;
+
+    const accounts = await getAllNormalizedAccounts(userIds);
+
+    // Aggregate by canonical account type.
+    const byType: Record<string, { count: number; total: number }> = {};
+    for (const acc of accounts) {
+      if (!byType[acc.accountType]) {
+        byType[acc.accountType] = { count: 0, total: 0 };
+      }
+      byType[acc.accountType].count += 1;
+      byType[acc.accountType].total += Number(acc.balance) || 0;
+    }
+
+    // High-level totals — provider-agnostic, mirrors net-worth math.
+    const CASH = new Set(["checking", "savings", "depository"]);
+    const INVEST = new Set(["investment", "brokerage"]);
+    const LIAB = new Set([
+      "credit",
+      "credit_card",
+      "loan",
+      "mortgage",
+      "line_of_credit",
+    ]);
+
+    let cash = 0;
+    let investments = 0;
+    let debts = 0;
+    for (const acc of accounts) {
+      if (!acc.isActive) continue;
+      const bal = Number(acc.balance) || 0;
+      if (CASH.has(acc.accountType)) cash += Math.max(0, bal);
+      else if (INVEST.has(acc.accountType)) investments += Math.max(0, bal);
+      else if (LIAB.has(acc.accountType)) debts += Math.abs(bal);
+    }
+
+    // Net-worth here is a lightweight local calc (no snapshots). For the full
+    // calculation with manual assets + history the client still hits
+    // /api/engine/net-worth — but this totals object covers 90% of UI needs.
+    const totals = {
+      assets: cash + investments,
+      liabilities: debts,
+      netWorth: cash + investments - debts,
+      cash,
+      investments,
+      debts,
+    };
+
+    // Connection health — surface any Plaid/MX item that needs re-auth or is
+    // erroring so the UI can show a prominent alert banner (UAT-8 #142).
+    const problems = accounts
+      .filter(
+        (a) =>
+          a.itemStatus &&
+          a.itemStatus !== "healthy" &&
+          a.isActive
+      )
+      .map((a) => ({
+        accountId: a.id,
+        accountName: a.name,
+        institution: a.institutionName ?? a.provider,
+        provider: a.provider,
+        status: a.itemStatus!,
+      }));
+
+    res.json({
+      accounts,
+      byType,
+      totals,
+      connectionStatus: {
+        anyReauthRequired: problems.some((p) => p.status === "reauth_required"),
+        anyError: problems.some((p) => p.status === "error"),
+        problems,
+      },
+    });
+  } catch (error) {
+    console.error("[engine.accounts]", error);
+    res.status(500).json({ error: "Failed to fetch accounts data" });
   }
 });
 
@@ -1094,22 +1209,13 @@ router.get("/categories/stats", async (req: Request, res: Response) => {
     };
     const stats = new Map<string, Stat>();
 
-    // Current period — debits only, skipping transfers/pending. The
-    // resolver gives Monarch names; we key stats by those.
+    // Current period — debits only, skipping transfers/pending. The adapter
+    // has already remapped tx.category to the canonical Monarch label.
+    // User overrides (merchant re-categorisations) still take precedence.
     for (const tx of currentTx) {
       if (tx.direction !== "debit" || tx.isTransfer || tx.isPending) continue;
-      const category = resolveCategory(
-        {
-          pfcPrimary: tx.pfcPrimary,
-          pfcDetailed: tx.pfcDetailed,
-          mxCategory: tx.mxCategory,
-          mxTopLevel: tx.mxTopLevel,
-          category: tx.category,
-          merchant: tx.merchant,
-          provider: tx.provider,
-        },
-        overrides
-      );
+      const override = overrides?.get?.(tx.merchant?.toLowerCase?.() || "");
+      const category = override ?? tx.category ?? "Other";
       let s = stats.get(category);
       if (!s) {
         s = {
@@ -1131,18 +1237,8 @@ router.get("/categories/stats", async (req: Request, res: Response) => {
     const prevTotals = new Map<string, number>();
     for (const tx of previousTx) {
       if (tx.direction !== "debit" || tx.isTransfer || tx.isPending) continue;
-      const category = resolveCategory(
-        {
-          pfcPrimary: tx.pfcPrimary,
-          pfcDetailed: tx.pfcDetailed,
-          mxCategory: tx.mxCategory,
-          mxTopLevel: tx.mxTopLevel,
-          category: tx.category,
-          merchant: tx.merchant,
-          provider: tx.provider,
-        },
-        overrides
-      );
+      const override = overrides?.get?.(tx.merchant?.toLowerCase?.() || "");
+      const category = override ?? tx.category ?? "Other";
       prevTotals.set(category, (prevTotals.get(category) ?? 0) + tx.amount);
     }
 

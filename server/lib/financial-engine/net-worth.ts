@@ -95,19 +95,25 @@ function calculateTotalAssets(
     total += cashAssetTotal;
   }
 
-  // Investment-type bank accounts (e.g., brokerage cash from Plaid)
+  // Investment-type bank accounts (e.g., brokerage cash from Plaid/MX) —
+  // these are the *provider-synced* investment accounts, deduplicated by id
+  // against the manual `investmentAccounts` table so a brokerage that's both
+  // linked AND manually entered isn't counted twice (UAT-8 #147 root cause).
   const investmentBankAccounts = bankAccounts.filter(
     (acc) => acc.isActive && INVESTMENT_BANK_TYPES.has(acc.accountType)
   );
+
+  const bankInvestmentIds = new Set(investmentBankAccounts.map((a) => a.id));
 
   const investmentBankTotal = investmentBankAccounts.reduce(
     (sum, acc) => sum + Math.max(0, parseFloat(String(acc.balance)) || 0),
     0
   );
 
-  // Investment accounts and holdings (separate data source — manual or via investments table)
-  let investmentTotal: Cents = investmentBankTotal;
-
+  // Pre-index holdings by their account id so both linked-brokerage (id ==
+  // bank account id) and manual-investment (id == investment_accounts id)
+  // rows roll up correctly. Key point: we only add to `investmentTotal` via
+  // the investmentAccounts loop below to prevent double-counting.
   const holdingsByAccount: Record<string, Cents> = {};
   holdings.forEach((holding) => {
     if (!holdingsByAccount[holding.id]) {
@@ -116,7 +122,13 @@ function calculateTotalAssets(
     holdingsByAccount[holding.id] += holding.currentValue || 0;
   });
 
+  let investmentTotal: Cents = investmentBankTotal;
+
   investmentAccounts.forEach((account) => {
+    // Skip manual rows that duplicate a provider-synced brokerage we've
+    // already counted above. Linking is by stable account id.
+    if (bankInvestmentIds.has(account.id)) return;
+
     const value = holdingsByAccount[account.id] || account.balance || 0;
     investmentTotal += value;
   });
@@ -262,4 +274,4 @@ export function calculateNetWorth(params: NetWorthParams): NetWorthResult {
     assetBreakdown: assetsCalc.breakdown,
     liabilityBreakdown: liabilitiesCalc.breakdown,
   };
-    }
+}

@@ -422,6 +422,10 @@ function MXConnectButton({ onSuccess, autoOpen = false }: { onSuccess: () => voi
   const [privacyChecked, setPrivacyChecked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [mxPendingConnection, setMxPendingConnection] = useState<string | null>(null);
+  // Single-use intent id returned by the MX connect-widget endpoint; used to
+  // authorize the subsequent member-connected sync callback. Held in component
+  // state for the duration of a single Connect flow, cleared on completion.
+  const [mxIntentId, setMxIntentId] = useState<string | null>(null);
   const autoOpenConsentShown = useRef(false);
   const mxPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mxPollAttemptsRef = useRef(0);
@@ -1423,6 +1427,46 @@ export default function BankAccounts() {
     queryKey: ["/api/mx/members"],
   });
 
+  // Provider-agnostic engine snapshot — drives the connection-health banner
+  // (UAT-8 #142/RC-7) and lightweight totals. The legacy provider-specific
+  // queries above still power per-provider actions (disconnect, toggle,
+  // re-auth), but summary/alert UI should read from the engine so it works
+  // uniformly across Plaid / MX / Manual and any future aggregator.
+  const { data: engineAccounts } = useQuery<{
+    accounts: Array<{
+      id: string;
+      name: string;
+      accountType: string;
+      balance: number;
+      isActive: boolean;
+      provider: string;
+      itemStatus?: "healthy" | "reauth_required" | "error" | "disconnected";
+      institutionName?: string | null;
+    }>;
+    byType: Record<string, { count: number; total: number }>;
+    totals: {
+      assets: number;
+      liabilities: number;
+      netWorth: number;
+      cash: number;
+      investments: number;
+      debts: number;
+    };
+    connectionStatus: {
+      anyReauthRequired: boolean;
+      anyError: boolean;
+      problems: Array<{
+        accountId: string;
+        accountName: string;
+        institution: string;
+        provider: string;
+        status: "healthy" | "reauth_required" | "error" | "disconnected";
+      }>;
+    };
+  }>({
+    queryKey: ["/api/engine/accounts"],
+  });
+
   // Fetch transactions for current month
   const { data: transactions = [], isLoading: transactionsLoading } = useQuery<PlaidTransaction[]>({
     queryKey: ["/api/plaid/transactions", `?startDate=${startDate}&endDate=${endDate}`],
@@ -1483,8 +1527,11 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+      // Invalidate every engine query — accounts / bank-accounts / net-worth
+      // / dashboard all derive from the same underlying ledger and should
+      // refresh together when the connection graph changes.
       queryClient.invalidateQueries({ predicate: (q) =>
-        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
       toast({ title: "Balances refreshed" });
     },
@@ -1501,8 +1548,11 @@ export default function BankAccounts() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+      // Invalidate every engine query — accounts / bank-accounts / net-worth
+      // / dashboard all derive from the same underlying ledger and should
+      // refresh together when the connection graph changes.
       queryClient.invalidateQueries({ predicate: (q) =>
-        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
       toast({ title: `Synced: ${data.added} new, ${data.modified} updated, ${data.removed} removed` });
     },
@@ -1519,8 +1569,11 @@ export default function BankAccounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+      // Invalidate every engine query — accounts / bank-accounts / net-worth
+      // / dashboard all derive from the same underlying ledger and should
+      // refresh together when the connection graph changes.
       queryClient.invalidateQueries({ predicate: (q) =>
-        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
       toast({ title: "Bank account disconnected" });
       setDisconnectItemId(null);
@@ -1537,8 +1590,11 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+      // Invalidate every engine query — accounts / bank-accounts / net-worth
+      // / dashboard all derive from the same underlying ledger and should
+      // refresh together when the connection graph changes.
       queryClient.invalidateQueries({ predicate: (q) =>
-        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
     },
     onError: () => {
@@ -1553,8 +1609,11 @@ export default function BankAccounts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
+      // Invalidate every engine query — accounts / bank-accounts / net-worth
+      // / dashboard all derive from the same underlying ledger and should
+      // refresh together when the connection graph changes.
       queryClient.invalidateQueries({ predicate: (q) =>
-        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
     },
     onError: () => {
@@ -1570,8 +1629,11 @@ export default function BankAccounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
       queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
+      // Invalidate every engine query — accounts / bank-accounts / net-worth
+      // / dashboard all derive from the same underlying ledger and should
+      // refresh together when the connection graph changes.
       queryClient.invalidateQueries({ predicate: (q) =>
-        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
       toast({ title: "Bank account disconnected" });
       setDisconnectMxMemberId(null);
@@ -1667,8 +1729,11 @@ export default function BankAccounts() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+      // Invalidate every engine query — accounts / bank-accounts / net-worth
+      // / dashboard all derive from the same underlying ledger and should
+      // refresh together when the connection graph changes.
       queryClient.invalidateQueries({ predicate: (q) =>
-        (q.queryKey[0] as string)?.startsWith?.("/api/engine/bank-accounts") ?? false
+        (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
       toast({ title: `${selectedIds.size} transactions matched` });
       setSelectedIds(new Set());
@@ -2023,6 +2088,64 @@ export default function BankAccounts() {
         </TabsContent>
 
         <TabsContent value="bank" className="space-y-6 mt-6">
+
+      {/* Provider-agnostic connection-health banner. Reads engine-derived
+          itemStatus so Plaid AND MX reauth / error states surface uniformly
+          (UAT-8 #142 / RC-7). Keeps the page honest about silently-broken
+          syncs without embedding per-provider knowledge in the UI. */}
+      {engineAccounts?.connectionStatus?.problems?.length ? (
+        <div
+          className={`rounded-md border p-4 ${
+            engineAccounts.connectionStatus.anyError
+              ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/40"
+              : "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
+          }`}
+          data-testid="connection-status-banner"
+        >
+          <div className="flex items-start gap-3">
+            <AlertCircle
+              className={`h-5 w-5 mt-0.5 flex-shrink-0 ${
+                engineAccounts.connectionStatus.anyError
+                  ? "text-red-600"
+                  : "text-amber-600"
+              }`}
+            />
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-sm">
+                {engineAccounts.connectionStatus.anyReauthRequired
+                  ? "Reconnect required"
+                  : "Connection issue detected"}
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                {engineAccounts.connectionStatus.anyReauthRequired
+                  ? "One or more of your banks need re-authentication. Transactions will stop syncing until you reconnect."
+                  : "One or more of your banks reported an error during the last sync."}
+              </p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {engineAccounts.connectionStatus.problems.map((p) => (
+                  <li key={p.accountId} className="flex items-center gap-2">
+                    <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                    <span className="font-medium">{p.institution}</span>
+                    <span className="text-muted-foreground">
+                      — {p.accountName}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={
+                        p.status === "reauth_required"
+                          ? "border-amber-400 text-amber-700"
+                          : "border-red-400 text-red-700"
+                      }
+                    >
+                      {p.status.replace("_", " ")}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Monarch-style Accounts overview — grouped by type on the left,
           summary + breakdown on the right. Rendered only when at least one

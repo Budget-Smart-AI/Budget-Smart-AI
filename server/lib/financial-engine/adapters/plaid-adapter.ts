@@ -8,13 +8,12 @@
  * - Account type/subtype hierarchy (e.g., "depository" / "checking")
  * - balanceCurrent vs balanceAvailable
  * - isActive stored as string "true" / "false"
+ * - PFC v2 primary + detailed taxonomy
  *
- * PFC fields exposed to the engine (added 2026-04-15 for Monarch alignment):
- * - pfcPrimary: Plaid PFC primary (FOOD_AND_DRINK, TRANSFER_OUT, etc.)
- * - pfcDetailed: Plaid PFC detailed (FOOD_AND_DRINK_GROCERIES, etc.)
- * The Monarch-aligned category resolver in
- * `server/lib/financial-engine/categories/` reads these to produce the
- * canonical Monarch category name without any keyword string-matching.
+ * Provider-specific knowledge is CONFINED to this file. The engine and route
+ * layer never import Plaid-specific constants — they call methods on the
+ * `BankingAdapter` interface. Adding a new aggregator means adding another
+ * adapter; nothing else in the codebase needs to change.
  */
 
 import {
@@ -22,32 +21,34 @@ import {
   NormalizedAccount,
   NormalizedTransaction,
   AccountCategory,
+  ProviderItemStatus,
+  ClassifyIncomeInput,
+  ClassifyIncomeResult,
 } from "../normalized-types";
 import { classifyIncomeTransaction } from "../categories/income-classifier";
+import {
+  cleanMerchant,
+  remapToCanonicalCategory,
+  mapItemStatus,
+} from "./shared-normalizers";
 
 // Categories that represent movement between accounts, not real income or expense.
 // Includes both legacy Plaid basic-category strings ("transfer", "payment") AND
 // PFC v2 primary enums ("TRANSFER_IN", "TRANSFER_OUT", "LOAN_PAYMENTS") because
 // `tx.category` now stores the PFC primary since the 2026-04 sync refactor.
-// UAT-6: TRANSFER_IN credits were leaking into actual-income sums, inflating
-// the /income page by 30-50% for users with frequent bank-to-bank moves.
 const TRANSFER_CATEGORIES = new Set([
-  // Legacy Plaid basic categories
   "transfer",
   "credit card",
   "payment",
   "loan",
   "loan payments",
   "internal account transfer",
-  // PFC v2 primary enums (lowercased for case-insensitive match)
   "transfer_in",
   "transfer_out",
   "loan_payments",
   "bank_fees",
 ]);
 
-// PFC v2 detailed prefixes that represent non-income credits / non-expense debits.
-// Used for prefix-based check when `tx.personalFinanceCategoryDetailed` is populated.
 const TRANSFER_DETAILED_PREFIXES = [
   "TRANSFER_IN_",
   "TRANSFER_OUT_",
@@ -56,32 +57,20 @@ const TRANSFER_DETAILED_PREFIXES = [
 ];
 
 /**
- * Map Plaid subtype → normalized AccountCategory
- *
- * UAT-6 P3-23: widened investment-subtype coverage. Plaid's taxonomy includes
- * far more retirement/brokerage subtypes than the original mapping handled
- * ("brokerage/401k/ira/rrsp" only). Accounts under those other subtypes were
- * falling through to "other" and therefore contributing $0 to the net-worth
- * Assets side. The canonical Plaid type for all investment/retirement
- * accounts is `type === "investment"`, so any tx with that type is now the
- * primary trigger — the subtype list is a belt-and-suspenders fallback for
- * Plaid quirks where `type` arrives empty or as something vendor-specific.
+ * Map Plaid subtype → normalized AccountCategory. Widened in UAT-6 P3-23 to
+ * cover the full Plaid retirement taxonomy.
  */
 const INVESTMENT_SUBTYPES = new Set([
   "brokerage", "cash management", "non-taxable brokerage account",
   "mutual fund", "stock plan", "trust", "ugma", "utma",
-  // Retirement accounts (US + Canada + UK)
   "401a", "401k", "403b", "457b", "ira", "roth", "roth 401k",
   "sep ira", "simple ira", "sarsep", "keogh", "pension", "retirement",
   "profit sharing plan", "non-custodial wallet",
   "rrsp", "rssp", "rrif", "lif", "lira", "lrif", "lrsp", "prif", "rlif", "resp", "rdsp", "tfsa",
   "isa", "cash isa", "sipp",
-  // Education & health-tax-advantaged
   "529", "education savings account", "hsa", "health reimbursement arrangement",
-  // Annuities & insurance-linked
   "fixed annuity", "variable annuity", "other annuity",
   "life insurance", "other insurance",
-  // Guarantees / fixed-income wrappers
   "gic",
 ]);
 
@@ -92,7 +81,7 @@ function mapPlaidAccountType(type?: string, subtype?: string): AccountCategory {
   if (sub === "checking") return "checking";
   if (sub === "savings") return "savings";
   if (t === "depository") return "depository";
-  if (t === "credit" || sub === "credit card") return "credit";
+  if (t === "credit" || sub === "credit card") return "credit_card";
   if (sub === "line of credit" || sub === "line_of_credit") return "line_of_credit";
   if (sub === "mortgage") return "mortgage";
   if (t === "loan" || sub.includes("loan") || sub === "auto") return "loan";
@@ -111,6 +100,16 @@ export class PlaidAdapter implements BankingAdapter {
       balance: parseFloat(String(acc.balanceCurrent ?? acc.balance ?? 0)) || 0,
       isActive: acc.isActive === true || acc.isActive === "true",
       provider: "Plaid",
+      itemStatus: this.normalizeItemStatus(acc.itemStatus ?? acc.status ?? acc.plaidItemStatus),
+      institutionName: acc.institutionName ?? acc.plaidItemInstitutionName ?? null,
+      mask: acc.mask ?? null,
+      creditLimit:
+        acc.balanceLimit != null
+          ? parseFloat(String(acc.balanceLimit)) || null
+          : acc.creditLimit != null
+            ? parseFloat(String(acc.creditLimit)) || null
+            : null,
+      lastSyncedAt: acc.lastSyncedAt ?? acc.updatedAt ?? null,
     }));
   }
 
@@ -121,14 +120,16 @@ export class PlaidAdapter implements BankingAdapter {
       const isCredit = rawAmount < 0;
       const amount = Math.abs(rawAmount);
 
-      const category = tx.personalCategory || tx.category || "Other";
-      const categoryLower = String(category).toLowerCase();
+      const rawCategory = tx.personalCategory || tx.category || "Other";
+      const categoryLower = String(rawCategory).toLowerCase();
 
-      // Resolve PFC detailed (uppercase, stable) for precise transfer/loan detection.
       const pfcDetailedRaw = tx.personalFinanceCategoryDetailed
         ? String(tx.personalFinanceCategoryDetailed).toUpperCase()
         : "";
-      const isTransferByDetailed = pfcDetailedRaw !== "" &&
+      const pfcPrimaryRaw = (tx.category || "").toUpperCase();
+
+      const isTransferByDetailed =
+        pfcDetailedRaw !== "" &&
         TRANSFER_DETAILED_PREFIXES.some((p) => pfcDetailedRaw.startsWith(p));
 
       const isTransfer =
@@ -139,63 +140,86 @@ export class PlaidAdapter implements BankingAdapter {
 
       const isPending = tx.pending === true || tx.pending === "true";
 
-      // Income classification is delegated to the central classifier. It
-      // applies a deterministic priority chain (PFC detailed → PFC primary →
-      // counterparty → amount-based fallback → legacy keyword scan), and
-      // critically does NOT use the broad /income/i regex that previously
-      // caused INCOME_INTEREST_EARNED, INCOME_DIVIDENDS, etc. to be tagged
-      // as generic income / Salary on the Income page.
-      //
-      // The classifier returns BOTH an INCOME_CATEGORIES value (for storing
-      // on income rows during auto-import) and the boolean isIncome flag
-      // (for inclusion in the actual-income sum on the Income page).
-      const pfcPrimaryRaw = (tx.category || "").toUpperCase();
-      const counterpartyType = tx.counterpartyType || null;
-
-      const classification = classifyIncomeTransaction({
-        pfcDetailed: pfcDetailedRaw || null,
+      // Canonical category (engine/UI always read this; never the raw PFC).
+      const { category: canonical, confidence } = this.remapCategory(rawCategory, {
         pfcPrimary: pfcPrimaryRaw || null,
-        counterpartyType,
+        pfcDetailed: pfcDetailedRaw || null,
+      });
+
+      const counterpartyType = tx.counterpartyType || null;
+      const cleanedMerchant = this.normalizeMerchant(
+        tx.counterpartyName || tx.merchantName || tx.name
+      );
+
+      const classification = this.classifyIncome({
         amount,
         isCredit,
         isTransfer,
-        legacyCategory: String(category),
-        merchant: tx.counterpartyName || tx.merchantName || tx.name || null,
+        legacyCategory: String(rawCategory),
+        merchant: cleanedMerchant,
+        providerSignals: {
+          pfcPrimary: pfcPrimaryRaw || null,
+          pfcDetailed: pfcDetailedRaw || null,
+          counterpartyType,
+        },
       });
-      const isIncome = classification.isIncome;
-      const incomeCategory = classification.category;
-
-      // Expose Plaid PFC fields for the Monarch category resolver. The PFC
-      // primary lives at `tx.category` (existing column), the detailed at
-      // `tx.personalFinanceCategoryDetailed` (added during the enrichment
-      // refactor in the `fix(enrichment)` commits earlier this month).
-      // Both are nullable — the resolver tolerates absent fields.
-      const pfcPrimary = pfcPrimaryRaw || null;
-      const pfcDetailed = pfcDetailedRaw || null;
 
       return {
         id: tx.id,
         date: tx.date,
         amount,
         direction: isCredit ? "credit" : "debit",
-        merchant: tx.counterpartyName || tx.merchantName || tx.name || "Unknown",
-        category: String(category),
+        merchant: cleanedMerchant,
+        category: canonical,
+        categoryConfidence: confidence,
+        rawProviderCategory: String(rawCategory),
         isTransfer,
         isPending,
-        isIncome,
+        isIncome: classification.isIncome,
         matchedExpenseId: tx.matchedExpenseId || undefined,
         matchType: tx.matchType || undefined,
-        cadEquivalent: tx.cadEquivalent != null
-          ? parseFloat(String(tx.cadEquivalent))
-          : undefined,
+        cadEquivalent:
+          tx.cadEquivalent != null ? parseFloat(String(tx.cadEquivalent)) : undefined,
         provider: "Plaid",
-        // Provider category signals consumed by `categories/resolver.ts`.
-        pfcPrimary,
-        pfcDetailed,
-        // Resolved income bucket (null for non-income rows).
-        incomeCategory: isIncome ? incomeCategory : null,
+        incomeCategory: classification.isIncome ? classification.category : null,
+        providerSignals: {
+          pfcPrimary: pfcPrimaryRaw || null,
+          pfcDetailed: pfcDetailedRaw || null,
+          counterpartyType,
+        },
       } as NormalizedTransaction;
     });
+  }
+
+  // ─── Interface methods (provider-agnostic contract) ──────────────────────
+
+  remapCategory(
+    raw: string | null | undefined,
+    signals: Record<string, string | null | undefined> = {}
+  ) {
+    return remapToCanonicalCategory(raw, signals);
+  }
+
+  normalizeMerchant(raw: string | null | undefined): string {
+    return cleanMerchant(raw);
+  }
+
+  normalizeItemStatus(raw: string | null | undefined): ProviderItemStatus {
+    return mapItemStatus(raw);
+  }
+
+  classifyIncome(input: ClassifyIncomeInput): ClassifyIncomeResult {
+    const r = classifyIncomeTransaction({
+      pfcDetailed: input.providerSignals?.pfcDetailed ?? null,
+      pfcPrimary: input.providerSignals?.pfcPrimary ?? null,
+      counterpartyType: input.providerSignals?.counterpartyType ?? null,
+      amount: input.amount,
+      isCredit: input.isCredit,
+      isTransfer: input.isTransfer,
+      legacyCategory: input.legacyCategory ?? null,
+      merchant: input.merchant ?? null,
+    });
+    return { category: r.category, isIncome: r.isIncome };
   }
 }
 

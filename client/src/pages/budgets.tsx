@@ -754,12 +754,17 @@ export default function BudgetsPage() {
           </div>
         ) : (
           filteredBudgets.map((budget) => {
-            const spent = budget.spent;
-            const limit = budget.amount;
+            // Engine returns `budgetAmount` (per BudgetItemResult). The legacy
+            // `amount` shape is kept as a fallback for any not-yet-migrated
+            // callers so we never display $NaN again (UAT-8 #134 root cause).
+            const spent = Number(budget.spent ?? 0);
+            const limit = Number(
+              (budget as any).budgetAmount ?? (budget as any).amount ?? 0
+            );
             const remaining = Math.max(limit - spent, 0);
-            const percentage = budget.percentage;
+            const percentage = Number(budget.percentage ?? 0);
             const paceStatus = budget.paceStatus;
-            const projected = budget.projected;
+            const projected = Number(budget.projected ?? 0);
             const isOverBudget = spent > limit;
             const isOverPace = paceStatus === "over-pace";
 

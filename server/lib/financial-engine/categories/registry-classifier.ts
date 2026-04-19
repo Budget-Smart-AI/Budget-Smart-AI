@@ -59,10 +59,21 @@ export interface DepositSample {
   amount: number;
   /** Display name as the user saw it. Will be reduced via `normalizeSourceName`. */
   merchant: string;
-  /** Optional: Plaid PFC primary so we can route Salary vs Investments etc. */
-  pfcPrimary?: string | null;
-  /** Optional: Plaid PFC detailed for income subtype detection. */
-  pfcDetailed?: string | null;
+  /**
+   * Canonical income category resolved by the adapter's `classifyIncome`
+   * step (e.g. "Salary", "Interest", "Investments", "Rental", "Refunds").
+   * The registry classifier uses this as the provider-neutral source of
+   * truth for routing — no adapter-specific fields leak into this layer.
+   */
+  incomeCategory?: string | null;
+  /**
+   * Free-form provider signals (e.g. Plaid PFC primary/detailed, MX
+   * top-level). Present only when the adapter has extra hints that could
+   * refine the category beyond `incomeCategory`. Never read directly in
+   * engine code — it's here solely for the registry classifier's
+   * finer-grained subtype inference.
+   */
+  providerSignals?: Record<string, string | null | undefined>;
 }
 
 export interface RegistryClassification {
@@ -203,12 +214,47 @@ function classifyMode(amounts: number[]): { mode: ClassifiedMode; cv: number } {
   return { mode: "irregular", cv };
 }
 
+/**
+ * Pick a registry-category bucket for a deposit group.
+ *
+ * Priority:
+ *   1. Canonical `incomeCategory` from the adapter (provider-neutral).
+ *   2. Optional provider signals (PFC detailed/primary, MX top-level) —
+ *      these let us refine beyond the adapter when the adapter returned a
+ *      coarse category. Signals are keyed by a provider-neutral string so
+ *      no adapter-specific code lives in the engine.
+ *   3. Amount-based fallback (< $2 → Interest) for legacy / manual rows.
+ */
 function pickCategory(
-  pfcPrimary?: string | null,
-  pfcDetailed?: string | null,
+  incomeCategory?: string | null,
+  signals?: Record<string, string | null | undefined>,
   amount?: number,
 ): RegistryClassification["category"] {
-  const det = (pfcDetailed || "").toUpperCase();
+  // Adapter-provided canonical category is the primary source of truth.
+  const canonical = (incomeCategory || "").trim();
+  if (canonical) {
+    // Map canonical INCOME_CATEGORIES → registry bucket. Most are 1:1.
+    if (/^interest$/i.test(canonical)) return "Interest";
+    if (/^investments?$/i.test(canonical)) return "Investments";
+    if (/^dividends?$/i.test(canonical)) return "Investments";
+    if (/^retirement$/i.test(canonical)) return "Investments";
+    if (/^rental$/i.test(canonical)) return "Rental";
+    if (/^refunds?$/i.test(canonical)) return "Refunds";
+    if (/^salary$/i.test(canonical)) return "Salary";
+    if (/^wages?$/i.test(canonical)) return "Salary";
+    if (/^other$/i.test(canonical)) {
+      // fall through to signal-based detection below
+    } else {
+      // Anything else the adapter called out as an income bucket — default
+      // to "Other" so operators can re-bucket in the UI without losing it.
+      return "Other";
+    }
+  }
+
+  // Provider-signal refinement (optional — only when the adapter has extra
+  // taxonomy data to offer). Signal keys are provider-neutral strings like
+  // "pfcDetailed", "pfcPrimary", "mxTopLevel".
+  const det = (signals?.pfcDetailed || "").toUpperCase();
   if (det.startsWith("INCOME_INTEREST")) return "Interest";
   if (det.startsWith("INCOME_DIVIDENDS")) return "Investments";
   if (det.startsWith("INCOME_RETIREMENT")) return "Investments";
@@ -216,10 +262,10 @@ function pickCategory(
   if (det.startsWith("INCOME_TAX_REFUND") || det.startsWith("INCOME_REFUND")) return "Refunds";
   if (det.startsWith("INCOME_WAGES")) return "Salary";
 
-  const prim = (pfcPrimary || "").toUpperCase();
+  const prim = (signals?.pfcPrimary || "").toUpperCase();
   if (prim === "INCOME") return "Salary"; // safest default for INCOME without subtype
 
-  // Sub-$2 fallback aligns with the income-classifier in adapters/plaid-adapter.ts
+  // Sub-$2 fallback aligns with the income-classifier in adapters/shared-normalizers.
   if (typeof amount === "number" && amount < 2) return "Interest";
 
   return "Other";
@@ -301,7 +347,7 @@ export function classifyDepositsForRegistry(
     }
 
     const last = entries[entries.length - 1];
-    const cat = pickCategory(last.pfcPrimary, last.pfcDetailed, meanAmount);
+    const cat = pickCategory(last.incomeCategory, last.providerSignals, meanAmount);
 
     // Unit amount: latest observed for fixed; rolling average for variable;
     // mean for irregular (UI displays as estimate).

@@ -24,10 +24,9 @@ import {
 import { ExpenseResult } from './types';
 import type { NormalizedTransaction } from './normalized-types';
 import type { Expense } from '@shared/schema';
-// Monarch-aligned transfer detection. Prefers Plaid PFC / MX category signals
-// when adapters populate them; otherwise falls back to the legacy keyword
-// match below for safety. See `MONARCH_VS_BSAI.md` §3 for the rationale.
-import { isTransfer as isTransferByResolver } from './categories';
+// NOTE: provider-specific transfer detection has been moved into the adapter
+// layer. Adapters set `tx.isTransfer` based on Plaid PFC / MX top-level /
+// manual flags. The engine only reads that pre-computed boolean here.
 
 // ─── Precision Helpers ──────────────────────────────────────────────────────
 
@@ -87,21 +86,17 @@ function isTransferCategoryByKeyword(category: string | null | undefined): boole
 
 /**
  * True if a normalized transaction is a transfer (and therefore should be
- * excluded from spending totals). Uses the Monarch-aligned resolver first
- * (Plaid PFC primary, then MX top-level, then category-name match), and
- * falls back to the legacy keyword set if the resolver yields no signal.
+ * excluded from spending totals).
+ *
+ * The adapter layer now owns this decision: every adapter sets
+ * `tx.isTransfer` using provider-specific signals (Plaid PFC primary, MX
+ * top-level, manual toggle). The engine simply reads that boolean.
+ *
+ * A category-name keyword fallback remains for defense-in-depth — if an
+ * adapter ever forgets to flag a transfer, we still catch it by name.
  */
 function isTransferTransaction(tx: NormalizedTransaction): boolean {
-  if (
-    isTransferByResolver({
-      pfcPrimary: tx.pfcPrimary,
-      mxTopLevel: tx.mxTopLevel,
-      category: tx.category,
-    })
-  ) {
-    return true;
-  }
-  // Legacy keyword fallback for adapters that don't yet populate PFC/MX fields.
+  if (tx.isTransfer) return true;
   return isTransferCategoryByKeyword(tx.category);
 }
 
