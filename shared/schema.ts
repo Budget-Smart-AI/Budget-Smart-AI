@@ -111,6 +111,7 @@ export const RECURRENCE_OPTIONS = [
   "biweekly",
   "semimonthly",
   "monthly",
+  "quarterly",
   "yearly",
   "custom",
   "irregular",

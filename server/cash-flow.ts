@@ -8,6 +8,7 @@
  */
 
 import { format, addDays, parseISO, setDate, addMonths, addWeeks, getDay, setDay, isBefore, isAfter, differenceInDays, startOfDay, getDaysInMonth } from "date-fns";
+import { nextOccurrence, isFixedInterval } from "@shared/recurrence";
 
 // Convert dollar amount string to integer cents to avoid floating point errors
 function toCents(amount: string | number): number {
@@ -169,18 +170,15 @@ export function getBillsInRange(bills: Bill[], startDate: Date, endDate: Date): 
 
       paymentsCount++;
 
-      // Move to next occurrence
+      // Move to next occurrence. custom/one_time handled in getNextBillDate;
+      // any other non-fixed cadence falls into the irregular safety-advance of +1d.
       if (bill.recurrence === "one_time") {
-        break; // One-time bills only appear once
-      } else if (bill.recurrence === "weekly") {
-        currentDate = addWeeks(nextDue, 1);
-      } else if (bill.recurrence === "biweekly") {
-        currentDate = addDays(nextDue, 14);
-      } else if (bill.recurrence === "monthly") {
-        currentDate = addMonths(nextDue, 1);
-      } else if (bill.recurrence === "yearly") {
-        currentDate = addMonths(nextDue, 12);
+        break;
+      } else if (isFixedInterval(bill.recurrence as any)) {
+        currentDate = nextOccurrence(bill.recurrence as any, nextDue);
       } else {
+        // custom / irregular / unknown: nudge the cursor forward so we don't
+        // infinite-loop, but don't emit another occurrence.
         currentDate = addDays(nextDue, 1);
       }
 
@@ -294,18 +292,14 @@ export function getIncomeInRange(incomes: Income[], startDate: Date, endDate: Da
         category: inc.category,
       });
 
-      // Move to next occurrence
+      // Move to next occurrence. Income doesn't carry one_time explicitly —
+      // isRecurring='false' already broke above.
       if (inc.isRecurring !== "true") {
-        break; // One-time income
-      } else if (inc.recurrence === "weekly") {
-        currentDate = addWeeks(nextDue, 1);
-      } else if (inc.recurrence === "biweekly") {
-        currentDate = addWeeks(nextDue, 2);
-      } else if (inc.recurrence === "monthly") {
-        currentDate = addMonths(nextDue, 1);
-      } else if (inc.recurrence === "yearly") {
-        currentDate = addMonths(nextDue, 12);
+        break;
+      } else if (inc.recurrence && isFixedInterval(inc.recurrence as any)) {
+        currentDate = nextOccurrence(inc.recurrence as any, nextDue);
       } else {
+        // custom / irregular / null: safety-advance one day so we don't loop.
         currentDate = addDays(nextDue, 1);
       }
 

@@ -58,6 +58,7 @@ import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { INCOME_CATEGORIES, RECURRENCE_OPTIONS, type Income } from "@shared/schema";
+import { canonicalizeRecurrence } from "@shared/recurrence";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
 import { IncomeRegistryManager } from "@/components/income-registry-manager";
@@ -1140,20 +1141,19 @@ export default function IncomePage() {
                                   return "Other";
                                 })();
 
-                                // Map detected frequency to a valid recurrence enum value.
-                                // "quarterly" and "semi-monthly" aren't in the schema yet —
-                                // collapse to the closest supported option.
-                                const recurrenceMap: Record<string, string> = {
-                                  weekly: "weekly",
-                                  biweekly: "biweekly",
-                                  "semi-monthly": "biweekly",
-                                  monthly: "monthly",
-                                  quarterly: "monthly",
-                                  yearly: "yearly",
-                                };
-                                const mappedRecurrence = source.frequency
-                                  ? recurrenceMap[source.frequency.toLowerCase()] || "monthly"
-                                  : null;
+                                // Canonicalize the detected frequency via the shared helper so semi-monthly
+                                // and quarterly get preserved instead of silently collapsing.
+                                // If the frequency is unrecognized, refuse to save — the user should
+                                // re-verify the source on the Income page.
+                                const mappedRecurrence = canonicalizeRecurrence(source.frequency);
+                                if (source.isRecurring && !mappedRecurrence) {
+                                  toast({
+                                    title: "Unrecognized income frequency",
+                                    description: `Can't auto-add "${source.source}" — the detected frequency "${source.frequency}" isn't a supported cadence. Please add it manually.`,
+                                    variant: "destructive",
+                                  });
+                                  return;
+                                }
 
                                 await apiRequest("POST", "/api/income", {
                                   source: source.source,
