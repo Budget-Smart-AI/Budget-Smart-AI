@@ -85,10 +85,12 @@
     "express-session": "^1.18.2",
     "framer-motion": "^11.13.1",
     "helmet": "^8.1.0",
+    "http-proxy-middleware": "^3.0.5",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.453.0",
     "memorystore": "^1.6.7",
     "multer": "^2.1.1",
+    "mx-platform-node": "^3.0.0",
     "next-themes": "^0.4.6",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.12",
@@ -101,7 +103,6 @@
     "pdf-parse": "~1.1.4",
     "pdf2pic": "^3.2.0",
     "pg": "^8.16.3",
-    "mx-platform-node": "^3.0.0",
     "plaid": "^41.4.0",
     "postcss": "^8.4.47",
     "postmark": "^4.0.7",
@@ -155,7 +156,7 @@
     }
   },
   "optionalDependencies": {
-    "bufferutil": "^4.0.8",
-    "@img/sharp-linux-x64": "^0.33.0"
+    "@img/sharp-linux-x64": "^0.33.0",
+    "bufferutil": "^4.0.8"
   }
 }

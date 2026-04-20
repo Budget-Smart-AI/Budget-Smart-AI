@@ -2,34 +2,29 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 // ─── Engine base URL resolver ────────────────────────────────────────────────
 //
-// Routes /api/engine/* requests to the isolated engine service
-// (api.budgetsmart.io) in production, and leaves other requests same-origin.
-// In development everything stays same-origin so `npm run dev` works without
-// the engine service running.
+// With the server-side engine proxy (server/engine-proxy.ts), /api/engine/*
+// requests stay same-origin from the browser's point of view and are
+// transparently forwarded to the engine service by the proxy middleware.
 //
-// Override via VITE_ENGINE_API_BASE_URL at build time if the engine host
-// differs from the production default. When unset, production requests to
-// /api/engine/* are rewritten to https://api.budgetsmart.io/api/engine/*.
+// The VITE_ENGINE_API_BASE_URL override is still honored for staging /
+// preview deployments that want to point directly at an engine host
+// without running the website proxy.
 
 const ENGINE_BASE_URL_OVERRIDE =
   (import.meta as any).env?.VITE_ENGINE_API_BASE_URL || "";
 
 function resolveApiUrl(url: string): string {
-  // Only rewrite engine paths. Other /api/* paths stay same-origin on the
-  // website service.
+  // With the server-side engine proxy in place, /api/engine/* stays
+  // same-origin from the browser's point of view and is transparently
+  // forwarded to the engine service by server/engine-proxy.ts.
+  //
+  // The VITE_ENGINE_API_BASE_URL override is still honored for staging /
+  // preview deployments that want to point directly at an engine host
+  // without running the website proxy.
   if (!url.startsWith("/api/engine")) return url;
-
-  // Explicit override wins (useful for staging/preview environments).
   if (ENGINE_BASE_URL_OVERRIDE) {
     return ENGINE_BASE_URL_OVERRIDE.replace(/\/$/, "") + url;
   }
-
-  // In production, route to the isolated engine host. In dev, keep it
-  // same-origin so Vite's proxy continues to work.
-  if ((import.meta as any).env?.PROD) {
-    return "https://api.budgetsmart.io" + url;
-  }
-
   return url;
 }
 

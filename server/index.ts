@@ -12,6 +12,7 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
+import { engineProxy } from "./engine-proxy";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeUser } from "./auth";
@@ -99,6 +100,13 @@ app.get("/health", async (_req, res) => {
     uptime: process.uptime(),
   });
 });
+
+// Forward /api/engine/* to the isolated engine service.
+// Must run BEFORE session middleware so the raw Cookie header is what
+// the engine validates (the engine has its own session middleware that
+// reads the shared Neon session table). Also keeps the session cookie
+// same-origin for Safari ITP.
+app.use("/api/engine", engineProxy());
 
 // HTTPS redirect in production — registered AFTER /health so Railway's
 // internal HTTP health probe is not redirected before it can reach the handler.
