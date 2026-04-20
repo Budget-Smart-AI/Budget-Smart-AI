@@ -99,16 +99,33 @@ function getNextBillDate(bill: Bill, fromDate: Date): Date | null {
     return nextDue;
   }
 
-  // Monthly, biweekly, yearly - dueDay is day of month
+  if (bill.recurrence === "biweekly") {
+    // Biweekly is strictly +14 days from a fixed anchor. Never consults
+    // dueDay after the initial anchor — that was the UAT-10 #174 drift bug
+    // where dueDay-based re-anchoring produced 14/16/14/16 alternating
+    // intervals for every biweekly bill with a dueDay set.
+    //
+    // Anchor preference:
+    //   1. bill.startDate (yyyy-MM-dd) — user-supplied first occurrence
+    //   2. setDate(today, bill.dueDay) — legacy fallback for bills that
+    //      were created without startDate. This keeps the first emission
+    //      in the same ballpark as before; subsequent walks are then
+    //      purely +14, so drift disappears after the first occurrence.
+    const anchor = bill.startDate ? parseISO(bill.startDate) : setDate(today, bill.dueDay);
+
+    let nextDue = startOfDay(anchor);
+    // Walk forward in +14 strides until the cursor is on or after today.
+    while (isBefore(nextDue, today)) {
+      nextDue = addDays(nextDue, 14);
+    }
+    return nextDue;
+  }
+
+  // Monthly, yearly — dueDay is day of month
   let nextDue = setDate(today, bill.dueDay);
   if (isBefore(nextDue, today)) {
     if (bill.recurrence === "monthly") {
       nextDue = addMonths(nextDue, 1);
-    } else if (bill.recurrence === "biweekly") {
-      // Keep adding 14 days until we get a future date
-      while (isBefore(nextDue, today)) {
-        nextDue = addDays(nextDue, 14);
-      }
     } else if (bill.recurrence === "yearly") {
       nextDue = addMonths(nextDue, 12);
     }
