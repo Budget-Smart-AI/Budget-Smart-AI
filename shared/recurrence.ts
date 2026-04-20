@@ -121,6 +121,29 @@ export function nextSemiMonthly(from: Date): Date {
 }
 
 /**
+ * Returns the target month's due-date for the given dueDay, clamped to the
+ * month's last day if dueDay exceeds it. Callers should use this wherever
+ * they would otherwise call setDate(month, dueDay), because setDate overflows
+ * silently:
+ *
+ *   setDate(new Date("2026-04-01"), 31) => 2026-05-01  ← wrong (April has 30)
+ *   clampedDueDate(new Date("2026-04-01"), 31) => 2026-04-30  ← correct
+ *
+ * For dueDay <= 28 the result is identical to setDate(month, dueDay) on any
+ * month (all months have at least 28 days). For dueDay > 28 the clamp kicks
+ * in on short months. Defensive: dueDay is coerced into [1, 31] before the
+ * min() so callers can't accidentally pass 0 or 32.
+ *
+ * UAT-10 #175.
+ */
+export function clampedDueDate(targetMonth: Date, dueDay: number): Date {
+  const safeDueDay = Math.min(Math.max(1, Math.floor(dueDay)), 31);
+  const daysInTarget = getDaysInMonth(targetMonth);
+  const clamped = Math.min(safeDueDay, daysInTarget);
+  return setDate(targetMonth, clamped);
+}
+
+/**
  * True if the recurrence value has a fixed advance interval (i.e.
  * nextOccurrence() is safe to call). Callers use this to decide
  * whether to branch into custom-dates or irregular-source logic.

@@ -103,9 +103,81 @@ describe("getBillsInRange — biweekly anchor (UAT-10 #174)", () => {
 
   it("preserves behavior for yearly bills (regression guard)", () => {
     const bill = billOf({ recurrence: "yearly", dueDay: 1, startDate: null });
-    // fromDate = Apr 2 so setDate(Apr 2, 1) = Apr 1 which is in the past → +12mo = Apr 1 2027
+    // fromDate = Apr 2 so clampedDueDate(Apr 2, 1) = Apr 1 which is in the past → +12mo = Apr 1 2027
     // But Apr 1 2027 is within range, so we get exactly one event.
     const events = getBillsInRange([bill], d("2026-04-02"), d("2027-04-30"));
     expect(events.map(e => e.date)).toEqual(["2027-04-01"]);
+  });
+});
+
+describe("getBillsInRange — dueDay > 28 clamping (UAT-10 #175)", () => {
+  const d = (iso: string) => new Date(iso + "T12:00:00Z");
+
+  it("monthly dueDay=31 lands on last day of every month", () => {
+    const bill = billOf({
+      name: "Service Charge",
+      recurrence: "monthly",
+      dueDay: 31,
+      startDate: null,
+    });
+    // Window: Jan 1 2026 through Dec 31 2026 — covers all 12 months
+    const events = getBillsInRange([bill], d("2026-01-01"), d("2026-12-31"));
+    const dates = events.map(e => e.date);
+
+    expect(dates).toEqual([
+      "2026-01-31",
+      "2026-02-28",
+      "2026-03-31",
+      "2026-04-30",
+      "2026-05-31",
+      "2026-06-30",
+      "2026-07-31",
+      "2026-08-31",
+      "2026-09-30",
+      "2026-10-31",
+      "2026-11-30",
+      "2026-12-31",
+    ]);
+  });
+
+  it("monthly dueDay=30 lands on Feb 28 in non-leap year, Feb 29 in leap", () => {
+    const bill = billOf({ recurrence: "monthly", dueDay: 30, startDate: null });
+    // Window Jan–Mar 2026 (non-leap)
+    let events = getBillsInRange([bill], d("2026-01-01"), d("2026-03-31"));
+    expect(events.map(e => e.date)).toEqual([
+      "2026-01-30",
+      "2026-02-28",
+      "2026-03-30",
+    ]);
+    // Window Jan–Mar 2028 (leap)
+    events = getBillsInRange([bill], d("2028-01-01"), d("2028-03-31"));
+    expect(events.map(e => e.date)).toEqual([
+      "2028-01-30",
+      "2028-02-29",
+      "2028-03-30",
+    ]);
+  });
+
+  it("monthly dueDay=15 unaffected by clamping (regression guard)", () => {
+    const bill = billOf({ recurrence: "monthly", dueDay: 15, startDate: null });
+    const events = getBillsInRange([bill], d("2026-01-01"), d("2026-03-31"));
+    expect(events.map(e => e.date)).toEqual([
+      "2026-01-15",
+      "2026-02-15",
+      "2026-03-15",
+    ]);
+  });
+
+  it("yearly dueDay=31 on Feb lands on Feb 28/29 depending on year", () => {
+    const bill = billOf({
+      recurrence: "yearly",
+      dueDay: 31,
+      startDate: "2026-02-28",
+    });
+    const events = getBillsInRange([bill], d("2026-01-01"), d("2028-03-01"));
+    // Whatever the exact shape, no emission should land in March.
+    for (const e of events) {
+      expect(e.date.slice(5, 7)).not.toBe("03");
+    }
   });
 });

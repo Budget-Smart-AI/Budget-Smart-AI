@@ -7,8 +7,8 @@
  * - Historical spending patterns
  */
 
-import { format, addDays, parseISO, setDate, addMonths, addWeeks, getDay, setDay, isBefore, isAfter, differenceInDays, startOfDay, getDaysInMonth } from "date-fns";
-import { nextOccurrence, isFixedInterval } from "@shared/recurrence";
+import { format, addDays, parseISO, addMonths, addWeeks, getDay, setDay, isBefore, isAfter, differenceInDays, startOfDay, getDaysInMonth } from "date-fns";
+import { clampedDueDate, nextOccurrence, isFixedInterval } from "@shared/recurrence";
 
 // Convert dollar amount string to integer cents to avoid floating point errors
 function toCents(amount: string | number): number {
@@ -71,9 +71,9 @@ function getNextBillDate(bill: Bill, fromDate: Date): Date | null {
       return !isBefore(dueDate, today) ? dueDate : null;
     }
     // If no start date, use dueDay of current/next month
-    let nextDue = setDate(today, bill.dueDay);
+    let nextDue = clampedDueDate(today, bill.dueDay);
     if (isBefore(nextDue, today)) {
-      nextDue = addMonths(nextDue, 1);
+      nextDue = clampedDueDate(addMonths(today, 1), bill.dueDay);
     }
     return nextDue;
   }
@@ -107,11 +107,11 @@ function getNextBillDate(bill: Bill, fromDate: Date): Date | null {
     //
     // Anchor preference:
     //   1. bill.startDate (yyyy-MM-dd) — user-supplied first occurrence
-    //   2. setDate(today, bill.dueDay) — legacy fallback for bills that
+    //   2. clampedDueDate(today, bill.dueDay) — legacy fallback for bills that
     //      were created without startDate. This keeps the first emission
     //      in the same ballpark as before; subsequent walks are then
     //      purely +14, so drift disappears after the first occurrence.
-    const anchor = bill.startDate ? parseISO(bill.startDate) : setDate(today, bill.dueDay);
+    const anchor = bill.startDate ? parseISO(bill.startDate) : clampedDueDate(today, bill.dueDay);
 
     let nextDue = startOfDay(anchor);
     // Walk forward in +14 strides until the cursor is on or after today.
@@ -121,13 +121,13 @@ function getNextBillDate(bill: Bill, fromDate: Date): Date | null {
     return nextDue;
   }
 
-  // Monthly, yearly — dueDay is day of month
-  let nextDue = setDate(today, bill.dueDay);
+  // Monthly, yearly — dueDay clamped to last day of short months.
+  let nextDue = clampedDueDate(today, bill.dueDay);
   if (isBefore(nextDue, today)) {
     if (bill.recurrence === "monthly") {
-      nextDue = addMonths(nextDue, 1);
+      nextDue = clampedDueDate(addMonths(today, 1), bill.dueDay);
     } else if (bill.recurrence === "yearly") {
-      nextDue = addMonths(nextDue, 12);
+      nextDue = clampedDueDate(addMonths(today, 12), bill.dueDay);
     }
   }
 
@@ -224,14 +224,14 @@ function getNextIncomeDate(inc: Income, fromDate: Date): Date | null {
       const sortedDays = days.filter(d => d <= daysInMonth).sort((a, b) => a - b);
 
       for (const day of sortedDays) {
-        const candidate = setDate(today, day);
+        const candidate = clampedDueDate(today, day);
         if (!isBefore(candidate, today)) {
           return candidate;
         }
       }
-      // Next month's first day
+      // Next month's first candidate day
       const nextMonth = addMonths(today, 1);
-      return setDate(nextMonth, sortedDays[0] || 1);
+      return clampedDueDate(nextMonth, sortedDays[0] || 1);
     } catch {
       return null;
     }
@@ -256,15 +256,12 @@ function getNextIncomeDate(inc: Income, fromDate: Date): Date | null {
     return payDate;
   }
 
-  // Monthly or yearly
+  // Monthly or yearly — dueDay clamped to last day of short months.
   const dueDay = inc.dueDay || 1;
-  let nextDue = setDate(today, dueDay);
+  let nextDue = clampedDueDate(today, dueDay);
   if (isBefore(nextDue, today)) {
-    if (inc.recurrence === "yearly") {
-      nextDue = addMonths(nextDue, 12);
-    } else {
-      nextDue = addMonths(nextDue, 1);
-    }
+    const monthsAhead = inc.recurrence === "yearly" ? 12 : 1;
+    nextDue = clampedDueDate(addMonths(today, monthsAhead), dueDay);
   }
 
   return nextDue;

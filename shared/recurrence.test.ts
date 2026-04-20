@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalizeRecurrence,
+  clampedDueDate,
   isFixedInterval,
   isRecurrenceValue,
   nextOccurrence,
@@ -108,5 +109,63 @@ describe("isFixedInterval + isRecurrenceValue", () => {
     expect(isRecurrenceValue("fortnightly")).toBe(false);
     expect(isRecurrenceValue(null)).toBe(false);
     expect(isRecurrenceValue(42)).toBe(false);
+  });
+});
+
+describe("clampedDueDate", () => {
+  const d = (iso: string) => new Date(iso + "T12:00:00Z");
+
+  it("passes through dueDay<=28 on any month", () => {
+    // Arbitrary day in Feb (non-leap year 2026 has 28 days)
+    expect(clampedDueDate(d("2026-02-15"), 15).toISOString().slice(0, 10))
+      .toBe("2026-02-15");
+    expect(clampedDueDate(d("2026-02-15"), 28).toISOString().slice(0, 10))
+      .toBe("2026-02-28");
+  });
+
+  it("clamps dueDay=31 to the last day of short months", () => {
+    expect(clampedDueDate(d("2026-04-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-04-30");
+    expect(clampedDueDate(d("2026-06-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-06-30");
+    expect(clampedDueDate(d("2026-09-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-09-30");
+    expect(clampedDueDate(d("2026-11-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-11-30");
+  });
+
+  it("clamps dueDay=31 to Feb 28 in non-leap years", () => {
+    expect(clampedDueDate(d("2026-02-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-02-28");
+  });
+
+  it("clamps dueDay=31 to Feb 29 in leap years", () => {
+    expect(clampedDueDate(d("2028-02-10"), 31).toISOString().slice(0, 10))
+      .toBe("2028-02-29");
+  });
+
+  it("keeps dueDay=31 on long months", () => {
+    expect(clampedDueDate(d("2026-01-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-01-31");
+    expect(clampedDueDate(d("2026-05-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-05-31");
+    expect(clampedDueDate(d("2026-12-10"), 31).toISOString().slice(0, 10))
+      .toBe("2026-12-31");
+  });
+
+  it("clamps dueDay=30 to Feb 28/29", () => {
+    expect(clampedDueDate(d("2026-02-10"), 30).toISOString().slice(0, 10))
+      .toBe("2026-02-28");
+    expect(clampedDueDate(d("2028-02-10"), 30).toISOString().slice(0, 10))
+      .toBe("2028-02-29");
+  });
+
+  it("coerces out-of-range dueDay into [1, 31]", () => {
+    expect(clampedDueDate(d("2026-04-10"), 0).toISOString().slice(0, 10))
+      .toBe("2026-04-01");
+    expect(clampedDueDate(d("2026-04-10"), 99).toISOString().slice(0, 10))
+      .toBe("2026-04-30");
+    expect(clampedDueDate(d("2026-04-10"), -5).toISOString().slice(0, 10))
+      .toBe("2026-04-01");
   });
 });
