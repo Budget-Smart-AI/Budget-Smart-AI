@@ -1327,12 +1327,62 @@ export async function registerRoutes(
           // Get inflow streams (income/deposits)
           // PFC v2: include early_detection streams (< 3 occurrences) for nascent income
           if (response.data.inflow_streams) {
+            const { median: computeMedian, computeAmountConfidence, SAMPLE_SIZE } = await import("./lib/income-validation");
+
             for (const stream of response.data.inflow_streams) {
-              const amount = Math.abs(stream.average_amount?.amount || 0);
               const streamStatus = (stream as any).status || "mature"; // "mature" | "early_detection"
               const isActive = stream.is_active || streamStatus === "early_detection";
+              if (!isActive) continue;
+
+              // UAT-10 #171 — recompute amount from the stream's recent transactions,
+              // don't trust Plaid's aggregate `average_amount.amount`.
+              const streamTxIds: string[] = (stream as any).transaction_ids ?? [];
+              let sampleAmounts: number[] = [];
+
+              if (streamTxIds.length > 0) {
+                // Prefer the explicit transaction_ids the stream carries.
+                const matching = await Promise.all(
+                  streamTxIds.slice(0, SAMPLE_SIZE).map((id) =>
+                    storage.getPlaidTransactionByTransactionId(id),
+                  ),
+                );
+                sampleAmounts = matching
+                  .filter((t): t is NonNullable<typeof t> => !!t)
+                  .map((t) => Math.abs(parseFloat(t.amount)));
+              }
+
+              if (sampleAmounts.length < 2) {
+                // Fallback: pull local inflow tx for these accounts in the stream's window
+                // and filter by merchant / description substring.
+                const lookbackEnd = stream.last_date ? new Date(stream.last_date) : new Date();
+                const lookbackStart = new Date(lookbackEnd);
+                lookbackStart.setDate(lookbackStart.getDate() - 120);
+                const internalAccountIds = activeAccounts.map(a => a.id);
+                const localTx = await storage.getPlaidTransactions(internalAccountIds, {
+                  startDate: lookbackStart.toISOString().split("T")[0],
+                  endDate: lookbackEnd.toISOString().split("T")[0],
+                });
+                const needle = (stream.merchant_name || stream.description || "").toLowerCase().trim();
+                sampleAmounts = localTx
+                  .filter((t) => parseFloat(t.amount) < 0)
+                  .filter((t) => {
+                    const blob = `${t.merchantName || ""} ${t.name || ""}`.toLowerCase();
+                    return needle.length > 0 && blob.includes(needle);
+                  })
+                  .sort((a, b) => (a.date < b.date ? 1 : -1))
+                  .slice(0, SAMPLE_SIZE)
+                  .map((t) => Math.abs(parseFloat(t.amount)));
+              }
+
+              const amount = sampleAmounts.length > 0
+                ? Math.round(computeMedian(sampleAmounts) * 100) / 100
+                : Math.abs(stream.average_amount?.amount || 0); // ultimate fallback
+
+              const variantConfidence = computeAmountConfidence(sampleAmounts);
+              const confidence = streamStatus === "early_detection" ? "low" : variantConfidence;
+
               // Only include significant income (above threshold)
-              if (amount >= MIN_INCOME_THRESHOLD && isActive) {
+              if (amount >= MIN_INCOME_THRESHOLD) {
                 plaidRecurring.push({
                   name: stream.merchant_name || stream.description || "Unknown",
                   amount,
@@ -1340,7 +1390,9 @@ export async function registerRoutes(
                   lastDate: stream.last_date,
                   category: stream.personal_finance_category?.primary || null,
                   status: streamStatus, // "mature" or "early_detection"
-                  confidence: streamStatus === "early_detection" ? "low" : "high",
+                  confidence,
+                  plaidStreamId: (stream as any).stream_id ?? null,
+                  sampleSize: sampleAmounts.length,
                 });
               }
             }
@@ -1776,25 +1828,74 @@ Return JSON: { "income": [...] }`;
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid income data", details: parsed.error });
       }
+
+      // UAT-10 #172 — save-time amount/cadence sanity check.
+      const skipAmountValidation = req.body?.skipAmountValidation === true;
+      if (!skipAmountValidation) {
+        const { validateAmountAgainstHistory } = await import("./lib/income-validation");
+        const v = await validateAmountAgainstHistory({
+          userId,
+          source: parsed.data.source,
+          recurrence: (parsed.data.recurrence as any) ?? null,
+          amount: Number(parsed.data.amount),
+          isRecurring: String(parsed.data.isRecurring ?? "false") === "true",
+        });
+        if (!v.ok) {
+          return res.status(422).json({
+            error: "Amount looks higher than your recent matching deposits",
+            code: v.code,
+            observedMedian: v.observedMedian,
+            suggestedAmount: v.suggestedAmount,
+            sampleSize: v.sampleSize,
+          });
+        }
+      }
+
       const income = await storage.createIncome({ ...parsed.data, userId });
       res.status(201).json(income);
     } catch (error) {
+      console.error("POST /api/income failed:", error);
       res.status(500).json({ error: "Failed to create income" });
     }
   });
 
   app.patch("/api/income/:id", requireAuth, requireWriteAccess, async (req, res) => {
     try {
+      const userId = req.session.userId!;
       const parsed = updateIncomeSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid income data", details: parsed.error });
       }
+
+      // UAT-10 #172 — save-time amount/cadence sanity check (same as POST).
+      const skipAmountValidation = req.body?.skipAmountValidation === true;
+      if (!skipAmountValidation && parsed.data.amount) {
+        const { validateAmountAgainstHistory } = await import("./lib/income-validation");
+        const v = await validateAmountAgainstHistory({
+          userId,
+          source: parsed.data.source ?? "",
+          recurrence: (parsed.data.recurrence as any) ?? null,
+          amount: Number(parsed.data.amount),
+          isRecurring: String(parsed.data.isRecurring ?? "false") === "true",
+        });
+        if (!v.ok) {
+          return res.status(422).json({
+            error: "Amount looks higher than your recent matching deposits",
+            code: v.code,
+            observedMedian: v.observedMedian,
+            suggestedAmount: v.suggestedAmount,
+            sampleSize: v.sampleSize,
+          });
+        }
+      }
+
       const income = await storage.updateIncome((req.params.id as string), parsed.data);
       if (!income) {
         return res.status(404).json({ error: "Income not found" });
       }
       res.json(income);
     } catch (error) {
+      console.error("PATCH /api/income/:id failed:", error);
       res.status(500).json({ error: "Failed to update income" });
     }
   });

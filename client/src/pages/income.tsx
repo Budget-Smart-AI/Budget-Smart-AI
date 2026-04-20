@@ -220,7 +220,7 @@ function IncomeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceField, registrySources.length, isEditing]);
 
-  const preparePayload = (values: IncomeFormValues) => {
+  const preparePayload = (values: IncomeFormValues, extra?: Record<string, unknown>) => {
     return {
       ...values,
       isRecurring: values.isRecurring ? "true" : "false",
@@ -228,36 +228,134 @@ function IncomeForm({
         ? JSON.stringify(values.customDates)
         : null,
       dueDay: values.recurrence === "custom" ? null : values.dueDay,
+      ...extra,
     };
   };
 
+  // ── Amount-cadence mismatch dialog state (UAT-10 #172) ──────────────────
+  const [mismatchOpen, setMismatchOpen] = useState(false);
+  const [mismatchData, setMismatchData] = useState<{
+    observedMedian: number;
+    suggestedAmount: number;
+    sampleSize: number;
+    pendingValues: IncomeFormValues;
+    mode: "create" | "update";
+  } | null>(null);
+
+  /**
+   * Shared fetch helper that bypasses apiRequest so we can inspect a 422
+   * body for the AMOUNT_CADENCE_MISMATCH code + observedMedian.
+   */
+  async function incomeFetch(
+    method: string,
+    url: string,
+    body: Record<string, unknown>,
+  ): Promise<Response> {
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: "include",
+    });
+
+    if (res.status === 422) {
+      // Try to parse the mismatch payload — if it isn't ours, rethrow generic
+      const json = await res.json().catch(() => null);
+      if (json?.code === "AMOUNT_CADENCE_MISMATCH") {
+        // Stash the mismatch info; the caller will open the dialog
+        throw Object.assign(new Error("AMOUNT_CADENCE_MISMATCH"), { mismatch: json });
+      }
+      throw new Error("Some fields have errors. Please review and try again.");
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(text || "Request failed");
+    }
+
+    return res;
+  }
+
   const createMutation = useMutation({
-    mutationFn: async (values: IncomeFormValues) => {
-      return apiRequest("POST", "/api/income", preparePayload(values));
+    mutationFn: async (values: IncomeFormValues & { _skip?: boolean }) => {
+      const skip = values._skip;
+      const { _skip, ...clean } = values;
+      return incomeFetch("POST", "/api/income", preparePayload(clean, skip ? { skipAmountValidation: true } : {}));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
       toast({ title: "Income added successfully" });
       onClose();
     },
-    onError: () => {
+    onError: (err: any) => {
+      if (err?.mismatch) {
+        // Open the confirmation dialog instead of a toast
+        setMismatchData({
+          observedMedian: err.mismatch.observedMedian,
+          suggestedAmount: err.mismatch.suggestedAmount,
+          sampleSize: err.mismatch.sampleSize,
+          pendingValues: form.getValues(),
+          mode: "create",
+        });
+        setMismatchOpen(true);
+        return;
+      }
       toast({ title: "Failed to add income", variant: "destructive" });
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (values: IncomeFormValues) => {
-      return apiRequest("PATCH", `/api/income/${income?.id}`, preparePayload(values));
+    mutationFn: async (values: IncomeFormValues & { _skip?: boolean }) => {
+      const skip = values._skip;
+      const { _skip, ...clean } = values;
+      return incomeFetch("PATCH", `/api/income/${income?.id}`, preparePayload(clean, skip ? { skipAmountValidation: true } : {}));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
       toast({ title: "Income updated successfully" });
       onClose();
     },
-    onError: () => {
+    onError: (err: any) => {
+      if (err?.mismatch) {
+        setMismatchData({
+          observedMedian: err.mismatch.observedMedian,
+          suggestedAmount: err.mismatch.suggestedAmount,
+          sampleSize: err.mismatch.sampleSize,
+          pendingValues: form.getValues(),
+          mode: "update",
+        });
+        setMismatchOpen(true);
+        return;
+      }
       toast({ title: "Failed to update income", variant: "destructive" });
     },
   });
+
+  const handleMismatchUseSuggestion = () => {
+    if (!mismatchData) return;
+    form.setValue("amount", mismatchData.suggestedAmount.toFixed(2));
+    setMismatchOpen(false);
+    setMismatchData(null);
+    // Re-submit with the corrected amount (no skip flag needed — it will pass)
+    const vals = { ...mismatchData.pendingValues, amount: mismatchData.suggestedAmount.toFixed(2) };
+    if (mismatchData.mode === "update") {
+      updateMutation.mutate(vals);
+    } else {
+      createMutation.mutate(vals);
+    }
+  };
+
+  const handleMismatchSaveAnyway = () => {
+    if (!mismatchData) return;
+    setMismatchOpen(false);
+    const vals = { ...mismatchData.pendingValues, _skip: true };
+    setMismatchData(null);
+    if (mismatchData.mode === "update") {
+      updateMutation.mutate(vals);
+    } else {
+      createMutation.mutate(vals);
+    }
+  };
 
   const onSubmit = (values: IncomeFormValues) => {
     if (isEditing) {
@@ -495,6 +593,51 @@ function IncomeForm({
           </Button>
         </div>
       </form>
+
+      {/* ── Amount-cadence mismatch confirmation (UAT-10 #172) ─────────── */}
+      <AlertDialog open={mismatchOpen} onOpenChange={setMismatchOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Amount doesn't match recent deposits
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  The amount you entered ({formatCurrency(parseFloat(form.getValues("amount") || "0"))})
+                  is significantly higher than your recent deposits for this source.
+                </p>
+                {mismatchData && (
+                  <div className="rounded-md border bg-muted/50 p-3 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Median of last {mismatchData.sampleSize} deposits:</span>
+                      <span className="font-semibold">{formatCurrency(mismatchData.observedMedian)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Suggested amount:</span>
+                      <span className="font-semibold text-green-600">{formatCurrency(mismatchData.suggestedAmount)}</span>
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  This could happen if the bank reported a monthly aggregate for a weekly pay cycle.
+                  You can use the suggested amount, save anyway, or cancel.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="outline" onClick={handleMismatchSaveAnyway}>
+              Save anyway
+            </Button>
+            <AlertDialogAction onClick={handleMismatchUseSuggestion}>
+              Use {mismatchData ? formatCurrency(mismatchData.suggestedAmount) : "suggestion"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Form>
   );
 }
@@ -627,6 +770,7 @@ export default function IncomePage() {
           recurrence: inc.recurrence,
           dueDay: inc.dueDay,
           notes: `Auto-detected from ${inc.source === "plaid" ? "bank transactions" : "AI analysis"}`,
+          skipAmountValidation: true, // detection-sourced amounts already validated (#172)
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
@@ -1163,6 +1307,7 @@ export default function IncomePage() {
                                   isRecurring: source.isRecurring ? "true" : "false",
                                   recurrence: mappedRecurrence,
                                   notes: "Added from bank detection",
+                                  skipAmountValidation: true, // detection-sourced amounts already validated (#172)
                                 });
                                 queryClient.invalidateQueries({ queryKey: ["/api/income"] });
                                 queryClient.invalidateQueries({ queryKey: ["/api/engine/income"] });
