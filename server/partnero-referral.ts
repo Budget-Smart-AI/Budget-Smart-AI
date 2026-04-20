@@ -29,6 +29,13 @@
 
 const PARTNERO_API_BASE =
   process.env.PARTNERO_API_BASE || "https://app.partnero.com";
+/**
+ * Retained for logging / future use. NOTE: Partnero's Customer Referral REST
+ * API targets the workspace program implicitly via the API key — the
+ * customer-scoped endpoints (POST /api/v1/customers, GET /api/v1/customers/{key})
+ * do NOT take a program id in the path. If Partnero later exposes a
+ * program-targeting header (e.g. `X-Partnero-Program`), wire it here.
+ */
 const PARTNERO_REFERRAL_PROGRAM_ID =
   process.env.PARTNERO_REFERRAL_PROGRAM_ID || "12078";
 
@@ -87,7 +94,10 @@ export async function enrollCustomerInReferralProgram(
     return { ok: false, error: "partnero_referral_disabled" };
   }
 
-  const url = `${PARTNERO_API_BASE}/api/v1/programs/${PARTNERO_REFERRAL_PROGRAM_ID}/partners`;
+  // Customer Referral (refer-a-friend) uses /api/v1/customers — NOT
+  // /api/v1/programs/{id}/partners (that path is the Affiliate program
+  // resource used by server/partnero.ts and returns 405 here).
+  const url = `${PARTNERO_API_BASE}/api/v1/customers`;
 
   try {
     const body: Record<string, unknown> = {
@@ -95,7 +105,13 @@ export async function enrollCustomerInReferralProgram(
       email: input.email,
     };
     if (input.name) body.name = input.name;
-    if (input.referrer_code) body.referrer_code = input.referrer_code;
+    // Partnero expects a nested `referring_customer` object keyed by the
+    // referrer's customer key, not a flat `referrer_code` field. We accept
+    // `referrer_code` at the function boundary for backwards-compat with
+    // the existing call sites.
+    if (input.referrer_code) {
+      body.referring_customer = { key: input.referrer_code };
+    }
 
     const res = await fetch(url, {
       method: "POST",
@@ -124,8 +140,19 @@ export async function enrollCustomerInReferralProgram(
     return {
       ok: true,
       partnerId: json?.data?.id ?? json?.data?.key,
-      referralCode: json?.data?.referral?.code ?? json?.data?.code,
-      referralUrl: json?.data?.referral?.url ?? json?.data?.referral_url,
+      // Customer responses surface the personal referral as either
+      // `data.referral.{code,url|link|referral_link}` or `data.referral_code`
+      // depending on Partnero account version — accept all known shapes.
+      referralCode:
+        json?.data?.referral?.code ??
+        json?.data?.referral?.referral_code ??
+        json?.data?.referral_code ??
+        json?.data?.code,
+      referralUrl:
+        json?.data?.referral?.url ??
+        json?.data?.referral?.link ??
+        json?.data?.referral?.referral_link ??
+        json?.data?.referral_url,
       raw: json,
     };
   } catch (err: any) {
@@ -148,7 +175,7 @@ export async function getReferralCustomer(
     return { ok: false, error: "partnero_referral_disabled" };
   }
 
-  const url = `${PARTNERO_API_BASE}/api/v1/programs/${PARTNERO_REFERRAL_PROGRAM_ID}/partners/${encodeURIComponent(
+  const url = `${PARTNERO_API_BASE}/api/v1/customers/${encodeURIComponent(
     customerKey,
   )}`;
 
@@ -176,8 +203,16 @@ export async function getReferralCustomer(
     return {
       ok: true,
       partnerId: json?.data?.id ?? json?.data?.key,
-      referralCode: json?.data?.referral?.code ?? json?.data?.code,
-      referralUrl: json?.data?.referral?.url ?? json?.data?.referral_url,
+      referralCode:
+        json?.data?.referral?.code ??
+        json?.data?.referral?.referral_code ??
+        json?.data?.referral_code ??
+        json?.data?.code,
+      referralUrl:
+        json?.data?.referral?.url ??
+        json?.data?.referral?.link ??
+        json?.data?.referral?.referral_link ??
+        json?.data?.referral_url,
       raw: json,
     };
   } catch (err: any) {
@@ -192,7 +227,7 @@ export async function getReferralCustomer(
 /**
  * Fetch the list of referrals a customer has made — used to render the
  * "Your Referrals" list inside the /referrals page.
- * Returns whatever Partnero's /partners/{key}/referrals endpoint returns.
+ * Returns whatever Partnero's /api/v1/customers/{key}/referrals endpoint returns.
  */
 export async function listReferralsForCustomer(
   customerKey: string,
@@ -201,7 +236,7 @@ export async function listReferralsForCustomer(
     return { ok: false, error: "partnero_referral_disabled" };
   }
 
-  const url = `${PARTNERO_API_BASE}/api/v1/programs/${PARTNERO_REFERRAL_PROGRAM_ID}/partners/${encodeURIComponent(
+  const url = `${PARTNERO_API_BASE}/api/v1/customers/${encodeURIComponent(
     customerKey,
   )}/referrals`;
 
