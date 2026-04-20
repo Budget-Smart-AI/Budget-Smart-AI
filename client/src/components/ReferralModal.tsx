@@ -3,7 +3,8 @@
  *
  * Opens from the sidebar gold-heart icon. Shows the user's Partnero
  * referral code + shareable link, a copy button, and one-tap share to
- * email / SMS / Twitter. Fetches state from /api/referrals/me.
+ * Facebook, LinkedIn, Instagram (clipboard), and X. Fetches state from
+ * /api/referrals/me.
  *
  * Reward wording here must match Partnero + the marketing site:
  *   - Friend gets 30% off annual plan, year 1
@@ -28,13 +29,16 @@ import {
   Heart,
   Copy,
   Check,
-  Mail,
-  MessageSquare,
-  Twitter,
   Gift,
   DollarSign,
   Sparkles,
 } from "lucide-react";
+import {
+  FaFacebookF,
+  FaLinkedinIn,
+  FaInstagram,
+  FaXTwitter,
+} from "react-icons/fa6";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -60,6 +64,9 @@ interface ReferralModalProps {
 export function ReferralModal({ open, onOpenChange }: ReferralModalProps) {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
+  // Instagram has no web share intent — the IG button copies the link
+  // to the clipboard so the user can paste it into a Story, DM, or bio.
+  const [igCopied, setIgCopied] = useState(false);
 
   const { data, isLoading } = useQuery<ReferralMeResponse>({
     queryKey: ["/api/referrals/me"],
@@ -108,29 +115,52 @@ export function ReferralModal({ open, onOpenChange }: ReferralModalProps) {
     }
   };
 
-  // Share helpers use native OS schemes — open in new window/tab so the
-  // user's current page is preserved.
-  const shareEmail = () => {
-    const subject = encodeURIComponent("Try Budget Smart AI — 30% off");
-    const body = encodeURIComponent(
-      `I've been using Budget Smart AI and it's the best money tool I've ever tried. ` +
-        `Here's 30% off your first year on annual plans: ${referralUrl}`,
+  // Share helpers — all open in a new window/tab so the user's current
+  // page is preserved.  Facebook and LinkedIn only pass the URL (both
+  // sharers strip custom text per platform policy).  X still accepts
+  // prefilled tweet text.  Instagram has no web share intent, so we
+  // copy the URL to clipboard and flash confirmation.
+  const shareFacebook = () => {
+    if (!referralUrl) return;
+    const u = encodeURIComponent(referralUrl);
+    window.open(
+      `https://www.facebook.com/sharer/sharer.php?u=${u}`,
+      "_blank",
+      "noopener,noreferrer",
     );
-    window.open(`mailto:?subject=${subject}&body=${body}`);
   };
 
-  const shareSMS = () => {
-    const body = encodeURIComponent(
-      `Try Budget Smart AI — I love it. 30% off annual: ${referralUrl}`,
+  const shareLinkedIn = () => {
+    if (!referralUrl) return;
+    const u = encodeURIComponent(referralUrl);
+    window.open(
+      `https://www.linkedin.com/sharing/share-offsite/?url=${u}`,
+      "_blank",
+      "noopener,noreferrer",
     );
-    window.open(`sms:?&body=${body}`);
   };
 
-  const shareTwitter = () => {
+  const shareInstagram = async () => {
+    if (!referralUrl) return;
+    try {
+      await navigator.clipboard.writeText(referralUrl);
+      setIgCopied(true);
+      setTimeout(() => setIgCopied(false), 2500);
+    } catch {
+      window.open("https://www.instagram.com/", "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const shareX = () => {
+    if (!referralUrl) return;
     const text = encodeURIComponent(
       `Been using Budget Smart AI to get my money in shape — worth a look. 30% off annual plan: ${referralUrl}`,
     );
-    window.open(`https://twitter.com/intent/tweet?text=${text}`);
+    window.open(
+      `https://twitter.com/intent/tweet?text=${text}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   return (
@@ -220,35 +250,49 @@ export function ReferralModal({ open, onOpenChange }: ReferralModalProps) {
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Share
             </label>
-            <div className="mt-1.5 grid grid-cols-3 gap-2">
+            <div className="mt-1.5 grid grid-cols-2 sm:grid-cols-4 gap-2">
               <Button
                 variant="outline"
-                onClick={shareEmail}
+                onClick={shareFacebook}
                 disabled={!referralUrl}
-                data-testid="share-email"
+                data-testid="share-facebook"
               >
-                <Mail className="h-4 w-4 mr-2" />
-                Email
+                <FaFacebookF className="h-4 w-4 mr-2" />
+                Facebook
               </Button>
               <Button
                 variant="outline"
-                onClick={shareSMS}
+                onClick={shareLinkedIn}
                 disabled={!referralUrl}
-                data-testid="share-sms"
+                data-testid="share-linkedin"
               >
-                <MessageSquare className="h-4 w-4 mr-2" />
-                Text
+                <FaLinkedinIn className="h-4 w-4 mr-2" />
+                LinkedIn
               </Button>
               <Button
                 variant="outline"
-                onClick={shareTwitter}
+                onClick={shareInstagram}
                 disabled={!referralUrl}
-                data-testid="share-twitter"
+                data-testid="share-instagram"
               >
-                <Twitter className="h-4 w-4 mr-2" />
-                Tweet
+                <FaInstagram className="h-4 w-4 mr-2" />
+                {igCopied ? "Copied!" : "Instagram"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={shareX}
+                disabled={!referralUrl}
+                data-testid="share-x"
+              >
+                <FaXTwitter className="h-4 w-4 mr-2" />
+                X
               </Button>
             </div>
+            {igCopied && (
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Link copied — paste it into a Story, DM, or your bio.
+              </p>
+            )}
           </div>
 
           {/* Stats mini-row — only show if there's activity */}

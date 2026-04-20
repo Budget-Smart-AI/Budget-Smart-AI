@@ -46,8 +46,9 @@ Portal: Programs → … → Rewards → Referrer reward
 
 - Type: **Commission** (not Dynamic coupon)
 - Amount: **$30** (flat) per qualifying referral
-- Payout method: **PayPal**
-- Minimum payout: **$30** (single referral triggers payout)
+- Payout method: **Manual** (Partnero does NOT integrate with PayPal
+  directly — see section 7 below for the CSV-export + manual-send flow)
+- Minimum payout: **$30** (single referral triggers payout eligibility)
 
 ### 3. Set 30-day review (hold) period
 
@@ -78,13 +79,40 @@ Portal: Programs → … → Emails
 Copy guidance: tight, confident, no marketing fluff. Lean on the same
 voice as the in-app `ReferralModal` ("Give 30% off. Get $30.")
 
-### 6. Connect Stripe + PayPal integrations (if not already)
+### 6. Connect Stripe integration (if not already)
 
 Portal: Settings → Integrations
 
 - **Stripe**: must be connected for dynamic-coupon creation.
-- **PayPal**: must be connected for cash payouts. Personal or Business
-  account both work.
+- **PayPal**: NOT connected — Partnero does not integrate with PayPal for
+  outbound payouts. Partnero only records payout status; the cash transfer
+  is done manually by an operator from our PayPal account. See section 7.
+
+### 7. Monthly PayPal payout run (manual operator workflow)
+
+Partnero does not push money to partners/referrers. Every payout cycle
+(recommend monthly, ~mid-month so chargeback window has closed on the
+prior month's conversions), an operator runs this loop:
+
+1. Portal: Programs → Refer-a-friend → **Payouts** → Export eligible
+   partners (CSV). The export includes referrer email + amount + any
+   commission reference ids.
+2. Log into the BudgetSmart AI PayPal Business account → **Send Money**
+   (or Mass Payout if the batch is large). Send each referrer the listed
+   amount using their email.
+3. Copy each PayPal transaction ID back into Partnero → Payouts → mark the
+   row **Paid** and paste the transaction ID in the reference field. This
+   closes the loop so the customer's dashboard flips from "Pending" → "Paid"
+   and the `paid_referrals` stat increments on our `/api/referrals/me`.
+
+Operator notes:
+- Always reconcile exported CSV against Stripe chargeback log first — any
+  referee whose Stripe payment reversed in the hold window should be
+  removed from the payout batch (Partnero may still list them if the
+  chargeback happened after approval — double-check).
+- For amounts > $600/referrer/year, 1099-NEC filing obligations may apply.
+  Track cumulative per-email totals separately; Partnero's CSV gives you
+  the raw transactions.
 
 ## Verification checklist
 
@@ -92,7 +120,8 @@ Once the above is done, verify end-to-end before turning
 `PARTNERO_REFERRAL_ENABLED=true` on in Railway prod:
 
 - [ ] Create a test user via `POST /api/auth/register` → confirm row
-      appears in Partnero → Partners with a referral code.
+      appears in Partnero → **Customers** with a referral code. (Note:
+      Customer Referral uses `/api/v1/customers`, not `/partners`.)
 - [ ] Hit `GET /api/referrals/me` with that user's session → confirm
       `{enabled: true, enrolled: true, code, url}` is returned.
 - [ ] Open `/referrals` in the app → confirm gold hero + copy button
@@ -101,8 +130,14 @@ Once the above is done, verify end-to-end before turning
       coupon attaches at checkout and Partnero logs the referral.
 - [ ] Complete annual plan purchase on the referee → confirm Partnero
       records the referral as pending, amount $30.
-- [ ] Wait 30 days (or manually mark as approved in portal) → confirm
-      PayPal payout fires.
+- [ ] Wait 30 days (or manually mark as approved in portal) → referrer
+      moves to "eligible for payout" status in Partnero. (No PayPal
+      auto-payout fires — the operator CSV-export + manual-send flow in
+      section 7 takes it from here.)
+- [ ] Run one dry-run payout cycle end-to-end (CSV export → PayPal send →
+      mark Paid in Partnero) to confirm the stat roll-up in
+      `/api/referrals/me` flips `pendingCents → totalEarnedCents` as
+      expected.
 
 ## Env vars (Railway prod)
 
