@@ -16,7 +16,9 @@
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "seed:demo": "tsx scripts/seed-demo-account.ts",
-    "seed:demo:reset": "tsx scripts/seed-demo-account.ts --reset"
+    "seed:demo:reset": "tsx scripts/seed-demo-account.ts --reset",
+    "backfill:provenance:dry": "tsx scripts/backfill-provenance.ts --dry-run",
+    "backfill:provenance": "tsx scripts/backfill-provenance.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1010.0",
@@ -148,7 +150,8 @@
     "@types/ws": "^8.5.13",
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.8",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
   },
   "overrides": {
     "drizzle-kit": {
