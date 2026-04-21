@@ -94,15 +94,10 @@ app.get("/health", async (_req, res) => {
   });
 });
 
-// HTTPS redirect in production (after /health so Railway's HTTP probe works).
-if (process.env.NODE_ENV === "production") {
-  app.use((req, res, next) => {
-    if (req.headers["x-forwarded-proto"] !== "https") {
-      return res.redirect(301, "https://" + req.headers.host + req.url);
-    }
-    next();
-  });
-}
+// HTTPS redirect is handled by Railway's edge proxy on api.budgetsmart.io.
+// A second redirect here fires spuriously when X-Forwarded-Proto arrives as
+// a multi-hop comma-combined value ("http, https") from the website's
+// engine proxy + Railway's edge. Trust the edge; don't double-redirect.
 
 // Block VCS probe paths.
 const VCS_PROBE_RE = /^\/(\.git|\.svn|\.hg|\.bzr|_darcs|BitKeeper)(\/|$)/;
