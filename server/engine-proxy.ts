@@ -48,6 +48,14 @@ export function engineProxy(): RequestHandler {
         const start = (req as any).__engineStart as number | undefined;
         const latencyMs = start ? Date.now() - start : -1;
         const reqId = (req as any).__engineReqId;
+
+        // Forbid any caching layer (browser, Cloudflare, intermediaries) from
+        // storing API responses. Without this, Chrome applies RFC 7234 heuristic
+        // freshness to responses that lack Cache-Control, which caused stale 404s
+        // from before 3a4ee69 to linger in user browsers after the deploy.
+        proxyRes.headers["cache-control"] = "no-store";
+        proxyRes.headers["pragma"] = "no-cache";
+
         console.log(
           `[engine-proxy] ${req.method} ${req.url} -> ${proxyRes.statusCode} ${latencyMs}ms reqId=${reqId}`
         );
@@ -61,9 +69,11 @@ export function engineProxy(): RequestHandler {
         if ("status" in res && typeof (res as any).status === "function") {
           (res as any)
             .status(503)
+            .setHeader("Cache-Control", "no-store")
+            .setHeader("Pragma", "no-cache")
             .json({ error: "engine_unavailable", reqId });
         } else if (!(res as any).headersSent) {
-          (res as any).writeHead?.(503, { "Content-Type": "application/json" });
+          (res as any).writeHead?.(503, { "Content-Type": "application/json", "Cache-Control": "no-store", "Pragma": "no-cache" });
           (res as any).end?.(
             JSON.stringify({ error: "engine_unavailable", reqId })
           );
