@@ -807,6 +807,13 @@ export async function autoReconcile(userId: string): Promise<{
         plaidTransactionId: plaidTxId,
         // Link to the Plaid account so the inactive-item filter in GET /api/income works.
         linkedPlaidAccountId: tx.plaidAccountId || null,
+        // Detection provenance
+        autoDetected: true,
+        detectedAt: new Date(),
+        detectionSource: "plaid",
+        detectionRef: plaidTxId,
+        detectionRefType: "plaid_stream_id",
+        detectionConfidence: "high",
       } as any);
 
       await storage.updatePlaidTransaction(tx.id, {
@@ -1233,6 +1240,13 @@ export async function autoReconcile(userId: string): Promise<{
           ].join(" | "),
           isPaused: "false",
           linkedPlaidAccountId: tx.plaidAccountId || null,
+          // Detection provenance
+          autoDetected: true,
+          detectedAt: new Date(),
+          detectionSource: "plaid",
+          detectionRef: tx.id,
+          detectionRefType: "plaid_stream_id",
+          detectionConfidence: "high",
         } as any);
 
         subscriptionsCreated++;

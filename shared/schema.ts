@@ -132,6 +132,20 @@ export const INCOME_SOURCE_MODES = [
 // Manual account types for cash/non-bank spending
 export const MANUAL_ACCOUNT_TYPES = ["cash", "paypal", "venmo", "other"] as const;
 
+// ─── Detection provenance enums (migration 0034) ──────────────────────────────
+// Provider-agnostic. Used by both income and bills tables.
+export const DETECTION_SOURCES = ["plaid", "mx", "ai", "manual"] as const;
+export type DetectionSource = (typeof DETECTION_SOURCES)[number];
+
+export const DETECTION_REF_TYPES = ["plaid_stream_id", "mx_feed_id", "ai_run_id"] as const;
+export type DetectionRefType = (typeof DETECTION_REF_TYPES)[number];
+
+export const DETECTION_CONFIDENCES = ["high", "medium", "low"] as const;
+export type DetectionConfidence = (typeof DETECTION_CONFIDENCES)[number];
+
+export const DETECTION_VERIFIERS = ["user", "system"] as const;
+export type DetectionVerifier = (typeof DETECTION_VERIFIERS)[number];
+
 // Bills table - for recurring bills and subscriptions
 export const bills = pgTable("bills", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -151,6 +165,15 @@ export const bills = pgTable("bills", {
   isPaused: text("is_paused").default("false"), // For subscriptions - pause without deleting
   merchant: text("merchant"), // Merchant/company name (useful for subscriptions)
   linkedPlaidAccountId: varchar("linked_plaid_account_id"), // Link to Plaid account for auto-detected bills
+  // ─── Detection provenance (migration 0034) ─────────────────────────────────
+  autoDetected: boolean("auto_detected").notNull().default(false),
+  detectedAt: timestamp("detected_at"),
+  detectionSource: text("detection_source"), // "plaid" | "mx" | "ai" | "manual"
+  detectionRef: text("detection_ref"),
+  detectionRefType: text("detection_ref_type"), // "plaid_stream_id" | "mx_feed_id" | "ai_run_id"
+  detectionConfidence: text("detection_confidence"), // "high" | "medium" | "low"
+  lastVerifiedAt: timestamp("last_verified_at"),
+  lastVerifiedBy: text("last_verified_by"), // "user" | "system"
 });
 
 // Expenses table - for one-time purchases
@@ -191,6 +214,15 @@ export const insertBillSchema = createInsertSchema(bills).omit({ id: true, lastN
   isPaused: z.string().optional().default("false"), // For subscriptions - pause without deleting
   merchant: z.string().nullable().optional(), // Merchant/company name
   linkedPlaidAccountId: z.string().nullable().optional(), // Link to Plaid account for auto-detected bills
+  // ─── Detection provenance (migration 0034) ─────────────────────────────────
+  autoDetected: z.boolean().optional().default(false),
+  detectedAt: z.date().nullable().optional(),
+  detectionSource: z.enum(DETECTION_SOURCES).nullable().optional(),
+  detectionRef: z.string().nullable().optional(),
+  detectionRefType: z.enum(DETECTION_REF_TYPES).nullable().optional(),
+  detectionConfidence: z.enum(DETECTION_CONFIDENCES).nullable().optional(),
+  lastVerifiedAt: z.date().nullable().optional(),
+  lastVerifiedBy: z.enum(DETECTION_VERIFIERS).nullable().optional(),
 });
 
 // Partial schema for updates
@@ -261,6 +293,15 @@ export const income = pgTable("income", {
   // Auto-detection fields
   autoDetected: boolean("auto_detected").default(false), // true = system detected recurring pattern
   detectedAt: timestamp("detected_at"), // When the pattern was detected
+  // ─── Detection provenance (migration 0034) ─────────────────────────────────
+  // Provider-agnostic. detectionRef's meaning is determined by detectionRefType.
+  // Never interpret detectionRef without checking detectionRefType first.
+  detectionSource: text("detection_source"), // "plaid" | "mx" | "ai" | "manual"
+  detectionRef: text("detection_ref"),
+  detectionRefType: text("detection_ref_type"), // "plaid_stream_id" | "mx_feed_id" | "ai_run_id"
+  detectionConfidence: text("detection_confidence"), // "high" | "medium" | "low"
+  lastVerifiedAt: timestamp("last_verified_at"),
+  lastVerifiedBy: text("last_verified_by"), // "user" | "system"
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, userId: true }).extend({
@@ -278,6 +319,13 @@ export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, us
   // DB columns kept for backward compatibility; values are no longer accepted from the client.
   futureAmount: z.any().transform(() => null).optional(),
   amountChangeDate: z.any().transform(() => null).optional(),
+  // ─── Detection provenance (migration 0034) ─────────────────────────────────
+  detectionSource: z.enum(DETECTION_SOURCES).nullable().optional(),
+  detectionRef: z.string().nullable().optional(),
+  detectionRefType: z.enum(DETECTION_REF_TYPES).nullable().optional(),
+  detectionConfidence: z.enum(DETECTION_CONFIDENCES).nullable().optional(),
+  lastVerifiedAt: z.date().nullable().optional(),
+  lastVerifiedBy: z.enum(DETECTION_VERIFIERS).nullable().optional(),
 });
 
 export const updateIncomeSchema = insertIncomeSchema.partial();

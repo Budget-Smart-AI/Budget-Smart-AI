@@ -228,6 +228,7 @@ function IncomeForm({
         ? JSON.stringify(values.customDates)
         : null,
       dueDay: values.recurrence === "custom" ? null : values.dueDay,
+      detectionSource: "manual" as const,
       ...extra,
     };
   };
@@ -771,6 +772,10 @@ export default function IncomePage() {
           dueDay: inc.dueDay,
           notes: `Auto-detected from ${inc.source === "plaid" ? "bank transactions" : "AI analysis"}`,
           skipAmountValidation: true, // detection-sourced amounts already validated (#172)
+          detectionSource: inc.source === "plaid" ? "plaid" : inc.source === "ai" ? "ai" : "manual",
+          detectionRef: inc.plaidStreamId ?? null,
+          detectionRefType: inc.plaidStreamId ? "plaid_stream_id" : null,
+          detectionConfidence: inc.confidence ?? null,
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });

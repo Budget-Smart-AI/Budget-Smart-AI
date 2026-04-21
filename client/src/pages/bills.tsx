@@ -271,7 +271,7 @@ function BillForm({
 
   const createMutation = useMutation({
     mutationFn: async (values: BillFormValues) => {
-      return apiRequest("POST", "/api/bills", values);
+      return apiRequest("POST", "/api/bills", { ...values, detectionSource: "manual" as const });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
@@ -872,6 +872,12 @@ export default function Bills() {
           // can compute correct "Next Due" countdowns from startDate + recurrence.
           startDate: (bill as any).startDate || (bill as any).lastChargeDate || undefined,
           notes: `Auto-detected from bank transactions`,
+          autoDetected: true,
+          detectedAt: new Date().toISOString(),
+          detectionSource: "plaid" as const,
+          detectionRef: (bill as any).plaidStreamId ?? null,
+          detectionRefType: (bill as any).plaidStreamId ? "plaid_stream_id" as const : null,
+          detectionConfidence: (bill as any).confidence ?? null,
         });
         if (response.status === 402) {
           limitHit = true;
@@ -1002,6 +1008,12 @@ export default function Bills() {
               autoPay: "false",
               isPaused: "false",
               notes: "Auto-detected (" + Math.round(s.confidence * 100) + "% confidence)",
+              autoDetected: true,
+              detectedAt: new Date().toISOString(),
+              detectionSource: "plaid" as const,
+              detectionRef: s.plaidStreamId ?? null,
+              detectionRefType: s.plaidStreamId ? "plaid_stream_id" as const : null,
+              detectionConfidence: s.confidence != null ? String(s.confidence) : null,
             });
             addedCount++;
           } catch { /* skip */ }

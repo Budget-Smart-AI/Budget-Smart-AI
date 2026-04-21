@@ -1464,6 +1464,15 @@ export class DatabaseStorage implements IStorage {
       isPaused: insertBill.isPaused || "false",
       merchant: insertBill.merchant || null,
       linkedPlaidAccountId: insertBill.linkedPlaidAccountId ?? null,
+      // Detection provenance (migration 0034)
+      autoDetected: insertBill.autoDetected ?? false,
+      detectedAt: insertBill.detectedAt ?? null,
+      detectionSource: insertBill.detectionSource ?? null,
+      detectionRef: insertBill.detectionRef ?? null,
+      detectionRefType: insertBill.detectionRefType ?? null,
+      detectionConfidence: insertBill.detectionConfidence ?? null,
+      lastVerifiedAt: insertBill.lastVerifiedAt ?? null,
+      lastVerifiedBy: insertBill.lastVerifiedBy ?? null,
     }).returning();
     return result[0];
   }
@@ -1540,6 +1549,13 @@ export class DatabaseStorage implements IStorage {
       dueDay: insertIncome.dueDay ?? null,
       customDates: insertIncome.customDates || null,
       notes: insertIncome.notes || null,
+      // Detection provenance (migration 0034)
+      detectionSource: (insertIncome as any).detectionSource ?? null,
+      detectionRef: (insertIncome as any).detectionRef ?? null,
+      detectionRefType: (insertIncome as any).detectionRefType ?? null,
+      detectionConfidence: (insertIncome as any).detectionConfidence ?? null,
+      lastVerifiedAt: (insertIncome as any).lastVerifiedAt ?? null,
+      lastVerifiedBy: (insertIncome as any).lastVerifiedBy ?? null,
     }).returning();
     return result[0];
   }
