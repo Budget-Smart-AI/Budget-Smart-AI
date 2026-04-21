@@ -18,7 +18,13 @@
     "seed:demo": "tsx scripts/seed-demo-account.ts",
     "seed:demo:reset": "tsx scripts/seed-demo-account.ts --reset",
     "backfill:provenance:dry": "tsx scripts/backfill-provenance.ts --dry-run",
-    "backfill:provenance": "tsx scripts/backfill-provenance.ts"
+    "backfill:provenance": "tsx scripts/backfill-provenance.ts",
+    "backfill:income-amounts:dry": "tsx scripts/backfill-income-amounts.ts --dry-run",
+    "backfill:income-amounts": "tsx scripts/backfill-income-amounts.ts",
+    "dedup:income:dry": "tsx scripts/dedup-income-external-txn.ts --dry-run",
+    "dedup:income": "tsx scripts/dedup-income-external-txn.ts",
+    "seed:registry:dry": "tsx scripts/seed-income-registry.ts --dry-run",
+    "seed:registry": "tsx scripts/seed-income-registry.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1010.0",

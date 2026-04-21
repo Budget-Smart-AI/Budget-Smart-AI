@@ -146,6 +146,17 @@ export type DetectionConfidence = (typeof DETECTION_CONFIDENCES)[number];
 export const DETECTION_VERIFIERS = ["user", "system"] as const;
 export type DetectionVerifier = (typeof DETECTION_VERIFIERS)[number];
 
+// ─── Backfill confidence flag + audit enums (migration 0035) ─────────────────
+export const CONFIDENCE_FLAGS = [
+  "backfill_corrected",
+  "needs_manual_review",
+  "backfill_no_history",
+] as const;
+export type ConfidenceFlag = (typeof CONFIDENCE_FLAGS)[number];
+
+export const INCOME_AUDIT_ACTIONS = ["corrected", "flagged", "no_history"] as const;
+export type IncomeAuditAction = (typeof INCOME_AUDIT_ACTIONS)[number];
+
 // Bills table - for recurring bills and subscriptions
 export const bills = pgTable("bills", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -283,10 +294,11 @@ export const income = pgTable("income", {
   notes: text("notes"),
   isActive: text("is_active").default("true"), // Allows disabling income to exclude from forecasts
   linkedPlaidAccountId: varchar("linked_plaid_account_id"), // Link to Plaid account for auto-detected income
-  // Stable Plaid transaction ID — used as primary dedup key for auto-imported income.
-  // Prevents duplicate income records when the same Plaid transaction is processed
-  // multiple times (e.g., webhook retry, reconnection, or manual sync).
-  plaidTransactionId: text("plaid_transaction_id"),
+  // Provider-agnostic deduplication — stable external transaction ID.
+  // For Plaid: transaction.transactionId | For MX: transaction.guid
+  // Compound unique per user with external_transaction_id (migration 0037).
+  // Renamed from plaid_transaction_id in migration 0036.
+  externalTransactionId: text("external_transaction_id"),
   // Scheduled amount change fields (e.g., for tax bracket changes, raises)
   futureAmount: numeric("future_amount", { precision: 10, scale: 2 }), // New amount after change date
   amountChangeDate: text("amount_change_date"), // When the amount changes (yyyy-MM-dd)
@@ -302,6 +314,8 @@ export const income = pgTable("income", {
   detectionConfidence: text("detection_confidence"), // "high" | "medium" | "low"
   lastVerifiedAt: timestamp("last_verified_at"),
   lastVerifiedBy: text("last_verified_by"), // "user" | "system"
+  // ─── Backfill flag (migration 0035) ─────────────────────────────────────────
+  confidenceFlag: text("confidence_flag"), // 'backfill_corrected' | 'needs_manual_review' | 'backfill_no_history'
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, userId: true }).extend({
@@ -326,12 +340,32 @@ export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, us
   detectionConfidence: z.enum(DETECTION_CONFIDENCES).nullable().optional(),
   lastVerifiedAt: z.date().nullable().optional(),
   lastVerifiedBy: z.enum(DETECTION_VERIFIERS).nullable().optional(),
+  // ─── Backfill flag (migration 0035) ─────────────────────────────────────────
+  confidenceFlag: z.enum(CONFIDENCE_FLAGS).nullable().optional(),
 });
 
 export const updateIncomeSchema = insertIncomeSchema.partial();
 
 export type InsertIncome = z.infer<typeof insertIncomeSchema>;
 export type Income = typeof income.$inferSelect;
+
+export const incomeAudit = pgTable("income_audit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  incomeId: varchar("income_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  oldAmount: numeric("old_amount", { precision: 10, scale: 2 }).notNull(),
+  newAmount: numeric("new_amount", { precision: 10, scale: 2 }).notNull(),
+  observedMedian: numeric("observed_median", { precision: 10, scale: 2 }).notNull(),
+  sampleSize: integer("sample_size").notNull(),
+  driftRatio: numeric("drift_ratio", { precision: 10, scale: 4 }).notNull(),
+  action: text("action").notNull(),
+  reason: text("reason").notNull(),
+  sourceScript: text("source_script").notNull().default("backfill-income-amounts.ts"),
+  backfilledAt: timestamp("backfilled_at").notNull().defaultNow(),
+});
+
+export type IncomeAudit = typeof incomeAudit.$inferSelect;
+export type InsertIncomeAudit = typeof incomeAudit.$inferInsert;
 
 // ─── Income Source Registry (added 2026-04-17) ───────────────────────────────
 //

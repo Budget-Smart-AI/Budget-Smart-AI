@@ -1545,10 +1545,18 @@ export class DatabaseStorage implements IStorage {
       date: insertIncome.date,
       category: insertIncome.category,
       isRecurring: insertIncome.isRecurring || "false",
+      isActive: (insertIncome as any).isActive ?? "true",
       recurrence: insertIncome.recurrence || null,
       dueDay: insertIncome.dueDay ?? null,
       customDates: insertIncome.customDates || null,
       notes: insertIncome.notes || null,
+      // Provider-agnostic dedup key (migration 0036)
+      externalTransactionId: (insertIncome as any).externalTransactionId ?? null,
+      // Plaid account link (legacy; still used by GET /api/income filter)
+      linkedPlaidAccountId: (insertIncome as any).linkedPlaidAccountId ?? null,
+      // Auto-detection flags (migration 0026)
+      autoDetected: (insertIncome as any).autoDetected ?? false,
+      detectedAt: (insertIncome as any).detectedAt ?? null,
       // Detection provenance (migration 0034)
       detectionSource: (insertIncome as any).detectionSource ?? null,
       detectionRef: (insertIncome as any).detectionRef ?? null,
@@ -1556,7 +1564,21 @@ export class DatabaseStorage implements IStorage {
       detectionConfidence: (insertIncome as any).detectionConfidence ?? null,
       lastVerifiedAt: (insertIncome as any).lastVerifiedAt ?? null,
       lastVerifiedBy: (insertIncome as any).lastVerifiedBy ?? null,
-    }).returning();
+    })
+      .onConflictDoNothing({ target: [income.userId, income.externalTransactionId] })
+      .returning();
+
+    // When ON CONFLICT fires, returning() yields []. Re-fetch the existing row so
+    // the caller always gets a usable Income object.
+    if (result.length === 0 && insertIncome.userId && (insertIncome as any).externalTransactionId) {
+      const existing = await db.select().from(income).where(
+        and(
+          eq(income.userId, insertIncome.userId),
+          eq(income.externalTransactionId, (insertIncome as any).externalTransactionId)
+        )
+      ).limit(1);
+      if (existing[0]) return existing[0];
+    }
     return result[0];
   }
 

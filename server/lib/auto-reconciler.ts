@@ -81,24 +81,25 @@ export async function backfillExpensePlaidIds(): Promise<void> {
 
     console.log(`[AutoReconciler] Backfill complete: linked ${linked}/${expensesWithoutId.length} expenses to external transaction IDs.`);
 
-    // Also backfill income records that have plaidTransactionId = null
-    // but have the Plaid tx ID stored in notes as "plaid_tx:<id>"
+    // Legacy backfill: bridges the gap for rows written before the storage fix shipped.
+    // Safe to retire once all rows have external_transaction_id populated.
+    // Parses "plaid_tx:<id>" from notes and writes it to external_transaction_id.
     try {
       const { pool: backfillPool } = await import("../db");
       const { rows: incomeWithoutId } = await backfillPool.query(`
         SELECT id, notes FROM income
-        WHERE plaid_transaction_id IS NULL
+        WHERE external_transaction_id IS NULL
           AND notes LIKE '%plaid_tx:%'
       `);
 
       if (incomeWithoutId.length > 0) {
-        console.log(`[AutoReconciler] Backfill: attempting to link ${incomeWithoutId.length} income records to Plaid transaction IDs from notes...`);
+        console.log(`[AutoReconciler] Backfill: attempting to link ${incomeWithoutId.length} income records to external transaction IDs from notes...`);
         let incomeLinked = 0;
         for (const row of incomeWithoutId) {
           const match = (row.notes || '').match(/plaid_tx:([A-Za-z0-9_-]+)/);
           if (match && match[1]) {
             await backfillPool.query(
-              `UPDATE income SET plaid_transaction_id = $1 WHERE id = $2`,
+              `UPDATE income SET external_transaction_id = $1 WHERE id = $2`,
               [match[1], row.id]
             ).catch(() => { /* ignore unique constraint violations */ });
             incomeLinked++;
@@ -802,9 +803,9 @@ export async function autoReconcile(userId: string): Promise<{
         isRecurring: "false",
         isActive: "true",
         notes: `Auto-imported from bank transaction | plaid_tx:${plaidTxId}`,
-        // Store the stable Plaid transaction ID as the primary dedup key.
+        // Store the stable external transaction ID as the primary dedup key.
         // This prevents duplicate income records on webhook retries or reconnections.
-        plaidTransactionId: plaidTxId,
+        externalTransactionId: plaidTxId,
         // Link to the Plaid account so the inactive-item filter in GET /api/income works.
         linkedPlaidAccountId: tx.plaidAccountId || null,
         // Detection provenance
