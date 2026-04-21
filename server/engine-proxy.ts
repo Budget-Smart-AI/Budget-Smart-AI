@@ -26,8 +26,12 @@ export function engineProxy(): RequestHandler {
     secure: true,
     proxyTimeout: 15_000,
     timeout: 15_000,
-    // Keep the path as-is: /api/engine/budgets -> {target}/api/engine/budgets.
-    pathRewrite: undefined,
+    // Express strips the `/api/engine` mount prefix before handing the request
+    // to the proxy middleware, and http-proxy-middleware v3 forwards `req.url`
+    // as-is (it does NOT restore `req.originalUrl`). Prepend the prefix back
+    // so the engine service's own `/api/engine` sub-app mount matches.
+    // Without this, every /api/engine/* call hits the engine's root 404 handler.
+    pathRewrite: (path) => `/api/engine${path}`,
     // Preserve the cookie domain the engine sets (or strip if it leaks).
     cookieDomainRewrite: "",
     on: {
