@@ -1146,7 +1146,8 @@ export async function registerRoutes(
 
       res.json(deduplicatedIncomes);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch income" });
+      console.error("[GET /api/income] Failed:", error);
+      res.status(500).json({ error: "Failed to fetch income", detail: (error as Error).message });
     }
   });
 
@@ -18213,80 +18214,4 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
         { accountId: visaId,     amount: "-10.50",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(16) },
         { accountId: visaId,     amount: "-19.99",   merchant: "Netflix",                        category: "Subscriptions",  date: daysAgo(27) },
         { accountId: visaId,     amount: "-10.99",   merchant: "Spotify",                        category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-9.99",    merchant: "Amazon Prime",                   category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-73.60",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(26) },
-        { accountId: visaId,     amount: "-77.20",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(19) },
-        { accountId: visaId,     amount: "-69.80",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(12) },
-        { accountId: visaId,     amount: "-80.40",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(5)  },
-        { accountId: visaId,     amount: "-46.30",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(25) },
-        { accountId: visaId,     amount: "-69.90",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(20) },
-        { accountId: visaId,     amount: "-43.50",   merchant: "East Side Marios",               category: "Restaurants",    date: daysAgo(16) },
-        { accountId: visaId,     amount: "-91.00",   merchant: "The Keg",                        category: "Restaurants",    date: daysAgo(12) },
-        { accountId: visaId,     amount: "-50.20",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(8)  },
-        { accountId: visaId,     amount: "-47.60",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(4)  },
-        // Transfer pair (AI Teller demo — Unmatched status)
-        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",            category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
-        { accountId: savingsId,  amount: "500.00",   merchant: "Transfer from Chequing",         category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
-        // Unmatched Debit Memo (reconciliation demo)
-        { accountId: chequingId, amount: "-300.00",  merchant: "Debit Memo",                     category: "Other",          date: daysAgo(10), status: "Unmatched" },
-      ];
-
-      let txnCount = 0;
-      for (const t of txns) {
-        await pool.query(
-          `INSERT INTO manual_transactions
-             (user_id, account_id, date, amount, merchant, category, is_transfer, is_demo)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
-          [userId, t.accountId, t.date, t.amount, t.merchant, t.category, t.isTransfer || "false"]
-        );
-        txnCount++;
-      }
-
-      // ── 3. Seed budgets ───────────────────────────────────────────────────
-      const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
-      const budgets = [
-        { category: "Groceries",     amount: "800.00"  },
-        { category: "Dining Out",    amount: "300.00"  },
-        { category: "Gas",           amount: "200.00"  },
-        { category: "Entertainment", amount: "150.00"  },
-        { category: "Utilities",     amount: "400.00"  },
-        { category: "Subscriptions", amount: "75.00"   },
-      ];
-      for (const b of budgets) {
-        await pool.query(
-          `INSERT INTO budgets (user_id, category, amount, month, is_demo)
-           VALUES ($1, $2, $3, $4, true)`,
-          [userId, b.category, b.amount, currentMonth]
-        );
-      }
-
-      // ── 4. Seed savings goals ─────────────────────────────────────────────
-      const goals = [
-        { name: "Emergency Fund",   targetAmount: "10000.00", currentAmount: "2500.00", targetDate: daysAgo(-365) },
-        { name: "Family Vacation",  targetAmount: "5000.00",  currentAmount: "800.00",  targetDate: daysAgo(-180) },
-      ];
-      for (const g of goals) {
-        await pool.query(
-          `INSERT INTO savings_goals (user_id, name, target_amount, current_amount, target_date, is_demo)
-           VALUES ($1, $2, $3, $4, $5, true)`,
-          [userId, g.name, g.targetAmount, g.currentAmount, g.targetDate]
-        );
-      }
-
-      res.json({
-        success: true,
-        summary: {
-          transactions: txnCount,
-          accounts: 3,
-          budgets: budgets.length,
-          goals: goals.length,
-        },
-      });
-    } catch (error: any) {
-      console.error("load-demo-data error:", error);
-      res.status(500).json({ error: "Failed to load demo data" });
-    }
-  });
-
-  return httpServer;
-}
+  

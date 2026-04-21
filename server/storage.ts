@@ -1538,7 +1538,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createIncome(insertIncome: InsertIncome & { userId: string }): Promise<Income> {
-    const result = await db.insert(income).values({
+    // Build the values object once so we can reuse it across NULL and NOT-NULL branches.
+    const externalTxnId = (insertIncome as any).externalTransactionId ?? null;
+    const values = {
       userId: insertIncome.userId,
       source: insertIncome.source,
       amount: insertIncome.amount,
@@ -1551,7 +1553,7 @@ export class DatabaseStorage implements IStorage {
       customDates: insertIncome.customDates || null,
       notes: insertIncome.notes || null,
       // Provider-agnostic dedup key (migration 0036)
-      externalTransactionId: (insertIncome as any).externalTransactionId ?? null,
+      externalTransactionId: externalTxnId,
       // Plaid account link (legacy; still used by GET /api/income filter)
       linkedPlaidAccountId: (insertIncome as any).linkedPlaidAccountId ?? null,
       // Auto-detection flags (migration 0026)
@@ -1564,17 +1566,43 @@ export class DatabaseStorage implements IStorage {
       detectionConfidence: (insertIncome as any).detectionConfidence ?? null,
       lastVerifiedAt: (insertIncome as any).lastVerifiedAt ?? null,
       lastVerifiedBy: (insertIncome as any).lastVerifiedBy ?? null,
-    })
-      .onConflictDoNothing({ target: [income.userId, income.externalTransactionId] })
+    };
+
+    // ── NULL branch: manual Add Income (no external_transaction_id) ──
+    // The partial unique index `income_user_external_txn_unique` has a
+    //   WHERE external_transaction_id IS NOT NULL
+    // predicate, so it does NOT cover NULL rows. Attempting ON CONFLICT on a
+    // key tuple containing NULL raises:
+    //   "there is no unique or exclusion constraint matching the
+    //    ON CONFLICT specification"
+    // which takes down every manual Add Income call (P0 — UAT-10 #178/#179).
+    // Skip ON CONFLICT entirely when the dedup key is NULL — there is nothing
+    // to conflict against, and two manual rows with the same source/date/amount
+    // are intentionally allowed.
+    if (externalTxnId === null || externalTxnId === undefined || externalTxnId === "") {
+      const result = await db.insert(income).values(values).returning();
+      return result[0];
+    }
+
+    // ── NOT-NULL branch: auto-detected income (Plaid/MX/etc.) ──
+    // Include the index predicate in the ON CONFLICT clause so Postgres can
+    // match the partial unique index. Drizzle emits this as:
+    //   ... ON CONFLICT (user_id, external_transaction_id)
+    //       WHERE external_transaction_id IS NOT NULL DO NOTHING
+    const result = await db.insert(income).values(values)
+      .onConflictDoNothing({
+        target: [income.userId, income.externalTransactionId],
+        where: sql`${income.externalTransactionId} IS NOT NULL`,
+      })
       .returning();
 
-    // When ON CONFLICT fires, returning() yields []. Re-fetch the existing row so
-    // the caller always gets a usable Income object.
-    if (result.length === 0 && insertIncome.userId && (insertIncome as any).externalTransactionId) {
+    // When ON CONFLICT fires, returning() yields []. Re-fetch the existing row
+    // so the caller always gets a usable Income object.
+    if (result.length === 0) {
       const existing = await db.select().from(income).where(
         and(
           eq(income.userId, insertIncome.userId),
-          eq(income.externalTransactionId, (insertIncome as any).externalTransactionId)
+          eq(income.externalTransactionId, externalTxnId)
         )
       ).limit(1);
       if (existing[0]) return existing[0];
@@ -4122,59 +4150,4 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Support Tickets
-  async createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket> {
-    const result = await db.insert(supportTickets).values({
-      ...ticket,
-      status: ticket.status || "open",
-      emailSent: ticket.emailSent || "false",
-      createdAt: ticket.createdAt || new Date().toISOString(),
-      updatedAt: ticket.updatedAt || new Date().toISOString(),
-    }).returning();
-    return result[0];
-  }
-
-  async getSupportTickets(): Promise<SupportTicket[]> {
-    return db.select().from(supportTickets).orderBy(desc(supportTickets.createdAt));
-  }
-
-  async getSupportTicketById(id: string): Promise<SupportTicket | undefined> {
-    const result = await db.select().from(supportTickets).where(eq(supportTickets.id, id));
-    return result[0];
-  }
-
-  async getSupportTicketByNumber(ticketNumber: string): Promise<SupportTicket | undefined> {
-    const result = await db.select().from(supportTickets).where(eq(supportTickets.ticketNumber, ticketNumber));
-    return result[0];
-  }
-
-  async getSupportTicketsByUserId(userId: string): Promise<SupportTicket[]> {
-    return db.select().from(supportTickets)
-      .where(eq(supportTickets.userId, userId))
-      .orderBy(desc(supportTickets.createdAt));
-  }
-
-  async updateSupportTicket(id: string, updates: Partial<SupportTicket>): Promise<SupportTicket | undefined> {
-    const result = await db.update(supportTickets)
-      .set({ ...updates, updatedAt: new Date().toISOString() })
-      .where(eq(supportTickets.id, id))
-      .returning();
-    return result[0];
-  }
-
-  async createSupportTicketMessage(msg: InsertSupportTicketMessage): Promise<SupportTicketMessage> {
-    const result = await db.insert(supportTicketMessages).values({
-      ...msg,
-      createdAt: msg.createdAt || new Date().toISOString(),
-    }).returning();
-    return result[0];
-  }
-
-  async getMessagesByTicketId(ticketId: string): Promise<SupportTicketMessage[]> {
-    return db.select().from(supportTicketMessages)
-      .where(eq(supportTicketMessages.ticketId, ticketId))
-      .orderBy(supportTicketMessages.createdAt);
-  }
-}
-
-// Use database storage for persistence
-export const storage = new DatabaseStorage();
+  async createSupportTicket(ticket: Inser
