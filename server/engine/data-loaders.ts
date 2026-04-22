@@ -35,7 +35,16 @@ export async function getAllNormalizedAccounts(
     const plaidItems = await EngineStorage.getPlaidItems(userId);
     for (const item of plaidItems) {
       const raw = await EngineStorage.getPlaidAccounts(item.id);
-      all.push(...plaidAdapter.normalizeAccounts(raw));
+      // Inject the parent plaid_item's status + institution into each account
+      // so the adapter can surface connection-health to the UI (UAT-8 #142).
+      // plaid_accounts has no status column — it lives only on plaid_items.
+      const enriched = raw.map((acc: any) => ({
+        ...acc,
+        itemStatus: item.status ?? "active",
+        plaidItemInstitutionName: item.institutionName ?? null,
+        plaidItemId: item.id,
+      }));
+      all.push(...plaidAdapter.normalizeAccounts(enriched));
     }
   }
 

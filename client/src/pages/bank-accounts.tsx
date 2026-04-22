@@ -2255,7 +2255,7 @@ export default function BankAccounts() {
                 {engineAccounts.connectionStatus.problems.map((p) => {
                   // Map accountId → plaid_item.id via accountGroups
                   let plaidItemId: string | null = null;
-                  if (p.provider === "plaid") {
+                  if (p.provider?.toLowerCase() === "plaid") {
                     for (const grp of accountGroups) {
                       if (grp.accounts.some((a) => a.id === p.accountId)) {
                         plaidItemId = grp.id;
