@@ -1369,31 +1369,80 @@ function TransactionSyncingState({ hasTransactions, onRefresh }: { hasTransactio
 }
 
 /**
- * ReconnectBankButton — opens Plaid Link in update-mode to re-authenticate an
- * EXISTING plaid_item without deleting it. Preserves every matched_expense_id,
- * matched_bill_id, matched_income_id, and category override on the user's
- * transactions. Used from the connection-status banner when a bank reports
- * ITEM_LOGIN_REQUIRED or an error state.
+ * ReconnectBankButton — 2-step flow:
+ *   Step 1: Prep dialog telling the user to open their banking app and be
+ *           ready to approve the re-auth / MFA prompt.
+ *   Step 2: Opens Plaid Link in update-mode (or MX re-auth in the future).
  *
- * Flow:
- *   1. POST /api/plaid/items/:itemId/update-link-token → { link_token }
- *   2. usePlaidLink.open() launches update-mode flow
- *   3. On success → POST /api/plaid/items/:itemId/mark-reconnected
- *   4. Invalidate account + transaction queries so UI reflects new data
+ * After successful re-auth → POST mark-reconnected → trigger sync →
+ * poll for new transactions so the user sees fresh data immediately.
+ *
+ * Provider-agnostic: the prep dialog text works for any bank. The actual
+ * re-auth link is provider-specific (Plaid today, MX when supported).
  */
 function ReconnectBankButton({
   itemId,
   institutionName,
+  provider = "Plaid",
   onReconnected,
 }: {
   itemId: string;
   institutionName: string;
+  provider?: string;
   onReconnected?: () => void;
 }) {
+  const [showPrepDialog, setShowPrepDialog] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [pendingOpen, setPendingOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
+
+  // Cleanup poll on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/engine/accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/transactions/all"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/mx/members"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/mx/transactions"] });
+    queryClient.invalidateQueries({ predicate: (q) =>
+      (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
+    });
+  };
+
+  // After mark-reconnected, trigger sync from client side and poll for data
+  const syncAndPoll = async () => {
+    setIsSyncing(true);
+    try {
+      // Trigger a client-side sync request as backup (server also fires one)
+      await apiRequest("POST", "/api/plaid/transactions/sync");
+    } catch {
+      // Server fire-and-forget will handle it; this is just a backup
+    }
+    // Poll for fresh data every 10s up to 6 times (1 min)
+    let attempts = 0;
+    pollRef.current = setInterval(async () => {
+      attempts++;
+      invalidateAll();
+      if (attempts >= 6) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setIsSyncing(false);
+        toast({
+          title: "Sync in progress",
+          description: "New transactions may take a few more minutes to appear. Try the Sync button if needed.",
+        });
+      }
+    }, 10000);
+    // Also invalidate immediately
+    invalidateAll();
+  };
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
@@ -1401,15 +1450,13 @@ function ReconnectBankButton({
       try {
         await apiRequest("POST", `/api/plaid/items/${itemId}/mark-reconnected`);
         toast({
-          title: "Bank reconnected",
+          title: "Bank reconnected!",
           description: `${institutionName} is syncing new transactions. Your categories and matches are preserved.`,
         });
-        queryClient.invalidateQueries({ queryKey: ["/api/engine/accounts"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/transactions/all"] });
+        invalidateAll();
         onReconnected?.();
+        // Start polling for new transaction data
+        syncAndPoll();
       } catch (err: any) {
         console.error("[Reconnect] mark-reconnected failed:", err);
         toast({
@@ -1437,7 +1484,9 @@ function ReconnectBankButton({
     }
   }, [pendingOpen, linkToken, ready, open]);
 
-  const handleClick = async () => {
+  // Step 2: after user acknowledges prep dialog, fetch link token and open Plaid
+  const handleProceed = async () => {
+    setShowPrepDialog(false);
     setIsLoading(true);
     try {
       const res = await apiRequest(
@@ -1463,20 +1512,58 @@ function ReconnectBankButton({
   };
 
   return (
-    <Button
-      size="sm"
-      onClick={handleClick}
-      disabled={isLoading}
-      className="gap-1.5 h-8"
-      data-testid={`button-reconnect-${itemId}`}
-    >
-      {isLoading ? (
-        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-      ) : (
-        <Link2 className="h-3.5 w-3.5" />
-      )}
-      Reconnect
-    </Button>
+    <>
+      <Button
+        size="sm"
+        onClick={() => setShowPrepDialog(true)}
+        disabled={isLoading || isSyncing}
+        className="gap-1.5 h-8"
+        data-testid={`button-reconnect-${itemId}`}
+      >
+        {isSyncing ? (
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+        ) : isLoading ? (
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Link2 className="h-3.5 w-3.5" />
+        )}
+        {isSyncing ? "Syncing…" : "Reconnect"}
+      </Button>
+
+      {/* Step 1: Prep dialog — provider-agnostic instructions */}
+      <AlertDialog open={showPrepDialog} onOpenChange={setShowPrepDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5" />
+              Reconnect {institutionName}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span className="block">
+                Your connection to <strong>{institutionName}</strong> needs to be re-authenticated. This usually happens when your bank requires a new login or security verification.
+              </span>
+              <span className="block bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-amber-800 dark:text-amber-200 text-sm">
+                <strong>⚠️ Before you proceed:</strong>
+                <ul className="list-disc list-inside mt-1 space-y-1">
+                  <li>Open your <strong>{institutionName} mobile app</strong> (or have your phone nearby)</li>
+                  <li>Be ready to <strong>approve a push notification or enter an MFA code</strong> from your bank</li>
+                  <li>The next screen will ask you to log in to {institutionName} — your bank may send a verification prompt to your phone</li>
+                </ul>
+              </span>
+              <span className="block bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-3 text-green-800 dark:text-green-200 text-sm">
+                <strong>✅ Your data is safe:</strong> All your categories, expense matches, and notes will be preserved. Only the bank login is refreshed.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleProceed}>
+              I'm Ready — Reconnect Now
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
