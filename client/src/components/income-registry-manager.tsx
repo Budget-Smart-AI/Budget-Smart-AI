@@ -18,7 +18,7 @@
  *   • Etsy variable income — Edit → Mode → "variable"
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import {
@@ -76,6 +76,17 @@ interface RegistrySource {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * When provided, auto-scroll the corresponding SourceCard into view when
+   * the modal opens. Driven by the Income page's inline Edit / Rate buttons
+   * so the user lands directly on the row they clicked instead of hunting.
+   */
+  focusSourceId?: string;
+  /**
+   * "rate" expands the schedule-rate-change form for the focused source.
+   * "edit" is a no-op beyond scroll (the edit fields are already visible).
+   */
+  focusMode?: "edit" | "rate";
 }
 
 const MODE_DESCRIPTIONS: Record<Mode, string> = {
@@ -84,7 +95,7 @@ const MODE_DESCRIPTIONS: Record<Mode, string> = {
   irregular: "Unpredictable — entrepreneurs, freelancers. Engine shows actuals only, no projection.",
 };
 
-export function IncomeRegistryManager({ open, onOpenChange }: Props) {
+export function IncomeRegistryManager({ open, onOpenChange, focusSourceId, focusMode }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -174,7 +185,12 @@ export function IncomeRegistryManager({ open, onOpenChange }: Props) {
         ) : (
           <div className="space-y-3">
             {data!.sources.map((s: RegistrySource) => (
-              <SourceCard key={s.id} source={s} />
+              <SourceCard
+                key={s.id}
+                source={s}
+                focused={focusSourceId === s.id}
+                focusMode={focusSourceId === s.id ? focusMode : undefined}
+              />
             ))}
           </div>
         )}
@@ -189,7 +205,15 @@ export function IncomeRegistryManager({ open, onOpenChange }: Props) {
   );
 }
 
-function SourceCard({ source }: { source: RegistrySource }) {
+function SourceCard({
+  source,
+  focused = false,
+  focusMode,
+}: {
+  source: RegistrySource;
+  focused?: boolean;
+  focusMode?: "edit" | "rate";
+}) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -197,7 +221,21 @@ function SourceCard({ source }: { source: RegistrySource }) {
   const [recurrence, setRecurrence] = useState(source.recurrence);
   const [mode, setMode] = useState<Mode>(source.mode);
   const [category, setCategory] = useState(source.category);
-  const [showRate, setShowRate] = useState(false);
+  // Default the rate form expanded when the parent asked us to focus on rate.
+  const [showRate, setShowRate] = useState(focusMode === "rate");
+  const cardRef = useRef<HTMLDivElement | null>(null);
+
+  // When this card is the "focused" one (Income page clicked its Edit/Rate
+  // action), scroll it into view and open the rate form if requested. The
+  // short delay lets the Dialog finish its open animation before we scroll.
+  useEffect(() => {
+    if (!focused) return;
+    if (focusMode === "rate") setShowRate(true);
+    const t = window.setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [focused, focusMode]);
   const [rateAmount, setRateAmount] = useState(
     source.activeUnitAmount?.toFixed(2) ?? "",
   );
@@ -285,7 +323,11 @@ function SourceCard({ source }: { source: RegistrySource }) {
   );
 
   return (
-    <Card data-testid={`registry-source-${source.normalizedSource}`}>
+    <Card
+      ref={cardRef}
+      data-testid={`registry-source-${source.normalizedSource}`}
+      className={focused ? "ring-2 ring-emerald-400/60 transition-shadow" : undefined}
+    >
       <CardContent className="pt-4 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">

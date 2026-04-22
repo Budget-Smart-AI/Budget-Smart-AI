@@ -89,7 +89,23 @@ interface IncomeResult {
   actualIncome: number;
   effectiveIncome: number;
   hasBankData: boolean;
-  bySource: Array<{ source: string; amount: number; category: string; isRecurring: boolean; frequency?: string }>;
+  bySource: Array<{
+    source: string;
+    amount: number;
+    category: string;
+    isRecurring: boolean;
+    frequency?: string;
+    /** Registry id — present when the row maps to an editable income_sources row. */
+    sourceId?: string;
+    /** Per-paycheck unit amount from income_source_amounts. */
+    unitAmount?: number;
+    /** Projected total for future months (unit × occurrences). */
+    expectedAmount?: number;
+    /** Whether the registry can project a non-zero amount for the period. */
+    hasProjection?: boolean;
+    /** Registry classification mode. */
+    mode?: "fixed" | "variable" | "irregular";
+  }>;
 }
 
 function formatCurrency(amount: string | number) {
@@ -648,8 +664,17 @@ export default function IncomePage() {
   const [isDetectDialogOpen, setIsDetectDialogOpen] = useState(false);
   // Step 6: registry manager dialog (rate changes + mode classification)
   const [isRegistryOpen, setIsRegistryOpen] = useState(false);
+  // When non-null, the registry manager auto-expands this source on open so
+  // the user lands directly on Edit / Rate-change for the row they clicked.
+  const [registryFocusId, setRegistryFocusId] = useState<string | undefined>();
+  const [registryFocusMode, setRegistryFocusMode] = useState<"edit" | "rate" | undefined>();
   const [editingIncome, setEditingIncome] = useState<Income | undefined>();
   const [deletingIncome, setDeleteingIncome] = useState<Income | undefined>();
+  // Inline delete for a registry-backed row in the "Detected from Bank" list.
+  const [deletingRegistrySource, setDeletingRegistrySource] = useState<{
+    id: string;
+    name: string;
+  } | undefined>();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -821,6 +846,40 @@ export default function IncomePage() {
       toast({ title: "Failed to delete income", variant: "destructive" });
     },
   });
+
+  // Delete an auto-detected registry-backed source inline from the top list.
+  // Backend does a soft-delete (isActive=false) so historical projections
+  // still resolve, but future projections stop immediately and the row
+  // disappears from bySource on next fetch.
+  const deleteRegistrySourceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/income/registry/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/income/registry"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
+      toast({ title: "Income source removed" });
+      setDeletingRegistrySource(undefined);
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Failed to remove source",
+        description: err?.message || "Try again in a moment.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Open the Registry Manager and auto-focus a specific source. The modal
+  // reads registryFocusId/Mode to scroll-into-view and expand the Rate-change
+  // form when mode === "rate". Gives every top-list row first-class Edit and
+  // Rate-change actions without duplicating the modal's controls inline.
+  const openRegistryFor = (sourceId: string, mode: "edit" | "rate") => {
+    setRegistryFocusId(sourceId);
+    setRegistryFocusMode(mode);
+    setIsRegistryOpen(true);
+  };
 
   const handleEdit = (income: Income) => {
     setEditingIncome(income);
@@ -1039,7 +1098,18 @@ export default function IncomePage() {
       )}
 
       {/* Registry Manager Dialog (Step 6) */}
-      <IncomeRegistryManager open={isRegistryOpen} onOpenChange={setIsRegistryOpen} />
+      <IncomeRegistryManager
+        open={isRegistryOpen}
+        onOpenChange={(open) => {
+          setIsRegistryOpen(open);
+          if (!open) {
+            setRegistryFocusId(undefined);
+            setRegistryFocusMode(undefined);
+          }
+        }}
+        focusSourceId={registryFocusId}
+        focusMode={registryFocusMode}
+      />
 
       {/* Detect Income Dialog */}
       <Dialog open={isDetectDialogOpen} onOpenChange={(open) => !isDetecting && setIsDetectDialogOpen(open)}>
@@ -1235,6 +1305,12 @@ export default function IncomePage() {
                     ? source.frequency.charAt(0).toUpperCase() + source.frequency.slice(1)
                     : null;
 
+                  // Registry-backed row? If yes, we offer Edit / Rate change /
+                  // Delete inline. If not, it's an unmatched bank deposit and
+                  // we fall back to the legacy "Add" flow so the user can
+                  // promote it into a real income record.
+                  const hasRegistry = Boolean(source.sourceId);
+
                   return (
                     <div key={idx} className="flex items-center justify-between py-2 px-3 rounded-md bg-background">
                       <div className="flex items-center gap-3">
@@ -1247,6 +1323,9 @@ export default function IncomePage() {
                             {source.category}
                             {frequencyLabel ? ` · ${frequencyLabel}` : ''}
                             {source.isRecurring && !frequencyLabel ? ' · Recurring' : ''}
+                            {typeof source.unitAmount === "number" && source.unitAmount > 0 && (
+                              <> · {formatCurrency(source.unitAmount)} per pay</>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -1254,7 +1333,45 @@ export default function IncomePage() {
                         <span className="font-semibold text-green-600">
                           {formatCurrency(source.amount)}
                         </span>
-                        {!alreadyInTable && (
+                        {hasRegistry ? (
+                          <div className="flex items-center gap-1" data-testid={`registry-actions-${source.sourceId}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="Schedule rate change (raise, tax change, etc.)"
+                              aria-label={`Schedule rate change for ${source.source}`}
+                              onClick={() => openRegistryFor(source.sourceId!, "rate")}
+                              data-testid={`button-rate-${source.sourceId}`}
+                            >
+                              <DollarSign className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="Edit cadence, mode, or category"
+                              aria-label={`Edit ${source.source}`}
+                              onClick={() => openRegistryFor(source.sourceId!, "edit")}
+                              data-testid={`button-edit-${source.sourceId}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                              title="Remove this income source"
+                              aria-label={`Remove ${source.source}`}
+                              onClick={() =>
+                                setDeletingRegistrySource({ id: source.sourceId!, name: source.source })
+                              }
+                              data-testid={`button-delete-${source.sourceId}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : !alreadyInTable && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -1339,96 +1456,37 @@ export default function IncomePage() {
             </div>
           )}
         </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
-            </div>
-          ) : filteredIncome.length === 0 ? (
+        {/*
+          Legacy "Sources" table removed 2026-04-21 per operator decision
+          (Ryan, UAT Wave 3): the registry in "Income Sources Detected from
+          Bank" above is now the single source of truth. The previous table
+          rendered `filteredIncome` (from /api/income), which double-counted
+          with the registry on the Dashboard and surfaced paycheck-by-paycheck
+          rows that users couldn't reconcile against their bank feed. Paycheck
+          history should come from the bank transactions view, not a parallel
+          store. `filteredIncome` / allIncome are still used for duplicate
+          detection in the "alreadyInTable" check above.
+        */}
+        {!statsLoading && (!incomeStats?.bySource || incomeStats.bySource.length === 0) && (
+          <CardContent>
             <div className="text-center py-12 text-muted-foreground">
               <DollarSign className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p className="mb-4">No income recorded matching filters</p>
-              <Button onClick={() => setIsDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Income
-              </Button>
+              <p className="mb-4">
+                No income sources yet — connect your bank or add a source manually.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <Button onClick={() => setIsRegistryOpen(true)} variant="outline">
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Detect from bank
+                </Button>
+                <Button onClick={() => setIsDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Income
+                </Button>
+              </div>
             </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortHeader label="Source" sortKey="source" />
-                  <SortHeader label="Category" sortKey="category" />
-                  <SortHeader label="Date" sortKey="date" />
-                  <SortHeader label="Amount" sortKey="amount" />
-                  <TableHead className="w-[100px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredIncome.map((inc) => (
-                  <TableRow
-                    key={inc.id}
-                    className={flaggedTransactionIds.has(inc.id) ? "border-l-2 border-l-amber-400" : ""}
-                    onMouseEnter={() => setTellerHoverId(inc.id)}
-                    onMouseLeave={() => setTellerHoverId(null)}
-                  >
-                    <TableCell className="font-medium">
-                      <div>
-                        {inc.source}
-                        {inc.isRecurring === "true" && (
-                          <Badge variant="outline" className="ml-2 text-xs">
-                            {inc.recurrence === "custom" && inc.customDates
-                              ? `Custom (Days ${JSON.parse(inc.customDates).join(", ")})`
-                              : inc.recurrence === "weekly" || inc.recurrence === "biweekly"
-                                ? inc.recurrence.charAt(0).toUpperCase() + inc.recurrence.slice(1)
-                                : inc.recurrence && inc.dueDay
-                                  ? `${inc.recurrence.charAt(0).toUpperCase() + inc.recurrence.slice(1)} (Pay Day ${inc.dueDay})`
-                                  : "Recurring"}
-                          </Badge>
-                        )}
-                        {inc.notes && (
-                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {inc.notes}
-                          </p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{inc.category}</Badge>
-                    </TableCell>
-                    <TableCell>{format(parseISO(inc.date), "MMM d, yyyy")}</TableCell>
-                    <TableCell className="text-right font-semibold text-green-600">
-                      {formatCurrency(inc.amount)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        {/* Ask AI button — visible on hover */}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={`h-8 w-8 transition-opacity ${tellerHoverId === inc.id ? "opacity-100" : "opacity-0"} text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30`}
-                          onClick={() => openTeller(inc)}
-                          aria-label="Ask AI about this income"
-                          title="Ask AI about this income"
-                        >
-                          <MessageCircle className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(inc)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteingIncome(inc)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
 
       {/* ── AI Bank Teller Chatbot ── */}
@@ -1455,6 +1513,38 @@ export default function IncomePage() {
               className="bg-destructive hover:bg-destructive/90"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Inline delete for a registry-backed "Detected from Bank" source.
+          Soft-delete: past paychecks stay visible; future projections stop. */}
+      <AlertDialog
+        open={!!deletingRegistrySource}
+        onOpenChange={(open) => !open && setDeletingRegistrySource(undefined)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove income source?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove <span className="font-medium">{deletingRegistrySource?.name}</span> from
+              your income registry? Past paychecks stay visible in history, but future
+              projections stop immediately. You can always re-detect it from bank history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                deletingRegistrySource &&
+                deleteRegistrySourceMutation.mutate(deletingRegistrySource.id)
+              }
+              disabled={deleteRegistrySourceMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-delete-registry"
+            >
+              {deleteRegistrySourceMutation.isPending ? "Removing..." : "Remove source"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

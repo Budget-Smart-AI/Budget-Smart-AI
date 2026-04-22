@@ -45,6 +45,18 @@ export interface IncomeBySourceEntry {
   category: string;
   isRecurring: boolean;
   frequency?: string;
+  /**
+   * Registry source id when this row maps to a row in income_sources.
+   * Lets the UI wire PATCH/DELETE/rate-change controls on each row.
+   * Undefined for unmatched bank deposits (Step C of calculateIncomeForPeriod).
+   */
+  sourceId?: string;
+  /**
+   * Whether the registry can project a non-zero amount for this row. False
+   * for irregular/one_time sources and for recurring sources that have no
+   * cadence dates in this window. UI uses this to suppress $0 future rows.
+   */
+  hasProjection?: boolean;
   /** Registry classification mode, when the source has a registry entry. */
   mode?: IncomeSourceMode;
   /** Confidence in the displayed amount (only meaningful for projections). */

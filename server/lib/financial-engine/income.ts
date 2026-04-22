@@ -685,6 +685,14 @@ export function calculateIncomeForPeriod(params: {
     let displayAmount: number;
     let confidence: IncomeProjectionConfidence;
     if (isFutureMonth) {
+      // Future months: skip rows we can't meaningfully project. That covers
+      // irregular, one_time, and recurring sources with no cadence dates in
+      // this window (e.g. a monthly source whose anchor day falls outside
+      // the window). Shipping zero-amount future rows confused users (UAT:
+      // "why are Credit Memo / OPOS / Old Navy showing $0 in May/June?").
+      if (!projection.hasProjection) {
+        continue;
+      }
       displayAmount = projection.expectedAmount;
       confidence = confidenceFor(src, projection.expectedAmount, actualAmount, false);
     } else {
@@ -704,6 +712,7 @@ export function calculateIncomeForPeriod(params: {
 
     bySource.push({
       source: src.displayName,
+      sourceId: src.id,
       amount: displayAmount,
       category: src.category || 'Salary',
       isRecurring: src.recurrence !== "irregular" && src.recurrence !== "one_time",
@@ -711,6 +720,7 @@ export function calculateIncomeForPeriod(params: {
       mode: (src.mode || "fixed") as IncomeSourceMode,
       confidence,
       expectedAmount: projection.hasProjection ? projection.expectedAmount : undefined,
+      hasProjection: projection.hasProjection,
       unitAmount: projection.unitAmount ?? undefined,
       expectedOccurrences: projection.expectedDates.length,
       actualOccurrences: actualCount,
