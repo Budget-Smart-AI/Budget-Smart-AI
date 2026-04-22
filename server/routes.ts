@@ -845,6 +845,36 @@ export async function registerRoutes(
       if (!bill) {
         return res.status(404).json({ error: "Bill not found" });
       }
+
+      // ── Reverse-sync: bill → linked bank transaction ──
+      // When a user edits category on the Bills & Subscriptions page,
+      // propagate to the linked plaid_transaction / mx_transaction so the
+      // Accounts page shows the same value. Mirrors the PATCH /api/expenses
+      // reverse-sync at line 1046.
+      if (parsed.data.category && bill.id) {
+        try {
+          await pool.query(
+            `UPDATE plaid_transactions
+                SET personal_category = $1,
+                    subcategory       = $1,
+                    category          = $1
+              WHERE matched_bill_id = $2`,
+            [parsed.data.category, bill.id]
+          );
+          await pool.query(
+            `UPDATE mx_transactions
+                SET personal_category = $1,
+                    subcategory       = $1,
+                    category          = $1
+              WHERE matched_bill_id = $2`,
+            [parsed.data.category, bill.id]
+          );
+        } catch (syncErr) {
+          // Non-fatal — the bill itself was saved; log and continue
+          console.error("[bill→txn reverse-sync] failed:", syncErr);
+        }
+      }
+
       res.json(bill);
     } catch (error) {
       res.status(500).json({ error: "Failed to update bill" });

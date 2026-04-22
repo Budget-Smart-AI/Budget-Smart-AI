@@ -67,6 +67,12 @@ import {
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
   ReferenceLine,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  AreaChart,
+  Area,
 } from "recharts";
 import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, Building2, Wallet, PiggyBank, Bitcoin, RefreshCw, Link2, Brain, Send, Loader2, BarChart3, AlertTriangle, HelpCircle, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -568,15 +574,19 @@ function AccountForm({ account, onClose }: { account?: InvestmentAccount; onClos
   );
 }
 
-function HoldingForm({ holding, accounts, onClose }: { holding?: Holding; accounts: InvestmentAccount[]; onClose: () => void }) {
+function HoldingForm({ holding, accounts, defaultAccountId, onClose }: { holding?: Holding; accounts: InvestmentAccount[]; defaultAccountId?: string; onClose: () => void }) {
   const { toast } = useToast();
-  const isEditing = !!holding;
+  // Edit mode only when an existing holding with a real id was passed in.
+  // (A bare { investmentAccountId } object used to flip this flag and cause
+  // PATCH /api/holdings/undefined → "Failed to update holding". Fixed
+  // 2026-04-22 by using defaultAccountId for prefill instead.)
+  const isEditing = !!(holding && holding.id);
   const [fetchingPrice, setFetchingPrice] = useState(false);
 
   const form = useForm<HoldingFormValues>({
     resolver: zodResolver(holdingFormSchema),
     defaultValues: {
-      investmentAccountId: holding?.investmentAccountId || accounts[0]?.id || "",
+      investmentAccountId: holding?.investmentAccountId || defaultAccountId || accounts[0]?.id || "",
       symbol: holding?.symbol || "",
       name: holding?.name || "",
       holdingType: (holding?.holdingType as typeof HOLDING_TYPES[number]) || "stock",
@@ -1303,15 +1313,304 @@ function EditCostBasisDialog({ holding, onClose }: { holding: Holding; onClose: 
   );
 }
 
+// ─── Portfolio performance chart (Market view) ────────────────────────────────
+// Aggregates per-symbol daily price series from Alpha Vantage into one
+// portfolio-value line. Note: uses *current* quantities for every historical
+// day — it shows what your CURRENT basket would have been worth at each
+// past moment, not historical-lot-correct P/L. Monarch does the same for
+// simple tracking without transaction history.
+type PerfPoint = { date: string; value: number };
+function PortfolioPerformanceChart({
+  holdings,
+  range,
+  onRangeChange,
+}: {
+  holdings: Holding[];
+  range: "1W" | "1M" | "3M" | "1Y" | "5Y";
+  onRangeChange: (r: "1W" | "1M" | "3M" | "1Y" | "5Y") => void;
+}) {
+  // Server supports 1M, 3M, 1Y, 5Y. 1W = slice 1M; "All" maps to 5Y.
+  const serverRange = range === "1W" ? "1M" : range;
+
+  const perfQuery = useQuery<{ prices: PerfPoint[] }>({
+    queryKey: ["/api/engine/investments/performance", serverRange, holdings.map(h => `${h.symbol}:${h.quantity}`).join(",")],
+    queryFn: async () => {
+      const symbolHoldings = holdings.filter(h => h.holdingType !== "crypto" && h.symbol);
+      if (symbolHoldings.length === 0) return { prices: [] };
+
+      // Pull each symbol's history in parallel, then fold into a per-date total.
+      const series = await Promise.all(
+        symbolHoldings.map(async (h) => {
+          try {
+            const res = await apiRequest("GET", `/api/stocks/${encodeURIComponent(h.symbol)}/history?range=${serverRange}`);
+            const data = await res.json();
+            return { symbol: h.symbol, qty: parseFloat(h.quantity || "0"), prices: data.prices || [] };
+          } catch {
+            return { symbol: h.symbol, qty: parseFloat(h.quantity || "0"), prices: [] };
+          }
+        })
+      );
+
+      // Build a date → total-value map.
+      const byDate = new Map<string, number>();
+      for (const s of series) {
+        for (const p of s.prices as Array<{ date: string; close: number } | any>) {
+          const close = typeof p.close === "number" ? p.close : parseFloat(p.close || "0");
+          if (!p.date || !Number.isFinite(close)) continue;
+          byDate.set(p.date, (byDate.get(p.date) ?? 0) + close * s.qty);
+        }
+      }
+      const prices: PerfPoint[] = Array.from(byDate.entries())
+        .map(([date, value]) => ({ date, value }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      // 1W → last 7 trading days of the 1M series.
+      if (range === "1W") {
+        return { prices: prices.slice(-7) };
+      }
+      return { prices };
+    },
+    enabled: holdings.length > 0,
+    staleTime: 1000 * 60 * 10, // 10 min
+  });
+
+  const prices = perfQuery.data?.prices ?? [];
+  const firstValue = prices[0]?.value ?? 0;
+  const lastValue = prices[prices.length - 1]?.value ?? 0;
+  const change = lastValue - firstValue;
+  const changePct = firstValue > 0 ? (change / firstValue) * 100 : 0;
+
+  const RANGES: Array<{ key: "1W" | "1M" | "3M" | "1Y" | "5Y"; label: string }> = [
+    { key: "1W", label: "1W" },
+    { key: "1M", label: "1M" },
+    { key: "3M", label: "3M" },
+    { key: "1Y", label: "1Y" },
+    { key: "5Y", label: "5Y" },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="p-3 sm:p-6 pb-0 sm:pb-0">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <CardTitle className="text-base sm:text-xl">Performance</CardTitle>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-2xl sm:text-3xl font-bold">{formatCurrency(lastValue)}</span>
+              {prices.length > 1 && (
+                <span className={`text-xs sm:text-sm font-medium ${change >= 0 ? "text-green-600" : "text-red-600"}`}>
+                  {change >= 0 ? "+" : ""}{formatCurrency(change)} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(2)}%) {range}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-1 flex-wrap">
+            {RANGES.map(r => (
+              <Button
+                key={r.key}
+                size="sm"
+                variant={range === r.key ? "default" : "outline"}
+                className="h-7 text-xs px-2.5"
+                onClick={() => onRangeChange(r.key)}
+              >
+                {r.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-3 sm:p-6">
+        {perfQuery.isLoading ? (
+          <div className="flex items-center justify-center h-[240px]">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : prices.length < 2 ? (
+          <div className="flex items-center justify-center h-[240px] text-sm text-muted-foreground text-center px-4">
+            Not enough price history to chart. Try refreshing prices, or switch to a longer timeframe.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <AreaChart data={prices} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="portfolio-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={change >= 0 ? "#10b981" : "#ef4444"} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={change >= 0 ? "#10b981" : "#ef4444"} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="rgb(var(--border-rgb,229 231 235))" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10 }}
+                tickFormatter={(d) => {
+                  const date = new Date(d);
+                  return range === "5Y" || range === "1Y"
+                    ? date.toLocaleDateString(undefined, { month: "short", year: "2-digit" })
+                    : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                }}
+                minTickGap={24}
+              />
+              <YAxis
+                tick={{ fontSize: 10 }}
+                tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                width={48}
+              />
+              <RechartsTooltip
+                labelFormatter={(d) => new Date(d).toLocaleDateString()}
+                formatter={(v: any) => [formatCurrency(v), "Portfolio"]}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={change >= 0 ? "#10b981" : "#ef4444"}
+                strokeWidth={2}
+                fill="url(#portfolio-fill)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Allocation donut (Allocation view) ───────────────────────────────────────
+// Asset-class breakdown of current portfolio value. Grouped by holdingType
+// (stock / etf / bond / crypto / mutual_fund / other).
+const ALLOCATION_COLORS: Record<string, string> = {
+  stock: "#2563eb",
+  etf: "#0ea5e9",
+  mutual_fund: "#14b8a6",
+  bond: "#6366f1",
+  crypto: "#f59e0b",
+  cash: "#10b981",
+  other: "#94a3b8",
+};
+function AllocationDonut({ holdings }: { holdings: Holding[] }) {
+  // Totals per asset class
+  const byType = new Map<string, number>();
+  for (const h of holdings) {
+    const v = parseFloat(h.currentValue || "0");
+    if (!Number.isFinite(v) || v <= 0) continue;
+    byType.set(h.holdingType, (byType.get(h.holdingType) ?? 0) + v);
+  }
+  const total = Array.from(byType.values()).reduce((a, b) => a + b, 0);
+  const data = Array.from(byType.entries())
+    .map(([type, value]) => ({
+      name: type.replace(/_/g, " ").toUpperCase(),
+      key: type,
+      value,
+      pct: total > 0 ? (value / total) * 100 : 0,
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  // Per-holding slices for the outer ring
+  const holdingSlices = holdings
+    .map(h => ({
+      name: h.symbol,
+      value: parseFloat(h.currentValue || "0"),
+      type: h.holdingType,
+    }))
+    .filter(s => Number.isFinite(s.value) && s.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  if (total <= 0 || data.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base sm:text-xl">Allocation</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-[240px] text-sm text-muted-foreground">
+            Add holdings with a current value to see your allocation.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="p-3 sm:p-6 pb-0 sm:pb-0">
+        <CardTitle className="text-base sm:text-xl">Allocation</CardTitle>
+        <CardDescription className="text-xs">Breakdown of your portfolio by asset class.</CardDescription>
+      </CardHeader>
+      <CardContent className="p-3 sm:p-6">
+        <div className="grid gap-4 sm:grid-cols-2 items-center">
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              {/* Outer ring: individual holdings */}
+              <Pie
+                data={holdingSlices}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                innerRadius={70}
+                outerRadius={100}
+                paddingAngle={1}
+              >
+                {holdingSlices.map((s, i) => (
+                  <Cell key={`outer-${i}`} fill={ALLOCATION_COLORS[s.type] || ALLOCATION_COLORS.other} opacity={0.75} />
+                ))}
+              </Pie>
+              {/* Inner ring: asset classes */}
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                innerRadius={38}
+                outerRadius={64}
+                paddingAngle={1}
+              >
+                {data.map((d, i) => (
+                  <Cell key={`inner-${i}`} fill={ALLOCATION_COLORS[d.key] || ALLOCATION_COLORS.other} />
+                ))}
+              </Pie>
+              <RechartsTooltip
+                formatter={(v: any, name: any) => [formatCurrency(v), name]}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="space-y-2">
+            {data.map(d => (
+              <div key={d.key} className="flex items-center justify-between gap-2 text-sm">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="inline-block h-3 w-3 rounded-sm flex-shrink-0"
+                    style={{ backgroundColor: ALLOCATION_COLORS[d.key] || ALLOCATION_COLORS.other }}
+                  />
+                  <span className="font-medium truncate">{d.name}</span>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="font-medium">{formatCurrency(d.value)}</div>
+                  <div className="text-xs text-muted-foreground">{d.pct.toFixed(1)}%</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Investments() {
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [holdingDialogOpen, setHoldingDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<InvestmentAccount | undefined>();
   const [editingHolding, setEditingHolding] = useState<Holding | undefined>();
+  // Prefill state is separate from edit state — "Add Holding" with an account
+  // pre-selected should still POST /api/holdings, not PATCH /api/holdings/undefined.
+  const [prefillAccountId, setPrefillAccountId] = useState<string | undefined>();
   const [editingCostBasisHolding, setEditingCostBasisHolding] = useState<Holding | undefined>();
   const [selectedChartSymbol, setSelectedChartSymbol] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteType, setDeleteType] = useState<"account" | "holding">("account");
+  // Sub-tab inside the Portfolio tab: "market" = performance chart, "allocation" = donut
+  const [portfolioView, setPortfolioView] = useState<"market" | "allocation">("market");
+  // Timeframe for the performance chart
+  const [chartRange, setChartRange] = useState<"1W" | "1M" | "3M" | "1Y" | "5Y">("1M");
   const { toast } = useToast();
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery<InvestmentAccount[]>({
@@ -1414,7 +1713,10 @@ export default function Investments() {
 
           <Dialog open={holdingDialogOpen} onOpenChange={(open) => {
             setHoldingDialogOpen(open);
-            if (!open) setEditingHolding(undefined);
+            if (!open) {
+              setEditingHolding(undefined);
+              setPrefillAccountId(undefined);
+            }
           }}>
             <DialogTrigger asChild>
               <Button disabled={accounts.length === 0} size="sm" className="text-xs sm:text-sm">
@@ -1425,12 +1727,18 @@ export default function Investments() {
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>{editingHolding ? "Edit" : "Add"} Holding</DialogTitle>
+                <DialogTitle>{editingHolding?.id ? "Edit" : "Add"} Holding</DialogTitle>
               </DialogHeader>
-              <HoldingForm holding={editingHolding} accounts={accounts} onClose={() => {
-                setHoldingDialogOpen(false);
-                setEditingHolding(undefined);
-              }} />
+              <HoldingForm
+                holding={editingHolding}
+                accounts={accounts}
+                defaultAccountId={prefillAccountId}
+                onClose={() => {
+                  setHoldingDialogOpen(false);
+                  setEditingHolding(undefined);
+                  setPrefillAccountId(undefined);
+                }}
+              />
             </DialogContent>
           </Dialog>
         </div>
@@ -1491,6 +1799,39 @@ export default function Investments() {
         </TabsList>
 
         <TabsContent value="portfolio" className="space-y-4">
+          {/* Market / Allocation toggle */}
+          {holdings.length > 0 && (
+            <div className="inline-flex rounded-md border bg-muted/40 p-0.5">
+              <Button
+                size="sm"
+                variant={portfolioView === "market" ? "default" : "ghost"}
+                className="h-7 text-xs px-3"
+                onClick={() => setPortfolioView("market")}
+              >
+                <TrendingUp className="h-3 w-3 mr-1" />Market
+              </Button>
+              <Button
+                size="sm"
+                variant={portfolioView === "allocation" ? "default" : "ghost"}
+                className="h-7 text-xs px-3"
+                onClick={() => setPortfolioView("allocation")}
+              >
+                <BarChart3 className="h-3 w-3 mr-1" />Allocation
+              </Button>
+            </div>
+          )}
+
+          {holdings.length > 0 && portfolioView === "market" && (
+            <PortfolioPerformanceChart
+              holdings={holdings}
+              range={chartRange}
+              onRangeChange={setChartRange}
+            />
+          )}
+          {holdings.length > 0 && portfolioView === "allocation" && (
+            <AllocationDonut holdings={holdings} />
+          )}
+
           {/* Accounts */}
           <Card>
             <CardHeader>
@@ -1542,9 +1883,9 @@ export default function Investments() {
                                 variant="outline"
                                 className="h-6 text-xs px-2 py-0"
                                 onClick={() => {
+                                  // Open ADD dialog with this account pre-selected.
                                   setEditingHolding(undefined);
-                                  // Pre-select this account in the form
-                                  setEditingHolding({ investmentAccountId: account.id } as any);
+                                  setPrefillAccountId(account.id);
                                   setHoldingDialogOpen(true);
                                 }}
                               >
