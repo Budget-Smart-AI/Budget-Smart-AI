@@ -79,6 +79,7 @@ import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, BILL_CATEGORIES, MANUAL_ACCOUNT_TYPES, MX_SUPPORTED_COUNTRIES, type PlaidTransaction, type ManualAccount, type ManualTransaction } from "@shared/schema";
+import { getEffectiveCategory, getEffectiveCategoryBucket } from "@shared/categoryResolver";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditCardIcon, TrendingUp, ScanLine } from "lucide-react";
@@ -109,23 +110,33 @@ const CATEGORY_COLORS: Record<string, string> = {
   'Other':            '#71717a',
 };
 
-const CATEGORY_TAXONOMY: Record<string, string[]> = {
-  'Food & Dining': ['Groceries','Supermarket','Restaurants','Fast Food','Coffee Shops','Bars & Alcohol','Food Delivery','Meal Kits'],
-  'Shopping': ['Online Shopping','Clothing & Apparel','Electronics','Home & Garden','Sporting Goods','Pharmacies','Department Stores','Wholesale Clubs'],
-  'Transportation': ['Gas & Fuel','Parking','Rideshare','Public Transit','Auto Insurance','Auto Maintenance','Car Payments','Tolls'],
-  'Housing': ['Rent','Mortgage','Home Insurance','Home Maintenance','Utilities - Electric','Utilities - Gas','Utilities - Water','Internet','Cable & Satellite'],
-  'Health & Wellness': ['Doctor & Medical','Dental','Vision','Pharmacy & Prescriptions','Health Insurance','Gym & Fitness','Mental Health'],
-  'Entertainment': ['Streaming Services','Gaming','Movies & Events','Music','Sports & Recreation','Hobbies'],
-  'Subscriptions': ['Software & Apps','News & Magazines','Cloud Storage','Membership Clubs'],
-  'Financial': ['Bank Fees','ATM Withdrawals','Credit Card Payments','Loan Payments','Investment Contributions','Tax Payments'],
-  'Income': ['Salary & Wages','Freelance Income','Business Income','Investment Returns','Government Benefits','Refunds & Cashback'],
-  'Personal Care': ['Hair & Beauty','Spa & Massage','Personal Products'],
-  'Education': ['Tuition & Fees','Books & Supplies','Online Courses','Childcare'],
-  'Travel': ['Hotels & Lodging','Flights','Vacation Packages','Travel Insurance','Car Rental'],
+// Top-level buckets are rendered in alphabetical order with "Other" pinned
+// last; each bucket's children are also alphabetized. 2026-04-21 pass.
+const CATEGORY_TAXONOMY_RAW: Record<string, string[]> = {
+  'Education': ['Books & Supplies','Childcare','Online Courses','Tuition & Fees'],
+  'Entertainment': ['Gaming','Hobbies','Movies & Events','Music','Sports & Recreation','Streaming Services'],
+  'Financial': ['ATM Withdrawals','Bank Fees','Credit Card Payments','Investment Contributions','Loan Payments','Tax Payments'],
+  'Food & Dining': ['Bars & Alcohol','Coffee Shops','Fast Food','Food Delivery','Groceries','Meal Kits','Restaurants','Supermarket'],
   'Gifts & Donations': ['Charitable Donations','Gifts','Religious Contributions'],
+  'Health & Wellness': ['Dental','Doctor & Medical','Gym & Fitness','Health Insurance','Mental Health','Pharmacy & Prescriptions','Vision'],
+  'Housing': ['Cable & Satellite','Home Insurance','Home Maintenance','Internet','Mortgage','Rent','Utilities - Electric','Utilities - Gas','Utilities - Water'],
+  'Income': ['Business Income','Freelance Income','Government Benefits','Investment Returns','Refunds & Cashback','Salary & Wages'],
+  'Personal Care': ['Hair & Beauty','Personal Products','Spa & Massage'],
+  'Shopping': ['Clothing & Apparel','Department Stores','Electronics','Home & Garden','Online Shopping','Pharmacies','Sporting Goods','Wholesale Clubs'],
+  'Subscriptions': ['Cloud Storage','Membership Clubs','News & Magazines','Software & Apps'],
   'Transfers': ['Account Transfers','E-Transfers','Peer Payments'],
-  'Other': ['Uncategorized','Miscellaneous'],
+  'Transportation': ['Auto Insurance','Auto Maintenance','Car Payments','Gas & Fuel','Parking','Public Transit','Rideshare','Tolls'],
+  'Travel': ['Car Rental','Flights','Hotels & Lodging','Travel Insurance','Vacation Packages'],
+  'Other': ['Miscellaneous','Uncategorized'],
 };
+// Ordered entries for dropdown rendering: A→Z top-level, Other last.
+const CATEGORY_TAXONOMY_ENTRIES: Array<[string, string[]]> = (() => {
+  const entries = Object.entries(CATEGORY_TAXONOMY_RAW);
+  const other = entries.filter(([k]) => k === 'Other');
+  const rest = entries.filter(([k]) => k !== 'Other').sort((a, b) => a[0].localeCompare(b[0]));
+  return [...rest, ...other];
+})();
+const CATEGORY_TAXONOMY: Record<string, string[]> = CATEGORY_TAXONOMY_RAW;
 
 function formatCurrency(amount: string | number, currency: string = "CAD") {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -1357,6 +1368,118 @@ function TransactionSyncingState({ hasTransactions, onRefresh }: { hasTransactio
   );
 }
 
+/**
+ * ReconnectBankButton — opens Plaid Link in update-mode to re-authenticate an
+ * EXISTING plaid_item without deleting it. Preserves every matched_expense_id,
+ * matched_bill_id, matched_income_id, and category override on the user's
+ * transactions. Used from the connection-status banner when a bank reports
+ * ITEM_LOGIN_REQUIRED or an error state.
+ *
+ * Flow:
+ *   1. POST /api/plaid/items/:itemId/update-link-token → { link_token }
+ *   2. usePlaidLink.open() launches update-mode flow
+ *   3. On success → POST /api/plaid/items/:itemId/mark-reconnected
+ *   4. Invalidate account + transaction queries so UI reflects new data
+ */
+function ReconnectBankButton({
+  itemId,
+  institutionName,
+  onReconnected,
+}: {
+  itemId: string;
+  institutionName: string;
+  onReconnected?: () => void;
+}) {
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [pendingOpen, setPendingOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess: async () => {
+      try {
+        await apiRequest("POST", `/api/plaid/items/${itemId}/mark-reconnected`);
+        toast({
+          title: "Bank reconnected",
+          description: `${institutionName} is syncing new transactions. Your categories and matches are preserved.`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/engine/accounts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/transactions/all"] });
+        onReconnected?.();
+      } catch (err: any) {
+        console.error("[Reconnect] mark-reconnected failed:", err);
+        toast({
+          title: "Reconnect succeeded but status refresh failed",
+          description: "Please try a manual Sync. Your data is preserved.",
+          variant: "destructive",
+        });
+      } finally {
+        setLinkToken(null);
+      }
+    },
+    onExit: (err) => {
+      if (err) {
+        console.error("[Reconnect] Plaid Link onExit error:", err);
+      }
+      setLinkToken(null);
+    },
+  });
+
+  // Auto-open once token is ready (usePlaidLink needs a render cycle before open() works).
+  useEffect(() => {
+    if (pendingOpen && linkToken && ready) {
+      setPendingOpen(false);
+      open();
+    }
+  }, [pendingOpen, linkToken, ready, open]);
+
+  const handleClick = async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiRequest(
+        "POST",
+        `/api/plaid/items/${itemId}/update-link-token`,
+      );
+      const data = await res.json();
+      if (!data?.link_token) {
+        throw new Error(data?.message || "No link token returned");
+      }
+      setLinkToken(data.link_token);
+      setPendingOpen(true);
+    } catch (err: any) {
+      console.error("[Reconnect] update-link-token failed:", err);
+      toast({
+        title: "Could not start reconnect",
+        description: err?.message || "Please try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      onClick={handleClick}
+      disabled={isLoading}
+      className="gap-1.5 h-8"
+      data-testid={`button-reconnect-${itemId}`}
+    >
+      {isLoading ? (
+        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <Link2 className="h-3.5 w-3.5" />
+      )}
+      Reconnect
+    </Button>
+  );
+}
+
 export default function BankAccounts() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [search, setSearch] = useState("");
@@ -2092,7 +2215,12 @@ export default function BankAccounts() {
       {/* Provider-agnostic connection-health banner. Reads engine-derived
           itemStatus so Plaid AND MX reauth / error states surface uniformly
           (UAT-8 #142 / RC-7). Keeps the page honest about silently-broken
-          syncs without embedding per-provider knowledge in the UI. */}
+          syncs without embedding per-provider knowledge in the UI.
+
+          Update-mode (2026-04-21): for Plaid problems, derive the plaid_item.id
+          from accountGroups so we can render a Reconnect button that launches
+          Plaid Link in update mode — preserves all matched_expense_id /
+          matched_bill_id / matched_income_id / category overrides. */}
       {engineAccounts?.connectionStatus?.problems?.length ? (
         <div
           className={`rounded-md border p-4 ${
@@ -2120,27 +2248,47 @@ export default function BankAccounts() {
                 {engineAccounts.connectionStatus.anyReauthRequired
                   ? "One or more of your banks need re-authentication. Transactions will stop syncing until you reconnect."
                   : "One or more of your banks reported an error during the last sync."}
+                {" "}
+                <span className="italic">Reconnecting preserves your categories, matches, and notes.</span>
               </p>
               <ul className="mt-2 space-y-1 text-sm">
-                {engineAccounts.connectionStatus.problems.map((p) => (
-                  <li key={p.accountId} className="flex items-center gap-2">
-                    <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                    <span className="font-medium">{p.institution}</span>
-                    <span className="text-muted-foreground">
-                      — {p.accountName}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className={
-                        p.status === "reauth_required"
-                          ? "border-amber-400 text-amber-700"
-                          : "border-red-400 text-red-700"
+                {engineAccounts.connectionStatus.problems.map((p) => {
+                  // Map accountId → plaid_item.id via accountGroups
+                  let plaidItemId: string | null = null;
+                  if (p.provider === "plaid") {
+                    for (const grp of accountGroups) {
+                      if (grp.accounts.some((a) => a.id === p.accountId)) {
+                        plaidItemId = grp.id;
+                        break;
                       }
-                    >
-                      {p.status.replace("_", " ")}
-                    </Badge>
-                  </li>
-                ))}
+                    }
+                  }
+                  return (
+                    <li key={p.accountId} className="flex items-center gap-2 flex-wrap">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                      <span className="font-medium">{p.institution}</span>
+                      <span className="text-muted-foreground">
+                        — {p.accountName}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={
+                          p.status === "reauth_required"
+                            ? "border-amber-400 text-amber-700"
+                            : "border-red-400 text-red-700"
+                        }
+                      >
+                        {p.status.replace("_", " ")}
+                      </Badge>
+                      {plaidItemId ? (
+                        <ReconnectBankButton
+                          itemId={plaidItemId}
+                          institutionName={p.institution}
+                        />
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           </div>
@@ -2628,28 +2776,26 @@ export default function BankAccounts() {
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <button className="focus:outline-none">
-                                    {(tx as any).subcategory ? (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-xs cursor-pointer hover:opacity-80 transition-opacity"
-                                        style={{
-                                          borderColor: CATEGORY_COLORS[(tx as any).category || 'Other'] || '#71717a',
-                                          color: CATEGORY_COLORS[(tx as any).category || 'Other'] || '#71717a',
-                                        }}
-                                      >
-                                        {(tx as any).subcategory}
-                                      </Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="text-xs cursor-pointer hover:opacity-80">
-                                        {tx.personalCategory || "Other"}
-                                      </Badge>
-                                    )}
+                                    {/* Use the shared resolver so Accounts, Expenses and Bills pages
+                                        render the same label for the same tx. Color chip reads from
+                                        the parent bucket (personalCategory/category) so a "Grocery"
+                                        subcategory still gets the "Food & Dining" green. */}
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                                      style={{
+                                        borderColor: CATEGORY_COLORS[getEffectiveCategoryBucket(tx as any)] || '#71717a',
+                                        color: CATEGORY_COLORS[getEffectiveCategoryBucket(tx as any)] || '#71717a',
+                                      }}
+                                    >
+                                      {getEffectiveCategory(tx as any)}
+                                    </Badge>
                                   </button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto w-52">
                                   <DropdownMenuLabel className="text-xs text-muted-foreground">Change category</DropdownMenuLabel>
                                   <DropdownMenuSeparator />
-                                  {Object.entries(CATEGORY_TAXONOMY).map(([cat, subs]) => (
+                                  {CATEGORY_TAXONOMY_ENTRIES.map(([cat, subs]) => (
                                     <div key={cat}>
                                       <DropdownMenuLabel
                                         className="text-xs font-semibold py-1"
@@ -2668,10 +2814,20 @@ export default function BankAccounts() {
                                                 subcategory: sub,
                                                 transactionType: 'plaid',
                                               });
+                                              // Invalidate every cache that renders a category label
+                                              // for this tx. Previously only invalidated
+                                              // /api/plaid/transactions — Expenses/Bills/Dashboard
+                                              // kept rendering the old value.
                                               queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+                                              queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+                                              queryClient.invalidateQueries({ queryKey: ["/api/bills"] });
+                                              queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
+                                              queryClient.invalidateQueries({ queryKey: ["/api/engine/budgets"] });
+                                              queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string)?.startsWith?.("/api/transactions/all") ?? false });
                                               toast({ title: "Category updated" });
-                                            } catch {
-                                              toast({ title: "Failed to update category", variant: "destructive" });
+                                            } catch (err: any) {
+                                              console.error("[category] PATCH failed:", err);
+                                              toast({ title: "Failed to update category", description: err?.message || "", variant: "destructive" });
                                             }
                                           }}
                                         >

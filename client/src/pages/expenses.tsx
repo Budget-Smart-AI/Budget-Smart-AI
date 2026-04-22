@@ -90,6 +90,7 @@ import { format, parseISO, startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema";
+import { getEffectiveCategory } from "@shared/categoryResolver";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
 
@@ -280,8 +281,8 @@ function ExpenseSummary({ expense, onClose }: { expense: Expense; onClose: () =>
         </div>
         <div>
           <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Category</p>
-          <Badge className={`text-xs font-medium ${getCategoryColor(expense.category)}`} variant="secondary">
-            {expense.category}
+          <Badge className={`text-xs font-medium ${getCategoryColor(getEffectiveCategory(expense as any))}`} variant="secondary">
+            {getEffectiveCategory(expense as any)}
           </Badge>
         </div>
         {expense.notes && (

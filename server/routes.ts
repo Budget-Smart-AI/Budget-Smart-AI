@@ -7180,6 +7180,136 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
     }
   });
 
+  // ── Plaid Link update-mode ─────────────────────────────────────────────────
+  // Issues a link_token bound to an EXISTING plaid_item's access_token so the
+  // user can re-authenticate with their bank WITHOUT removing the Item.
+  //
+  // Use case: plaid_items.status = 'error' (ITEM_LOGIN_REQUIRED, bank MFA
+  // challenge, password change, expired consent, etc). Previously the only
+  // remedy was delete+re-add, which wipes every matched_expense_id /
+  // matched_bill_id / matched_income_id / category_override link on the
+  // user's transactions. Update-mode preserves the Item id, so all user
+  // edits (categories, reconciliations, notes) remain intact.
+  //
+  // Plaid docs: https://plaid.com/docs/link/update-mode/
+  app.post("/api/plaid/items/:itemId/update-link-token", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const itemIdParam = req.params.itemId;
+
+      // Look up the item and verify ownership
+      const item = await storage.getPlaidItem(itemIdParam);
+      if (!item) {
+        return res.status(404).json({ error: "Item not found" });
+      }
+      if (item.userId !== userId) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+
+      const { plaidClient, PLAID_COUNTRY_CODES, PLAID_LANGUAGE } = await import("./plaid");
+
+      // In update mode we pass `access_token` and omit `products`. Plaid
+      // recognises the token, loads the original Item config, and launches
+      // the institution's re-auth / MFA flow. On success the public_token
+      // returned by Link is NOT exchanged — the original access_token stays
+      // valid. The client just needs to POST back to /mark-reconnected so
+      // we can flip plaid_items.status from 'error' back to 'active' and
+      // kick off a fresh sync.
+      try {
+        const response = await plaidClient.linkTokenCreate({
+          user: { client_user_id: String(userId) },
+          client_name: "Budget Smart AI",
+          country_codes: PLAID_COUNTRY_CODES,
+          language: PLAID_LANGUAGE,
+          access_token: item.accessToken, // storage._decryptPlaidItem already decrypted
+          webhook: process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`,
+        });
+
+        console.log(
+          `[Plaid Update Mode] Issued link_token for item ${item.id} (${item.institutionName}), user ${userId}`
+        );
+
+        return res.json({
+          link_token: response.data.link_token,
+          item_id: item.id,
+          institution_name: item.institutionName,
+        });
+      } catch (plaidErr: any) {
+        const errorCode = plaidErr?.response?.data?.error_code;
+        const errorMessage = plaidErr?.response?.data?.error_message || plaidErr?.message;
+        console.error(`[Plaid Update Mode] linkTokenCreate failed:`, {
+          item_id: item.id,
+          error_code: errorCode,
+          error_message: errorMessage,
+        });
+        return res.status(502).json({
+          error: "plaid_update_link_failed",
+          error_code: errorCode,
+          message: errorMessage,
+        });
+      }
+    } catch (error: any) {
+      console.error("[Plaid Update Mode] Fatal error:", error?.response?.data || error);
+      res.status(500).json({ error: "Failed to create update-mode link token" });
+    }
+  });
+
+  // After the user successfully completes Plaid Link update-mode on the
+  // client, this endpoint marks the Item healthy again and triggers a fresh
+  // /transactions/sync so new data flows immediately.
+  app.post("/api/plaid/items/:itemId/mark-reconnected", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const itemIdParam = req.params.itemId;
+
+      const item = await storage.getPlaidItem(itemIdParam);
+      if (!item) {
+        return res.status(404).json({ error: "Item not found" });
+      }
+      if (item.userId !== userId) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+
+      await storage.updatePlaidItem(item.id, { status: "active" });
+
+      // Fire-and-forget: kick off sync so fresh data arrives without forcing
+      // the user to press "Sync" themselves.
+      setImmediate(async () => {
+        try {
+          const { syncTransactions } = await import("./plaid");
+          console.log(`[Plaid Update Mode] Kicking off sync after reconnect for item ${item.id}...`);
+          const result = await syncTransactions(item.accessToken, item.id, userId);
+          console.log(
+            `[Plaid Update Mode] Post-reconnect sync: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`
+          );
+        } catch (syncErr: any) {
+          console.warn(
+            `[Plaid Update Mode] Post-reconnect sync failed (will rely on webhook):`,
+            syncErr?.response?.data?.error_code || syncErr?.message
+          );
+        }
+      });
+
+      auditLogFromRequest(req, {
+        eventType: "data.bank_reconnected",
+        eventCategory: "data",
+        actorId: userId,
+        action: "plaid_item_reconnected_update_mode",
+        outcome: "success",
+        metadata: { itemId: item.id, institutionName: item.institutionName },
+      });
+
+      return res.json({
+        success: true,
+        item: { id: item.id, institutionName: item.institutionName, status: "active" },
+        message: "Connection restored. New transactions are syncing now.",
+      });
+    } catch (error: any) {
+      console.error("[Plaid Update Mode] mark-reconnected failed:", error?.response?.data || error);
+      res.status(500).json({ error: "Failed to mark item as reconnected" });
+    }
+  });
+
   // Get all linked accounts
   app.get("/api/plaid/accounts", requireAuth, async (req, res) => {
     try {
@@ -7508,6 +7638,23 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   });
 
   // Correct category for a transaction (Plaid, MX, or Manual)
+  // ─── Unified category write path (2026-04-21) ──────────────────────────
+  //
+  // Previously this endpoint only wrote `category` + `subcategory` on the
+  // provider table. That was the source of a visible data-consistency bug:
+  // a user changing PC Express on Accounts saw the update there, but the
+  // Expenses page still read the stale `expenses.category` and the
+  // `personal_category` bucket column stayed wrong, breaking
+  // category-color chips and budget analytics.
+  //
+  // This version writes ALL three columns on the provider row
+  // (category + subcategory + personal_category), and fans out to the
+  // linked `expenses` / `bills` rows via matched_expense_id /
+  // matched_bill_id so every page sees the same value on the next
+  // refetch.
+  //
+  // Clients should still invalidate /api/expenses + /api/plaid/transactions
+  // + /api/engine/dashboard after the call so stale caches don't mask the fix.
   app.patch("/api/transactions/:id/category", requireAuth, async (req, res) => {
     try {
       const id = req.params.id as string;
@@ -7523,10 +7670,28 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       const pool = (db as any).$client as import('pg').Pool;
       const type = transactionType || 'plaid';
 
+      // Helper: update linked expense/bill rows so the Expenses and
+      // Bills pages don't render a stale category for a reconciled tx.
+      async function fanoutToLinkedRows(matchedExpenseId: string | null, matchedBillId: string | null) {
+        if (matchedExpenseId) {
+          await pool.query(
+            `UPDATE expenses SET category = $1 WHERE id = $2 AND user_id = $3`,
+            [category, matchedExpenseId, userId]
+          ).catch((e: any) => console.warn("[category-fanout] expenses update failed:", e?.message));
+        }
+        if (matchedBillId) {
+          await pool.query(
+            `UPDATE bills SET category = $1 WHERE id = $2 AND user_id = $3`,
+            [category, matchedBillId, userId]
+          ).catch((e: any) => console.warn("[category-fanout] bills update failed:", e?.message));
+        }
+      }
+
       if (type === 'plaid') {
         // Verify ownership via account
         const check = await pool.query(
-          `SELECT pt.id FROM plaid_transactions pt
+          `SELECT pt.id, pt.matched_expense_id, pt.matched_bill_id
+           FROM plaid_transactions pt
            JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
            JOIN plaid_items pi ON pi.id = pa.plaid_item_id
            WHERE pt.id = $1 AND pi.user_id = $2`,
@@ -7537,10 +7702,11 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         const updateFields: string[] = [
           'category = $1',
           'subcategory = $2',
-          'enrichment_source = $3',
-          'enrichment_confidence = $4',
+          'personal_category = $3',
+          'enrichment_source = $4',
+          'enrichment_confidence = $5',
         ];
-        const values: unknown[] = [category, subcategory || null, 'user_correction', '1.00'];
+        const values: unknown[] = [category, subcategory || null, category, 'user_correction', '1.00'];
         if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
         values.push(id);
         const { rows } = await pool.query(
@@ -7548,22 +7714,29 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           values
         );
 
-        // Update enrichment cache
-        if (check.rows.length > 0) {
-          const tx = await pool.query(`SELECT name FROM plaid_transactions WHERE id = $1`, [id]);
-          if (tx.rows.length > 0) {
-            const normalized = (tx.rows[0].name as string).toUpperCase().replace(/\s+/g, ' ').trim();
-            await pool.query(
-              `UPDATE merchant_enrichment SET category = $1, subcategory = $2, source = 'user_correction', confidence = 1.0 WHERE raw_pattern = $3`,
-              [category, subcategory || null, normalized]
-            ).catch(() => {});
-          }
+        // Update enrichment cache so future txs with the same merchant name
+        // inherit the user's correction automatically.
+        const tx = await pool.query(`SELECT name FROM plaid_transactions WHERE id = $1`, [id]);
+        if (tx.rows.length > 0) {
+          const normalized = (tx.rows[0].name as string).toUpperCase().replace(/\s+/g, ' ').trim();
+          await pool.query(
+            `UPDATE merchant_enrichment SET category = $1, subcategory = $2, source = 'user_correction', confidence = 1.0 WHERE raw_pattern = $3`,
+            [category, subcategory || null, normalized]
+          ).catch(() => {});
         }
+
+        // Fan out to reconciled expense/bill so the Expenses and Bills
+        // pages pick up the change on the next refetch.
+        await fanoutToLinkedRows(
+          check.rows[0].matched_expense_id as string | null,
+          check.rows[0].matched_bill_id as string | null
+        );
 
         return res.json(rows[0]);
       } else if (type === 'mx') {
         const check = await pool.query(
-          `SELECT mt.id FROM mx_transactions mt
+          `SELECT mt.id, mt.matched_expense_id, mt.matched_bill_id
+           FROM mx_transactions mt
            JOIN mx_accounts ma ON ma.id = mt.mx_account_id
            JOIN mx_members mm ON mm.id = ma.member_id
            WHERE mt.id = $1 AND mm.user_id = $2`,
@@ -7571,17 +7744,29 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         );
         if (check.rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
 
-        const updateFields: string[] = ['category = $1', 'subcategory = $2', 'enrichment_source = $3', 'enrichment_confidence = $4'];
-        const values: unknown[] = [category, subcategory || null, 'user_correction', '1.00'];
+        const updateFields: string[] = [
+          'category = $1',
+          'subcategory = $2',
+          'personal_category = $3',
+          'enrichment_source = $4',
+          'enrichment_confidence = $5',
+        ];
+        const values: unknown[] = [category, subcategory || null, category, 'user_correction', '1.00'];
         if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
         values.push(id);
         const { rows } = await pool.query(
           `UPDATE mx_transactions SET ${updateFields.join(', ')} WHERE id = $${values.length} RETURNING *`,
           values
         );
+        await fanoutToLinkedRows(
+          check.rows[0].matched_expense_id as string | null,
+          check.rows[0].matched_bill_id as string | null
+        );
         return res.json(rows[0]);
       } else {
-        // manual transaction
+        // manual transaction — no bank-level personal_category column,
+        // and no reconciliation path via matched_expense_id because manual
+        // transactions ARE the expense.
         const check = await pool.query(
           `SELECT id FROM manual_transactions WHERE id = $1 AND user_id = $2`,
           [id, userId]
@@ -18025,7 +18210,6 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
       res.status(500).json({ success: false, error: error.message });
     }
   });
-
   // ──────────────────────────────────────────────────────────────────────────
   // GET /api/user/has-demo-data — Check if user has is_demo=true manual transactions
   // ──────────────────────────────────────────────────────────────────────────
@@ -18290,4 +18474,5 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
   });
 
   return httpServer;
+
 }

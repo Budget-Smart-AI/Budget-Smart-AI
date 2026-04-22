@@ -4057,6 +4057,7 @@ export class DatabaseStorage implements IStorage {
   async createWhatIfScenario(scenario: InsertWhatIfScenario & { userId: string }): Promise<WhatIfScenario> {
     const result = await db.insert(whatIfScenarios).values({
       ...scenario,
+      ...scenario,
       createdAt: scenario.createdAt || new Date().toISOString(),
     }).returning();
     return result[0];

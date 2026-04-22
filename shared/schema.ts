@@ -38,61 +38,65 @@ export const COUNTRIES = [
   { code: "ZA", name: "South Africa" },
 ] as const;
 
-// Bill categories
+// Bill categories — alphabetical, "Other" pinned last (2026-04-21 pass).
 export const BILL_CATEGORIES = [
-  "Rent",
-  "Internet",
-  "Phone",
-  "Subscriptions",
-  "Utilities",
-  "Insurance",
-  "Loans",
-  "Transportation",
-  "Shopping",
-  "Fitness",
-  "Communications",
   "Business Expense",
-  "Electrical",
-  "Credit Card",
-  "Line of Credit",
-  "Mortgage",
-  "Entertainment",
-  "Travel",
-  "Maintenance",
   "Car",
+  "Communications",
+  "Credit Card",
   "Day Care",
+  "Electrical",
+  "Entertainment",
+  "Fitness",
+  "Insurance",
+  "Internet",
+  "Line of Credit",
+  "Loans",
+  "Maintenance",
+  "Mortgage",
+  "Phone",
+  "Rent",
+  "Shopping",
+  "Subscriptions",
+  "Transportation",
+  "Travel",
+  "Utilities",
   "Other"
 ] as const;
 
-// Expense categories
+// Expense categories — rendered alphabetically in every dropdown.
+// "Other" is explicitly pinned LAST (fallback/catch-all) so it's
+// always at the bottom of the list regardless of new categories added.
+// Added 2026-04-21 alphabetization pass to stop users from having to
+// scan a random-looking list to change a transaction's category.
 export const EXPENSE_CATEGORIES = [
-  "Groceries",
-  "Restaurant & Bars",
-  "Transportation",
-  "Entertainment",
-  "Shopping",
-  "Healthcare",
-  "Education",
-  "Fitness",
-  "Electrical",
-  "Credit Card",
-  "Travel",
-  "Maintenance",
-  "Mortgage",
-  "Communications",
-  "Gas",
-  "Clothing",
-  "Parking & Tolls",
-  "Personal",
+  "Business Auto Expenses",
+  "Business Travel & Meals",
   "Cash & ATM",
+  "Check",
+  "Clothing",
   "Coffee Shops",
-  "Public Transit",
-  "Taxi & Ride Share",
+  "Communications",
+  "Credit Card",
+  "Education",
+  "Electrical",
+  "Entertainment",
+  "Fitness",
   "Fun Money",
   "Furniture & Houseware",
-  "Check",
-  "Business Travel & Meals",
-  "Business Auto Expenses",
+  "Gas",
+  "Groceries",
+  "Healthcare",
+  "Maintenance",
+  "Mortgage",
+  "Parking & Tolls",
+  "Personal",
+  "Public Transit",
+  "Restaurant & Bars",
+  "Shopping",
+  "Taxi & Ride Share",
+  "Transportation",
+  "Travel",
   "Other"
 ] as const;
 
@@ -267,15 +271,16 @@ export type Expense = typeof expenses.$inferSelect;
 // records; new auto-imports will only ever be assigned to Salary / Interest /
 // Investments / Other (selected by the categorizeIncomeTransaction helper in
 // server/lib/financial-engine/categories/income-classifier.ts).
+// Income categories — alphabetical, "Other" pinned last (2026-04-21 pass).
 export const INCOME_CATEGORIES = [
-  "Salary",
-  "Interest",
-  "Freelance",
   "Business",
-  "Investments",
-  "Rental",
+  "Freelance",
   "Gifts",
+  "Interest",
+  "Investments",
   "Refunds",
+  "Rental",
+  "Salary",
   "Other"
 ] as const;
 
