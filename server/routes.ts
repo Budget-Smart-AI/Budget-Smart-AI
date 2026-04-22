@@ -1042,6 +1042,37 @@ export async function registerRoutes(
       if (!expense) {
         return res.status(404).json({ error: "Expense not found" });
       }
+
+      // ── Reverse-sync: expense → linked bank transaction ──
+      // When a user edits category on the Expenses page, propagate to
+      // the linked plaid_transaction / mx_transaction so the Accounts
+      // page shows the same value.
+      if (parsed.data.category && expense.id) {
+        try {
+          // Update any plaid_transaction whose matched_expense_id points here
+          await pool.query(
+            `UPDATE plaid_transactions
+                SET personal_category = $1,
+                    subcategory       = $1,
+                    category          = $1
+              WHERE matched_expense_id = $2`,
+            [parsed.data.category, expense.id]
+          );
+          // Update any mx_transaction whose matched_expense_id points here
+          await pool.query(
+            `UPDATE mx_transactions
+                SET personal_category = $1,
+                    subcategory       = $1,
+                    category          = $1
+              WHERE matched_expense_id = $2`,
+            [parsed.data.category, expense.id]
+          );
+        } catch (syncErr) {
+          // Non-fatal — the expense itself was saved; log and continue
+          console.error("[expense→txn reverse-sync] failed:", syncErr);
+        }
+      }
+
       res.json(expense);
     } catch (error) {
       res.status(500).json({ error: "Failed to update expense" });
@@ -7278,7 +7309,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         try {
           const { syncTransactions } = await import("./plaid");
           console.log(`[Plaid Update Mode] Kicking off sync after reconnect for item ${item.id}...`);
-          const result = await syncTransactions(item.accessToken, item.id, userId);
+          const result = await syncTransactions(decrypt(item.accessToken), item.id, userId);
           console.log(
             `[Plaid Update Mode] Post-reconnect sync: +${result.added} added, ~${result.modified} modified, -${result.removed} removed`
           );
@@ -7672,17 +7703,21 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
 
       // Helper: update linked expense/bill rows so the Expenses and
       // Bills pages don't render a stale category for a reconciled tx.
+      // Write the MOST SPECIFIC label (subcategory when available, else
+      // the parent bucket) so Accounts' getEffectiveCategory() and the
+      // expense row show the identical string after a user edit.
+      const displayCategory = subcategory || category;
       async function fanoutToLinkedRows(matchedExpenseId: string | null, matchedBillId: string | null) {
         if (matchedExpenseId) {
           await pool.query(
             `UPDATE expenses SET category = $1 WHERE id = $2 AND user_id = $3`,
-            [category, matchedExpenseId, userId]
+            [displayCategory, matchedExpenseId, userId]
           ).catch((e: any) => console.warn("[category-fanout] expenses update failed:", e?.message));
         }
         if (matchedBillId) {
           await pool.query(
             `UPDATE bills SET category = $1 WHERE id = $2 AND user_id = $3`,
-            [category, matchedBillId, userId]
+            [displayCategory, matchedBillId, userId]
           ).catch((e: any) => console.warn("[category-fanout] bills update failed:", e?.message));
         }
       }
