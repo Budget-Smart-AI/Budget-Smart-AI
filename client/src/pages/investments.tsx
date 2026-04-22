@@ -872,8 +872,7 @@ function AIAdvisor({ holdings }: { holdings: Holding[] }) {
 
   const handleRegenerateAnalysis = async () => {
     try {
-      const res = await fetch("/api/investments/advisor-data?refresh=true");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await apiRequest("GET", "/api/investments/advisor-data?refresh=true");
       queryClient.invalidateQueries({ queryKey: ["/api/investments/advisor-data"] });
       refetchAdvisor();
     } catch {

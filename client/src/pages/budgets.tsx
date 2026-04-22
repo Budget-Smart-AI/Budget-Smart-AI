@@ -285,8 +285,11 @@ export default function BudgetsPage() {
     budgetPeriod: string;
     nextPayday: string | null;
   }>({
-    queryKey: ['budget-settings'],
-    queryFn: () => fetch('/api/user/budget-settings').then(r => r.json()),
+    queryKey: ['/api/user/budget-settings'],
+    queryFn: async () => {
+      const r = await apiRequest('GET', '/api/user/budget-settings');
+      return r.json();
+    },
   });
 
   useEffect(() => {
@@ -297,16 +300,21 @@ export default function BudgetsPage() {
   }, [userBudgetSettings]);
 
   const saveBudgetSettings = async () => {
-    await fetch('/api/user/budget-settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    try {
+      await apiRequest('PATCH', '/api/user/budget-settings', {
         budgetPeriod: budgetPeriodSetting,
         nextPayday: nextPaydaySetting || null,
-      })
-    });
-    refetchBudgetSettings();
-    setShowBudgetSettings(false);
+      });
+      refetchBudgetSettings();
+      setShowBudgetSettings(false);
+      toast({ title: 'Settings saved', description: 'Budget settings updated.' });
+    } catch (err: any) {
+      toast({
+        title: 'Could not save settings',
+        description: err?.message ?? 'Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const now = new Date();

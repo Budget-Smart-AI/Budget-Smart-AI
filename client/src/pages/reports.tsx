@@ -176,9 +176,9 @@ export default function ReportsPage() {
       yoyChange: number | null;
     }>;
   }>({
-    queryKey: ["category-comparison", selectedMonth],
+    queryKey: ["/api/reports/category-comparison", selectedMonth],
     queryFn: async () => {
-      const res = await fetch(`/api/reports/category-comparison?month=${selectedMonth}`);
+      const res = await apiRequest("GET", `/api/reports/category-comparison?month=${selectedMonth}`);
       return res.json();
     },
     enabled: activeReport === "category-trends",

@@ -910,8 +910,7 @@ export default function Bills() {
 
   const downloadTemplate = async () => {
     try {
-      const response = await fetch("/api/bills/template");
-      if (!response.ok) throw new Error("Failed to download template");
+      const response = await apiRequest("GET", "/api/bills/template");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -928,8 +927,7 @@ export default function Bills() {
 
   const exportBills = async () => {
     try {
-      const response = await fetch("/api/bills/export");
-      if (!response.ok) throw new Error("Failed to export bills");
+      const response = await apiRequest("GET", "/api/bills/export");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
