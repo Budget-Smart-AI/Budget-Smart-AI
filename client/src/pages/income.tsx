@@ -53,7 +53,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, DollarSign, ChevronLeft, ChevronRight, Search, Filter, ArrowUpDown, Sparkles, Loader2, CheckCircle2, Calendar, X, AlertTriangle, ShieldCheck, MessageCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Trash2, DollarSign, ChevronLeft, ChevronRight, Search, Filter, ArrowUpDown, Sparkles, Loader2, CheckCircle2, Calendar, X, AlertTriangle, ShieldCheck, MessageCircle, ChevronDown, ChevronUp, Wand2 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths, addMonths, parseISO } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -1083,7 +1083,7 @@ export default function IncomePage() {
               {autoDetectedIncome.length} recurring income source{autoDetectedIncome.length > 1 ? "s were" : " was"} auto-detected from your bank history
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Review and edit them below. Click the pencil icon to see detection details.
+              Review and edit them below. Click the edit icon to see detection details.
             </p>
           </div>
           <Button
@@ -1339,23 +1339,12 @@ export default function IncomePage() {
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
-                              title="Schedule rate change (raise, tax change, etc.)"
-                              aria-label={`Schedule rate change for ${source.source}`}
+                              title="Edit source — rate change, cadence, mode, or category"
+                              aria-label={`Edit ${source.source}`}
                               onClick={() => openRegistryFor(source.sourceId!, "rate")}
                               data-testid={`button-rate-${source.sourceId}`}
                             >
-                              <DollarSign className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              title="Edit cadence, mode, or category"
-                              aria-label={`Edit ${source.source}`}
-                              onClick={() => openRegistryFor(source.sourceId!, "edit")}
-                              data-testid={`button-edit-${source.sourceId}`}
-                            >
-                              <Pencil className="h-4 w-4" />
+                              <Wand2 className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
