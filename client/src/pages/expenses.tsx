@@ -388,6 +388,7 @@ function ExpenseForm({ expense, onClose }: { expense?: Expense; onClose: () => v
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({ title: "Expense added successfully" });
       onClose();
     },
@@ -406,6 +407,7 @@ function ExpenseForm({ expense, onClose }: { expense?: Expense; onClose: () => v
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({ title: "Expense updated successfully" });
       onClose();
     },
@@ -677,6 +679,7 @@ export default function ExpensesPage() {
     mutationFn: async (id: string) => apiRequest("DELETE", `/api/expenses/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({ title: "Expense deleted" });
       setDeletingExpense(undefined);
     },
@@ -689,6 +692,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       setSelectedIds(new Set());
       toast({ title: "Expenses updated" });
     },
@@ -701,6 +705,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       setSelectedIds(new Set());
       toast({ title: "Expenses deleted" });
     },
@@ -716,6 +721,7 @@ export default function ExpensesPage() {
     },
     onSuccess: (data: { billMatches?: number; expenseMatches?: number; autoCreated?: number }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       const total = (data.billMatches ?? 0) + (data.expenseMatches ?? 0) + (data.autoCreated ?? 0);
       toast({
         title: `${total} transaction${total !== 1 ? "s" : ""} reconciled automatically`,
@@ -737,6 +743,7 @@ export default function ExpensesPage() {
       apiRequest("PATCH", `/api/expenses/${id}`, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       setIsTaxCategoryOpen(false);
       setTaxCategoryExpense(undefined);
       toast({ title: "Expense marked as tax deductible" });
@@ -752,6 +759,7 @@ export default function ExpensesPage() {
     },
     onSuccess: (_, ids) => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({
         title: `${ids.length} expense${ids.length !== 1 ? "s" : ""} reconciled`,
         description: categoryFilter !== "all" ? `All "${categoryFilter}" expenses marked as reconciled` : undefined,
