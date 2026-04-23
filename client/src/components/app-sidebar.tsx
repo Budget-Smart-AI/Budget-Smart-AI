@@ -291,6 +291,10 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   const [location, navigate] = useLocation();
   const [upgradeModalFeature, setUpgradeModalFeature] = useState<UpgradeModalFeature | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  // Prompt queued from elsewhere (e.g. the "Ask Budget Smart AI" input in
+  // TopNavBar) to be auto-sent as the first message when the floating
+  // chatbot opens. Cleared once the chatbot reports the message was sent.
+  const [pendingChatPrompt, setPendingChatPrompt] = useState<string | null>(null);
   const [referralOpen, setReferralOpen] = useState(false);
   const { plan, getFeatureState, usageMap } = useFeatureUsage();
 
@@ -316,6 +320,20 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
       return next;
     });
   }, [location]);
+
+  // Listen for the "Ask Budget Smart AI" input dispatched from TopNavBar.
+  // Window CustomEvent keeps the two components decoupled — neither needs
+  // a direct reference to the other.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const prompt = (ev as CustomEvent<{ prompt?: string }>).detail?.prompt?.trim();
+      if (!prompt) return;
+      setPendingChatPrompt(prompt);
+      setChatOpen(true);
+    };
+    window.addEventListener("bsai:ask-ai", handler as EventListener);
+    return () => window.removeEventListener("bsai:ask-ai", handler as EventListener);
+  }, []);
 
   const toggleGroup = (id: string) => {
     setCollapsed((prev) => {
@@ -744,7 +762,15 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           />
         )}
       </Sidebar>
-      <FloatingChatbot externalOpen={chatOpen} onExternalClose={() => setChatOpen(false)} />
+      <FloatingChatbot
+        externalOpen={chatOpen}
+        onExternalClose={() => {
+          setChatOpen(false);
+          setPendingChatPrompt(null);
+        }}
+        initialMessage={pendingChatPrompt}
+        onInitialMessageSent={() => setPendingChatPrompt(null)}
+      />
       <ReferralModal open={referralOpen} onOpenChange={setReferralOpen} />
     </>
   );

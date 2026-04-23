@@ -7,16 +7,19 @@
  * were removed because the sidebar is the source of truth for navigation
  * and the pills ate horizontal space on smaller screens. Current layout:
  *
- *   [sidebar-trigger] [greeting + date] ───  [search] ─── [upgrade?] [theme] [bell] [settings] [plan badge] [avatar]
+ *   [sidebar-trigger] [greeting + date] ── [Ask AI] ── [upgrade?] [theme] [bell] [settings] [plan badge] [avatar]
  *
- * The search input is a visual-only placeholder for now — command palette
- * wiring lands in a follow-up PR.
+ * The centre is an "Ask Budget Smart AI" input. Submitting dispatches a
+ * `bsai:ask-ai` CustomEvent on window; AppSidebar listens and opens the
+ * FloatingChatbot with the prompt auto-sent as the first message. The
+ * legacy placeholder search bar (which never had a command palette wired
+ * up) was removed as part of the 2026-04-22 UI polish pass.
  */
 
 import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Zap, Search, Settings, Users } from "lucide-react";
+import { Zap, Sparkles, Settings, Users, CornerDownLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -46,6 +49,22 @@ export function TopNavBar() {
   const [, navigate] = useLocation();
   const { plan } = useFeatureUsage();
   const [showUpgradePulse, setShowUpgradePulse] = useState(false);
+  const [askInput, setAskInput] = useState("");
+
+  // Submit handler for the "Ask Budget Smart AI" input. Dispatches a
+  // window-level CustomEvent which AppSidebar listens for — the sidebar
+  // opens the FloatingChatbot and hands the prompt off as the initial
+  // message. We use an event (not a context) to keep TopNavBar and
+  // AppSidebar decoupled — neither owns the chat state directly.
+  const handleAskAi = (e: React.FormEvent) => {
+    e.preventDefault();
+    const prompt = askInput.trim();
+    if (!prompt) return;
+    window.dispatchEvent(
+      new CustomEvent("bsai:ask-ai", { detail: { prompt } }),
+    );
+    setAskInput("");
+  };
 
   const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
   const s = session as Record<string, unknown> | undefined;
@@ -124,26 +143,78 @@ export function TopNavBar() {
         </div>
       </div>
 
-      {/* Center: Search (visual-only for now) */}
+      {/* Center: Ask Budget Smart AI.
+       * Brand-aligned gradient sparkle orb as the leading icon, glass pill
+       * input, subtle ⏎ "Ask" hint on the right. Submitting opens the
+       * FloatingChatbot with the prompt auto-sent. */}
       <div className="flex-1 flex items-center justify-center min-w-0">
-        <label className="group relative w-full max-w-md hidden md:flex items-center">
-          {/* Phase 3.2: icon sits at left-3.5 to clear the bumped pl-10 padding */}
-          <Search className="absolute left-3.5 h-4 w-4 text-muted-foreground pointer-events-none" aria-hidden />
-          <input
-            type="search"
-            placeholder="Search transactions, budgets, goals…"
-            aria-label="Search"
-            data-testid="topbar-search"
+        <form
+          role="search"
+          onSubmit={handleAskAi}
+          className="group relative w-full max-w-md hidden md:flex items-center"
+          data-testid="topbar-ask-ai-form"
+        >
+          {/* Budget Smart AI brand icon — gradient orb with sparkle, mirrors
+           * the AI Assistant avatar / floating chat trigger so the brand
+           * signal is consistent across the app chrome. */}
+          <span
+            aria-hidden
             className={cn(
-              // Phase 3.2: taller, fully-rounded pill with glass tokens to match the sidebar island
-              "w-full h-10 pl-10 pr-3 text-sm rounded-[var(--radius-island)]",
+              "absolute left-1.5 top-1/2 -translate-y-1/2 flex items-center justify-center",
+              "h-7 w-7 rounded-full shadow-sm shadow-emerald-500/20 pointer-events-none",
+              "bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500",
+              "ring-1 ring-white/40 dark:ring-white/10"
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-white drop-shadow-sm" />
+            {/* Idle ping — gentle pulse so the input reads as "alive", not just
+             * another search bar. Only shows when the input is empty. */}
+            {!askInput && (
+              <span className="absolute inset-0 rounded-full bg-gradient-to-br from-emerald-400/60 to-teal-400/60 animate-ping opacity-60" />
+            )}
+          </span>
+
+          <input
+            type="text"
+            value={askInput}
+            onChange={(e) => setAskInput(e.target.value)}
+            placeholder="Ask Budget Smart AI anything…"
+            aria-label="Ask Budget Smart AI"
+            data-testid="topbar-ask-ai-input"
+            autoComplete="off"
+            className={cn(
+              // Match the glass-island styling used by the sidebar & other chrome.
+              "w-full h-10 pl-11 pr-16 text-sm rounded-[var(--radius-island)]",
               "bg-[color:rgb(var(--glass-surface))] border border-[color:rgb(var(--glass-border))] backdrop-blur-sm",
               "placeholder:text-muted-foreground/70 text-foreground",
               "focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/40",
               "transition-colors"
             )}
           />
-        </label>
+
+          {/* Enter hint — only emphasised once the user has typed something.
+           * Keeps the input discoverable as a submit surface without adding a
+           * loud "Send" button. */}
+          <kbd
+            aria-hidden
+            className={cn(
+              "absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 h-6 px-1.5 rounded-md",
+              "text-[10px] font-medium",
+              "border border-[color:rgb(var(--glass-border))] bg-[color:rgb(var(--glass-surface))]",
+              "transition-opacity duration-150",
+              askInput.trim()
+                ? "opacity-100 text-emerald-600 dark:text-emerald-400 border-emerald-500/40"
+                : "opacity-60 text-muted-foreground"
+            )}
+          >
+            <CornerDownLeft className="h-3 w-3" />
+            Ask
+          </kbd>
+
+          <button type="submit" className="sr-only" aria-label="Send question to AI">
+            Ask AI
+          </button>
+        </form>
       </div>
 
       {/* Right: Upgrade, theme, notifications, settings, plan badge, avatar */}

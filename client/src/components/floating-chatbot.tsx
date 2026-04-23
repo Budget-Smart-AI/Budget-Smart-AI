@@ -317,6 +317,15 @@ interface FloatingChatbotProps {
   tellerMode?: boolean;
   /** Which teller API mode to use: "transaction" | "health_summary" | "bulk_triage" */
   tellerApiMode?: "transaction" | "health_summary" | "bulk_triage";
+  /** Optional message to auto-send as the first user turn when the chat
+   *  opens. Used by the "Ask Budget Smart AI" input in the TopNavBar so
+   *  the user's question lands directly in the thread instead of
+   *  requiring them to retype it after the panel opens. */
+  initialMessage?: string | null;
+  /** Fires once the initialMessage has been handed off to sendMessage.
+   *  Callers should clear their pending-prompt state here so the same
+   *  message isn't resent on the next open. */
+  onInitialMessageSent?: () => void;
 }
 
 export function FloatingChatbot({
@@ -325,6 +334,8 @@ export function FloatingChatbot({
   transactionContext,
   tellerMode = false,
   tellerApiMode = "transaction",
+  initialMessage,
+  onInitialMessageSent,
 }: FloatingChatbotProps = {}) {
   const isControlled = externalOpen !== undefined;
   const [isOpen, setIsOpen] = useState(false);
@@ -340,8 +351,10 @@ export function FloatingChatbot({
       setIsOpen(false);
     }
     setIsMinimized(false);
-    // Reset auto-send flag when closed
+    // Reset auto-send flags when closed so the next open (teller or
+    // TopNavBar Ask AI) can fire its initial message cleanly.
     autoSentRef.current = false;
+    sentInitialMessageRef.current = null;
   };
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -483,15 +496,43 @@ export function FloatingChatbot({
       if (tellerApiMode === "transaction" && !transactionContext) return;
 
       autoSentRef.current = true;
-      let initialMessage = "Explain this transaction to me and tell me if anything looks wrong.";
+      let tellerInitialMessage = "Explain this transaction to me and tell me if anything looks wrong.";
       if (tellerApiMode === "health_summary") {
-        initialMessage = "Give me a full health summary of my accounts and transactions.";
+        tellerInitialMessage = "Give me a full health summary of my accounts and transactions.";
       } else if (tellerApiMode === "bulk_triage") {
-        initialMessage = "Review all my unmatched transactions and tell me what to do with each one.";
+        tellerInitialMessage = "Review all my unmatched transactions and tell me what to do with each one.";
       }
-      sendMessage(initialMessage);
+      sendMessage(tellerInitialMessage);
     }
   }, [tellerMode, tellerApiMode, transactionContext, effectiveOpen, isMinimized, messages.length, isPending]);
+
+  // Track the last initialMessage we forwarded to sendMessage so repeat
+  // uses of the "Ask Budget Smart AI" input (while the chat is already
+  // open) fire each new question instead of being suppressed by the
+  // autoSentRef used for teller mode.
+  const sentInitialMessageRef = useRef<string | null>(null);
+
+  // Auto-send an initialMessage prop when the chat opens outside teller mode.
+  // Powers the "Ask Budget Smart AI" input in the TopNavBar: the input
+  // dispatches a bsai:ask-ai event, AppSidebar stashes the prompt and
+  // flips chatOpen, and this effect fires the first user turn so the
+  // answer starts streaming immediately.
+  useEffect(() => {
+    if (tellerMode) return;
+    if (!effectiveOpen || isMinimized) return;
+    if (isPending) return;
+    if (typeof initialMessage !== "string") return;
+    const prompt = initialMessage.trim();
+    if (!prompt) return;
+    // Only send each distinct prompt once — AppSidebar clears the
+    // pending-prompt state to null after we acknowledge it, so identical
+    // repeat questions still flow through because the prop momentarily
+    // drops back to null between dispatches.
+    if (sentInitialMessageRef.current === prompt) return;
+    sentInitialMessageRef.current = prompt;
+    sendMessage(prompt);
+    onInitialMessageSent?.();
+  }, [tellerMode, effectiveOpen, isMinimized, isPending, initialMessage, onInitialMessageSent]);
 
   const sendMessage = (text: string) => {
     if (!text.trim() || isPending) return;
