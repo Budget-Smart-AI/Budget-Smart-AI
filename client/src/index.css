@@ -170,18 +170,24 @@
    * → pistachio → jade → emerald) and an extra 4th blob + a top "sheen"
    * linear overlay to give the whole page a glass-pane look. Conic layer
    * adds subtle iridescence you only notice on scroll. */
+  /* Phase 3.3 (2026-04-22): purified to pure-green palette. The earlier
+   * recipe used lime (yellow-green) and cyan stops in the iridescent
+   * conic; mixed through the noise layer and translucent surfaces they
+   * read as olive/brown in darker regions. Every stop below is now
+   * emerald / teal / jade only — no lime, no cyan. Base gradient's final
+   * stop pushed toward cleaner jade (#A4DCB7) so it doesn't drift sage. */
   --bg-base:       linear-gradient(
                      135deg,
                      #F0FDF7 0%,
-                     #E3F9ED 22%,
-                     #D1F3DD 45%,
-                     #BEEBCB 68%,
-                     #AFE2BD 100%
+                     #DEF7E8 22%,
+                     #C7F0D7 45%,
+                     #B0E8C4 68%,
+                     #98DEAF 100%
                    );
-  --bg-blob-1:     rgba(34, 197, 94, 0.38);   /* emerald, top-left */
-  --bg-blob-2:     rgba(13, 148, 136, 0.40);  /* teal, top-right */
-  --bg-blob-3:     rgba(132, 204, 22, 0.26);  /* lime, bottom-centre */
-  --bg-blob-4:     rgba(5, 150, 105, 0.22);   /* deep jade, mid-left */
+  --bg-blob-1:     rgba(34, 197, 94, 0.40);   /* emerald, top-left */
+  --bg-blob-2:     rgba(13, 148, 136, 0.42);  /* teal, top-right */
+  --bg-blob-3:     rgba(16, 185, 129, 0.32);  /* mint-emerald, bottom-centre (was lime) */
+  --bg-blob-4:     rgba(5, 150, 105, 0.28);   /* deep jade, mid-left */
   --bg-sheen:      linear-gradient(
                      180deg,
                      rgba(255, 255, 255, 0.55) 0%,
@@ -190,10 +196,10 @@
                    );
   --bg-iridescent: conic-gradient(
                      from 210deg at 70% 30%,
-                     rgba(16, 185, 129, 0.12) 0deg,
-                     rgba(6, 182, 212, 0.08) 120deg,
-                     rgba(132, 204, 22, 0.10) 240deg,
-                     rgba(16, 185, 129, 0.12) 360deg
+                     rgba(16, 185, 129, 0.14) 0deg,
+                     rgba(13, 148, 136, 0.12) 120deg,
+                     rgba(5, 150, 105, 0.12) 240deg,
+                     rgba(16, 185, 129, 0.14) 360deg
                    );
   --bg-noise-opacity: 0.04;
 
@@ -380,10 +386,13 @@
                      #0B2B22 75%,
                      #0F362C 100%
                    );
+  /* Phase 3.3 (2026-04-22): dark-mode mirror of the purified recipe.
+   * Dropped lime blob and cyan conic stops — every accent is now a pure
+   * green so the forest backdrop doesn't fight the UI. */
   --bg-blob-1:     rgba(34, 197, 94, 0.42);
   --bg-blob-2:     rgba(13, 148, 136, 0.42);
-  --bg-blob-3:     rgba(132, 204, 22, 0.24);
-  --bg-blob-4:     rgba(5, 150, 105, 0.28);
+  --bg-blob-3:     rgba(16, 185, 129, 0.30);  /* mint-emerald (was lime) */
+  --bg-blob-4:     rgba(5, 150, 105, 0.30);
   --bg-sheen:      linear-gradient(
                      180deg,
                      rgba(255, 255, 255, 0.06) 0%,
@@ -393,8 +402,8 @@
   --bg-iridescent: conic-gradient(
                      from 210deg at 70% 30%,
                      rgba(16, 185, 129, 0.10) 0deg,
-                     rgba(6, 182, 212, 0.07) 120deg,
-                     rgba(132, 204, 22, 0.08) 240deg,
+                     rgba(13, 148, 136, 0.09) 120deg,
+                     rgba(5, 150, 105, 0.09) 240deg,
                      rgba(16, 185, 129, 0.10) 360deg
                    );
   --bg-noise-opacity: 0.06;

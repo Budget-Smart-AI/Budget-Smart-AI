@@ -464,12 +464,12 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
 
     if (showLock) {
       return (
-        <SidebarMenuItem key={item.title} className="relative">
+        <SidebarMenuItem key={item.title} className="nav-sub-item">
           <SidebarMenuButton
             isActive={isActive}
             data-testid={testId}
             onClick={(e: React.MouseEvent) => handleNavClick(item, e)}
-            className="cursor-pointer nav-sub-item"
+            className="cursor-pointer"
           >
             <span className="flex-1 truncate">{item.title}</span>
             {resolvedBadge ? <Badge badge={resolvedBadge} /> : null}
@@ -480,12 +480,11 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     }
 
     return (
-      <SidebarMenuItem key={item.title} className="relative">
+      <SidebarMenuItem key={item.title} className="nav-sub-item">
         <SidebarMenuButton
           asChild
           isActive={isActive}
           data-testid={testId}
-          className="nav-sub-item"
         >
           <Link href={item.url}>
             <span className="flex-1 truncate">{item.title}</span>
