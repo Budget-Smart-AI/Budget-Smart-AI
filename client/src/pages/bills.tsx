@@ -1470,7 +1470,15 @@ export default function Bills() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        {/*
+         * 2026-04-22 horizontal-scroll fix:
+         * 10-column bill table (Name / Category / Start Date / Next Due /
+         * Recurrence / Amount / Balance / Payments Left / Status / Actions)
+         * overflows at 90-100% zoom. Same treatment as expenses.tsx and
+         * bank-accounts.tsx: drop CardContent horizontal padding to 0 on
+         * mobile / 16px on sm+, and tighten cell padding on the Table.
+         */}
+        <CardContent className="px-0 sm:px-4 pb-4 sm:pb-6">
           {isLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -1487,7 +1495,10 @@ export default function Bills() {
                 </Button>
               </div>
             ) : (
-              <Table>
+              // Same tightening as Expenses/Accounts: `h-10 px-3` on TableHead,
+              // `px-3 py-2.5` on TableCell. With 10 columns, the ~8px saved per
+              // column recovers ~80px — enough to kill the scrollbar at 100%.
+              <Table className="[&_th]:h-10 [&_th]:px-3 [&_td]:px-3 [&_td]:py-2.5">
                 <TableHeader>
                   <TableRow>
                     <SortHeader label="Name" sortKey="name" />
@@ -1499,7 +1510,8 @@ export default function Bills() {
                     <SortHeader label="Balance" sortKey="startingBalance" />
                     <SortHeader label="Payments Left" sortKey="paymentsRemaining" />
                     <TableHead>Status</TableHead>
-                    <TableHead className="w-[120px]">Actions</TableHead>
+                    {/* 120px → 100px: three icon-only buttons at h-7 w-7 + gap-0.5 fit */}
+                    <TableHead className="w-[100px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1512,10 +1524,12 @@ export default function Bills() {
                       <>
                         <TableRow key={bill.id} data-testid={`row-bill-${bill.id}`} className="group">
                           <TableCell className="font-medium">
-                            <div>
-                              {bill.name}
+                            {/* max-w-[180px] on name + notes: prevents Name column from
+                             * dominating when a bill has a long title */}
+                            <div className="min-w-0 max-w-[180px]">
+                              <p className="truncate">{bill.name}</p>
                               {bill.notes && (
-                                <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                <p className="text-xs text-muted-foreground truncate">
                                   {bill.notes}
                                 </p>
                               )}
@@ -1546,10 +1560,12 @@ export default function Bills() {
                             <PaymentStatusBadge bill={bill} nextDue={nextDue} />
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-1">
+                            {/* icon buttons: default h-9 w-9 → h-7 w-7 to match new tighter row height */}
+                            <div className="flex items-center gap-0.5">
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="h-7 w-7"
                                 onClick={() => toggleExpanded(bill.id)}
                                 title={isExpanded ? "Hide payment history" : "Show payment history"}
                                 data-testid={`button-expand-bill-${bill.id}`}
@@ -1563,6 +1579,7 @@ export default function Bills() {
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="h-7 w-7"
                                 onClick={() => handleEdit(bill)}
                                 data-testid={`button-edit-bill-${bill.id}`}
                               >
@@ -1571,6 +1588,7 @@ export default function Bills() {
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                className="h-7 w-7"
                                 onClick={() => setDeletingBill(bill)}
                                 data-testid={`button-delete-bill-${bill.id}`}
                               >

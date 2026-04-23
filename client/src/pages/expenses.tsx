@@ -1248,7 +1248,17 @@ export default function ExpensesPage() {
           )}
         </CardHeader>
 
-        <CardContent>
+        {/*
+         * 2026-04-22 horizontal-scroll fix:
+         * Default CardContent is `p-6 pt-0` — 24px horizontal padding. On the
+         * Expenses transaction card, combined with default TableCell `p-4`,
+         * the 9-column layout (Select / Status / Merchant / Date / Category /
+         * Amount / Source / Tax / Actions) overflows at 90-100% zoom and
+         * triggers a horizontal scrollbar inside the shadcn Table's
+         * `overflow-auto` wrapper. Trimming horizontal padding to 0 on
+         * mobile / 16px on sm+ gives back ~32-16px of usable room.
+         */}
+        <CardContent className="px-0 sm:px-4 pb-4 sm:pb-6">
           {isLoading ? (
             <div className="space-y-3">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -1287,7 +1297,14 @@ export default function ExpensesPage() {
             </div>
           ) : (
             <>
-              <Table>
+              {/*
+               * Tighten cell padding globally for this table. Defaults are
+               * `h-12 px-4` on TableHead and `p-4` on TableCell — swapping to
+               * `h-10 px-3` / `px-3 py-2.5` shaves ~8px per column. With 9
+               * columns, that's ~72px reclaimed horizontally — enough to kill
+               * the scrollbar at 90/100% zoom on a standard laptop.
+               */}
+              <Table className="[&_th]:h-10 [&_th]:px-3 [&_td]:px-3 [&_td]:py-2.5">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10">
@@ -1310,7 +1327,8 @@ export default function ExpensesPage() {
                     <SortHeader label="Amount" sortKey="amount" />
                     <TableHead>Source</TableHead>
                     <TableHead>Tax</TableHead>
-                    <TableHead className="w-[80px]">Actions</TableHead>
+                    {/* 80px → 70px: icon-only action cluster with h-7 buttons + gap-0.5 fits in 70px */}
+                    <TableHead className="w-[70px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1341,12 +1359,13 @@ export default function ExpensesPage() {
 
                         {/* Merchant */}
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 uppercase">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {/* h-8 w-8 → h-7 w-7: merchant avatar shrinks to match trimmed row height */}
+                            <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 uppercase">
                               {expense.merchant.charAt(0)}
                             </div>
-                            <div>
-                              <p className="font-medium leading-tight">{expense.merchant}</p>
+                            <div className="min-w-0">
+                              <p className="font-medium leading-tight truncate max-w-[180px]">{expense.merchant}</p>
                               {expense.notes && (
                                 <p className="text-xs text-muted-foreground truncate max-w-[180px]">
                                   {expense.notes}
@@ -1415,12 +1434,13 @@ export default function ExpensesPage() {
 
                         {/* Actions */}
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-1">
+                          {/* h-8 w-8 → h-7 w-7 on icon buttons: tighter row matches new [&_td]:py-2.5 */}
+                          <div className="flex items-center gap-0.5">
                             {/* Ask AI button — visible on hover */}
                             <Button
                               variant="ghost"
                               size="icon"
-                              className={`h-8 w-8 transition-opacity ${tellerHoverId === expense.id ? "opacity-100" : "opacity-0"} text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30`}
+                              className={`h-7 w-7 transition-opacity ${tellerHoverId === expense.id ? "opacity-100" : "opacity-0"} text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30`}
                               onClick={(e) => { e.stopPropagation(); openTeller(expense); }}
                               aria-label="Ask AI about this transaction"
                               title="Ask AI about this transaction"
@@ -1430,7 +1450,7 @@ export default function ExpensesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8"
+                              className="h-7 w-7"
                               onClick={() => handleEdit(expense)}
                               aria-label="Edit expense"
                             >
@@ -1438,7 +1458,7 @@ export default function ExpensesPage() {
                             </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More actions">
+                                <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="More actions">
                                   <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>

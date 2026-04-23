@@ -2259,21 +2259,21 @@ export default function BankAccounts() {
                               const isDebit = amount > 0;
                               return (
                                 <TableRow key={tx.id}>
-                                  <TableCell className="text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap">{tx.date}</TableCell>
-                                  <TableCell className="p-2 sm:p-4">
+                                  <TableCell className="text-xs sm:text-sm p-2 sm:px-3 sm:py-2.5 whitespace-nowrap">{tx.date}</TableCell>
+                                  <TableCell className="p-2 sm:px-3 sm:py-2.5">
                                     <div>
                                       <p className="text-xs sm:text-sm font-medium truncate max-w-[100px] sm:max-w-none">{tx.merchant}</p>
                                     </div>
                                   </TableCell>
-                                  <TableCell className={`font-medium text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap ${isDebit ? "text-red-600" : "text-green-600"}`}>
+                                  <TableCell className={`font-medium text-xs sm:text-sm p-2 sm:px-3 sm:py-2.5 whitespace-nowrap ${isDebit ? "text-red-600" : "text-green-600"}`}>
                                     {isDebit ? "-" : "+"}{formatCurrency(Math.abs(amount))}
                                   </TableCell>
-                                  <TableCell className="hidden sm:table-cell p-2 sm:p-4">
+                                  <TableCell className="hidden sm:table-cell p-2 sm:px-3 sm:py-2.5">
                                     <Badge variant="outline" className="text-xs">
                                       {tx.category || "Other"}
                                     </Badge>
                                   </TableCell>
-                                  <TableCell className="p-2 sm:p-4">
+                                  <TableCell className="p-2 sm:px-3 sm:py-2.5">
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -2702,7 +2702,11 @@ export default function BankAccounts() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
+          {/* px-0 on mobile and px-4 at sm+ (default CardContent is p-6) —
+           * gives the transactions table ~32px more horizontal room so it
+           * fits a standard 1366/1440 viewport at 100% zoom without needing
+           * the horizontal scroll that was showing up on the Accounts page. */}
+          <CardContent className="px-0 sm:px-4 pb-4 sm:pb-6">
             {transactionsLoading ? (
               <div className="space-y-2">
                 <Skeleton className="h-10 w-full" />
@@ -2808,14 +2812,14 @@ export default function BankAccounts() {
                         const isUnmatched = tx.matchType === "unmatched";
                         return (
                           <TableRow key={tx.id} className={isUnmatched ? "border-l-2 border-l-amber-400" : ""}>
-                            <TableCell className="p-2 sm:p-4">
+                            <TableCell className="p-2 sm:px-3 sm:py-2.5">
                               <Checkbox
                                 checked={selectedIds.has(tx.id)}
                                 onCheckedChange={() => toggleSelect(tx.id)}
                               />
                             </TableCell>
-                            <TableCell className="text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap">{tx.date}</TableCell>
-                            <TableCell className="p-2 sm:p-4">
+                            <TableCell className="text-xs sm:text-sm p-2 sm:px-3 sm:py-2.5 whitespace-nowrap">{tx.date}</TableCell>
+                            <TableCell className="p-2 sm:px-3 sm:py-2.5">
                               <div
                                 className="cursor-pointer hover:text-primary transition-colors group flex items-center gap-2"
                                 onClick={() => setDrilldownTransaction(tx)}
@@ -2856,10 +2860,10 @@ export default function BankAccounts() {
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell className={`font-medium text-xs sm:text-sm p-2 sm:p-4 whitespace-nowrap ${isDebit ? "text-red-600" : "text-green-600"}`}>
+                            <TableCell className={`font-medium text-xs sm:text-sm p-2 sm:px-3 sm:py-2.5 whitespace-nowrap ${isDebit ? "text-red-600" : "text-green-600"}`}>
                               {isDebit ? "-" : "+"}{formatCurrency(Math.abs(amount), tx.isoCurrencyCode || "CAD")}
                             </TableCell>
-                            <TableCell className="hidden sm:table-cell p-2 sm:p-4">
+                            <TableCell className="hidden sm:table-cell p-2 sm:px-3 sm:py-2.5">
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <button className="focus:outline-none">
@@ -2926,7 +2930,7 @@ export default function BankAccounts() {
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </TableCell>
-                            <TableCell className="hidden sm:table-cell p-2 sm:p-4">
+                            <TableCell className="hidden sm:table-cell p-2 sm:px-3 sm:py-2.5">
                               {tx.matchType === "unmatched" ? (
                                 <Badge variant="secondary" className="text-xs gap-1">
                                   <AlertCircle className="h-3 w-3" />
@@ -2985,13 +2989,13 @@ export default function BankAccounts() {
                                 </Badge>
                               )}
                             </TableCell>
-                            <TableCell className="p-2 sm:p-4">
+                            <TableCell className="p-2 sm:px-3 sm:py-2.5">
                               <div className="flex items-center gap-1">
                                 {isReconciled ? (
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3 gap-1"
+                                    className="text-xs sm:text-sm h-7 sm:h-8 px-2 gap-1"
                                     onClick={() => {
                                       setIsEditMode(true);
                                       setReconcileTransaction(tx);
@@ -3005,7 +3009,7 @@ export default function BankAccounts() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="text-xs sm:text-sm h-7 sm:h-9 px-2 sm:px-3"
+                                    className="text-xs sm:text-sm h-7 sm:h-8 px-2"
                                     onClick={() => {
                                       setIsEditMode(false);
                                       setReconcileTransaction(tx);
