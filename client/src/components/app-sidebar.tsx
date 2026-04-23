@@ -510,7 +510,7 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   return (
     <>
       <Sidebar variant="floating" className="!border-r-0">
-        <SidebarHeader className="px-3 pt-3 pb-2 gap-2">
+        <SidebarHeader className="px-3 pt-5 pb-2 gap-2">
           <BudgetSmartLogoWithText compact />
           {/* Round-icon quick access row: Dashboard / Calendar / Alerts.
            * These were previously inside a "Home" group; promoting them to

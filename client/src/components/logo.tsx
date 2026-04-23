@@ -94,10 +94,13 @@ export function BudgetSmartLogoWithText({
   return (
     <div className={cn("flex items-center", compact ? "gap-2" : "gap-2.5")}>
       <BudgetSmartLogo size={compact ? 30 : 36} />
-      <div className="flex flex-col leading-none min-w-0">
+      {/* leading-tight (was leading-none) so the "g" descender in Budget
+       * isn't clipped by the flex child's tight line box when combined
+       * with `truncate` (overflow:hidden). */}
+      <div className="flex flex-col leading-tight min-w-0">
         <span
           className={cn(
-            "font-bold tracking-tight truncate",
+            "font-bold tracking-tight truncate pb-[1px]",
             compact ? "text-[15px]" : "text-base",
             // Inherit from parent text colour so dark mode flips it to light
             // automatically — the old PNG wordmark baked a dark ink that

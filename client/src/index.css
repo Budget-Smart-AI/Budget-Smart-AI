@@ -884,23 +884,10 @@ iframe[src*="plaid"] {
   border-color: transparent;
 }
 
-/* Phase 3.1c — Active-state accent bar.
- * A 3px-wide vertical emerald bar hugs the left edge of the active menu
- * button, offset 6px in, so the active state is instantly scannable
- * even without the background tint. Works alongside (not instead of)
- * the existing data-active bg treatment from the primitive. */
-[data-slot="sidebar-menu-button"][data-active="true"] {
-  position: relative;
-}
-[data-slot="sidebar-menu-button"][data-active="true"]::before {
-  content: "";
-  position: absolute;
-  left: 6px;
-  top: 25%;
-  bottom: 25%;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--brand-gradient);
-  pointer-events: none;
-}
+/* Phase 3.3b (2026-04-22) — active-item accent bar removed.
+ * The sub-nav rows under .nav-sub-group already get a clear selected
+ * state from the background tint (data-active=true lights up the row
+ * with sidebar-accent). The extra 3px emerald vertical bar was
+ * redundant and, per Ryan's feedback, visually competed with the new
+ * tree-branch L-stub on the active row. Background tint alone = enough. */
 
