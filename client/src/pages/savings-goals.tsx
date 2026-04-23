@@ -65,8 +65,15 @@ const savingsGoalFormSchema = z.object({
 
 type SavingsGoalFormValues = z.infer<typeof savingsGoalFormSchema>;
 
-function formatCurrency(amount: string | number) {
+function formatCurrency(amount: string | number | null | undefined) {
+  // 2026-04-22: null/undefined-safe. The AI Savings Advisor endpoint now
+  // returns `null` (not undefined) when the model's JSON parse fails for a
+  // particular numeric field; Intl.NumberFormat renders null/undefined/NaN
+  // as "$NaN", which was showing up verbatim in the UI. Fall back to an
+  // em-dash so the user sees "—" instead of "$NaN" when a value is missing.
+  if (amount === null || amount === undefined) return "—";
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (!Number.isFinite(num)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -312,9 +319,12 @@ function AddMoneyDialog({ goal, onClose }: { goal: SavingsGoal; onClose: () => v
 }
 
 interface AiSavingsAdvice {
-  recommendedMonthly: number;
-  suggestedTarget: number;
-  suggestedTimelineMonths: number;
+  // Numeric fields are nullable — the server returns `null` instead of
+  // undefined when the model's JSON couldn't be parsed, so downstream
+  // formatCurrency() renders an em-dash instead of `$NaN`.
+  recommendedMonthly: number | null;
+  suggestedTarget: number | null;
+  suggestedTimelineMonths: number | null;
   feasibility: "easy" | "moderate" | "challenging" | "difficult";
   strategy: string;
   actionPlan: string[];
@@ -322,7 +332,14 @@ interface AiSavingsAdvice {
   potentialCutbacks: { category: string; currentMonthly: number; suggestedMonthly: number; monthlySavings: number }[];
   milestones: { amount: number; description: string; estimatedDate: string }[];
   overallAdvice: string;
-  financialSnapshot: { monthlyIncome: number; monthlySpending: number; monthlySurplus: number };
+  financialSnapshot: {
+    monthlyIncome: number;
+    monthlySpending: number;
+    monthlySurplus: number;
+    monthlyBills?: number;
+    hasBankData?: boolean;
+    window?: { months: number; startDate: string; endDate: string };
+  };
 }
 
 // API Response Types
@@ -737,7 +754,9 @@ export default function SavingsGoalsPage() {
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            ~{aiAdvice.suggestedTimelineMonths} months
+                            {aiAdvice.suggestedTimelineMonths != null
+                              ? `~${aiAdvice.suggestedTimelineMonths} months`
+                              : "Timeline unavailable"}
                           </span>
                         </div>
                       </div>

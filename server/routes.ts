@@ -9577,6 +9577,26 @@ Rules:
 
   // FEATURE: AI_SAVINGS_ADVISOR | tier: free | limit: 3 requests/month (free), unlimited (pro/family)
   // AI Savings Goal Advisor
+  //
+  // 2026-04-22 refactor: this endpoint previously rolled its own "pull raw
+  // tables, average over 3 months, Math.max() the spending figure" pipeline
+  // that bypassed the financial engine. That produced wildly incorrect
+  // numbers (e.g. $1,400 monthly income against $46,426 spending, plus
+  // $NaN on the UI when the JSON parse fell through). The specific bugs:
+  //
+  //   - userId-only fetches (no household fan-out)
+  //   - monthly bills added ON TOP of per-transaction spending (double count)
+  //   - Math.max(expenses+bills, plaidSpending+bills) double-counted again
+  //   - no transfer / credit-card-payment filter → transfers inflated spend
+  //   - Plaid-only path → MX households saw empty values
+  //   - JSON parse fallback left numeric response fields undefined → $NaN
+  //
+  // The fix routes every dollar figure through `getHouseholdFinancialSnapshot`
+  // (server/lib/financial-snapshot.ts), which uses the same engine modules
+  // the Dashboard/Reports pages use. The numbers in the AI prompt now match
+  // the numbers the user sees on-screen. NaN-safety added on the response
+  // coerces parsed output to `null` when the model's JSON can't be parsed,
+  // so the UI formatCurrency() path never sees `undefined`.
   app.post("/api/ai/savings-advisor", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -9598,66 +9618,66 @@ Rules:
         return res.status(400).json({ error: "Goal name is required" });
       }
 
-      // Gather user's financial data
-      const now = new Date();
-      const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1).toISOString().split("T")[0];
-      const today = now.toISOString().split("T")[0];
+      // ─── Resolve household scope ───────────────────────────────────────
+      // Solo users → [userId]. Households → all member user IDs.
+      const householdId = req.session.householdId;
+      const householdUserIds = householdId
+        ? await storage.getHouseholdMemberUserIds(householdId)
+        : [userId];
 
-      // Get income
-      const allIncome = await storage.getIncomes(userId);
-      const recentIncome = allIncome.filter(i => i.date >= threeMonthsAgo);
-      const monthlyIncome = recentIncome.reduce((sum, i) => sum + parseFloat(i.amount), 0) / 3;
+      // ─── Pull engine-backed snapshot (single source of truth) ──────────
+      const { getHouseholdFinancialSnapshot } = await import("./lib/financial-snapshot");
+      const snapshot = await getHouseholdFinancialSnapshot(householdUserIds, { months: 3 });
 
-      // Get expenses
-      const allExpenses = await storage.getExpenses(userId);
-      const recentExpenses = allExpenses.filter(e => e.date >= threeMonthsAgo);
-      const monthlyExpenses = recentExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0) / 3;
-
-      // Get bills
-      const allBills = await storage.getBills(userId);
-      const monthlyBills = allBills.reduce((sum, b) => sum + parseFloat(b.amount), 0);
-
-      // Get Plaid transactions for spending patterns
-      const accounts = await storage.getAllPlaidAccounts(userId);
-      const accountIds = accounts.map(a => a.id);
-      let plaidTransactions: any[] = [];
-      if (accountIds.length > 0) {
-        plaidTransactions = await storage.getPlaidTransactions(accountIds, { startDate: threeMonthsAgo, endDate: today });
-      }
-      const monthlyPlaidSpending = plaidTransactions
-        .filter(t => parseFloat(t.amount) > 0 && t.pending !== "true")
-        .reduce((sum, t) => sum + parseFloat(t.amount), 0) / 3;
-
-      // Get existing savings goals
-      const existingGoals = await storage.getSavingsGoals(userId);
+      // Existing savings goals — household-scoped for the same reason.
+      const existingGoals = await (async () => {
+        if (householdId) return storage.getSavingsGoalsByUserIds(householdUserIds);
+        return storage.getSavingsGoals(userId);
+      })();
       const existingGoalsSummary = existingGoals.map(g => ({
         name: g.name,
         target: g.targetAmount,
         current: g.currentAmount,
       }));
 
-      // Categorize spending for actionable tips
-      const categorySpending: Record<string, number> = {};
-      for (const t of plaidTransactions) {
-        if (parseFloat(t.amount) > 0 && t.pending !== "true") {
-          const cat = t.personalCategory || t.category || "Other";
-          categorySpending[cat] = (categorySpending[cat] || 0) + parseFloat(t.amount);
-        }
-      }
-      for (const e of recentExpenses) {
-        const cat = e.category || "Other";
-        categorySpending[cat] = (categorySpending[cat] || 0) + parseFloat(e.amount);
-      }
-      // Convert to monthly averages
-      const monthlyCategorySpending: Record<string, number> = {};
-      for (const [cat, total] of Object.entries(categorySpending)) {
-        monthlyCategorySpending[cat] = Math.round((total / 3) * 100) / 100;
-      }
-
-      const totalMonthlySpending = Math.max(monthlyExpenses + monthlyBills, monthlyPlaidSpending + monthlyBills);
-      const estimatedMonthlySurplus = monthlyIncome - totalMonthlySpending;
-
       const { routeAI } = await import("./ai-router");
+
+      // Nothing-to-reason-about guard: if we have zero income AND zero
+      // spending AND zero transactions, the AI will hallucinate. Return
+      // early with an explicit "need more data" response rather than
+      // prompting the model blind.
+      if (
+        snapshot.transactionCount === 0 &&
+        snapshot.monthlyIncome === 0 &&
+        snapshot.monthlySpending === 0 &&
+        !snapshot.hasBudgetedIncome
+      ) {
+        return res.json({
+          recommendedMonthly: null,
+          suggestedTarget: targetAmount ? parseFloat(String(targetAmount)) : null,
+          suggestedTimelineMonths: null,
+          feasibility: "moderate",
+          strategy: "Add income, expenses, or link a bank account so we can tailor a plan.",
+          actionPlan: [
+            "Add at least one income source (Income page).",
+            "Add a few recurring bills so we know your fixed costs.",
+            "Optional: link a bank via Plaid for automatic tracking.",
+          ],
+          savingsTips: [],
+          potentialCutbacks: [],
+          milestones: [],
+          overallAdvice:
+            "We don't have enough financial data yet to generate a personalized plan. Once you've added income, bills, or linked a bank, rerun the advisor.",
+          financialSnapshot: {
+            monthlyIncome: snapshot.monthlyIncome,
+            monthlySpending: snapshot.monthlySpending,
+            monthlySurplus: snapshot.monthlySurplus,
+            monthlyBills: snapshot.monthlyBills,
+            window: snapshot.window,
+            hasBankData: snapshot.hasBankData,
+          },
+        });
+      }
 
       const savingsPrompt = `You are a personal finance advisor helping a user plan their savings goal. Analyze their financial situation and provide a personalized savings plan.
 
@@ -9667,15 +9687,16 @@ ${targetAmount ? `- Target Amount: $${targetAmount}` : "- Target Amount: Not spe
 ${currentAmount ? `- Currently Saved: $${currentAmount}` : "- Currently Saved: $0"}
 ${targetDate ? `- Target Date: ${targetDate}` : "- Target Date: Not specified (please suggest one)"}
 
-USER'S FINANCIAL SNAPSHOT (monthly averages, last 3 months):
-- Monthly Income: $${Math.round(monthlyIncome)}
-- Monthly Expenses (manual): $${Math.round(monthlyExpenses)}
-- Monthly Bills (recurring): $${Math.round(monthlyBills)}
-- Monthly Bank Spending: $${Math.round(monthlyPlaidSpending)}
-- Estimated Monthly Surplus: $${Math.round(estimatedMonthlySurplus)}
+USER'S FINANCIAL SNAPSHOT (monthly averages, last ${snapshot.window.months} months ${snapshot.window.startDate} → ${snapshot.window.endDate}):
+- Monthly Income: $${snapshot.monthlyIncome}
+- Monthly Spending (deduped, transfer-excluded): $${snapshot.monthlySpending}
+- Monthly Bills (recurring, already included in spending above): $${snapshot.monthlyBills}
+- Monthly Surplus: $${snapshot.monthlySurplus}
+- Bank data available: ${snapshot.hasBankData ? "yes" : "no"}
+- Transactions observed in window: ${snapshot.transactionCount}
 
 SPENDING BY CATEGORY (monthly averages):
-${JSON.stringify(monthlyCategorySpending)}
+${JSON.stringify(snapshot.spendingByCategory)}
 
 EXISTING SAVINGS GOALS:
 ${existingGoalsSummary.length > 0 ? JSON.stringify(existingGoalsSummary) : "None"}
@@ -9730,18 +9751,43 @@ Rules:
 
       const resultText = aiRes.content || "{}";
       let parsed: any;
+      let parseOk = true;
       try {
         parsed = JSON.parse(resultText);
       } catch {
-        parsed = { overallAdvice: "Unable to generate savings advice at this time." };
+        parseOk = false;
+        parsed = {};
       }
 
+      // NaN-safety: coerce any numeric field we advertise to the UI into
+      // a Number or null — never undefined. The savings-goals.tsx UI
+      // calls formatCurrency() on these; `undefined` rendered as `$NaN`.
+      const safeNum = (v: any): number | null => {
+        if (v === null || v === undefined) return null;
+        const n = typeof v === "number" ? v : parseFloat(String(v));
+        return Number.isFinite(n) ? n : null;
+      };
+
       res.json({
-        ...parsed,
+        recommendedMonthly: safeNum(parsed.recommendedMonthly),
+        suggestedTarget: safeNum(parsed.suggestedTarget) ?? (targetAmount ? parseFloat(String(targetAmount)) : null),
+        suggestedTimelineMonths: safeNum(parsed.suggestedTimelineMonths),
+        feasibility: parsed.feasibility ?? "moderate",
+        strategy: parsed.strategy ?? "",
+        actionPlan: Array.isArray(parsed.actionPlan) ? parsed.actionPlan : [],
+        savingsTips: Array.isArray(parsed.savingsTips) ? parsed.savingsTips : [],
+        potentialCutbacks: Array.isArray(parsed.potentialCutbacks) ? parsed.potentialCutbacks : [],
+        milestones: Array.isArray(parsed.milestones) ? parsed.milestones : [],
+        overallAdvice: parsed.overallAdvice ?? (parseOk
+          ? "We've sketched a plan based on your recent activity — adjust the monthly amount to fit what feels sustainable."
+          : "We generated advice, but the response was formatted unexpectedly. Please try again."),
         financialSnapshot: {
-          monthlyIncome: Math.round(monthlyIncome),
-          monthlySpending: Math.round(totalMonthlySpending),
-          monthlySurplus: Math.round(estimatedMonthlySurplus),
+          monthlyIncome: snapshot.monthlyIncome,
+          monthlySpending: snapshot.monthlySpending,
+          monthlySurplus: snapshot.monthlySurplus,
+          monthlyBills: snapshot.monthlyBills,
+          window: snapshot.window,
+          hasBankData: snapshot.hasBankData,
         },
       });
     } catch (error: any) {
