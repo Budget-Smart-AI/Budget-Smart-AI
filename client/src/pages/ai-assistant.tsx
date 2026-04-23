@@ -187,12 +187,12 @@ function MessageBubble({ message }: { message: Message }) {
       <div className={`flex-shrink-0 h-9 w-9 rounded-full flex items-center justify-center shadow-sm transition-transform hover:scale-105 ${
         isUser
           ? "bg-primary"
-          : "bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500"
+          : "bg-primary"
       }`}>
         {isUser ? (
           <User className="h-4 w-4 text-primary-foreground" />
         ) : (
-          <Sparkles className="h-4 w-4 text-white" />
+          <Sparkles className="h-4 w-4 text-primary-foreground" />
         )}
       </div>
 
@@ -340,14 +340,14 @@ export default function AIAssistant() {
               <div className="flex flex-col items-center justify-center h-full text-center space-y-6 animate-in fade-in-0 duration-500">
                 {/* Animated icon */}
                 <div className="relative">
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-r from-emerald-500/30 to-teal-500/30 blur-xl animate-pulse" />
-                  <div className="relative h-20 w-20 rounded-full bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center shadow-lg">
-                    <Sparkles className="h-10 w-10 text-white" />
+                  <div className="absolute inset-0 rounded-full bg-primary/30 blur-xl animate-pulse" />
+                  <div className="relative h-20 w-20 rounded-full bg-primary flex items-center justify-center shadow-lg">
+                    <Sparkles className="h-10 w-10 text-primary-foreground" />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <h3 className="text-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                  <h3 className="text-xl font-bold text-primary">
                     How can I help with your finances?
                   </h3>
                   <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
@@ -380,8 +380,8 @@ export default function AIAssistant() {
                 ))}
                 {chatMutation.isPending && (
                   <div className="flex gap-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                    <div className="flex-shrink-0 h-9 w-9 rounded-full bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center shadow-sm">
-                      <Sparkles className="h-4 w-4 text-white animate-pulse" />
+                    <div className="flex-shrink-0 h-9 w-9 rounded-full bg-primary flex items-center justify-center shadow-sm">
+                      <Sparkles className="h-4 w-4 text-primary-foreground animate-pulse" />
                     </div>
                     <div className="bg-card border border-border/50 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
                       <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border/50">

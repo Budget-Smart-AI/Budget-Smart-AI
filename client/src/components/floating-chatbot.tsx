@@ -258,12 +258,12 @@ function ChatMessage({
     <div className={cn("flex gap-2", isUser ? "flex-row-reverse" : "")}>
       <div className={cn(
         "flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center shadow-sm",
-        isUser ? "bg-primary" : "bg-gradient-to-br from-emerald-500 to-teal-600"
+        isUser ? "bg-primary" : "bg-primary"
       )}>
         {isUser ? (
           <User className="h-3.5 w-3.5 text-primary-foreground" />
         ) : (
-          <Sparkles className="h-3.5 w-3.5 text-white" />
+          <Sparkles className="h-3.5 w-3.5 text-primary-foreground" />
         )}
       </div>
       <div className={cn(
@@ -589,16 +589,16 @@ export function FloatingChatbot({
       >
         <div className="relative">
           {/* Animated ring */}
-          <div className="absolute inset-0 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 animate-pulse opacity-30 scale-110" />
+          <div className="absolute inset-0 rounded-full bg-primary/30 animate-pulse scale-110" />
 
           {/* Main button */}
-          <div className="relative h-14 w-14 rounded-full bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-xl hover:shadow-emerald-500/25">
+          <div className="relative h-14 w-14 rounded-full bg-primary shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 hover:shadow-xl hover:shadow-primary/25">
             {/* Inner glow */}
             <div className="absolute inset-1 rounded-full bg-gradient-to-br from-white/20 to-transparent" />
 
             {/* Icon container */}
             <div className="relative flex items-center justify-center">
-              <Sparkles className="h-6 w-6 text-white drop-shadow-sm" />
+              <Sparkles className="h-6 w-6 text-primary-foreground drop-shadow-sm" />
             </div>
           </div>
 
@@ -629,10 +629,10 @@ export function FloatingChatbot({
       )}>
         {/* Header */}
         <div className={cn(
-          "flex items-center justify-between px-4 py-3 text-white",
+          "flex items-center justify-between px-4 py-3 text-primary-foreground",
           tellerMode
             ? "bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"
-            : "bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500"
+            : "bg-primary"
         )}>
           <div className="flex items-center gap-2 min-w-0">
             <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center shrink-0">
@@ -725,8 +725,8 @@ export function FloatingChatbot({
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full text-center space-y-4 px-4">
-                    <div className="h-12 w-12 rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center">
-                      <Bot className="h-6 w-6 text-emerald-600" />
+                    <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
+                      <Bot className="h-6 w-6 text-primary" />
                     </div>
                     <div>
                       <p className="text-sm font-medium">Hi! How can I help?</p>
@@ -764,9 +764,9 @@ export function FloatingChatbot({
                         "h-7 w-7 rounded-full flex items-center justify-center shadow-sm",
                         tellerMode
                           ? "bg-gradient-to-br from-amber-500 to-orange-600"
-                          : "bg-gradient-to-br from-emerald-500 to-teal-600"
+                          : "bg-primary"
                       )}>
-                        <Sparkles className="h-3.5 w-3.5 text-white" />
+                        <Sparkles className="h-3.5 w-3.5 text-primary-foreground" />
                       </div>
                       <div className="bg-muted rounded-2xl rounded-bl-md px-3 py-2 shadow-sm">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -801,7 +801,7 @@ export function FloatingChatbot({
                     "h-[38px] w-[38px] flex-shrink-0 rounded-xl",
                     tellerMode
                       ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
-                      : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                      : ""
                   )}
                 >
                   <Send className="h-4 w-4" />
