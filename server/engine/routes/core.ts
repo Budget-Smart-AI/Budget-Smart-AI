@@ -583,13 +583,40 @@ router.get("/savings-goals", async (req: Request, res: Response) => {
     const result = calculateSavingsGoals({
       goals: savingsGoalsData.map((g) => ({
         id: g.id,
+        name: g.name,
         current: parseFloat(String(g.currentAmount ?? 0)),
         target: parseFloat(String(g.targetAmount ?? 0)),
         targetDate: g.targetDate ?? undefined,
       })),
     });
 
-    res.json(result as SavingsGoalsResult);
+    // 2026-04-22 bugfix: the engine's SavingsGoalsResult shape only carries
+    // {id, name, current, target, percentage, remaining, isComplete, daysLeft}
+    // — but the client page (client/src/pages/savings-goals.tsx) was written
+    // against the raw DB row shape (currentAmount/targetAmount as strings,
+    // plus color/notes). Without this enrichment, newly-created goals render
+    // as `$NaN` (parseFloat(undefined)) with their UUID as the name (because
+    // calculateSavingsGoals incorrectly falls back to `goal.id || 'Goal'`).
+    //
+    // Fix: merge each engine-computed goal with its source DB row so the
+    // response shape is a superset — engine's percentage/remaining/daysLeft
+    // plus the raw display fields the client reads.
+    const enrichedGoals = result.goals.map((g) => {
+      const src = savingsGoalsData.find((s) => s.id === g.id);
+      return {
+        ...g,
+        // name already correct from engine input, but belt-and-suspenders
+        name: src?.name ?? g.name,
+        color: src?.color ?? null,
+        notes: src?.notes ?? null,
+        targetDate: src?.targetDate ?? null,
+        // Preserve the DB string forms — the client does parseFloat() on these.
+        currentAmount: src?.currentAmount ?? String(g.current),
+        targetAmount: src?.targetAmount ?? String(g.target),
+      };
+    });
+
+    res.json({ ...result, goals: enrichedGoals });
   } catch (error) {
     console.error("[engine.savings-goals]", error);
     res.status(500).json({ error: "Failed to fetch savings goals data" });

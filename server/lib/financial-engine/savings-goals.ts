@@ -10,6 +10,12 @@ import { differenceInDays, parseISO } from 'date-fns';
 
 export interface SavingsGoal {
   id?: string;
+  /**
+   * User-facing goal name. Previously omitted from the input shape, which caused
+   * calculateSavingsGoals to fall back to `goal.id || 'Goal'` and emit the UUID
+   * as the display name. Callers SHOULD pass this through.
+   */
+  name?: string;
   current: number;
   target: number;
   targetDate?: string; // ISO date format (YYYY-MM-DD)
@@ -51,7 +57,10 @@ export function calculateSavingsGoals(params: { goals: SavingsGoal[] }): Savings
 
     return {
       id: goal.id || '',
-      name: goal.id || 'Goal',
+      // 2026-04-22 bugfix: was `goal.id || 'Goal'` — always emitted the UUID
+      // as the name since `id` is always present. Prefer the caller-supplied
+      // name; only fall back to id/'Goal' if name is missing.
+      name: goal.name || goal.id || 'Goal',
       current: goal.current,
       target: goal.target,
       percentage: Math.round(percentage * 100) / 100,
