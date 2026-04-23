@@ -18,6 +18,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Table,
   TableBody,
   TableCell,
@@ -50,7 +56,12 @@ import {
   ShieldCheck,
   AlertTriangle,
 } from "lucide-react";
-import { format, addMonths } from "date-fns";
+// 2026-04-22: parseISO added to the import — line 475 uses it to parse
+// payoffData.payoffDate. Previously unimported; would have thrown a
+// ReferenceError at runtime once any user had a debt with a valid
+// payoffDate. Short-circuited today (totalDebt === 0 → payoffDate
+// falsy → ternary skipped), but a latent crash as soon as debts exist.
+import { format, addMonths, parseISO } from "date-fns";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -555,21 +566,39 @@ Keep the response concise and actionable.`;
           <p className="text-muted-foreground">Calculate your path to becoming debt-free</p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleAiAnalysis}
-            disabled={isAnalyzing || totalDebt === 0}
-            data-testid="button-ai-analyze"
-          >
-            {isAnalyzing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Brain className="h-4 w-4 mr-2" />
-            )}
-            AI Advisor
-          </Button>
+          {/* 2026-04-22: wrapped in TooltipProvider so the disabled state
+              (totalDebt === 0) explains itself. Previously the button
+              just looked dead — no tooltip, no toast — because disabled
+              buttons swallow the onClick that would have fired the
+              "No debts to analyze" toast. */}
+          <TooltipProvider delayDuration={100}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    onClick={handleAiAnalysis}
+                    disabled={isAnalyzing || totalDebt === 0}
+                    data-testid="button-ai-analyze"
+                  >
+                    {isAnalyzing ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Brain className="h-4 w-4 mr-2" />
+                    )}
+                    AI Advisor
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {totalDebt === 0 && (
+                <TooltipContent>
+                  <p>Add a debt first to unlock AI payoff recommendations.</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
           <Button asChild data-testid="button-manage-debts">
-            <Link href="/debts">
+            <Link href="/liabilities">
               <Edit className="h-4 w-4 mr-2" />
               Manage Debts
             </Link>
@@ -718,8 +747,13 @@ Keep the response concise and actionable.`;
                 <CreditCard className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p>No debts tracked yet.</p>
                 <p className="text-sm mb-4">Add your debts to see payoff strategies.</p>
+                {/* 2026-04-22: was `/debts` (which redirects to /liabilities).
+                    Using `?add=1` so the Liabilities page auto-opens its
+                    Add-Manual-Debt dialog on mount — Ryan's complaint was
+                    that clicking this button just navigated away with no
+                    obvious next step. */}
                 <Button asChild size="sm">
-                  <Link href="/debts">Add Your First Debt</Link>
+                  <Link href="/liabilities?add=1">Add Your First Debt</Link>
                 </Button>
               </div>
             ) : (

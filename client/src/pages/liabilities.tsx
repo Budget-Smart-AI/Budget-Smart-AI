@@ -1,5 +1,5 @@
 // FEATURE: DEBT_TRACKING | tier: free | limit: 5 debts
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -447,6 +447,24 @@ export default function LiabilitiesPage() {
     });
     setIsDialogOpen(true);
   };
+
+  // 2026-04-22: auto-open the Add-Manual-Debt dialog when this page is
+  // navigated to with `?add=1` in the URL. Debt Payoff's "Add Your First
+  // Debt" button now lands here with that param so users don't get
+  // dropped on the liabilities page with no clear next step. Strips the
+  // param from the URL after opening so a refresh doesn't re-trigger.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("add") === "1") {
+      handleOpenCreate();
+      params.delete("add");
+      const qs = params.toString();
+      const newUrl = window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash;
+      window.history.replaceState(null, "", newUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOpenEdit = (debt: DebtDetails) => {
     setEditingDebt(debt);

@@ -1228,7 +1228,14 @@ export default function ReportsPage() {
               </Card>
             </div>
           ) : (
-            renderReportContent()
+            // 2026-04-22 bugfix: was `renderReportContent()` — a function
+            // that didn't exist anywhere in this file. Clicking any
+            // non-overview report triggered a ReferenceError which
+            // crashed the React render tree and left the page blank.
+            // `renderActiveReport()` (defined at ~line 989) is the actual
+            // switch that maps the 10 non-overview reports to their
+            // render functions.
+            renderActiveReport()
           )}
         </>
       )}
