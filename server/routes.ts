@@ -4602,8 +4602,33 @@ Return JSON: { "income": [...] }`;
     return `/api/user/avatar/${fileKey}`;
   }
 
+  // Multer invokes its `cb(err)` (either for LIMIT_FILE_SIZE or a rejection
+  // from fileFilter) BEFORE our async route handler runs, so the try/catch
+  // below can never see it. Without a dedicated error handler Express
+  // converts the thrown error into its default HTML 500 page, which then
+  // fails `response.json()` on the client and surfaces a generic "Upload
+  // Failed" toast instead of the real reason. Wrap the middleware to turn
+  // those errors into clean JSON responses with helpful status codes so the
+  // client mutation can display a readable message.
+  const handleAvatarUpload = (req: any, res: any, next: any) => {
+    avatarUpload.single("avatar")(req, res, (err: any) => {
+      if (!err) return next();
+      // MulterError codes: https://github.com/expressjs/multer#error-handling
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res
+          .status(413)
+          .json({ error: "Photo is too large. Maximum size is 5 MB." });
+      }
+      // fileFilter rejection (unsupported mime type) — err.message comes from
+      // our own `cb(new Error(...))` in the avatarUpload config above.
+      return res.status(415).json({
+        error: err.message || "Unsupported file type.",
+      });
+    });
+  };
+
   // Avatar upload route
-  app.post("/api/user/avatar", requireAuth, avatarUpload.single("avatar"), async (req: any, res: any) => {
+  app.post("/api/user/avatar", requireAuth, handleAvatarUpload, async (req: any, res: any) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });

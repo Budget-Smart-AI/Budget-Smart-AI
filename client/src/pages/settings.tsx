@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { COUNTRIES } from "@shared/schema";
+import { COUNTRIES, EXPENSE_CATEGORIES as CANONICAL_EXPENSE_CATEGORIES } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -1334,18 +1334,11 @@ const PERIOD_LABELS: Record<string, string> = {
   per_transaction: "Per Transaction",
 };
 
-const EXPENSE_CATEGORIES = [
-  "Food & Dining", "Groceries", "Restaurants", "Coffee Shops",
-  "Transportation", "Gas & Fuel", "Parking", "Public Transit", "Rideshare",
-  "Shopping", "Clothing", "Electronics", "Home & Garden",
-  "Entertainment", "Movies & Music", "Games", "Sports",
-  "Health & Fitness", "Pharmacy", "Doctor", "Gym",
-  "Travel", "Hotels", "Flights", "Vacation",
-  "Bills & Utilities", "Rent", "Mortgage", "Internet", "Phone", "Electricity", "Water",
-  "Insurance", "Auto Insurance", "Home Insurance", "Life Insurance",
-  "Education", "Subscriptions", "Personal Care", "Gifts & Donations",
-  "Business", "Taxes", "Investments", "Other",
-];
+// Use the canonical shared list so Spending Alerts can only target categories
+// that actually exist on transactions. Previously had its own ad-hoc list that
+// drifted from the shared EXPENSE_CATEGORIES and created alerts for
+// categories nothing was tagged with (2026-04-21 unification pass).
+const EXPENSE_CATEGORIES = CANONICAL_EXPENSE_CATEGORIES;
 
 function SpendingAlertsTab() {
   const { toast } = useToast();
@@ -1867,8 +1860,24 @@ export default function Settings({ onLogout }: SettingsProps) {
         body: formData,
       });
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || "Upload failed");
+        // The server normally returns JSON `{ error: string }`. But if multer
+        // rejects the file before our handler runs (e.g. pre-hardening, or
+        // some future middleware change), Express may send an HTML 500 —
+        // `response.json()` would throw and the user would see a confusing
+        // "Unexpected token" message. Fall back to status-specific copy so
+        // the toast is always readable.
+        let message = "We couldn't save your photo. Please try again.";
+        try {
+          const err = await response.json();
+          if (err?.error) message = err.error;
+        } catch {
+          if (response.status === 413) {
+            message = "Photo is too large. Maximum size is 5 MB.";
+          } else if (response.status === 415) {
+            message = "Unsupported file type. Try a JPG, PNG, WebP, or GIF.";
+          }
+        }
+        throw new Error(message);
       }
       return response.json();
     },
@@ -1879,7 +1888,9 @@ export default function Settings({ onLogout }: SettingsProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
     },
     onError: (error: Error) => {
-      toast({ title: "Upload Failed", description: error.message, variant: "destructive" });
+      // Soft title — "Couldn't save photo" reads less like an app crash than
+      // the old "Upload Failed". The description carries the specific reason.
+      toast({ title: "Couldn't save photo", description: error.message, variant: "destructive" });
     },
   });
 
@@ -2073,9 +2084,47 @@ export default function Settings({ onLogout }: SettingsProps) {
     URL.revokeObjectURL(url);
   };
 
+  // Avatar upload limits — MUST match the server-side multer config in
+  // server/routes.ts (`avatarUpload`). Validating client-side means we catch
+  // oversize / wrong-type files before they hit the wire, surface a friendly
+  // toast, and avoid the multer → Express default 500 path which produces an
+  // unhelpful "Upload Failed" toast (the generic one Ryan flagged).
+  const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5 MB
+  const ALLOWED_AVATAR_TYPES = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+  ];
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset the input so picking the same file again re-triggers onChange —
+    // important when the first pick was rejected for size/type and the user
+    // is about to pick the same file after resizing it.
+    e.target.value = "";
     if (!file) return;
+
+    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      toast({
+        title: "Unsupported file type",
+        description: "Please choose a JPG, PNG, WebP, or GIF image.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_SIZE) {
+      const mb = (file.size / (1024 * 1024)).toFixed(1);
+      toast({
+        title: "Photo too large",
+        description: `Your photo is ${mb} MB — the limit is 5 MB. Try resizing or choosing a smaller image.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (ev) => setAvatarPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
