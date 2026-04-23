@@ -301,6 +301,8 @@ function IncomeForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/income"] });
       toast({ title: "Income added successfully" });
       onClose();
     },
@@ -329,6 +331,8 @@ function IncomeForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/income"] });
       toast({ title: "Income updated successfully" });
       onClose();
     },
@@ -827,7 +831,7 @@ export default function IncomePage() {
 
   const flaggedTransactionIds = new Set(tellerFlags.map((f: any) => f.transaction_id));
 
-  const { data: allIncome = [], isLoading } = useQuery<Income[]>({
+  const { data: allIncome = [], isLoading, isError, error } = useQuery<Income[]>({
     queryKey: ["/api/income"],
   });
 
@@ -839,6 +843,8 @@ export default function IncomePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/engine/income"] });
       toast({ title: "Income deleted successfully" });
       setDeleteingIncome(undefined);
     },
@@ -971,6 +977,19 @@ export default function IncomePage() {
   return (
     <div className="space-y-6">
       <DemoBanner />
+      {/* ── Error state ── */}
+      {isError && (
+        <div className="rounded-xl border border-destructive/50 bg-destructive/5 p-6 text-center space-y-3">
+          <AlertTriangle className="h-8 w-8 mx-auto text-destructive" />
+          <p className="font-medium text-destructive">Failed to load income data</p>
+          <p className="text-sm text-muted-foreground">
+            {(error as Error)?.message || "Something went wrong. Please try again."}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/income"] })}>
+            Retry
+          </Button>
+        </div>
+      )}
       {/* ── Teller Alert Banner ── */}
       {flagsBannerOpen && tellerFlags.length > 0 && (
         <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 overflow-hidden">
