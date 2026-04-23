@@ -1,53 +1,64 @@
 /**
- * Left-rail navigation — 6 collapsible groups (April 2026 overhaul).
+ * Left-rail navigation — "TV remote" redesign (2026-04-22).
  *
- * Groups: Home · Money In & Out · Wealth · Plan & Grow · AI Studio · Account.
- * Home / Money In & Out / AI Studio are expanded by default; Wealth /
- * Plan & Grow / Account are collapsed. Collapse state persists in
- * localStorage and the group containing the active route auto-expands on
- * mount. Receipt Scanner nests under Expenses via `.nav-sub-item` (L
- * connector rendered in CSS).
+ * Structure:
+ *   [Logo]                                (compact wordmark)
+ *   [ · ·  ·   ]                          round-icon row: Dashboard /
+ *                                         Calendar / Security Alerts
+ *   ─────────────────────
+ *   🏦 Wallet        ▾                    top-level w/ icon + accordion
+ *     │── Income                          sub items: smaller text, no
+ *     │── Expenses                        icons, rail + stub connectors
+ *     │── Receipt Scanner
+ *     │── Bills & Subscriptions
+ *     └── Accounts
+ *   📈 Wealth        ▸
+ *   🎯 Plan & Grow   ▸
+ *   ✨ AI Studio     ▾
+ *   ─────────────────────                 separator
+ *   ⚙️ Account       ▸
  *
- * Badges are surfaced via a small `NavBadge` type so future wiring into
- * NotificationsContext/BillsContext only needs to change the data layer,
- * not the UI.
+ * Key behavior changes vs. the prior layout:
+ *   - "Home" group removed; its three items become round icon buttons
+ *     below the logo.
+ *   - "Money In & Out" → "Wallet".
+ *   - Receipt Scanner is now a sibling of Expenses under Wallet (was
+ *     nested underneath Expenses as a sub-sub-item).
+ *   - Accordion: opening any top-level group auto-closes the others so
+ *     the scroll area never gets cluttered.
+ *   - Sub items lose their individual icons; they now sit on a continuous
+ *     rail with short horizontal stubs so hierarchy reads at a glance.
+ *   - Bottom-left avatar + "Personal Account" card removed (redundant
+ *     with the avatar in TopNavBar).
+ *   - A subtle divider + spacing sits between AI Studio and Account so
+ *     "Account" reads as its own settings/support shelf.
+ *
+ * Collapse state is still persisted to localStorage (same key), but
+ * accordion-closes-others means we normally only store a single open id.
  */
 import { useEffect, useMemo, useState } from "react";
 import { FloatingChatbot } from "@/components/floating-chatbot";
 import {
-  LayoutDashboard,
-  Receipt,
-  CreditCard,
-  DollarSign,
-  PieChart,
   Target,
-  BarChart3,
   Settings,
   Users,
-  User,
   Building2,
   Bot,
   Mail,
   Sparkles,
   HelpCircle,
   Zap,
-  BookOpen,
-  TrendingDown,
-  Landmark,
   TrendingUp,
   Home,
   Calendar,
   Users2,
   MessageSquare,
-  Calculator,
-  ScanLine,
   Shield,
   ShieldAlert,
   Cpu,
   Activity,
   LogOut,
   Lock,
-  FileText,
   ArrowRight,
   Loader2,
   ChevronDown,
@@ -68,7 +79,6 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BudgetSmartLogoWithText } from "@/components/logo";
 import { useLogout } from "@/hooks/use-logout";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
@@ -102,19 +112,38 @@ type NavBadge =
 interface NavItem {
   title: string;
   url: string;
-  icon: LucideIcon;
+  /** Optional — the 2026-04-22 redesign drops icons from sub items, but
+   *  the type stays optional so we can revisit without a refactor. */
+  icon?: LucideIcon;
   badge?: NavBadge;
-  /** Renders with an L-connector under the preceding item. */
-  sub?: boolean;
 }
 
 interface NavGroupDef {
   id: string;
   label: string;
+  /** Top-level icon rendered next to the group label. Drives the "this
+   *  group is about X" glance. */
+  icon: LucideIcon;
   items: NavItem[];
-  /** Default expanded on first mount (before localStorage). */
+  /** Default expanded on first mount (before localStorage). Only ONE
+   *  group should have this set to true under the accordion model. */
   defaultOpen: boolean;
 }
+
+/** Pinned top-row items — rendered as round icon buttons below the logo
+ *  so the most-trafficked pages are one tap away on any screen size.
+ *  These used to live inside the "Home" group, which has been removed
+ *  from NAV_GROUPS. */
+const QUICK_ACCESS: Array<{
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  badgeKey?: string;
+}> = [
+  { title: "Dashboard", url: "/dashboard", icon: Home },
+  { title: "Calendar", url: "/calendar", icon: Calendar },
+  { title: "Security Alerts", url: "/anomalies", icon: ShieldAlert, badgeKey: "Security Alerts" },
+];
 
 // Dynamic badge counts (Security Alerts, Bills & Subscriptions) are wired
 // inside AppSidebar — see `dynamicBadges` below. They read from the same
@@ -123,75 +152,59 @@ interface NavGroupDef {
 // nav item directly.
 const NAV_GROUPS: NavGroupDef[] = [
   {
-    id: "home",
-    label: "Home",
+    id: "wallet",
+    label: "Wallet",
+    icon: Wallet,
     defaultOpen: true,
     items: [
-      { title: "Dashboard", url: "/dashboard", icon: Home },
-      { title: "Calendar", url: "/calendar", icon: Calendar },
-      {
-        title: "Security Alerts",
-        url: "/anomalies",
-        icon: ShieldAlert,
-      },
-    ],
-  },
-  {
-    id: "money",
-    label: "Money In & Out",
-    defaultOpen: true,
-    items: [
-      { title: "Income", url: "/income", icon: DollarSign },
-      { title: "Expenses", url: "/expenses", icon: Receipt },
-      { title: "Receipt Scanner", url: "/receipts", icon: ScanLine, sub: true },
-      {
-        title: "Bills & Subscriptions",
-        url: "/bills",
-        icon: CreditCard,
-      },
-      { title: "Accounts", url: "/accounts", icon: Building2 },
+      { title: "Income", url: "/income" },
+      { title: "Expenses", url: "/expenses" },
+      { title: "Receipt Scanner", url: "/receipts" },
+      { title: "Bills & Subscriptions", url: "/bills" },
+      { title: "Accounts", url: "/accounts" },
     ],
   },
   {
     id: "wealth",
     label: "Wealth",
+    icon: TrendingUp,
     defaultOpen: false,
     items: [
-      { title: "Net Worth", url: "/net-worth", icon: TrendingUp },
-      { title: "Investments", url: "/investments", icon: TrendingUp },
-      { title: "Assets", url: "/assets", icon: Wallet },
-      { title: "Liabilities", url: "/liabilities", icon: TrendingDown },
-      { title: "Financial Vault", url: "/vault", icon: Shield },
+      { title: "Net Worth", url: "/net-worth" },
+      { title: "Investments", url: "/investments" },
+      { title: "Assets", url: "/assets" },
+      { title: "Liabilities", url: "/liabilities" },
+      { title: "Financial Vault", url: "/vault" },
     ],
   },
   {
     id: "plan",
     label: "Plan & Grow",
+    icon: Target,
     defaultOpen: false,
     items: [
-      { title: "Budgets", url: "/budgets", icon: PieChart },
-      { title: "Savings Goals", url: "/savings", icon: Target },
-      { title: "Debt Payoff", url: "/debt-payoff", icon: Landmark },
-      { title: "Split Expenses", url: "/split-expenses", icon: Users2 },
+      { title: "Budgets", url: "/budgets" },
+      { title: "Savings Goals", url: "/savings" },
+      { title: "Debt Payoff", url: "/debt-payoff" },
+      { title: "Split Expenses", url: "/split-expenses" },
     ],
   },
   {
     id: "ai",
     label: "AI Studio",
-    defaultOpen: true,
+    icon: Sparkles,
+    defaultOpen: false,
     items: [
       {
         title: "AI Assistant",
         url: "/ai-assistant",
-        icon: Bot,
         badge: { kind: "tag", label: "NEW", tone: "new" },
       },
-      { title: "What-If Simulator", url: "/simulator", icon: Calculator },
-      { title: "Reports", url: "/reports", icon: BarChart3 },
+      { title: "What-If Simulator", url: "/simulator" },
+      { title: "Reports", url: "/reports" },
       {
         title: "TaxSmart AI",
         url: "/tax-smart",
-        icon: FileText,
         badge: { kind: "tag", label: "Pro", tone: "pro" },
       },
     ],
@@ -199,15 +212,20 @@ const NAV_GROUPS: NavGroupDef[] = [
   {
     id: "account",
     label: "Account",
+    icon: Settings,
     defaultOpen: false,
     items: [
-      { title: "Setup Wizard", url: "/setup-wizard", icon: Sparkles },
-      { title: "Settings", url: "/settings/profile", icon: Settings },
-      { title: "Help Center", url: "/help", icon: BookOpen },
-      { title: "Support", url: "/support", icon: HelpCircle },
+      { title: "Setup Wizard", url: "/setup-wizard" },
+      { title: "Settings", url: "/settings/profile" },
+      { title: "Help Center", url: "/help" },
+      { title: "Support", url: "/support" },
     ],
   },
 ];
+
+/** IDs of groups that sit below the "Account" separator — they render
+ *  in a visually distinct shelf (spacing + horizontal divider above). */
+const FOOTER_GROUP_IDS = new Set(["account"]);
 
 const adminMenuItems: NavItem[] = [
   { title: "Users", url: "/admin/users", icon: Users },
@@ -298,9 +316,11 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   const [referralOpen, setReferralOpen] = useState(false);
   const { plan, getFeatureState, usageMap } = useFeatureUsage();
 
-  // Collapse state: Set of group ids that are collapsed. Initialized from
-  // defaults (groups with defaultOpen=false start collapsed) then
-  // overridden by anything in localStorage.
+  // Accordion model (2026-04-22): only one top-level group is open at a
+  // time. We still persist to the same localStorage key for continuity,
+  // but under the new behavior the Set will normally contain N-1 ids
+  // (every group except the one that's open). On first mount we honour
+  // `defaultOpen: true` — at most one group should set that.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     const initial = new Set(NAV_GROUPS.filter((g) => !g.defaultOpen).map((g) => g.id));
     const persisted = readCollapsedGroups();
@@ -308,13 +328,15 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     return initial;
   });
 
-  // Auto-expand the group containing the active route (once per location).
+  // Auto-expand the group containing the active route. Under the
+  // accordion model this ALSO collapses whichever group was previously
+  // open — matches the "only one open at a time" rule.
   useEffect(() => {
     const activeGroup = NAV_GROUPS.find((g) => g.items.some((it) => it.url === location));
     if (!activeGroup) return;
     setCollapsed((prev) => {
       if (!prev.has(activeGroup.id)) return prev;
-      const next = new Set(prev);
+      const next = new Set(NAV_GROUPS.map((g) => g.id));
       next.delete(activeGroup.id);
       writeCollapsedGroups(next);
       return next;
@@ -335,11 +357,23 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     return () => window.removeEventListener("bsai:ask-ai", handler as EventListener);
   }, []);
 
+  // Accordion toggle (2026-04-22): opening a group auto-collapses the
+  // others so only one is open at a time. Collapsing an already-open group
+  // just adds it to the closed set without touching siblings, so the user
+  // can also choose to have nothing open.
   const toggleGroup = (id: string) => {
     setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const wasOpen = !prev.has(id);
+      if (wasOpen) {
+        // Close this group, leave the others as-is.
+        const next = new Set(prev);
+        next.add(id);
+        writeCollapsedGroups(next);
+        return next;
+      }
+      // Opening: close everything else (accordion).
+      const next = new Set(NAV_GROUPS.map((g) => g.id));
+      next.delete(id);
       writeCollapsedGroups(next);
       return next;
     });
@@ -381,16 +415,12 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
         : undefined,
   };
 
-  const s = session as any;
-  const displayName = s?.displayName || s?.firstName || username || "User";
-  const avatarUrl = s?.avatarUrl || null;
-  const firstName = s?.firstName || "";
-  const lastName = s?.lastName || "";
-  const initials =
-    firstName && lastName
-      ? `${firstName[0]}${lastName[0]}`.toUpperCase()
-      : (username || "U")[0]?.toUpperCase() || "U";
-
+  // 2026-04-22: avatar / displayName / initials derivations were removed
+  // along with the bottom-left user card; TopNavBar is now the single
+  // surface for identity in the chrome. `session` is still queried so
+  // React Query populates the cache for other consumers.
+  void session;
+  void username;
   const isFree = !plan || plan === "free";
 
   // Primary usage for free plan card: prefer ai_assistant (most visible limit)
@@ -420,34 +450,28 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     return location === item.url;
   };
 
+  // 2026-04-22 redesign: every item in NAV_GROUPS is a sub-item of a
+  // top-level group, so we drop the per-item icon entirely and apply the
+  // `.nav-sub-item` class (smaller text + connector stub) to every row.
+  // Top-level group icons live in the group header, not here.
   const renderNavItem = (item: NavItem) => {
     const featureKey = GATED_NAV_FEATURE[item.title];
     const state = featureKey ? getFeatureState(featureKey) : null;
     const showLock = isFree && state?.upgradeRequired;
     const isActive = isItemActive(item);
     const testId = `nav-${item.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
-    // Static (NEW/Pro) badges live on the item; dynamic counts come from
-    // the live-data lookup. Item-level wins if both are present.
     const resolvedBadge = item.badge ?? dynamicBadges[item.title];
-
-    // Phase 3.1: main nav items read as medium-weight with 18px icons so
-    // they're visibly heavier than sub-items (which keep default weight +
-    // indent via `.nav-sub-item`). This matches the mockup's two-level
-    // hierarchy inside each group.
-    const labelClass = cn("flex-1 truncate", !item.sub && "font-medium");
-    const iconClass = "h-[18px] w-[18px] shrink-0";
 
     if (showLock) {
       return (
-        <SidebarMenuItem key={item.title} className={item.sub ? "relative" : undefined}>
+        <SidebarMenuItem key={item.title} className="relative">
           <SidebarMenuButton
             isActive={isActive}
             data-testid={testId}
             onClick={(e: React.MouseEvent) => handleNavClick(item, e)}
-            className={cn("cursor-pointer", item.sub && "nav-sub-item")}
+            className="cursor-pointer nav-sub-item"
           >
-            <item.icon className={iconClass} />
-            <span className={labelClass}>{item.title}</span>
+            <span className="flex-1 truncate">{item.title}</span>
             {resolvedBadge ? <Badge badge={resolvedBadge} /> : null}
             <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </SidebarMenuButton>
@@ -456,16 +480,15 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
     }
 
     return (
-      <SidebarMenuItem key={item.title} className={item.sub ? "relative" : undefined}>
+      <SidebarMenuItem key={item.title} className="relative">
         <SidebarMenuButton
           asChild
           isActive={isActive}
           data-testid={testId}
-          className={cn(item.sub && "nav-sub-item")}
+          className="nav-sub-item"
         >
           <Link href={item.url}>
-            <item.icon className={iconClass} />
-            <span className={labelClass}>{item.title}</span>
+            <span className="flex-1 truncate">{item.title}</span>
             {resolvedBadge ? <Badge badge={resolvedBadge} /> : null}
           </Link>
         </SidebarMenuButton>
@@ -488,8 +511,48 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
   return (
     <>
       <Sidebar variant="floating" className="!border-r-0">
-        <SidebarHeader className="p-4">
-          <BudgetSmartLogoWithText showTagline={true} />
+        <SidebarHeader className="px-3 pt-3 pb-2 gap-2">
+          <BudgetSmartLogoWithText compact />
+          {/* Round-icon quick access row: Dashboard / Calendar / Alerts.
+           * These were previously inside a "Home" group; promoting them to
+           * pinned icons keeps the most-trafficked pages one tap away on
+           * mobile as well as desktop. */}
+          <TooltipProvider>
+            <div className="flex items-center justify-between gap-1 mt-1">
+              {QUICK_ACCESS.map((q) => {
+                const isActive = location === q.url;
+                const badge = q.badgeKey ? dynamicBadges[q.badgeKey] : undefined;
+                return (
+                  <Tooltip key={q.title}>
+                    <TooltipTrigger asChild>
+                      <Link href={q.url}>
+                        <button
+                          type="button"
+                          aria-label={q.title}
+                          data-testid={`quick-${q.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                          className={cn(
+                            "relative h-9 w-9 flex items-center justify-center rounded-full transition-colors",
+                            "border border-[color:rgb(var(--glass-border))] bg-[color:rgb(var(--glass-surface))] backdrop-blur-sm",
+                            isActive
+                              ? "text-emerald-600 dark:text-emerald-300 border-emerald-500/50 bg-emerald-500/10"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                          )}
+                        >
+                          <q.icon className="h-[15px] w-[15px]" />
+                          {badge && badge.kind === "danger" && (
+                            <span className="absolute -top-0.5 -right-0.5 inline-flex items-center justify-center min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
+                              {badge.count}
+                            </span>
+                          )}
+                        </button>
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">{q.title}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </TooltipProvider>
         </SidebarHeader>
         <SidebarContent className="gap-0 px-2 sidebar-scroll">
           {isFree && (
@@ -548,35 +611,58 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
           {NAV_GROUPS.map((group) => {
             const isOpen = !collapsed.has(group.id);
             const hasActive = groupHasActive.get(group.id);
+            const isFooterGroup = FOOTER_GROUP_IDS.has(group.id);
             return (
-              <SidebarGroup key={group.id} className="px-1 py-1.5">
+              <SidebarGroup
+                key={group.id}
+                className={cn(
+                  "px-1 py-1",
+                  // Account group sits in its own "shelf" below a divider
+                  // so settings/support reads as separate from the nav.
+                  isFooterGroup && "mt-2 pt-3 border-t border-border/40"
+                )}
+              >
                 <button
                   type="button"
                   onClick={() => toggleGroup(group.id)}
                   aria-expanded={isOpen}
                   data-testid={`nav-group-${group.id}`}
                   className={cn(
-                    // Phase 3.1: beefier group header -- teal brand label with
-                    // wider letter-spacing reads cleanly as a section divider
-                    // above the menu items below.
-                    "w-full flex items-center justify-between px-3 py-2 text-[12px] font-bold uppercase tracking-[0.08em] transition-colors",
+                    // Top-level rows read heavier than sub items: icon + bold
+                    // label. Active group lights up in brand teal; the rest
+                    // sits on the subdued foreground until hovered.
+                    "w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] font-semibold transition-colors",
                     hasActive
-                      ? "text-[color:var(--nav-group-label)]"
-                      : "text-muted-foreground/80 hover:text-foreground"
+                      ? "text-[color:var(--nav-group-label,theme(colors.emerald.600))] bg-emerald-500/[0.06]"
+                      : "text-foreground/85 hover:text-foreground hover:bg-muted/50"
                   )}
                 >
-                  <span>{group.label}</span>
+                  <group.icon
+                    className={cn(
+                      "h-4 w-4 shrink-0",
+                      hasActive
+                        ? "text-emerald-500 dark:text-emerald-300"
+                        : "text-muted-foreground"
+                    )}
+                    aria-hidden
+                  />
+                  <span className="flex-1 text-left truncate">{group.label}</span>
                   <ChevronDown
                     className={cn(
-                      "h-3.5 w-3.5 shrink-0 transition-transform duration-200",
+                      "h-3.5 w-3.5 shrink-0 transition-transform duration-200 text-muted-foreground/70",
                       !isOpen && "-rotate-90"
                     )}
                     aria-hidden
                   />
                 </button>
                 {isOpen && (
-                  <SidebarGroupContent className="mt-0.5">
-                    <SidebarMenu>{group.items.map((item) => renderNavItem(item))}</SidebarMenu>
+                  <SidebarGroupContent className="mt-1">
+                    {/* nav-sub-group draws the continuous vertical rail; each
+                     * .nav-sub-item row adds its own horizontal stub via
+                     * ::before. See index.css for the visual details. */}
+                    <div className="nav-sub-group">
+                      <SidebarMenu>{group.items.map((item) => renderNavItem(item))}</SidebarMenu>
+                    </div>
                   </SidebarGroupContent>
                 )}
               </SidebarGroup>
@@ -633,34 +719,11 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
             </SidebarGroup>
           )}
         </SidebarContent>
-        <SidebarFooter className="p-4 border-t border-border/40">
-          <div className="space-y-3">
-            <Link href="/settings/profile">
-              <div
-                className="flex items-center gap-3 p-2 rounded-md hover-elevate cursor-pointer"
-                data-testid="sidebar-user-profile"
-              >
-                <Avatar className="h-8 w-8">
-                  {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
-                  <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                    {initials || <User className="h-4 w-4" />}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-sm font-medium truncate">{displayName}</span>
-                  <span className="text-xs text-muted-foreground">Personal Account</span>
-                </div>
-                {isFree && (
-                  <Link href="/settings/billing">
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border hover:border-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer">
-                      Free
-                    </span>
-                  </Link>
-                )}
-              </div>
-            </Link>
-            <TooltipProvider>
-              <div className="flex items-center gap-1 px-1">
+        <SidebarFooter className="px-2 py-2 border-t border-border/40">
+          <TooltipProvider>
+            {/* Icon-button utility row. The avatar + "Personal Account"
+             * card has moved to TopNavBar so the rail stays slim. */}
+            <div className="flex items-center justify-between gap-1 px-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Link href="/help">
@@ -749,9 +812,8 @@ export function AppSidebar({ isAdmin = false, username, onLogout }: AppSidebarPr
                     <TooltipContent side="top">Affiliate Program</TooltipContent>
                   </Tooltip>
                 )}
-              </div>
-            </TooltipProvider>
-          </div>
+            </div>
+          </TooltipProvider>
         </SidebarFooter>
         {upgradeModalFeature && (
           <UpgradeModal

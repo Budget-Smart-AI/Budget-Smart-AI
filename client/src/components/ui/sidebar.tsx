@@ -27,8 +27,12 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
-const SIDEBAR_WIDTH_MOBILE = "18rem"
+// 2026-04-22 redesign: narrower "TV remote" rail. Dropped desktop from
+// 16rem → 14rem (was 256 → 224px) and mobile from 18rem → 15.5rem. Paired
+// with smaller in-row text/padding in app-sidebar.tsx so the whole rail
+// reads tighter and gives main content more horizontal room.
+const SIDEBAR_WIDTH = "14rem"
+const SIDEBAR_WIDTH_MOBILE = "15.5rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
