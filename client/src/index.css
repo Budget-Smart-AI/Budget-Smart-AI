@@ -165,10 +165,36 @@
   /* Body backdrop — layered radial gradients (the "blobs") + base linear.
    * Phase 3.0: deeper mint base + higher blob saturation so the mist-behind-
    * glass effect actually reads through the new translucent surfaces. */
-  --bg-base:       linear-gradient(135deg, #E8F7EF 0%, #D5F0E2 50%, #C3E9D4 100%);
-  --bg-blob-1:     rgba(34, 197, 94, 0.28);   /* emerald, top-left */
-  --bg-blob-2:     rgba(13, 148, 136, 0.32);  /* teal, top-right */
-  --bg-blob-3:     rgba(132, 204, 22, 0.18);  /* lime, bottom */
+  /* Multi-shade glossy green (Phase 3.2, 2026-04-22). The earlier 3-stop
+   * gradient read flat; the new recipe layers FIVE shades (mint → honeydew
+   * → pistachio → jade → emerald) and an extra 4th blob + a top "sheen"
+   * linear overlay to give the whole page a glass-pane look. Conic layer
+   * adds subtle iridescence you only notice on scroll. */
+  --bg-base:       linear-gradient(
+                     135deg,
+                     #F0FDF7 0%,
+                     #E3F9ED 22%,
+                     #D1F3DD 45%,
+                     #BEEBCB 68%,
+                     #AFE2BD 100%
+                   );
+  --bg-blob-1:     rgba(34, 197, 94, 0.38);   /* emerald, top-left */
+  --bg-blob-2:     rgba(13, 148, 136, 0.40);  /* teal, top-right */
+  --bg-blob-3:     rgba(132, 204, 22, 0.26);  /* lime, bottom-centre */
+  --bg-blob-4:     rgba(5, 150, 105, 0.22);   /* deep jade, mid-left */
+  --bg-sheen:      linear-gradient(
+                     180deg,
+                     rgba(255, 255, 255, 0.55) 0%,
+                     rgba(255, 255, 255, 0.10) 14%,
+                     rgba(255, 255, 255, 0) 36%
+                   );
+  --bg-iridescent: conic-gradient(
+                     from 210deg at 70% 30%,
+                     rgba(16, 185, 129, 0.12) 0deg,
+                     rgba(6, 182, 212, 0.08) 120deg,
+                     rgba(132, 204, 22, 0.10) 240deg,
+                     rgba(16, 185, 129, 0.12) 360deg
+                   );
   --bg-noise-opacity: 0.04;
 
   /* Brand gradients — consumed by logo, CTAs, accents */
@@ -342,11 +368,35 @@
   --glass-shadow:        0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --glass-shadow-lg:     0 12px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
-  /* Body backdrop — deep forest with emerald/teal glow */
-  --bg-base:       linear-gradient(135deg, #051410 0%, #0A1F17 50%, #0D2520 100%);
-  --bg-blob-1:     rgba(34, 197, 94, 0.35);
-  --bg-blob-2:     rgba(13, 148, 136, 0.35);
-  --bg-blob-3:     rgba(132, 204, 22, 0.20);
+  /* Body backdrop — deep forest with emerald/teal glow.
+   * Phase 3.2: mirrors the light-mode recipe — richer 5-stop base,
+   * 4th blob, top sheen, and iridescent conic so the dark UI reads
+   * as glass-over-midnight-forest instead of flat black-green. */
+  --bg-base:       linear-gradient(
+                     135deg,
+                     #03100C 0%,
+                     #061A13 25%,
+                     #082219 50%,
+                     #0B2B22 75%,
+                     #0F362C 100%
+                   );
+  --bg-blob-1:     rgba(34, 197, 94, 0.42);
+  --bg-blob-2:     rgba(13, 148, 136, 0.42);
+  --bg-blob-3:     rgba(132, 204, 22, 0.24);
+  --bg-blob-4:     rgba(5, 150, 105, 0.28);
+  --bg-sheen:      linear-gradient(
+                     180deg,
+                     rgba(255, 255, 255, 0.06) 0%,
+                     rgba(255, 255, 255, 0.015) 18%,
+                     rgba(255, 255, 255, 0) 40%
+                   );
+  --bg-iridescent: conic-gradient(
+                     from 210deg at 70% 30%,
+                     rgba(16, 185, 129, 0.10) 0deg,
+                     rgba(6, 182, 212, 0.07) 120deg,
+                     rgba(132, 204, 22, 0.08) 240deg,
+                     rgba(16, 185, 129, 0.10) 360deg
+                   );
   --bg-noise-opacity: 0.06;
 
   /* Brand gradients — same brand, adjusted alpha for dark contrast */
@@ -371,13 +421,24 @@
 
   body {
     @apply font-sans antialiased text-foreground;
-    /* Layered glass backdrop: 3 radial "blobs" floating over a base gradient.
-     * Each theme overrides --bg-base / --bg-blob-* so the recipe stays the
-     * same and only colour tokens change. */
+    /* Layered glass backdrop (Phase 3.2) — stacked top-to-bottom in paint
+     * order, CSS paints FIRST layer on top, LAST layer on bottom:
+     *   1. top-of-stack  : --bg-sheen       (gloss highlight)
+     *   2.               : emerald blob     (top-left)
+     *   3.               : teal blob        (top-right)
+     *   4.               : deep-jade blob   (mid-left)
+     *   5.               : lime blob        (bottom-centre)
+     *   6.               : iridescent conic (subtle rainbow-on-green)
+     *   7. bottom        : 5-stop base      (mint → jade linear)
+     * Each theme overrides --bg-base / --bg-blob-* / --bg-sheen /
+     * --bg-iridescent so the recipe is shared and only tokens swap. */
     background-image:
-      radial-gradient(ellipse 800px 600px at 0% 0%,   var(--bg-blob-1) 0%, transparent 50%),
-      radial-gradient(ellipse 600px 500px at 100% 0%, var(--bg-blob-2) 0%, transparent 50%),
-      radial-gradient(ellipse 700px 500px at 50% 100%, var(--bg-blob-3) 0%, transparent 50%),
+      var(--bg-sheen),
+      radial-gradient(ellipse 900px 680px at 0% 0%,    var(--bg-blob-1) 0%, transparent 55%),
+      radial-gradient(ellipse 700px 560px at 100% 0%,  var(--bg-blob-2) 0%, transparent 55%),
+      radial-gradient(ellipse 780px 620px at 10% 55%,  var(--bg-blob-4) 0%, transparent 60%),
+      radial-gradient(ellipse 820px 580px at 60% 100%, var(--bg-blob-3) 0%, transparent 55%),
+      var(--bg-iridescent),
       var(--bg-base);
     background-attachment: fixed;
     background-repeat: no-repeat;
@@ -708,42 +769,62 @@ iframe[src*="plaid"] {
 
   /* L-connector for sub-nav items inside an expanded top-level group.
    *
-   * 2026-04-22 redesign: the connector is now applied to every item in
-   * an expanded group, not just Receipt Scanner. A continuous vertical
-   * rail runs down the left edge of `.nav-sub-group`, and each item
-   * gets a short horizontal stub via ::before. The LAST item also hides
-   * the rail's bottom portion via `.nav-sub-group` background-clipping
-   * so the rail terminates cleanly.
+   * 2026-04-22 (v2) — the earlier attempt drew the stub as a ::before on
+   * the button, but shadcn's SidebarMenuButton paints its own background
+   * over the pseudo-element when hover / active state is set, so the
+   * stubs only flickered in briefly on non-hover rows. The rewrite below
+   * shifts the stub onto the <li>/`SidebarMenuItem` wrapper (which has
+   * no background of its own) and uses `.nav-sub-group` as the shared
+   * rail. Result: stubs are always visible regardless of hover/active.
+   *
+   * Layout:
+   *   ┌─ .nav-sub-group (border-left rail)
+   *   │   padding-left: 1rem
+   *   ├── li.nav-sub-item  ← ::before draws the 12px stub from the
+   *   │      ·····             rail into the button's left edge
+   *   │      Income
+   *   └── Expenses
    */
   .nav-sub-group {
     position: relative;
-    /* vertical rail — runs the full height of the expanded group */
     margin-left: 0.5rem;
-    padding-left: 0.75rem;
-    border-left: 1.5px solid rgba(13, 148, 136, 0.35);
+    padding-left: 1rem;
+    border-left: 1.5px solid rgba(13, 148, 136, 0.45);
   }
   .theme-dark .nav-sub-group {
-    border-left-color: rgba(125, 204, 152, 0.3);
+    border-left-color: rgba(125, 204, 152, 0.35);
   }
+  /* Apply to the <li> wrapper — lives on SidebarMenuItem, not the button.
+   * Button-level styling (smaller text, lighter weight) is split out to
+   * .nav-sub-item-btn below so it can ignore the connector geometry. */
   .nav-sub-item {
     position: relative;
-    padding-left: 0.75rem !important;
-    font-size: 0.8125rem !important; /* 13px — smaller than top-level */
-    font-weight: 400 !important;
   }
-  /* Short horizontal stub connecting the rail to each item. */
+  /* Horizontal stub: rail → button. left:-1rem matches the parent's
+   * padding-left so it starts exactly at the rail; width:0.875rem covers
+   * the full gap so the connector kisses the button edge. */
   .nav-sub-item::before {
     content: "";
     position: absolute;
-    left: -0.75rem;
+    left: -1rem;
     top: 50%;
-    width: 0.625rem;
+    width: 0.875rem;
     height: 1.5px;
     background: rgba(13, 148, 136, 0.45);
     border-radius: 1px;
+    pointer-events: none;
+    z-index: 1;
   }
   .theme-dark .nav-sub-item::before {
     background: rgba(125, 204, 152, 0.4);
+  }
+  /* Button-level styling for every row under a .nav-sub-group. Scoped
+   * via the cascade so we don't need an extra classname on the button. */
+  .nav-sub-group [data-sidebar="menu-button"] {
+    font-size: 0.8125rem !important;   /* 13px — smaller than top-level */
+    font-weight: 400 !important;
+    padding-left: 0.5rem !important;
+    height: 2rem !important;           /* tighter rows read "remote"-y */
   }
 }
 
