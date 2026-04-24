@@ -295,3 +295,199 @@ export async function detectRecurringIncome(userId: string): Promise<DetectionRe
 
   return results;
 }
+
+// ─── Suggestion-Mode Detector ────────────────────────────────────────────────
+
+export interface IncomeSuggestion {
+  name: string;
+  amount: number;
+  category: string | null;
+  recurrence: "weekly" | "biweekly" | "semi-monthly" | "monthly" | "quarterly" | "yearly";
+  frequency: string;       // Uppercase Plaid-style for UI back-compat ("WEEKLY", "BIWEEKLY", etc.)
+  dueDay: number;          // Day of month typically received (1-31)
+  confidence: "high" | "medium" | "low";
+  occurrences: number;
+  lastDate: string;        // YYYY-MM-DD
+  sampleSize: number;
+}
+
+const RECURRENCE_TO_FREQUENCY: Record<string, string> = {
+  weekly: "WEEKLY",
+  biweekly: "BIWEEKLY",
+  "semi-monthly": "SEMI_MONTHLY",
+  monthly: "MONTHLY",
+  quarterly: "QUARTERLY",
+  yearly: "ANNUALLY",
+};
+
+/**
+ * Suggestion-mode detector — returns the shape /api/income/detect emits to
+ * the Income page "Detect Income" dialog. Does NOT write to the DB.
+ *
+ * Confidence mapping:
+ *   - 3+ occurrences, amount variance < 15%  → "high"
+ *   - 3+ occurrences, amount variance >= 15% → "medium"
+ *   - 2 occurrences                          → "low"
+ */
+export async function detectRecurringIncomeSuggestions(
+  userId: string,
+): Promise<IncomeSuggestion[]> {
+  console.log(`[IncomeSuggestions] Running for user ${userId}`);
+
+  // 1. Gather Plaid items + active account IDs (same as detectRecurringIncome)
+  const plaidItems = await storage.getPlaidItems(userId);
+  if (plaidItems.length === 0) {
+    console.log(`[IncomeSuggestions] No Plaid items for user ${userId}, skipping`);
+    return [];
+  }
+
+  const allAccountIds: string[] = [];
+  for (const item of plaidItems) {
+    const accounts = await storage.getPlaidAccounts(item.id);
+    const activeAccounts = accounts.filter((a) => a.isActive === "true");
+    allAccountIds.push(...activeAccounts.map((a) => a.id));
+  }
+
+  if (allAccountIds.length === 0) return [];
+
+  // 2. Pull last 12 months of transactions
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - 12);
+
+  const transactions = await storage.getPlaidTransactions(allAccountIds, {
+    startDate: format(startDate, "yyyy-MM-dd"),
+    endDate: format(endDate, "yyyy-MM-dd"),
+  });
+
+  // 3. Filter inflows above threshold, reject non-income
+  const inflows = transactions.filter(
+    (t) =>
+      parseFloat(t.amount) < 0 &&
+      Math.abs(parseFloat(t.amount)) >= MIN_INCOME_THRESHOLD &&
+      !isNonIncomeTx(t)
+  );
+
+  if (inflows.length === 0) {
+    console.log(`[IncomeSuggestions] No qualifying inflows for user ${userId}`);
+    return [];
+  }
+
+  // 4. Group by normalized name
+  const groups: Record<string, { date: string; amount: number; rawName: string; category: string | null }[]> = {};
+  for (const tx of inflows) {
+    const rawName = tx.merchantName || tx.name || "Unknown";
+    const key = normalizeName(rawName);
+    if (!key || key.length < 2) continue;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({
+      date: tx.date,
+      amount: Math.abs(parseFloat(tx.amount)),
+      rawName,
+      category: (tx as any).personalCategory || (tx as any).category || null,
+    });
+  }
+
+  const suggestions: IncomeSuggestion[] = [];
+
+  // 5. Analyze each group with >= 2 entries
+  for (const [, entries] of Object.entries(groups)) {
+    if (entries.length < 2) continue;
+
+    // Sort by date ascending
+    entries.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Calculate intervals
+    const intervals: number[] = [];
+    for (let i = 1; i < entries.length; i++) {
+      const days = differenceInDays(parseISO(entries[i].date), parseISO(entries[i - 1].date));
+      if (days > 0) intervals.push(days);
+    }
+
+    if (intervals.length === 0) continue;
+
+    const meanInterval = avg(intervals);
+    const sd = stdDev(intervals);
+
+    // Reject if stddev > 30% of mean (inconsistent cadence)
+    if (sd > meanInterval * 0.3) continue;
+
+    const frequency = detectFrequency(meanInterval);
+    if (!frequency) continue;
+
+    // Compute mean amount and amount variance
+    const amounts = entries.map((e) => e.amount);
+    const meanAmount = avg(amounts);
+    const amountVariance = amounts.length > 1
+      ? Math.max(...amounts.map((a) => Math.abs(a - meanAmount) / meanAmount))
+      : 0;
+
+    // Most common raw name (use the latest occurrence's name)
+    const name = entries[entries.length - 1].rawName;
+
+    // Last date and due day
+    const lastDate = entries[entries.length - 1].date;
+    const dueDay = lastDate ? new Date(lastDate).getDate() : 1;
+
+    // Guess category from the most common category in the group
+    const catCounts: Record<string, number> = {};
+    for (const e of entries) {
+      const c = e.category || "null";
+      catCounts[c] = (catCounts[c] || 0) + 1;
+    }
+    let bestCat: string | null = null;
+    let bestCatCount = 0;
+    for (const [cat, count] of Object.entries(catCounts)) {
+      if (cat !== "null" && count > bestCatCount) {
+        bestCat = cat;
+        bestCatCount = count;
+      }
+    }
+
+    // Map category to income category labels
+    let mappedCategory: string | null = bestCat;
+    if (bestCat) {
+      const upper = bestCat.toUpperCase();
+      if (upper.includes("PAYROLL") || upper.includes("SALARY")) mappedCategory = "Salary";
+      else if (upper.includes("INVESTMENT") || upper.includes("DIVIDEND")) mappedCategory = "Investments";
+      else if (upper.includes("RENT")) mappedCategory = "Rental";
+      else if (upper.includes("FREELANCE") || upper.includes("CONTRACT")) mappedCategory = "Freelance";
+      else if (upper.includes("BUSINESS")) mappedCategory = "Business";
+      else if (upper.includes("TRANSFER")) mappedCategory = null;
+    }
+
+    // Confidence: 3+ & variance<15% → high; 3+ → medium; 2 → low
+    let confidence: "high" | "medium" | "low";
+    if (entries.length >= 3 && amountVariance < 0.15) {
+      confidence = "high";
+    } else if (entries.length >= 3) {
+      confidence = "medium";
+    } else {
+      confidence = "low";
+    }
+
+    const recurrence = frequency as IncomeSuggestion["recurrence"];
+
+    suggestions.push({
+      name,
+      amount: Math.round(meanAmount * 100) / 100,
+      category: mappedCategory,
+      recurrence,
+      frequency: RECURRENCE_TO_FREQUENCY[frequency] || frequency.toUpperCase(),
+      dueDay,
+      confidence,
+      occurrences: entries.length,
+      lastDate,
+      sampleSize: entries.length,
+    });
+  }
+
+  // Sort by amount descending
+  suggestions.sort((a, b) => b.amount - a.amount);
+
+  console.log(
+    `[IncomeSuggestions] Done for user ${userId}: ${suggestions.length} suggestions found`
+  );
+
+  return suggestions;
+}

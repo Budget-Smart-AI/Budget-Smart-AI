@@ -1355,124 +1355,23 @@ export async function registerRoutes(
     }
   });
 
-  // Income detection endpoint - finds recurring income from Plaid transactions
-  app.post("/api/income/detect", requireAuth, async (req, res) => {
+  // ─── AI income analysis helper (extracted from old /api/income/detect) ──────
+  // Keeps the same prompt + INCOME_CATS list tuned over UAT-10/-11.
+  async function runAiIncomeAnalysis(userId: string, req: any): Promise<any[]> {
+    const MIN_INCOME_THRESHOLD = 200;
+    const INCOME_CATS = ["Salary", "Freelance", "Business", "Investments", "Rental", "Gifts", "Refunds", "Other"];
+
     try {
-      const userId = req.session.userId!;
-      const { plaidClient } = await import("./plaid");
-      const { routeAI } = await import("./ai-router");
-
-      // Minimum amount threshold to filter out small transfers (e.g., Etsy sales, refunds)
-      const MIN_INCOME_THRESHOLD = 200;
-
-      // Get existing income to filter out duplicates
-      const existingIncome = await storage.getIncomes(userId);
-      const existingSourceNames = existingIncome.map(i => i.source.toLowerCase());
-
-      // Get Plaid recurring transactions (inflow streams)
       const items = await storage.getPlaidItems(userId);
-      const plaidRecurring: any[] = [];
-
-      for (const item of items) {
-        try {
-          const accounts = await storage.getPlaidAccounts(item.id);
-          // Only include explicitly active accounts (isActive === "true")
-          const activeAccounts = accounts.filter(a => a.isActive === "true");
-          const accountIds = activeAccounts.map(a => a.accountId);
-          if (accountIds.length === 0) continue;
-
-          const response = await plaidClient.transactionsRecurringGet({
-            access_token: decrypt(item.accessToken),
-            account_ids: accountIds,
-          });
-
-          // Get inflow streams (income/deposits)
-          // PFC v2: include early_detection streams (< 3 occurrences) for nascent income
-          if (response.data.inflow_streams) {
-            const { median: computeMedian, computeAmountConfidence, SAMPLE_SIZE } = await import("./lib/income-validation");
-
-            for (const stream of response.data.inflow_streams) {
-              const streamStatus = (stream as any).status || "mature"; // "mature" | "early_detection"
-              const isActive = stream.is_active || streamStatus === "early_detection";
-              if (!isActive) continue;
-
-              // UAT-10 #171 — recompute amount from the stream's recent transactions,
-              // don't trust Plaid's aggregate `average_amount.amount`.
-              const streamTxIds: string[] = (stream as any).transaction_ids ?? [];
-              let sampleAmounts: number[] = [];
-
-              if (streamTxIds.length > 0) {
-                // Prefer the explicit transaction_ids the stream carries.
-                const matching = await Promise.all(
-                  streamTxIds.slice(0, SAMPLE_SIZE).map((id) =>
-                    storage.getPlaidTransactionByTransactionId(id),
-                  ),
-                );
-                sampleAmounts = matching
-                  .filter((t): t is NonNullable<typeof t> => !!t)
-                  .map((t) => Math.abs(parseFloat(t.amount)));
-              }
-
-              if (sampleAmounts.length < 2) {
-                // Fallback: pull local inflow tx for these accounts in the stream's window
-                // and filter by merchant / description substring.
-                const lookbackEnd = stream.last_date ? new Date(stream.last_date) : new Date();
-                const lookbackStart = new Date(lookbackEnd);
-                lookbackStart.setDate(lookbackStart.getDate() - 120);
-                const internalAccountIds = activeAccounts.map(a => a.id);
-                const localTx = await storage.getPlaidTransactions(internalAccountIds, {
-                  startDate: lookbackStart.toISOString().split("T")[0],
-                  endDate: lookbackEnd.toISOString().split("T")[0],
-                });
-                const needle = (stream.merchant_name || stream.description || "").toLowerCase().trim();
-                sampleAmounts = localTx
-                  .filter((t) => parseFloat(t.amount) < 0)
-                  .filter((t) => {
-                    const blob = `${t.merchantName || ""} ${t.name || ""}`.toLowerCase();
-                    return needle.length > 0 && blob.includes(needle);
-                  })
-                  .sort((a, b) => (a.date < b.date ? 1 : -1))
-                  .slice(0, SAMPLE_SIZE)
-                  .map((t) => Math.abs(parseFloat(t.amount)));
-              }
-
-              const amount = sampleAmounts.length > 0
-                ? Math.round(computeMedian(sampleAmounts) * 100) / 100
-                : Math.abs(stream.average_amount?.amount || 0); // ultimate fallback
-
-              const variantConfidence = computeAmountConfidence(sampleAmounts);
-              const confidence = streamStatus === "early_detection" ? "low" : variantConfidence;
-
-              // Only include significant income (above threshold)
-              if (amount >= MIN_INCOME_THRESHOLD) {
-                plaidRecurring.push({
-                  name: stream.merchant_name || stream.description || "Unknown",
-                  amount,
-                  frequency: stream.frequency,
-                  lastDate: stream.last_date,
-                  category: stream.personal_finance_category?.primary || null,
-                  status: streamStatus, // "mature" or "early_detection"
-                  confidence,
-                  plaidStreamId: (stream as any).stream_id ?? null,
-                  sampleSize: sampleAmounts.length,
-                });
-              }
-            }
-          }
-        } catch (itemError: any) {
-          console.error(`Error fetching recurring income for item ${item.id}:`, itemError?.response?.data || itemError);
-        }
-      }
-
-      // Also get recent transactions for AI analysis (last 6 months)
       const allAccounts = [];
       for (const item of items) {
         const accounts = await storage.getPlaidAccounts(item.id);
-        // Only include explicitly active accounts (isActive === "true")
         const activeAccounts = accounts.filter(a => a.isActive === "true");
         allAccounts.push(...activeAccounts);
       }
       const accountIds = allAccounts.map(a => a.id);
+
+      if (accountIds.length === 0) return [];
 
       const endDate = new Date();
       const startDate = new Date();
@@ -1483,8 +1382,6 @@ export async function registerRoutes(
         endDate: endDate.toISOString().split('T')[0],
       });
 
-      // Filter to inflows only (negative amounts are deposits in Plaid)
-      // and filter out small amounts
       const inflowTx = transactions
         .filter(t => parseFloat(t.amount) < 0 && Math.abs(parseFloat(t.amount)) >= MIN_INCOME_THRESHOLD)
         .map(t => ({
@@ -1494,12 +1391,15 @@ export async function registerRoutes(
           category: t.category,
         }));
 
-      // Use AI to analyze transactions for recurring income patterns
-      const INCOME_CATS = ["Salary", "Freelance", "Business", "Investments", "Rental", "Gifts", "Refunds", "Other"];
+      if (inflowTx.length === 0) return [];
 
-      let aiSuggestions: any[] = [];
-      if (inflowTx.length > 0) {
-        const prompt = `Analyze these ${inflowTx.length} bank deposit transactions (last 6 months) and identify recurring income sources.
+      // Check if user has >= 3 months of history (cost-conscious guard)
+      const dates = inflowTx.map(t => new Date(t.date).getTime());
+      const rangeMs = Math.max(...dates) - Math.min(...dates);
+      const rangeMonths = rangeMs / (1000 * 60 * 60 * 24 * 30);
+      if (rangeMonths < 3) return [];
+
+      const prompt = `Analyze these ${inflowTx.length} bank deposit transactions (last 6 months) and identify recurring income sources.
 
 IMPORTANT: Only identify SIGNIFICANT recurring income like:
 - Regular salary/payroll deposits
@@ -1527,105 +1427,77 @@ Find patterns that occur 2+ times with similar amounts (within 10% variance). Fo
 
 Return JSON: { "income": [...] }`;
 
-        try {
-          const aiRes = await routeAI({
-            taskSlot: "detection_auto",
-            userId: req.session.userId!,
-            featureContext: "income_detect",
-            jsonMode: true,
-            temperature: 0.2,
-            maxTokens: 4000,
-            messages: [
-              { role: "system", content: "You are a financial analyst. Identify significant recurring income patterns only. Ignore small or one-off deposits. Return only valid JSON." },
-              { role: "user", content: prompt },
-            ],
-          });
-
-          const result = JSON.parse(aiRes.content || "{}");
-          aiSuggestions = result.income || [];
-        } catch (aiError) {
-          console.error("AI income analysis error:", aiError);
-        }
-      }
-
-      // Combine Plaid recurring with AI suggestions
-      const allSuggestions: any[] = [];
-
-      // Add Plaid recurring income (higher confidence)
-      for (const rec of plaidRecurring) {
-        // Map Plaid frequency to our recurrence
-        let recurrence = "monthly";
-        if (rec.frequency === "WEEKLY") recurrence = "weekly";
-        else if (rec.frequency === "BIWEEKLY") recurrence = "biweekly";
-        else if (rec.frequency === "ANNUALLY") recurrence = "yearly";
-
-        // Get pay day from last date
-        const dueDay = rec.lastDate ? new Date(rec.lastDate).getDate() : 1;
-
-        // Map Plaid category to income categories
-        let category = "Other";
-        const plaidCat = (rec.category || "").toUpperCase();
-        if (plaidCat.includes("PAYROLL") || plaidCat.includes("SALARY")) category = "Salary";
-        else if (plaidCat.includes("INVESTMENT") || plaidCat.includes("DIVIDEND")) category = "Investments";
-        else if (plaidCat.includes("RENT")) category = "Rental";
-        else if (plaidCat.includes("TRANSFER")) category = "Other";
-
-        allSuggestions.push({
-          name: rec.name,
-          amount: rec.amount.toFixed(2),
-          category,
-          recurrence,
-          dueDay,
-          source: "plaid",
-          confidence: "high",
-        });
-      }
-
-      // Add AI suggestions (may have duplicates with Plaid)
-      for (const ai of aiSuggestions) {
-        // Check if already in Plaid suggestions (by similar name)
-        const aiNameLower = (ai.name || "").toLowerCase();
-        const alreadyInPlaid = allSuggestions.some(s =>
-          s.name.toLowerCase().includes(aiNameLower) || aiNameLower.includes(s.name.toLowerCase())
-        );
-        if (!alreadyInPlaid && parseFloat(ai.amount) >= MIN_INCOME_THRESHOLD) {
-          allSuggestions.push({
-            name: ai.name,
-            amount: String(ai.amount),
-            category: INCOME_CATS.includes(ai.category) ? ai.category : "Other",
-            recurrence: ai.recurrence || "monthly",
-            dueDay: ai.dueDay || 1,
-            source: "ai",
-            confidence: ai.confidence || "medium",
-          });
-        }
-      }
-
-      // Filter out income sources that already exist
-      const newSuggestions = allSuggestions.filter(s => {
-        const nameLower = s.name.toLowerCase();
-        return !existingSourceNames.some(existing =>
-          existing.includes(nameLower) || nameLower.includes(existing)
-        );
+      const aiRes = await routeAI({
+        taskSlot: "detection_auto",
+        userId,
+        featureContext: "income_detect",
+        jsonMode: true,
+        temperature: 0.2,
+        maxTokens: 4000,
+        messages: [
+          { role: "system", content: "You are a financial analyst. Identify significant recurring income patterns only. Ignore small or one-off deposits. Return only valid JSON." },
+          { role: "user", content: prompt },
+        ],
       });
 
-      // Sort by confidence then amount
-      newSuggestions.sort((a, b) => {
-        if (a.confidence === "high" && b.confidence !== "high") return -1;
-        if (b.confidence === "high" && a.confidence !== "high") return 1;
-        return parseFloat(b.amount) - parseFloat(a.amount);
+      const result = JSON.parse(aiRes.content || "{}");
+      const suggestions = (result.income || []).filter(
+        (ai: any) => parseFloat(ai.amount) >= MIN_INCOME_THRESHOLD,
+      );
+      return suggestions.map((ai: any) => ({
+        name: ai.name,
+        amount: parseFloat(ai.amount),
+        category: INCOME_CATS.includes(ai.category) ? ai.category : "Other",
+        recurrence: ai.recurrence || "monthly",
+        frequency: (ai.recurrence || "monthly").toUpperCase(),
+        dueDay: ai.dueDay || 1,
+        confidence: ai.confidence || "medium",
+        occurrences: 0,
+        lastDate: "",
+        sampleSize: 0,
+      }));
+    } catch (aiError) {
+      console.error("AI income analysis error:", aiError);
+      return [];
+    }
+  }
+
+  // Income detection endpoint - local pattern detection (no Plaid Recurring API cost)
+  app.post("/api/income/detect", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { detectRecurringIncomeSuggestions } = await import("./recurring-income-detector");
+
+      // Primary: local pattern detection (no Plaid Recurring API cost)
+      const primary = await detectRecurringIncomeSuggestions(userId);
+
+      // AI fallback — only run if local detection found fewer than 2 streams
+      // AND the user has >= 3 months of transaction history. Keeps the AI call
+      // rare (cost-conscious) but still helps bootstrap users with sparse data.
+      let aiSuggestions: any[] = [];
+      if (primary.length < 2) {
+        aiSuggestions = await runAiIncomeAnalysis(userId, req);
+      }
+
+      // Dedupe AI suggestions against primary by normalized name.
+      const primaryKeys = new Set(
+        primary.map((p) => p.name.toLowerCase().replace(/[^a-z0-9]/g, "")),
+      );
+      const aiOnly = aiSuggestions.filter((ai) => {
+        const k = String(ai.name).toLowerCase().replace(/[^a-z0-9]/g, "");
+        return !primaryKeys.has(k);
       });
 
       res.json({
-        suggestions: newSuggestions,
-        existingCount: existingIncome.length,
-        plaidRecurringCount: plaidRecurring.length,
-        aiAnalyzedCount: inflowTx.length,
-        minThreshold: MIN_INCOME_THRESHOLD,
+        suggestions: [...primary, ...aiOnly],
+        source: {
+          local: primary.length,
+          ai: aiOnly.length,
+        },
       });
-    } catch (error: any) {
-      console.error("Income detect error:", error);
-      res.status(500).json({ error: error.message || "Failed to detect income" });
+    } catch (error) {
+      console.error("Income detection error:", error);
+      res.status(500).json({ error: "Failed to detect income" });
     }
   });
 
@@ -7604,83 +7476,106 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
   });
 
   // Refresh transactions (trigger Plaid to fetch latest data from bank)
+  // Plan-gated: Pro = 10/mo, Family = 15/mo, Free = 0 (upsell modal)
   app.post("/api/plaid/transactions/refresh", requireAuth, async (req, res) => {
+    const userId = req.session.userId!;
+    const { canRefresh, recordRefresh } = await import("./lib/refresh-limits");
+
+    const gate = await canRefresh(userId);
+    if (!gate.allowed) {
+      return res.status(403).json({
+        error: gate.reason,
+        message: {
+          plan_not_eligible: "Refresh is available on Pro and Family plans. Upgrade to unlock live bank refresh.",
+          limit_exhausted:   `You've used all ${gate.usage.limit} refreshes this month. Quota resets on ${new Date(gate.usage.resetsOn).toLocaleDateString()}.`,
+          cooldown:          `Please wait ${gate.usage.cooldownSeconds}s before refreshing again.`,
+        }[gate.reason],
+        usage: gate.usage,
+      });
+    }
+
     try {
-      const userId = req.session.userId!;
       const { plaidClient } = await import("./plaid");
       const items = await storage.getPlaidItems(userId);
 
       let refreshed = 0;
+      let balanced = 0;
+      let succeededAny = false;
       for (const item of items) {
+        // (a) Fire transactionsRefresh — async; Plaid webhook lands later with new tx.
         try {
-        await plaidClient.transactionsRefresh({
-          access_token: decrypt(item.accessToken),
-        });
-        refreshed++;
+          await plaidClient.transactionsRefresh({
+            access_token: decrypt(item.accessToken),
+          });
+          refreshed++;
+          succeededAny = true;
           console.log(`Triggered transaction refresh for item ${item.id}`);
         } catch (itemError: any) {
           console.error(`Error refreshing item ${item.id}:`, itemError?.response?.data || itemError);
         }
+
+        // (b) Refresh live balances in the same call
+        try {
+          const balanceResp = await plaidClient.accountsBalanceGet({
+            access_token: decrypt(item.accessToken),
+          });
+          for (const account of balanceResp.data.accounts) {
+            const existing = await storage.getPlaidAccountByAccountId(account.account_id);
+            if (existing) {
+              await storage.updatePlaidAccount(existing.id, {
+                balanceCurrent: account.balances.current?.toString() || null,
+                balanceAvailable: account.balances.available?.toString() || null,
+                balanceLimit: account.balances.limit?.toString() || null,
+                lastSynced: new Date().toISOString(),
+              });
+            }
+          }
+          balanced++;
+        } catch (balanceError: any) {
+          console.error(`Error refreshing balances for item ${item.id}:`, balanceError?.response?.data || balanceError);
+        }
       }
 
-      res.json({ success: true, refreshed, message: "Refresh triggered. New transactions will be available shortly." });
+      // Only count against the quota if at least one item successfully fired
+      // transactionsRefresh. ITEM_LOGIN_REQUIRED or Plaid-down doesn't burn a
+      // user's monthly refresh.
+      if (succeededAny) {
+        await recordRefresh(userId, items[0]?.id ?? null, true);
+      }
+
+      const usage = await (await import("./lib/refresh-limits")).getRefreshUsage(userId);
+      res.json({
+        success: succeededAny,
+        refreshed,
+        balanced,
+        message: succeededAny
+          ? "Refresh triggered. New transactions will arrive in a minute."
+          : "All items failed to refresh — no quota used.",
+        usage,
+      });
     } catch (error) {
       console.error("Error refreshing transactions:", error);
       res.status(500).json({ error: "Failed to refresh transactions" });
     }
   });
 
-  // Get recurring transactions from Plaid
-  app.get("/api/plaid/transactions/recurring", requireAuth, async (req, res) => {
+  // Get refresh usage for the UI badge
+  app.get("/api/plaid/transactions/refresh-usage", requireAuth, async (req, res) => {
     try {
-      const userId = req.session.userId!;
-      const { plaidClient } = await import("./plaid");
-      const items = await storage.getPlaidItems(userId);
-
-      const allRecurring: any[] = [];
-
-      for (const item of items) {
-        try {
-          // Get accounts for this item
-          const accounts = await storage.getPlaidAccounts(item.id);
-          const accountIds = accounts.map(a => a.accountId);
-
-          if (accountIds.length === 0) continue;
-
-          const response = await plaidClient.transactionsRecurringGet({
-            access_token: decrypt(item.accessToken),
-            account_ids: accountIds,
-          });
-
-          // Add inflow and outflow streams
-          if (response.data.inflow_streams) {
-            for (const stream of response.data.inflow_streams) {
-              allRecurring.push({
-                ...stream,
-                type: "inflow",
-                institutionId: item.institutionId,
-              });
-            }
-          }
-          if (response.data.outflow_streams) {
-            for (const stream of response.data.outflow_streams) {
-              allRecurring.push({
-                ...stream,
-                type: "outflow",
-                institutionId: item.institutionId,
-              });
-            }
-          }
-        } catch (itemError: any) {
-          console.error(`Error fetching recurring for item ${item.id}:`, itemError?.response?.data || itemError);
-        }
-      }
-
-      res.json({ recurring: allRecurring });
+      const { getRefreshUsage } = await import("./lib/refresh-limits");
+      const usage = await getRefreshUsage(req.session.userId!);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(usage);
     } catch (error) {
-      console.error("Error fetching recurring transactions:", error);
-      res.status(500).json({ error: "Failed to fetch recurring transactions" });
+      console.error("Error reading refresh usage:", error);
+      res.status(500).json({ error: "Failed to read refresh usage" });
     }
+  });
+
+  // Recurring transactions endpoint — retired (Plaid Recurring add-on removed).
+  // Returns an empty array so any stale client caches don't 404.
+  app.get("/api/plaid/transactions/recurring", requireAuth, async (_req, res) => {
+    res.json({ recurring: [] });
   });
 
   // Get transactions with optional filters
