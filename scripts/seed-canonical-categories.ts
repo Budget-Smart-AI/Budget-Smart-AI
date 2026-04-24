@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * Seed the canonical_categories table with the 16 parent groups + 51
- * canonicals (67 rows total) from ARCHITECTURE.md §6.2.1.
+ * Seed the canonical_categories table with the 16 parent groups + 57
+ * canonicals (73 rows total) from ARCHITECTURE.md §6.2.1.
  *
  * IDEMPOTENT. Safe to re-run. Existing rows are UPDATEd in-place so edits to
  * display names, icons, colors, or sort order propagate on the next run;
@@ -30,7 +30,7 @@ interface SeedRow {
 }
 
 // ───────────────────────── 16 parent groups ─────────────────────────
-// Sort order reserves the 10-99 range for parent groups so the 51 canonicals
+// Sort order reserves the 10-99 range for parent groups so the 57 canonicals
 // below can slot between parents without renumbering when new parents appear.
 const PARENT_GROUPS: SeedRow[] = [
   { id: "housing",    displayName: "Housing",                 parentId: null, appliesToExpense: true,  appliesToBill: true,  appliesToIncome: false, isTransfer: false, isGroup: true, icon: "🏠", color: "#2563eb", sortOrder: 10 },
@@ -51,7 +51,7 @@ const PARENT_GROUPS: SeedRow[] = [
   { id: "meta",       displayName: "Meta",                    parentId: null, appliesToExpense: true,  appliesToBill: true,  appliesToIncome: true,  isTransfer: false, isGroup: true, icon: "🏷️", color: "#94a3b8", sortOrder: 160 },
 ];
 
-// ───────────────────────── 51 canonical categories ─────────────────────────
+// ───────────────────────── 57 canonical categories ─────────────────────────
 // Sort order within a parent group: parentSortOrder + 1..n so children
 // naturally sort after their parent.
 const CANONICALS: SeedRow[] = [
@@ -126,8 +126,8 @@ const CANONICALS: SeedRow[] = [
   { id: "business_office_supplies",     displayName: "Office Supplies & Software",              parentId: "business",   appliesToExpense: true,  appliesToBill: false, appliesToIncome: false, isTransfer: false, isGroup: false, icon: null, color: null, sortOrder: 122 },
   { id: "business_professional_fees",   displayName: "Professional Fees (legal, consulting)",   parentId: "business",   appliesToExpense: true,  appliesToBill: false, appliesToIncome: false, isTransfer: false, isGroup: false, icon: null, color: null, sortOrder: 123 },
 
-  // Travel (1)
-  { id: "travel",                   displayName: "Travel",                                      parentId: "travel",     appliesToExpense: true,  appliesToBill: false, appliesToIncome: false, isTransfer: false, isGroup: false, icon: null, color: null, sortOrder: 131 },
+  // Travel (1) — canonical id suffixed with _general to avoid colliding with the 'travel' parent group id
+  { id: "travel_general",           displayName: "Travel",                                      parentId: "travel",     appliesToExpense: true,  appliesToBill: false, appliesToIncome: false, isTransfer: false, isGroup: false, icon: null, color: null, sortOrder: 131 },
 
   // Income (5)
   { id: "income_salary",            displayName: "Salary & Wages",                              parentId: "income",     appliesToExpense: false, appliesToBill: false, appliesToIncome: true,  isTransfer: false, isGroup: false, icon: null, color: null, sortOrder: 141 },
@@ -236,9 +236,9 @@ async function main() {
 
   const { total, parents: parentCount, canonicals: canonicalCount } = countRows[0];
   const ok =
-    Number(total) === 67 &&
+    Number(total) === 73 &&
     Number(parentCount) === 16 &&
-    Number(canonicalCount) === 51;
+    Number(canonicalCount) === 57;
 
   console.log(
     `Done: inserted=${inserted} updated=${updated} | db totals: total=${total} parents=${parentCount} canonicals=${canonicalCount}`,
@@ -246,7 +246,7 @@ async function main() {
 
   if (!ok) {
     console.error(
-      `INVARIANT VIOLATION: expected 16 parents + 51 canonicals = 67 total. ` +
+      `INVARIANT VIOLATION: expected 16 parents + 57 canonicals = 73 total. ` +
         `Got ${parentCount} + ${canonicalCount} = ${total}. Investigate drift before any read-path cutover.`,
     );
     process.exitCode = 1;

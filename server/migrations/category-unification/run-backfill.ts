@@ -49,7 +49,7 @@
  *
  * Prerequisites:
  *   1. migrations/0039_canonical_categories.sql applied
- *   2. scripts/seed-canonical-categories.ts run (67 rows present)
+ *   2. scripts/seed-canonical-categories.ts run (73 rows present)
  *   3. AWS Bedrock credentials in env (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
  */
 
@@ -465,9 +465,9 @@ async function checkSeedInvariant(): Promise<void> {
   if (!row) throw new Error("canonical_categories is empty — run `npm run seed:canonical-categories` first.");
   const parents = parseInt(row.parents, 10);
   const total = parseInt(row.total, 10);
-  if (total !== 67 || parents !== 16) {
+  if (total !== 73 || parents !== 16) {
     throw new Error(
-      `canonical_categories has ${total} rows (${parents} parents). Expected 67 (16 + 51). Re-seed before backfill.`,
+      `canonical_categories has ${total} rows (${parents} parents). Expected 73 (16 + 57). Re-seed before backfill.`,
     );
   }
   console.log(`✓ canonical_categories seed OK: ${parents} parents + ${total - parents} canonicals = ${total} rows`);

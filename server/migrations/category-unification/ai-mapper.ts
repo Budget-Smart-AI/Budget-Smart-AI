@@ -2,7 +2,7 @@
  * AI fallback mapper for the ARCHITECTURE.md §6.2 canonical-categories rollout.
  *
  * Given a legacy category string that `DETERMINISTIC_MAP` / `PLAID_CATEGORY_MAP`
- * could not resolve, ask Bedrock Haiku 3.5 to choose one of the 51 canonical
+ * could not resolve, ask Bedrock Haiku 3.5 to choose one of the 57 canonical
  * slugs. Returns `{ canonicalId, confidence, reasoning }` or throws if the
  * model hallucinates a slug that isn't in the canonical set.
  *
@@ -28,7 +28,7 @@ import { bedrockChat } from "../../lib/bedrock";
 
 // ─── Canonical slug registry ─────────────────────────────────────────────────
 // Must match `scripts/seed-canonical-categories.ts`. Kept in sync by the
-// seed-script invariant (67 rows = 16 parents + 51 canonicals). If a slug
+// seed-script invariant (73 rows = 16 parents + 57 canonicals). If a slug
 // gets added in the seed, add it here too — the AI mapper rejects anything
 // not in this list, so new slugs are invisible to the AI until listed.
 
