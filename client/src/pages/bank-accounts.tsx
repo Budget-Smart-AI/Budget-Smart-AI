@@ -2489,6 +2489,7 @@ export default function BankAccounts() {
               manualAccounts={manualAccounts}
               viewMode={accountsViewMode}
               onViewModeChange={setAccountsViewMode}
+              engineTotals={engineAccounts?.totals}
             />
           </div>
         </div>
@@ -3356,3 +3357,4 @@ export default function BankAccounts() {
     </div>
   );
 }
+
