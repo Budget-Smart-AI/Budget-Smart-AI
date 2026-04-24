@@ -24,9 +24,12 @@ import {
   WidgetsApi,
 } from "mx-platform-node";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { mxMembers, plaidTransactions, users } from "@shared/schema";
 import * as crypto from "crypto";
+// §6.2.6 dual-write: resolve canonical_category_id inline during MX sync so
+// new MX rows carry the shadow column from day one. Sync-only (no Bedrock).
+import { resolveCanonicalCategorySync } from "./migrations/category-unification/resolver";
 
 // ─── SDK Configuration ──────────────────────────────────────────────────────
 
@@ -757,6 +760,17 @@ async function upsertMXTransaction(
     }
   }
 
+  // §6.2.6 dual-write: resolve canonical slug for this MX row. MX doesn't
+  // expose Plaid's PFC field, so only the deterministic legacy-string map
+  // runs here — the adapter-derived `personalCategory` above is the key.
+  // Misses fall through to NULL and are picked up by the nightly reconcile.
+  const canonicalCategoryId = resolveCanonicalCategorySync({
+    legacyCategory: personalCategory,
+    merchantName: merchantCleanName ?? tx.description ?? null,
+    amount: Number(normalizedAmount) || null,
+    rowKind: "mx",
+  }).canonicalId;
+
   const transactionData = {
     plaidAccountId: memberId,
     amount: isIncome ? `-${normalizedAmount}` : normalizedAmount,
@@ -768,6 +782,7 @@ async function upsertMXTransaction(
     logoUrl: merchantLogoUrl,
     category: tx.top_level_category || 'OTHER',
     personalCategory,
+    canonicalCategoryId,
     pending: tx.status === 'PENDING' ? 'true' : 'false',
     isoCurrencyCode: 'CAD',
     matchType: 'unmatched',
@@ -778,6 +793,11 @@ async function upsertMXTransaction(
     isSubscription: tx.is_subscription ? 'true' : 'false',
   };
 
+  // For the upsert SET clause, keep canonical_category_id idempotent on
+  // re-sync: only fill if currently NULL. If a human has manually corrected
+  // the category after the first insert, we mustn't clobber their fix.
+  const { canonicalCategoryId: _omit, ...updateData } = transactionData;
+
   await db.insert(plaidTransactions)
     .values({
       id: crypto.randomUUID(),
@@ -787,7 +807,10 @@ async function upsertMXTransaction(
     })
     .onConflictDoUpdate({
       target: plaidTransactions.transactionId,
-      set: transactionData,
+      set: {
+        ...updateData,
+        canonicalCategoryId: sql`COALESCE(plaid_transactions.canonical_category_id, ${canonicalCategoryId})`,
+      },
     });
 }
 
