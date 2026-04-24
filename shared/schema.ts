@@ -726,6 +726,19 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   isActive: text("is_active").default("true"),
 });
 
+// ============ USER REFRESH USAGE (Plaid transactionsRefresh quota tracking) ============
+
+export const userRefreshUsage = pgTable("user_refresh_usage", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  plaidItemId: varchar("plaid_item_id"),
+  usedAt: timestamp("used_at").notNull().defaultNow(),
+  success: boolean("success").notNull().default(true),
+});
+
+export type UserRefreshUsage = typeof userRefreshUsage.$inferSelect;
+export type InsertUserRefreshUsage = typeof userRefreshUsage.$inferInsert;
+
 // ============ MANUAL ACCOUNTS (Transaction-Centric Architecture) ============
 
 // Manual Accounts table - for tracking non-bank spending (cash, PayPal, Venmo, etc.)
