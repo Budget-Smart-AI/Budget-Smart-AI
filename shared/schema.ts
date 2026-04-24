@@ -189,6 +189,10 @@ export const bills = pgTable("bills", {
   detectionConfidence: text("detection_confidence"), // "high" | "medium" | "low"
   lastVerifiedAt: timestamp("last_verified_at"),
   lastVerifiedBy: text("last_verified_by"), // "user" | "system"
+  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
+  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
+  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
+  canonicalCategoryId: text("canonical_category_id"),
 });
 
 // Expenses table - for one-time purchases
@@ -208,6 +212,10 @@ export const expenses = pgTable("expenses", {
   // For Plaid: transaction.transactionId  |  For MX: transaction.guid
   // Unique per user so the DB rejects duplicate auto-imports on reconnection.
   externalTransactionId: text("external_transaction_id"),
+  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
+  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
+  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
+  canonicalCategoryId: text("canonical_category_id"),
 }, (table) => ({
   uniqueUserExternalTransaction: uniqueIndex(
     "expenses_user_external_transaction_unique"
@@ -321,6 +329,10 @@ export const income = pgTable("income", {
   lastVerifiedBy: text("last_verified_by"), // "user" | "system"
   // ─── Backfill flag (migration 0035) ─────────────────────────────────────────
   confidenceFlag: text("confidence_flag"), // 'backfill_corrected' | 'needs_manual_review' | 'backfill_no_history'
+  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
+  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
+  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
+  canonicalCategoryId: text("canonical_category_id"),
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, userId: true }).extend({
@@ -624,6 +636,10 @@ export const mxTransactions = pgTable("mx_transactions", {
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
   needsReview: boolean("needs_review").default(false),
+  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
+  // Populated by the backfill and by the dual-write sync path (§6.2.6). Legacy
+  // `personal_category` TEXT remains authoritative until the read-path cutover.
+  canonicalCategoryId: text("canonical_category_id"),
 });
 
 export const insertMxMemberSchema = createInsertSchema(mxMembers).omit({ id: true });
@@ -724,6 +740,11 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   transferPairId: uuid("transfer_pair_id"), // shared UUID linking matched transfer pairs
   // Soft-delete flag for /transactions/sync REMOVED events
   isActive: text("is_active").default("true"),
+  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
+  // Populated by the backfill and by the dual-write sync path (§6.2.6) via
+  // PLAID_CATEGORY_MAP. Legacy `personal_category` TEXT remains authoritative
+  // until the read-path cutover completes (§6.2.7).
+  canonicalCategoryId: text("canonical_category_id"),
 });
 
 // ============ USER REFRESH USAGE (Plaid transactionsRefresh quota tracking) ============
@@ -778,6 +799,10 @@ export const manualTransactions = pgTable("manual_transactions", {
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
   needsReview: boolean("needs_review").default(false),
+  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
+  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
+  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
+  canonicalCategoryId: text("canonical_category_id"),
 });
 
 export const insertManualAccountSchema = createInsertSchema(manualAccounts).omit({ id: true, userId: true }).extend({
@@ -2474,3 +2499,65 @@ export const insertUserWatchlistSchema = createInsertSchema(userWatchlists).omit
 
 export type UserWatchlist = typeof userWatchlists.$inferSelect;
 export type InsertUserWatchlist = z.infer<typeof insertUserWatchlistSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CANONICAL CATEGORIES (migration 0039, ARCHITECTURE.md §6.2.4)
+// ═══════════════════════════════════════════════════════════════════════════
+// SSOT taxonomy of 51 canonicals under 16 parent groups (67 rows total).
+// Populated by `scripts/seed-canonical-categories.ts`. All transaction-like
+// tables (expenses, bills, income, plaid_transactions, mx_transactions,
+// manual_transactions) carry a `canonical_category_id` shadow column that
+// references this table. During Phase A the legacy `category` TEXT columns
+// remain authoritative; read-path cutover happens surface-by-surface in
+// follow-up PRs (§6.2.7), and only once every surface is cut over do we
+// drop the legacy columns.
+
+export const canonicalCategories = pgTable("canonical_categories", {
+  id: text("id").primaryKey(),                                    // immutable slug
+  displayName: text("display_name").notNull(),
+  parentId: text("parent_id"),                                    // FK enforced in SQL migration
+  appliesToExpense: boolean("applies_to_expense").notNull().default(false),
+  appliesToBill: boolean("applies_to_bill").notNull().default(false),
+  appliesToIncome: boolean("applies_to_income").notNull().default(false),
+  isTransfer: boolean("is_transfer").notNull().default(false),
+  isGroup: boolean("is_group").notNull().default(false),          // true for the 16 parent rows
+  icon: text("icon"),
+  color: text("color"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertCanonicalCategorySchema = createInsertSchema(canonicalCategories).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type CanonicalCategory = typeof canonicalCategories.$inferSelect;
+export type InsertCanonicalCategory = z.infer<typeof insertCanonicalCategorySchema>;
+
+// Per-row audit log of the category-unification backfill. One row per row
+// migrated — captures the legacy string, the chosen canonical, the mapping
+// source (deterministic / ai / fallback), the confidence score, and a
+// needs_review flag for low-confidence AI decisions (§6.2.5).
+export const categoryMigrationLog = pgTable("category_migration_log", {
+  id: serial("id").primaryKey(),
+  sourceTable: text("source_table").notNull(),                    // 'expenses' | 'bills' | 'income' | 'plaid_transactions' | 'mx_transactions' | 'manual_transactions'
+  sourceRowId: text("source_row_id").notNull(),                   // stringified pk of the source row
+  oldCategory: text("old_category"),                              // legacy string before migration
+  newCanonicalId: text("new_canonical_id"),                       // FK to canonical_categories.id, enforced in SQL migration
+  mappingSource: text("mapping_source").notNull(),                // 'deterministic' | 'ai' | 'fallback'
+  confidence: numeric("confidence", { precision: 3, scale: 2 }),  // 0.00 - 1.00
+  needsReview: boolean("needs_review").notNull().default(false),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: text("reviewed_by"),
+  migratedAt: timestamp("migrated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertCategoryMigrationLogSchema = createInsertSchema(categoryMigrationLog).omit({
+  id: true,
+  migratedAt: true,
+});
+
+export type CategoryMigrationLog = typeof categoryMigrationLog.$inferSelect;
+export type InsertCategoryMigrationLog = z.infer<typeof insertCategoryMigrationLogSchema>;
