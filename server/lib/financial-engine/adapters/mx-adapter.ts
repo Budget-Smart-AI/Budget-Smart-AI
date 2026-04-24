@@ -76,7 +76,13 @@ export class MxAdapter implements BankingAdapter {
       name: acc.name || acc.nickname || acc.userGuid || "MX Account",
       accountType: mapMxAccountType(acc.type),
       balance: parseFloat(String(acc.balance ?? 0)) || 0,
-      isActive: acc.isActive === true || acc.isActive === "true",
+      // UAT-11 #109 parity: match plaid-adapter's soft-default semantics.
+      // Only explicit false/"false" deactivates; null/undefined is active.
+      isActive:
+        acc.isActive !== false &&
+        acc.isActive !== "false" &&
+        acc.isActive !== 0 &&
+        acc.isActive !== "0",
       provider: "MX",
       itemStatus: this.normalizeItemStatus(acc.connectionStatus ?? acc.status),
       institutionName: acc.institutionName ?? acc.institution ?? null,
@@ -117,14 +123,17 @@ export class MxAdapter implements BankingAdapter {
         tx.pending === "true" ||
         tx.status === "PENDING";
 
-      const { category: canonical, confidence } = this.remapCategory(rawCategory, {
-        mxCategory: rawCategory ? String(rawCategory) : null,
-        mxTopLevel: mxTop ? String(mxTop) : null,
-      });
-
       const cleanedMerchant = this.normalizeMerchant(
         tx.merchantName || tx.name || tx.description
       );
+
+      // UAT-11 #88 / #96: forward cleaned merchant so merchant-keyword
+      // overrides can win over MX's raw categorizations.
+      const { category: canonical, confidence } = this.remapCategory(rawCategory, {
+        mxCategory: rawCategory ? String(rawCategory) : null,
+        mxTopLevel: mxTop ? String(mxTop) : null,
+        merchant: cleanedMerchant,
+      });
 
       const classification = this.classifyIncome({
         amount,

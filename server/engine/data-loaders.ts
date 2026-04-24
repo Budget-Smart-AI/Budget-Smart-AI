@@ -58,7 +58,79 @@ export async function getAllNormalizedAccounts(
     all.push(...manualAdapter.normalizeAccounts(rawManual));
   }
 
-  return all;
+  return dedupeAccounts(all);
+}
+
+/**
+ * Collapse accounts that point at the same underlying financial product.
+ *
+ * UAT-11 #110: Ryan's Scotia mortgage appeared twice in every liability
+ * surface — once at $95K, once at $1.05M. Root cause: Plaid re-issued the
+ * `account_id` when the Item was reconnected in update mode, so the old
+ * row stayed around (with a stale balance) and a new row was inserted
+ * with the real balance. Both showed up because the engine unions by id
+ * only.
+ *
+ * Dedup key: provider + institutionName + mask + accountType. This
+ * matches the natural uniqueness of "this specific account at this
+ * institution" without depending on Plaid's unstable account_id. Within
+ * a group we keep the row with the most recent `lastSyncedAt` (current
+ * balance), or — if that's missing — the row with the larger abs(balance)
+ * because a stale mortgage reconnect typically shows a smaller balance
+ * that only reflects accrued interest from the orphan period.
+ *
+ * Accounts that don't present a mask (manual accounts, some investment
+ * types) are passed through unchanged — they have no dedup signal.
+ */
+function dedupeAccounts(accounts: NormalizedAccount[]): NormalizedAccount[] {
+  const groups = new Map<string, NormalizedAccount[]>();
+  const passthrough: NormalizedAccount[] = [];
+
+  for (const acc of accounts) {
+    const mask = acc.mask ?? null;
+    const inst = acc.institutionName ?? null;
+    if (!mask || !inst) {
+      passthrough.push(acc);
+      continue;
+    }
+    const key = `${acc.provider}::${inst}::${mask}::${acc.accountType}`;
+    const bucket = groups.get(key) ?? [];
+    bucket.push(acc);
+    groups.set(key, bucket);
+  }
+
+  const winners: NormalizedAccount[] = [];
+  for (const bucket of groups.values()) {
+    if (bucket.length === 1) {
+      winners.push(bucket[0]);
+      continue;
+    }
+    // Score each candidate: prefer most recent lastSyncedAt, then larger
+    // abs(balance) as a tiebreaker for the stale-reconnect case above.
+    const sorted = bucket.slice().sort((a, b) => {
+      const aSync = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
+      const bSync = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
+      if (bSync !== aSync) return bSync - aSync;
+      return Math.abs(b.balance) - Math.abs(a.balance);
+    });
+    const winner = sorted[0];
+    const duplicates = sorted.slice(1).map((a) => ({
+      id: a.id,
+      balance: a.balance,
+      lastSyncedAt: a.lastSyncedAt,
+    }));
+    console.log("[engine.accounts] dedup — collapsed duplicate", {
+      institution: winner.institutionName,
+      mask: winner.mask,
+      accountType: winner.accountType,
+      provider: winner.provider,
+      kept: { id: winner.id, balance: winner.balance, lastSyncedAt: winner.lastSyncedAt },
+      dropped: duplicates,
+    });
+    winners.push(winner);
+  }
+
+  return [...winners, ...passthrough];
 }
 
 /**
@@ -76,12 +148,25 @@ export async function getAllNormalizedTransactions(
   const endStr =
     typeof endDate === "string" ? endDate : format(endDate, "yyyy-MM-dd");
 
-  // Plaid
+  // Plaid.
+  // UAT-11 #109 parity: match the adapter's soft-default semantics here so
+  // transactions from accounts with null/undefined `is_active` columns
+  // (rows created before the default was added) still flow through. The
+  // strict `=== "true"` check was silently hiding transactions on older
+  // accounts the same way it was hiding their balances.
   for (const userId of userIds) {
     const plaidItems = await EngineStorage.getPlaidItems(userId);
     for (const item of plaidItems) {
       const raw = await EngineStorage.getPlaidAccounts(item.id);
-      const activeIds = raw.filter((a) => a.isActive === "true").map((a) => a.id);
+      const activeIds = raw
+        .filter(
+          (a) =>
+            a.isActive !== false &&
+            a.isActive !== "false" &&
+            (a.isActive as any) !== 0 &&
+            a.isActive !== "0",
+        )
+        .map((a) => a.id);
       if (activeIds.length > 0) {
         const rawTx = await EngineStorage.getPlaidTransactions(activeIds, {
           startDate: startStr,

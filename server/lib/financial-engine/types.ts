@@ -171,6 +171,14 @@ export interface CashFlowResult {
   plannedCashFlow: number;
   /** Planned savings: budgeted income - budgeted spending - monthly bills */
   plannedSavings: number;
+  /**
+   * Sum of all active budget category amounts (the "spending budget").
+   * UAT-11 P0-2 (#82, #83, #85): the Dashboard UI was showing `expenses.total`
+   * in the "Budgeted Spending" tile, which is actual spend, not the budget.
+   * Exposing the true plan number here lets the UI label it correctly AND
+   * compare "over budget" to the plan (not to total income).
+   */
+  budgetTotal: number;
 }
 
 // ─── Net Worth ─────────────────────────────────────────────────────────────

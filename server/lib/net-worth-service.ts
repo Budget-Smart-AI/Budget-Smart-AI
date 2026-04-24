@@ -25,42 +25,25 @@ import { storage } from "../storage";
 import { calculateNetWorth } from "./financial-engine/net-worth";
 import type { NetWorthResult } from "./financial-engine/types";
 import type { NormalizedAccount } from "./financial-engine/normalized-types";
-import { plaidAdapter } from "./financial-engine/adapters/plaid-adapter";
-import { mxAdapter } from "./financial-engine/adapters/mx-adapter";
-import { manualAdapter } from "./financial-engine/adapters/manual-adapter";
+import { getAllNormalizedAccounts as getAllNormalizedAccountsCanonical } from "../engine/data-loaders";
 
 /**
  * Fetch and normalize all active bank/investment/manual accounts for the given
  * users across every provider. Provider-agnostic — downstream callers work
  * entirely with NormalizedAccount.
+ *
+ * UAT-11 #94 fix: this now delegates to the canonical loader in
+ * `server/engine/data-loaders.ts` so EVERY net-worth surface (Net Worth page,
+ * Accounts page, Dashboard) uses the same deduped + item-status-enriched
+ * account set. Previously this file had its own implementation that missed
+ * Plaid item-status injection and the Scotia-mortgage dedup, which caused
+ * the Accounts page to show a different Net Worth than the Net Worth page.
+ * Kept as a re-export so existing importers don't break.
  */
 export async function getAllNormalizedAccounts(
   userIds: string[]
 ): Promise<NormalizedAccount[]> {
-  const allAccounts: NormalizedAccount[] = [];
-
-  // Plaid
-  for (const userId of userIds) {
-    const plaidItems = await storage.getPlaidItems(userId);
-    for (const item of plaidItems) {
-      const rawAccounts = await storage.getPlaidAccounts(item.id);
-      allAccounts.push(...plaidAdapter.normalizeAccounts(rawAccounts));
-    }
-  }
-
-  // MX
-  for (const userId of userIds) {
-    const rawMxAccounts = await storage.getMxAccountsByUserId(userId);
-    allAccounts.push(...mxAdapter.normalizeAccounts(rawMxAccounts));
-  }
-
-  // Manual
-  for (const userId of userIds) {
-    const rawManualAccounts = await storage.getManualAccounts(userId);
-    allAccounts.push(...manualAdapter.normalizeAccounts(rawManualAccounts));
-  }
-
-  return allAccounts;
+  return getAllNormalizedAccountsCanonical(userIds);
 }
 
 /**

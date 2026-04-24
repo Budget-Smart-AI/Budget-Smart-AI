@@ -98,7 +98,18 @@ export class PlaidAdapter implements BankingAdapter {
       name: acc.name || acc.officialName || "Plaid Account",
       accountType: mapPlaidAccountType(acc.type, acc.subtype),
       balance: parseFloat(String(acc.balanceCurrent ?? acc.balance ?? 0)) || 0,
-      isActive: acc.isActive === true || acc.isActive === "true",
+      // UAT-11 #109: Plaid liability accounts (Scotia mortgage, credit cards,
+      // loans) were being filtered out of /api/engine/debts because their
+      // `is_active` column was null/undefined in older rows — the strict
+      // `=== "true"` check treated those as inactive, hiding $1.19M of debt.
+      // Matches manual-adapter semantics: only EXPLICIT false/"false"
+      // deactivates. Ryan controls enable/disable from the Accounts page, which
+      // writes the string literals "true"/"false" to the column.
+      isActive:
+        acc.isActive !== false &&
+        acc.isActive !== "false" &&
+        acc.isActive !== 0 &&
+        acc.isActive !== "0",
       provider: "Plaid",
       itemStatus: this.normalizeItemStatus(acc.itemStatus ?? acc.status ?? acc.plaidItemStatus),
       institutionName: acc.institutionName ?? acc.plaidItemInstitutionName ?? null,
@@ -140,16 +151,21 @@ export class PlaidAdapter implements BankingAdapter {
 
       const isPending = tx.pending === true || tx.pending === "true";
 
-      // Canonical category (engine/UI always read this; never the raw PFC).
-      const { category: canonical, confidence } = this.remapCategory(rawCategory, {
-        pfcPrimary: pfcPrimaryRaw || null,
-        pfcDetailed: pfcDetailedRaw || null,
-      });
-
       const counterpartyType = tx.counterpartyType || null;
       const cleanedMerchant = this.normalizeMerchant(
         tx.counterpartyName || tx.merchantName || tx.name
       );
+
+      // Canonical category (engine/UI always read this; never the raw PFC).
+      // UAT-11 #88 / #96: pass the CLEANED merchant into the remapper so
+      // merchant-keyword overrides (Telus, Loblaws, CAA) can beat Plaid's
+      // wrong primary assignments. Must happen AFTER cleanMerchant so we
+      // match on "Telus" not "APOS PURCHASE TELUS MOBILITY".
+      const { category: canonical, confidence } = this.remapCategory(rawCategory, {
+        pfcPrimary: pfcPrimaryRaw || null,
+        pfcDetailed: pfcDetailedRaw || null,
+        merchant: cleanedMerchant,
+      });
 
       const classification = this.classifyIncome({
         amount,

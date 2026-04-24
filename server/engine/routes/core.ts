@@ -194,9 +194,16 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       holdings,
       history: [],
     });
+    // UAT-11 P0-1 (#80, #84): Dashboard "Savings Goals" card displayed the
+    // goal's UUID because this call didn't forward `name`, so calculateSavingsGoals
+    // fell back to `id` for the label. The /savings-goals endpoint (below) had
+    // the right shape; the dashboard projection was missed during the 2026-04-22
+    // fix. Pass the name through so the dashboard and the savings-goals page
+    // render identically.
     const savingsGoals = calculateSavingsGoals({
       goals: savingsGoalsData.map((g) => ({
         id: g.id,
+        name: g.name,
         current: parseFloat(String(g.currentAmount ?? 0)),
         target: parseFloat(String(g.targetAmount ?? 0)),
         targetDate: g.targetDate ?? undefined,
@@ -267,6 +274,9 @@ router.get("/dashboard", async (req: Request, res: Response) => {
         realSpending: expenses.total,
         plannedCashFlow: income.budgetedIncome - budgetTotal - bills.monthlyEstimate,
         plannedSavings,
+        // UAT-11 P0-2: expose the true plan so the UI can stop confusing
+        // "Budgeted Spending" with "actual spending to date".
+        budgetTotal,
       },
       netWorth,
       savingsGoals,
@@ -473,6 +483,34 @@ router.get("/debts", async (req: Request, res: Response) => {
     );
 
     const providerAccts = await getAllNormalizedAccounts(householdUserIds ?? [userId]);
+
+    // UAT-11 #109: log enough to diagnose "Total Debt: $0" in prod without
+    // needing a re-deploy. Prints the full liability candidate list (account
+    // id, type, balance, isActive) once per request. Safe — no PII, no tokens.
+    const liabilityCandidates = providerAccts.filter(
+      (a) =>
+        a.accountType === "credit" ||
+        a.accountType === "credit_card" ||
+        a.accountType === "loan" ||
+        a.accountType === "mortgage" ||
+        a.accountType === "line_of_credit"
+    );
+    if (liabilityCandidates.length > 0) {
+      console.log("[engine.debts] liability candidates", {
+        userId,
+        householdSize: (householdUserIds ?? [userId]).length,
+        candidates: liabilityCandidates.map((a) => ({
+          id: a.id,
+          name: a.name,
+          accountType: a.accountType,
+          balance: a.balance,
+          isActive: a.isActive,
+          provider: a.provider,
+          linkedToManual: linkedProviderIds.has(a.id),
+        })),
+      });
+    }
+
     const providerDebts = providerAccts
       .filter(
         (a) =>
@@ -778,7 +816,15 @@ router.get("/accounts", async (req: Request, res: Response) => {
     const { userId } = requireContext(req);
     const userIds = requireContext(req).householdUserIds;
 
-    const accounts = await getAllNormalizedAccounts(userIds);
+    // UAT-11 #94: route the Net Worth total through the same service the
+    // /bank-accounts and /net-worth endpoints use, so the Accounts page can't
+    // show two different Net Worth numbers. Previously this endpoint did a
+    // local cash + investments − |debts| calc that ignored manual assets and
+    // manual debt rows, producing a smaller number than the Net Worth page.
+    const [accounts, netWorthResult] = await Promise.all([
+      getAllNormalizedAccounts(userIds),
+      loadAndCalculateNetWorth(userIds, userId, { history: false }),
+    ]);
 
     // Aggregate by canonical account type.
     const byType: Record<string, { count: number; total: number }> = {};
@@ -790,7 +836,10 @@ router.get("/accounts", async (req: Request, res: Response) => {
       byType[acc.accountType].total += Number(acc.balance) || 0;
     }
 
-    // High-level totals — provider-agnostic, mirrors net-worth math.
+    // Per-bucket cash/investment/debt rollups for the type tiles. These are
+    // rollups of the deduped normalized account balances ONLY — the full net
+    // worth number (including manual assets + manual debts) comes from the
+    // net-worth service so every surface stays in sync.
     const CASH = new Set(["checking", "savings", "depository"]);
     const INVEST = new Set(["investment", "brokerage"]);
     const LIAB = new Set([
@@ -812,13 +861,14 @@ router.get("/accounts", async (req: Request, res: Response) => {
       else if (LIAB.has(acc.accountType)) debts += Math.abs(bal);
     }
 
-    // Net-worth here is a lightweight local calc (no snapshots). For the full
-    // calculation with manual assets + history the client still hits
-    // /api/engine/net-worth — but this totals object covers 90% of UI needs.
+    // Totals: assets/liabilities/netWorth come from the net-worth service
+    // (covers manual assets + manual debts + holdings); bucket rollups stay
+    // local to this route so type tiles add up to the per-type subtotals
+    // shown in the UI.
     const totals = {
-      assets: cash + investments,
-      liabilities: debts,
-      netWorth: cash + investments - debts,
+      assets: netWorthResult.totalAssets,
+      liabilities: netWorthResult.totalLiabilities,
+      netWorth: netWorthResult.netWorth,
       cash,
       investments,
       debts,
