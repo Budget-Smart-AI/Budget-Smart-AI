@@ -8649,95 +8649,72 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         return res.status(400).json({ error: "messages array is required" });
       }
 
+      // ── Resolve household scope for provider-agnostic fan-out ─────────────
+      const householdId = req.session.householdId;
+      let userIds = [userId];
+      if (householdId) {
+        userIds = await storage.getHouseholdMemberUserIds(householdId);
+      }
+
       // ── Fetch user financial data for context ──────────────────────────────
       const now = new Date();
       const currentMonth = now.toISOString().slice(0, 7);
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-        .toISOString().split("T")[0];
       const today = now.toISOString().split("T")[0];
 
-      // Fetch all financial data in parallel
-      const [bills, incomes, budgets, savingsGoals] = await Promise.all([
-        storage.getBills(userId),
-        storage.getIncomes(userId),
-        storage.getBudgetsByMonth(userId, currentMonth),
-        storage.getSavingsGoals(userId),
-      ]);
+      // Fetch registry data + canonical snapshot + normalized accounts/txns.
+      // All of these are provider-agnostic: they fan out across Plaid, MX,
+      // Manual, and any future adapter. Do NOT hit storage.getPlaidItems /
+      // getMxAccountsByUserId directly here — that's what caused the $11,401
+      // income drift (UAT-11 #107) before this migration.
+      const { getHouseholdFinancialSnapshot } = await import("./lib/financial-snapshot");
+      const { getAllNormalizedAccounts, getAllNormalizedTransactions } = await import("./engine/data-loaders");
+      const thirtyDaysAgoDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-      // Fetch recent transactions (Plaid + MX)
-      let recentTransactions: any[] = [];
-      let accountBalances: { name: string; type: string; balance: string }[] = [];
+      const [bills, incomes, budgets, savingsGoals, snapshot, accounts, normalizedRecent] =
+        await Promise.all([
+          householdId ? storage.getBillsByUserIds(userIds) : storage.getBills(userId),
+          householdId ? storage.getIncomesByUserIds(userIds) : storage.getIncomes(userId),
+          householdId ? storage.getBudgetsByUserIds(userIds) : storage.getBudgetsByMonth(userId, currentMonth),
+          householdId ? storage.getSavingsGoalsByUserIds(userIds) : storage.getSavingsGoals(userId),
+          getHouseholdFinancialSnapshot(userIds, { months: 1, now }),
+          getAllNormalizedAccounts(userIds),
+          getAllNormalizedTransactions(userIds, thirtyDaysAgoDate, now),
+        ]);
 
-      try {
-        // Plaid accounts & transactions
-        const plaidItems = await storage.getPlaidItems(userId);
-        if (plaidItems.length > 0) {
-          const allPlaidAccounts = (
-            await Promise.all(plaidItems.map(item => storage.getPlaidAccounts(item.id)))
-          ).flat();
-          const activePlaidAccounts = allPlaidAccounts.filter(a => a.isActive === "true");
+      // Filter the budgets down to the current month when we pulled the full
+      // household budget list (the byMonth helper already filters).
+      const currentMonthBudgets = householdId
+        ? budgets.filter((b: any) => b.month === currentMonth)
+        : budgets;
 
-          // Collect balances
-          for (const acc of activePlaidAccounts) {
-            accountBalances.push({
-              name: acc.name,
-              type: acc.type || "depository",
-              balance: acc.balanceCurrent || "0",
-            });
-          }
+      // Build account-balance and recent-transaction view-models from the
+      // normalized types — never provider-specific shapes.
+      const activeAccounts = accounts.filter(a => a.isActive);
+      const accountBalances = activeAccounts.map(a => ({
+        name: a.name,
+        type: a.accountType,
+        balance: a.balance.toFixed(2),
+      }));
 
-          const plaidAccountIds = activePlaidAccounts.map(a => a.id);
-          if (plaidAccountIds.length > 0) {
-            const plaidTxns = await storage.getPlaidTransactions(plaidAccountIds, {
-              startDate: thirtyDaysAgo,
-              endDate: today,
-            });
-            recentTransactions.push(
-              ...plaidTxns
-                .filter(t => t.pending !== "true")
-                .map(t => ({
-                  date: t.date,
-                  description: t.merchantName || t.name,
-                  amount: parseFloat(t.amount),
-                  category: t.personalCategory || t.category || "Other",
-                  type: parseFloat(t.amount) > 0 ? "expense" : "income",
-                }))
-            );
-          }
-        }
-
-        // MX accounts & transactions
-        const mxAccounts = await storage.getMxAccountsByUserId(userId);
-        const activeMxAccounts = mxAccounts.filter(a => a.isActive === "true");
-        for (const acc of activeMxAccounts) {
-          accountBalances.push({
-            name: acc.name,
-            type: acc.type || "depository",
-            balance: acc.balance || "0",
-          });
-        }
-        if (activeMxAccounts.length > 0) {
-          const mxTxns = await storage.getMxTransactions(
-            activeMxAccounts.map(a => a.id),
-            { startDate: thirtyDaysAgo, endDate: today }
-          );
-          recentTransactions.push(
-            ...mxTxns.map(t => ({
-              date: t.date,
-              description: t.description,
-              amount: parseFloat(t.amount),
-              category: t.personalCategory || t.category || "Other",
-              type: t.type === "CREDIT" ? "income" : "expense",
-            }))
-          );
-        }
-      } catch (dataErr) {
-        console.warn("[AI Chat] Could not fetch bank data (non-fatal):", dataErr);
-      }
-
-      // Sort transactions by date descending, cap at 100
-      recentTransactions.sort((a, b) => b.date.localeCompare(a.date));
-      recentTransactions = recentTransactions.slice(0, 100);
+      // Recent transactions for the LLM context (pending excluded inside the
+      // adapters). Cap at 100 most-recent after sorting descending by date.
+      const recentTransactions = normalizedRecent
+        .filter(t => !t.isPending)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 100)
+        .map(t => ({
+          date: t.date,
+          description: t.merchant,
+          amount: t.amount,
+          category: t.category,
+          // Transfers are neither income nor spending — surface them
+          // honestly so the LLM doesn't double-count.
+          type: t.isTransfer
+            ? "transfer"
+            : t.direction === "credit"
+              ? "income"
+              : "expense",
+        }));
 
       // ── Build financial context system prompt ──────────────────────────────
       const upcomingBills = bills
@@ -8759,7 +8736,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           recurrence: i.recurrence,
         }));
 
-      const budgetStatus = budgets.map(b => ({
+      const budgetStatus = currentMonthBudgets.map((b: any) => ({
         category: b.category,
         budgeted: parseFloat(b.amount),
         month: b.month,
@@ -8774,22 +8751,14 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           : 0,
       }));
 
-      // Summarise spending by category for the last 30 days
-      const spendingByCategory: Record<string, number> = {};
-      for (const tx of recentTransactions) {
-        if (tx.type === "expense" && tx.amount > 0) {
-          spendingByCategory[tx.category] =
-            (spendingByCategory[tx.category] || 0) + tx.amount;
-        }
-      }
-      const totalSpent30d = Object.values(spendingByCategory).reduce((s, v) => s + v, 0);
-      const totalIncome30d = recentTransactions
-        .filter(t => t.type === "income")
-        .reduce((s, t) => s + Math.abs(t.amount), 0);
+      // Canonical monthly numbers come from the snapshot (single source of
+      // truth, matches Dashboard / Reports UI). The snapshot already excludes
+      // transfers, dedupes manual-vs-bank, and applies recurrence rules.
+      const monthlyIncome = snapshot.monthlyIncome;
+      const monthlySpending = snapshot.monthlySpending;
+      const spendingByCategory = snapshot.spendingByCategory;
 
-      const totalBalance = accountBalances.reduce(
-        (s, a) => s + parseFloat(a.balance || "0"), 0
-      );
+      const totalBalance = activeAccounts.reduce((s, a) => s + a.balance, 0);
 
       const financialContextSystem = `You are BudgetBot, the AI financial assistant built into BudgetSmart — a Canadian AI-powered personal finance platform at budgetsmart.io. You have deep knowledge of BudgetSmart's features AND full access to this user's real financial data.
 
@@ -8846,10 +8815,12 @@ ${goalsProgress.length > 0
   ? goalsProgress.map(g => `- ${g.name}: $${g.current.toFixed(2)} / $${g.target.toFixed(2)} (${g.percentComplete}% complete)`).join("\n")
   : "No savings goals set."}
 
-## SPENDING SUMMARY (Last 30 Days)
-Total Spent: $${totalSpent30d.toFixed(2)}
-Total Income Received: $${totalIncome30d.toFixed(2)}
-Net: $${(totalIncome30d - totalSpent30d).toFixed(2)}
+## SPENDING SUMMARY (Current Month — matches Dashboard / Reports)
+Monthly Income: $${monthlyIncome.toFixed(2)}
+Monthly Spending: $${monthlySpending.toFixed(2)}
+Net (Income − Spending): $${(monthlyIncome - monthlySpending).toFixed(2)}
+Monthly Bills (plan): $${snapshot.monthlyBills.toFixed(2)}
+Window: ${snapshot.window.startDate} → ${snapshot.window.endDate}
 ${Object.entries(spendingByCategory)
   .sort(([, a], [, b]) => b - a)
   .slice(0, 10)
@@ -8892,6 +8863,7 @@ Provide clear, specific, and actionable financial advice based on the data above
   app.post("/api/ai/teller", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const householdId = req.session.householdId;
       const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "ai_teller");
       if (!gateResult.allowed) {
@@ -8902,6 +8874,14 @@ Provide clear, specific, and actionable financial advice based on the data above
         });
       }
 
+      // Household fan-out: every /api/ai/* endpoint now reasons over the full
+      // household view via the provider-agnostic adapter layer.
+      let userIds: string[] = [userId];
+      if (householdId) {
+        const members = await storage.getHouseholdMemberUserIds(householdId);
+        if (members.length > 0) userIds = members;
+      }
+
       const { mode = "transaction", transaction_id, user_message, conversation_history = [], transaction_context } = req.body;
       if (!user_message) return res.status(400).json({ error: "user_message is required" });
 
@@ -8910,7 +8890,7 @@ Provide clear, specific, and actionable financial advice based on the data above
       // ── Health Summary mode ──────────────────────────────────────────────
       if (mode === "health_summary") {
         const { buildHealthSummaryContext, buildHealthSummaryPrompt } = await import("./ai-teller");
-        const ctx = await buildHealthSummaryContext(userId);
+        const ctx = await buildHealthSummaryContext(userIds);
         const system = buildHealthSummaryPrompt(ctx);
 
         const chatMessages = [
@@ -8949,7 +8929,7 @@ Provide clear, specific, and actionable financial advice based on the data above
       // ── Bulk Triage mode ─────────────────────────────────────────────────
       if (mode === "bulk_triage") {
         const { buildBulkTriageContext } = await import("./ai-teller");
-        const { items, prompt: system } = await buildBulkTriageContext(userId);
+        const { items, prompt: system } = await buildBulkTriageContext(userIds);
 
         const chatMessages = [
           ...(conversation_history as Array<{ role: string; content: string }>),
@@ -9006,7 +8986,7 @@ Provide clear, specific, and actionable financial advice based on the data above
         };
       }
 
-      const { system, suggestedAction } = await buildTellerSystemPrompt(userId, mappedTxCtx);
+      const { system, suggestedAction } = await buildTellerSystemPrompt(userIds, mappedTxCtx);
 
       const chatMessages = [
         ...(conversation_history as Array<{ role: string; content: string }>),
@@ -9035,8 +9015,16 @@ Provide clear, specific, and actionable financial advice based on the data above
         suggested_action: suggestedAction,
       });
     } catch (err: any) {
+      // Log the full stack on the server and surface a short tag to the
+      // client so UAT can triage which code path blew up without exposing
+      // stack traces. Historically this returned a bare "Internal server
+      // error" which made UAT-11 #108 impossible to diagnose from the UI.
       console.error("[AI Teller] Error:", err);
-      return res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({
+        error: "Internal server error",
+        detail: err?.message || String(err),
+        where: err?.stack?.split("\n")?.[1]?.trim() || null,
+      });
     }
   });
 
@@ -9240,55 +9228,45 @@ Provide clear, specific, and actionable financial advice based on the data above
         });
       }
 
-      // Gather 12 months of data
+      // Gather 12 months of data — provider-agnostic via the adapter layer.
+      // Previously this endpoint pulled raw Plaid debits (amt > 0 = expense)
+      // which silently included internal transfers (positive-leg of a
+      // same-user transfer pair). That's what inflated spending by ~$18-20K/mo
+      // in UAT-11 (#105). The normalized pipeline sets `isTransfer` via the
+      // engine's pair-detector and we filter those out here.
       const now = new Date();
-      const startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1).toISOString().split("T")[0];
-      const endDate = now.toISOString().split("T")[0];
+      const startOfWindow = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+      const endOfWindow = now;
 
-      // Get Plaid transactions
-      const accounts = await storage.getAllPlaidAccounts(userId);
-      const accountIds = accounts.map(a => a.id);
-      let plaidTransactions: any[] = [];
-      if (accountIds.length > 0) {
-        plaidTransactions = await storage.getPlaidTransactions(accountIds, { startDate, endDate });
+      // Resolve household scope for household-aware fan-out.
+      const householdId = req.session.householdId;
+      let userIds = [userId];
+      if (householdId) {
+        userIds = await storage.getHouseholdMemberUserIds(householdId);
       }
 
-      // Get manual expenses
-      const allExpenses = await storage.getExpenses(userId);
-      const manualExpenses = allExpenses.filter(e => {
-        const d = e.date;
-        return d >= startDate && d <= endDate;
-      });
-
-      // Merge: use Plaid debits + manual expenses not matched by Plaid
-      const matchedExpenseIds = new Set(
-        plaidTransactions
-          .filter(t => t.matchedExpenseId)
-          .map(t => t.matchedExpenseId)
+      const { getAllNormalizedTransactions } = await import("./engine/data-loaders");
+      const normalized = await getAllNormalizedTransactions(
+        userIds,
+        startOfWindow,
+        endOfWindow,
       );
 
+      // Reduce directly to {date, amount, category} rows. Rules:
+      //   - skip pending
+      //   - skip transfers (isTransfer) — avoids UAT-11 #105
+      //   - include only debits (money out — this is a spending forecast)
+      //   - the adapter already dedupes manual-vs-bank via matchedExpenseId
+      //     so we don't need to merge a separate manual-expense list here.
       const merged: { date: string; amount: number; category: string }[] = [];
-
-      // Add Plaid debits (positive amounts = expenses)
-      for (const t of plaidTransactions) {
-        if (t.pending === "true") continue;
-        const amt = parseFloat(t.amount);
-        if (amt > 0) {
-          merged.push({
-            date: t.date,
-            amount: amt,
-            category: t.personalCategory || t.category || "Other",
-          });
-        }
-      }
-
-      // Add manual expenses not already matched
-      for (const e of manualExpenses) {
-        if (matchedExpenseIds.has(e.id)) continue;
+      for (const t of normalized) {
+        if (t.isPending) continue;
+        if (t.isTransfer) continue;
+        if (t.direction !== "debit") continue;
         merged.push({
-          date: e.date,
-          amount: parseFloat(e.amount),
-          category: e.category || "Other",
+          date: t.date,
+          amount: t.amount,
+          category: t.category || "Other",
         });
       }
 
@@ -9414,34 +9392,30 @@ Rules:
       const startDate = new Date(targetYear, targetMon - 7, 1).toISOString().split("T")[0];
       const endDate = new Date(targetYear, targetMon - 1, 0).toISOString().split("T")[0]; // End of month before target
 
-      // Get Plaid transactions
-      const accounts = await storage.getAllPlaidAccounts(userId);
-      const accountIds = accounts.map(a => a.id);
-      let plaidTransactions: any[] = [];
-      if (accountIds.length > 0) {
-        plaidTransactions = await storage.getPlaidTransactions(accountIds, { startDate, endDate });
+      // Provider-agnostic transaction fan-out. Adapters already handle
+      // transfer detection, manual-vs-bank dedupe (via matchedExpenseId),
+      // and Plaid PFC v2 → canonical category remapping. Household-aware.
+      const householdId = req.session.householdId;
+      let userIds = [userId];
+      if (householdId) {
+        userIds = await storage.getHouseholdMemberUserIds(householdId);
       }
-
-      // Get manual expenses
-      const allExpenses = await storage.getExpenses(userId);
-      const manualExpenses = allExpenses.filter(e => e.date >= startDate && e.date <= endDate);
-
-      // Merge avoiding double-counting
-      const matchedExpenseIds = new Set(
-        plaidTransactions.filter(t => t.matchedExpenseId).map(t => t.matchedExpenseId)
+      const { getAllNormalizedTransactions } = await import("./engine/data-loaders");
+      const normalized = await getAllNormalizedTransactions(
+        userIds,
+        startDate,
+        endDate,
       );
 
+      // Only real outflows: exclude pending, transfers, and credits. The
+      // transfer filter closes the "internal transfer counted as spending"
+      // gap that inflated budget suggestions before this migration.
       const merged: { date: string; amount: number; category: string }[] = [];
-      for (const t of plaidTransactions) {
-        if (t.pending === "true") continue;
-        const amt = parseFloat(t.amount);
-        if (amt > 0) {
-          merged.push({ date: t.date, amount: amt, category: t.personalCategory || t.category || "Other" });
-        }
-      }
-      for (const e of manualExpenses) {
-        if (matchedExpenseIds.has(e.id)) continue;
-        merged.push({ date: e.date, amount: parseFloat(e.amount), category: e.category || "Other" });
+      for (const t of normalized) {
+        if (t.isPending) continue;
+        if (t.isTransfer) continue;
+        if (t.direction !== "debit") continue;
+        merged.push({ date: t.date, amount: t.amount, category: t.category || "Other" });
       }
 
       // Group by category and month
@@ -9485,9 +9459,12 @@ Rules:
         });
       }
 
-      // Get existing budgets for target month
-      const existingBudgets = await storage.getBudgetsByMonth(userId, targetMonth);
-      const existingCategories = existingBudgets.map(b => b.category);
+      // Get existing budgets for target month (household-aware so we don't
+      // re-suggest categories that a partner already budgeted).
+      const existingBudgets = householdId
+        ? (await storage.getBudgetsByUserIds(userIds)).filter((b: any) => b.month === targetMonth)
+        : await storage.getBudgetsByMonth(userId, targetMonth);
+      const existingCategories = existingBudgets.map((b: any) => b.category);
 
       // Filter out categories that already have budgets
       const filteredSummaries = categorySummaries.filter(s => !existingCategories.includes(s.category));
@@ -9768,9 +9745,34 @@ Rules:
         return Number.isFinite(n) ? n : null;
       };
 
+      // Defensive swap-detection: the model occasionally returns
+      // recommendedMonthly > suggestedTarget, which is nonsensical — a
+      // per-month deposit can't exceed the total goal amount. When we
+      // detect this, swap the fields back. Also guards the rare case where
+      // the model puts the *target* into the monthly slot and vice versa.
+      // This was observed during UAT-11 (task #104) — the code bindings
+      // are correct; the model output was swapped.
+      let rm = safeNum(parsed.recommendedMonthly);
+      let st = safeNum(parsed.suggestedTarget);
+      const explicitTarget = targetAmount ? parseFloat(String(targetAmount)) : null;
+      if (rm !== null && st !== null && rm > st) {
+        // Clear swap → restore order
+        [rm, st] = [st, rm];
+      } else if (
+        rm !== null &&
+        explicitTarget !== null &&
+        rm > explicitTarget &&
+        st !== null &&
+        st <= explicitTarget
+      ) {
+        // Monthly exceeds user-supplied target but suggestedTarget doesn't
+        // → recommendedMonthly is actually a target figure.
+        [rm, st] = [st, rm];
+      }
+
       res.json({
-        recommendedMonthly: safeNum(parsed.recommendedMonthly),
-        suggestedTarget: safeNum(parsed.suggestedTarget) ?? (targetAmount ? parseFloat(String(targetAmount)) : null),
+        recommendedMonthly: rm,
+        suggestedTarget: st ?? explicitTarget,
         suggestedTimelineMonths: safeNum(parsed.suggestedTimelineMonths),
         feasibility: parsed.feasibility ?? "moderate",
         strategy: parsed.strategy ?? "",
@@ -11427,17 +11429,13 @@ ${JSON.stringify(txSummary)}`;
       }
 
       const now = new Date();
-      const currentMonth = now.toISOString().slice(0, 7);
-      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 7);
 
-      // Get all financial data
-      const [expenses, incomes, budgets, savingsGoals, bills] = await Promise.all([
-        householdId
-          ? storage.getExpensesByUserIds(userIds)
-          : storage.getExpenses(userId),
-        householdId
-          ? storage.getIncomesByUserIds(userIds)
-          : storage.getIncomes(userId),
+      // Get registry data needed for sub-score calculations (budgets, goals, bills).
+      // Income/expense totals now come from the shared financial-snapshot helper
+      // (provider-agnostic via NormalizedTransaction adapter), so we no longer
+      // hand-roll expense filtering, Plaid-account active-filter, or cash-flow
+      // getIncomeInRange calls here.
+      const [budgets, savingsGoals, bills] = await Promise.all([
         householdId
           ? storage.getBudgetsByUserIds(userIds)
           : storage.getBudgets(userId),
@@ -11449,43 +11447,16 @@ ${JSON.stringify(txSummary)}`;
           : storage.getBills(userId),
       ]);
 
-      // Calculate current month data
-      const currentMonthExpenses = expenses.filter(e => e.date.startsWith(currentMonth));
-      const lastMonthExpenses = expenses.filter(e => e.date.startsWith(lastMonth));
-
-      const totalExpenses = currentMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-      const lastTotalExpenses = lastMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-
-      // Calculate monthly income properly accounting for recurrence (biweekly/weekly)
-      const { getIncomeInRange } = await import("./cash-flow");
-      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-
-      // Get Plaid accounts to check for disabled accounts
-      const plaidItems = await storage.getPlaidItems(userId);
-      let allPlaidAccounts: any[] = [];
-      if (plaidItems.length > 0) {
-        const accounts = await Promise.all(plaidItems.map(item => storage.getPlaidAccounts(item.id)));
-        allPlaidAccounts = accounts.flat();
-      }
-      const disabledPlaidAccountIds = new Set(
-        allPlaidAccounts.filter(a => a.isActive !== "true").map(a => a.id)
-      );
-
-      // Only include active incomes (not disabled, and not linked to disabled Plaid accounts)
-      const activeIncomes = incomes.filter(inc => {
-        if (inc.isActive === "false") return false;
-        if (inc.linkedPlaidAccountId && disabledPlaidAccountIds.has(inc.linkedPlaidAccountId)) return false;
-        return true;
+      // Canonical income/expense totals via the financial engine's snapshot helper.
+      // `months: 1` pulls the current-month window only (month-to-date totals
+      // that match /api/engine/dashboard and the reports UI).
+      const { getHouseholdFinancialSnapshot } = await import("./lib/financial-snapshot");
+      const currentSnapshot = await getHouseholdFinancialSnapshot(userIds, {
+        months: 1,
+        now,
       });
-
-      const currentMonthIncomeEvents = getIncomeInRange(activeIncomes, currentMonthStart, currentMonthEnd);
-      const lastMonthIncomeEvents = getIncomeInRange(activeIncomes, lastMonthStart, lastMonthEnd);
-
-      const totalIncome = currentMonthIncomeEvents.reduce((sum, e) => sum + e.amount, 0);
-      const lastTotalIncome = lastMonthIncomeEvents.reduce((sum, e) => sum + e.amount, 0);
+      const totalIncome = currentSnapshot.monthlyIncome;
+      const totalExpenses = currentSnapshot.monthlySpending;
 
       // Calculate PLAN-BASED totals (not actual transactions)
       // Total budgeted spending from budget categories
@@ -11727,89 +11698,54 @@ ${JSON.stringify(txSummary)}`;
         userIds = await storage.getHouseholdMemberUserIds(householdId);
       }
 
-      // Get financial data
-      const [bills, incomes, plaidItems] = await Promise.all([
+      // Provider-agnostic data load — fan out across Plaid/MX/Manual adapters.
+      const { getAllNormalizedAccounts, getAllNormalizedTransactions } =
+        await import("./engine/data-loaders");
+      const { normalizedToPlaidShape } = await import("./engine/plaid-shape-shim");
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const startStr = thirtyDaysAgo.toISOString().split("T")[0];
+      const endStr = new Date().toISOString().split("T")[0];
+
+      const [bills, incomes, normalizedAccounts, normalizedTxs] = await Promise.all([
         householdId
           ? storage.getBillsByUserIds(userIds)
           : storage.getBills(userId),
         householdId
           ? storage.getIncomesByUserIds(userIds)
           : storage.getIncomes(userId),
-        storage.getPlaidItems(userId),
+        getAllNormalizedAccounts(userIds),
+        getAllNormalizedTransactions(userIds, startStr, endStr),
       ]);
 
-      // Get Plaid accounts and transactions
-      let currentBalance = 0;
-      let transactions: any[] = [];
-      let allPlaidAccounts: any[] = [];
+      // Spendable cash across every provider (checking/savings/depository +
+      // liquid manual). Adapter layer already filters to active accounts.
+      const cashAccountTypes = new Set(["checking", "savings", "depository"]);
+      const currentBalance = normalizedAccounts
+        .filter((a) => cashAccountTypes.has(a.accountType))
+        .reduce((sum, a) => sum + (a.balance || 0), 0);
 
-      if (plaidItems.length > 0) {
-        const allAccounts = await Promise.all(
-          plaidItems.map(item => storage.getPlaidAccounts(item.id))
-        );
-        allPlaidAccounts = allAccounts.flat();
-        const activeAccounts = allPlaidAccounts.filter(a =>
-          a.isActive === "true" &&
-          (a.type === "depository" || a.subtype === "checking" || a.subtype === "savings")
-        );
+      // No more disabledPlaidAccountIds branching — adapter layer only returns
+      // active accounts, so any linkedPlaidAccountId that's been disabled
+      // won't reappear. We still honor bill.isPaused + income.isActive.
+      const activeBills = bills.filter((bill) => bill.isPaused !== "true");
+      const activeIncomes = incomes.filter((inc) => inc.isActive !== "false");
 
-        // Sum up current balances
-        currentBalance = activeAccounts.reduce((sum, acc) => {
-          const balance = parseFloat(acc.balanceCurrent || "0");
-          return sum + balance;
-        }, 0);
+      // Shim normalized transactions to the Plaid-shape expected by cash-flow.ts
+      // (the engine module predates the adapter layer; migration is tracked in
+      // the UAT-11 provider-agnostic push).
+      const transactions = normalizedToPlaidShape(normalizedTxs);
 
-        // Get last 30 days of transactions for spending patterns
-        const accountIds = activeAccounts.map(a => a.id);
-        if (accountIds.length > 0) {
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          transactions = await storage.getPlaidTransactions(accountIds, {
-            startDate: thirtyDaysAgo.toISOString().split('T')[0],
-          });
-        }
-      }
-
-      // Also add manual account balances
-      const manualAccounts = await storage.getManualAccounts(userId);
-      // Include active manual cash accounts (cash, paypal, venmo, etc. are liquid assets)
-      const activeManualAccounts = manualAccounts.filter(a => a.isActive === "true");
-      currentBalance += activeManualAccounts.reduce((sum, acc) => {
-        return sum + parseFloat(acc.balance || "0");
-      }, 0);
-
-      // Build set of disabled Plaid account IDs for filtering
-      const disabledPlaidAccountIds = new Set(
-        allPlaidAccounts.filter(a => a.isActive !== "true").map(a => a.id)
-      );
-
-      // Filter to active bills only:
-      // - Bill must not be paused (isPaused !== "true")
-      // - If linked to a Plaid account, that account must be active
-      const activeBills = bills.filter(bill => {
-        if (bill.isPaused === "true") return false;
-        if (bill.linkedPlaidAccountId && disabledPlaidAccountIds.has(bill.linkedPlaidAccountId)) return false;
-        return true;
-      });
-
-      // Filter to active incomes only:
-      // - Income must not be explicitly disabled (isActive !== "false")
-      // - If linked to a Plaid account, that account must be active
-      const activeIncomes = incomes.filter(inc => {
-        if (inc.isActive === "false") return false;
-        if (inc.linkedPlaidAccountId && disabledPlaidAccountIds.has(inc.linkedPlaidAccountId)) return false;
-        return true;
-      });
-
-      // Generate forecast
       const forecast = generateCashFlowForecast(
         currentBalance,
         activeBills,
         activeIncomes,
-        transactions,
-        days
+        transactions as any,
+        days,
       );
 
+      res.setHeader("Cache-Control", "no-store");
       res.json(forecast);
     } catch (error) {
       console.error("Error generating cash flow forecast:", error);
@@ -11832,70 +11768,47 @@ ${JSON.stringify(txSummary)}`;
         userIds = await storage.getHouseholdMemberUserIds(householdId);
       }
 
-      // Get financial data
-      const [bills, incomes, plaidItems] = await Promise.all([
+      // Provider-agnostic data load — fan out across Plaid/MX/Manual adapters.
+      const { getAllNormalizedAccounts, getAllNormalizedTransactions } =
+        await import("./engine/data-loaders");
+      const { normalizedToPlaidShape } = await import("./engine/plaid-shape-shim");
+
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+      const startStr = sixtyDaysAgo.toISOString().split("T")[0];
+      const endStr = new Date().toISOString().split("T")[0];
+
+      const [bills, incomes, normalizedAccounts, normalizedTxs] = await Promise.all([
         householdId
           ? storage.getBillsByUserIds(userIds)
           : storage.getBills(userId),
         householdId
           ? storage.getIncomesByUserIds(userIds)
           : storage.getIncomes(userId),
-        storage.getPlaidItems(userId),
+        getAllNormalizedAccounts(userIds),
+        getAllNormalizedTransactions(userIds, startStr, endStr),
       ]);
 
-      // Get Plaid accounts and transactions
-      let currentBalance = 0;
-      let transactions: any[] = [];
-      let allPlaidAccounts: any[] = [];
-
-      if (plaidItems.length > 0) {
-        const allAccounts = await Promise.all(
-          plaidItems.map(item => storage.getPlaidAccounts(item.id))
-        );
-        allPlaidAccounts = allAccounts.flat();
-        const activeAccounts = allPlaidAccounts.filter(a =>
-          a.isActive === "true" &&
-          (a.type === "depository" || a.subtype === "checking" || a.subtype === "savings")
-        );
-
-        currentBalance = activeAccounts.reduce((sum, acc) => {
-          const balance = parseFloat(acc.balanceCurrent || "0");
-          return sum + balance;
-        }, 0);
-
-        const accountIds = activeAccounts.map(a => a.id);
-        if (accountIds.length > 0) {
-          const sixtyDaysAgo = new Date();
-          sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-          transactions = await storage.getPlaidTransactions(accountIds, {
-            startDate: sixtyDaysAgo.toISOString().split('T')[0],
-          });
-        }
-      }
-
-      // Also add manual account balances
-      const manualAccounts = await storage.getManualAccounts(userId);
-      const activeManualAccounts = manualAccounts.filter(a => a.isActive === "true");
-      currentBalance += activeManualAccounts.reduce((sum, acc) => {
-        return sum + parseFloat(acc.balance || "0");
-      }, 0);
-
-      // Filter to active bills and incomes
-      const disabledPlaidAccountIds = new Set(
-        allPlaidAccounts.filter(a => a.isActive !== "true").map(a => a.id)
+      // Spendable cash = checking/savings/depository across every provider.
+      const cashAccountTypes = new Set(["checking", "savings", "depository"]);
+      const cashAccounts = normalizedAccounts.filter((a) =>
+        cashAccountTypes.has(a.accountType),
+      );
+      const currentBalance = cashAccounts.reduce(
+        (sum, a) => sum + (a.balance || 0),
+        0,
       );
 
-      const activeBills = bills.filter(bill => {
-        if (bill.isPaused === "true") return false;
-        if (bill.linkedPlaidAccountId && disabledPlaidAccountIds.has(bill.linkedPlaidAccountId)) return false;
-        return true;
-      });
+      // Track whether we actually have any linked accounts (for the UI flag).
+      const hasLinkedAccounts = normalizedAccounts.length > 0;
 
-      const activeIncomes = incomes.filter(inc => {
-        if (inc.isActive === "false") return false;
-        if (inc.linkedPlaidAccountId && disabledPlaidAccountIds.has(inc.linkedPlaidAccountId)) return false;
-        return true;
-      });
+      // Adapter layer already only returns active accounts, so disabled-
+      // account filtering on bills/incomes is no longer needed here.
+      const activeBills = bills.filter((bill) => bill.isPaused !== "true");
+      const activeIncomes = incomes.filter((inc) => inc.isActive !== "false");
+
+      // Shim normalized transactions to the Plaid-shape expected by cash-flow.ts
+      const transactions = normalizedToPlaidShape(normalizedTxs);
 
       // Generate 90-day forecast.
       // We fetched 60 days of transactions above, so we pass historicalDays=60
@@ -12051,6 +11964,7 @@ ${JSON.stringify(txSummary)}`;
       // Override predicted spending with 30-day value (forecast.summary has the 90-day total)
       const thirtyDayPredictedSpending = forecast.summary.averageDailySpending * 30;
 
+      res.setHeader("Cache-Control", "no-store");
       res.json({
         currentBalance: Math.round(currentBalance * 100) / 100,
         timeline: timelinePoints,
@@ -12066,7 +11980,7 @@ ${JSON.stringify(txSummary)}`;
           totalExpectedIncome: Math.round(thirtyDayIncome * 100) / 100,
           totalPredictedSpending: Math.round(thirtyDayPredictedSpending * 100) / 100,
           totalDays: days,
-          hasLinkedAccounts: plaidItems.length > 0 || activeManualAccounts.length > 0,
+          hasLinkedAccounts,
         },
       });
     } catch (error) {
@@ -12116,50 +12030,31 @@ ${JSON.stringify(txSummary)}`;
         userIds = await storage.getHouseholdMemberUserIds(householdId);
       }
 
-      // Get baseline financial data
-      const [bills, incomes, plaidItems, debtDetails] = await Promise.all([
-        householdId ? storage.getBillsByUserIds(userIds) : storage.getBills(userId),
-        householdId ? storage.getIncomesByUserIds(userIds) : storage.getIncomes(userId),
-        storage.getPlaidItems(userId),
-        storage.getDebtDetails(userId),
-      ]);
+      // Provider-agnostic data load
+      const { getAllNormalizedAccounts, getAllNormalizedTransactions } =
+        await import("./engine/data-loaders");
+      const { normalizedToPlaidShape } = await import("./engine/plaid-shape-shim");
 
-      // Get current balance from accounts
-      let currentBalance = 0;
-      let transactions: any[] = [];
-      let allPlaidAccounts: any[] = [];
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+      const startStr = sixtyDaysAgo.toISOString().split("T")[0];
+      const endStr = new Date().toISOString().split("T")[0];
 
-      if (plaidItems.length > 0) {
-        const allAccounts = await Promise.all(
-          plaidItems.map(item => storage.getPlaidAccounts(item.id))
-        );
-        allPlaidAccounts = allAccounts.flat();
-        const activeAccounts = allPlaidAccounts.filter(a =>
-          a.isActive === "true" &&
-          (a.type === "depository" || a.subtype === "checking" || a.subtype === "savings")
-        );
+      const [bills, incomes, debtDetails, normalizedAccounts, normalizedTxs] =
+        await Promise.all([
+          householdId ? storage.getBillsByUserIds(userIds) : storage.getBills(userId),
+          householdId ? storage.getIncomesByUserIds(userIds) : storage.getIncomes(userId),
+          storage.getDebtDetails(userId),
+          getAllNormalizedAccounts(userIds),
+          getAllNormalizedTransactions(userIds, startStr, endStr),
+        ]);
 
-        currentBalance = activeAccounts.reduce((sum, acc) => {
-          const balance = parseFloat(acc.balanceCurrent || "0");
-          return sum + balance;
-        }, 0);
+      const cashAccountTypes = new Set(["checking", "savings", "depository"]);
+      const currentBalance = normalizedAccounts
+        .filter((a) => cashAccountTypes.has(a.accountType))
+        .reduce((sum, a) => sum + (a.balance || 0), 0);
 
-        const accountIds = activeAccounts.map(a => a.id);
-        if (accountIds.length > 0) {
-          const sixtyDaysAgo = new Date();
-          sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-          transactions = await storage.getPlaidTransactions(accountIds, {
-            startDate: sixtyDaysAgo.toISOString().split('T')[0],
-          });
-        }
-      }
-
-      // Add manual accounts
-      const manualAccounts = await storage.getManualAccounts(userId);
-      const activeManualAccounts = manualAccounts.filter(a => a.isActive === "true");
-      currentBalance += activeManualAccounts.reduce((sum, acc) => {
-        return sum + parseFloat(acc.balance || "0");
-      }, 0);
+      const transactions = normalizedToPlaidShape(normalizedTxs);
 
       // Apply simulation changes to bills/incomes
       let simulatedBills = [...bills];
@@ -12244,44 +12139,29 @@ ${JSON.stringify(txSummary)}`;
         }
       }
 
-      // Filter active items for baseline
-      const disabledPlaidAccountIds = new Set(
-        allPlaidAccounts.filter(a => a.isActive !== "true").map(a => a.id)
+      // Adapter layer already filters to active accounts, so disabled-account
+      // filtering is no longer needed here. Honor bill.isPaused + income.isActive.
+      const baselineBills = bills.filter((bill) => bill.isPaused !== "true");
+      const activeSimulatedBills = simulatedBills.filter(
+        (bill) => bill.isPaused !== "true",
       );
-
-      const baselineBills = bills.filter(bill => {
-        if (bill.isPaused === "true") return false;
-        if (bill.linkedPlaidAccountId && disabledPlaidAccountIds.has(bill.linkedPlaidAccountId)) return false;
-        return true;
-      });
-
-      const activeSimulatedBills = simulatedBills.filter(bill => {
-        if (bill.isPaused === "true") return false;
-        if (bill.linkedPlaidAccountId && disabledPlaidAccountIds.has(bill.linkedPlaidAccountId)) return false;
-        return true;
-      });
-
-      const activeIncomes = incomes.filter(inc => {
-        if (inc.isActive === "false") return false;
-        if (inc.linkedPlaidAccountId && disabledPlaidAccountIds.has(inc.linkedPlaidAccountId)) return false;
-        return true;
-      });
+      const activeIncomes = incomes.filter((inc) => inc.isActive !== "false");
 
       // Generate baseline and simulated forecasts
       const baselineForecast = generateCashFlowForecast(
         currentBalance,
         baselineBills,
         activeIncomes,
-        transactions,
-        90
+        transactions as any,
+        90,
       );
 
       const simulatedForecast = generateCashFlowForecast(
         currentBalance,
         activeSimulatedBills,
         simulatedIncomes,
-        transactions,
-        90
+        transactions as any,
+        90,
       );
 
       // Find danger days in both scenarios
@@ -12409,6 +12289,7 @@ ${JSON.stringify(txSummary)}`;
   app.get("/api/leaks/detect", requireAuth, sensitiveApiRateLimiter, async (req, res) => {
     try {
       const userId = req.session.userId!;
+      const householdId = req.session.householdId;
       const user = await storage.getUser(userId);
       const plan = await getEffectivePlan(userId);
       const gateResult = await checkAndConsume(userId, plan, "silent_leaks_detector");
@@ -12420,79 +12301,59 @@ ${JSON.stringify(txSummary)}`;
           upgradeRequired: gateResult.upgradeRequired,
         });
       }
-      
-      // Get Plaid transactions from the last 90 days + user's declared bills
-      // so we can exclude anything they've already recorded as a bill from the
-      // "hidden leaks" view (those are known expenses, not leaks).
-      const [plaidItems, userBills] = await Promise.all([
-        storage.getPlaidItems(userId),
-        storage.getBills(userId),
-      ]);
-      let transactions: any[] = [];
 
-      if (plaidItems.length > 0) {
-        const allAccounts = await Promise.all(
-          plaidItems.map(item => storage.getPlaidAccounts(item.id))
-        );
-        const activeAccounts = allAccounts.flat().filter(a =>
-          a.isActive === "true" &&
-          (a.type === "depository" || a.subtype === "checking" || a.subtype === "savings")
-        );
-
-        const accountIds = activeAccounts.map(a => a.id);
-        if (accountIds.length > 0) {
-          const ninetyDaysAgo = new Date();
-          ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-          transactions = await storage.getPlaidTransactions(accountIds, {
-            startDate: ninetyDaysAgo.toISOString().split('T')[0],
-          });
-        }
+      // ─── Provider-agnostic leak detection (UAT-11 Fix #1) ────────────────
+      //
+      // Previously this endpoint fanned out via storage.getPlaidItems +
+      // getPlaidAccounts + getPlaidTransactions, which (a) missed MX-only
+      // households entirely and (b) hard-coded Plaid-specific guards
+      // (personalFinanceCategoryDetailed, isTransfer === "true"). It now
+      // reads through getAllNormalizedTransactions so every provider flows
+      // through for free. The adapter layer has already done transfer
+      // detection + Monarch-category remapping, so we only need category +
+      // bill-registry guards on top.
+      let userIds: string[] = [userId];
+      if (householdId) {
+        const members = await storage.getHouseholdMemberUserIds(householdId);
+        if (members.length > 0) userIds = members;
       }
 
-      // ─── UAT-9: Leak-detector classification guard ──────────────────────────
-      //
-      // The old detector ran on ALL outgoing transactions and flagged (a) any
-      // small recurring charge and (b) any merchant whose amount rose ≥10%
-      // between the first and last occurrence. That misfired dramatically:
-      // bank transfers, mortgage payments, and loan payments naturally vary
-      // >10% month to month, so they all got surfaced as "leaks".
-      //
-      // Fix:
-      //   1. Exclude transfers / loan payments / fees / interest up front
-      //      using Plaid's personal-finance-category + our own name patterns.
-      //      Same filter as UAT-8 cash-flow, so the three pages stay aligned.
-      //   2. Exclude any merchant that already matches one of the user's
-      //      declared Bills — we don't tell them their mortgage is a leak.
-      //   3. Drop the "price_increase" detection entirely. It was the source
-      //      of all visible false positives (variable mortgage/transfer
-      //      amounts flagged as leaks) and has no reliable signal.
-      //   4. Keep only the recurring_small heuristic (< $50 with consistent
-      //      cadence) — which is the actual "forgot about this subscription"
-      //      use case this dashboard widget exists for.
-      const EXCLUDE_CATEGORIES = new Set([
-        "Transfer", "Loan Payment", "Bank Fees", "Interest",
-        "Payment", "Credit Card Payment",
-      ]);
-      const EXCLUDE_PFC_PREFIXES = [
-        "TRANSFER_IN_", "TRANSFER_OUT_",
-        "LOAN_PAYMENTS_", "LOAN_DISBURSEMENT_",
-        "BANK_FEES_",
-      ];
-      const TRANSFER_NAME_PATTERN =
-        /\b(transfer|tfr|xfer|cash\s*advance|e[-\s]?transfer|interac|mb[-\s]?[a-z]+|internal\s+transfer|account\s+transfer|to\s+savings|from\s+savings|zelle|mortgage\s+payment|mortgage\s+trans|principal|auto\s+loan|student\s+loan|loan\s+pmt)\b/i;
+      const { getAllNormalizedTransactions } = await import("./engine/data-loaders");
 
-      // Build a set of normalized merchant names for the user's declared bills.
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      const ninetyDaysAgoStr = ninetyDaysAgo.toISOString().split('T')[0];
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      const [normalizedTxs, userBills] = await Promise.all([
+        getAllNormalizedTransactions(userIds, ninetyDaysAgoStr, todayStr),
+        householdId
+          ? storage.getBillsByUserIds(userIds)
+          : storage.getBills(userId),
+      ]);
+
+      // ─── UAT-9 leak-detector classification guard (kept, simplified) ─────
+      // The adapter layer already flags .isTransfer correctly, so the
+      // TRANSFER_NAME_PATTERN / PFC-prefix backstops are no longer needed —
+      // we keep a category blocklist as a belt-and-suspenders check.
+      const EXCLUDE_CATEGORIES = new Set([
+        "Transfer", "Transfers",
+        "Loan Payment", "Loan Payments",
+        "Credit Card Payment",
+        "Bank Fees", "Interest",
+        "Payment",
+      ]);
+
       function normalizeForMatch(s: string): string {
         return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
       }
       const billMerchantKeys = new Set<string>();
-      for (const b of userBills) {
-        if ((b as any).isPaused === "true") continue;
-        const key = normalizeForMatch((b as any).name || "");
+      for (const b of userBills as any[]) {
+        if (b.isPaused === "true") continue;
+        const key = normalizeForMatch(b.name || "");
         if (key.length >= 3) billMerchantKeys.add(key);
       }
 
-      // Analyze transactions for leaks
       const leaks: Array<{
         type: "recurring_small" | "price_increase" | "duplicate" | "unused_subscription";
         name: string;
@@ -12505,37 +12366,24 @@ ${JSON.stringify(txSummary)}`;
         confidence: number;
       }> = [];
 
-      // Group transactions by merchant name — excluding transfers/loans/bills.
+      // Group transactions by merchant, excluding transfers/loans/bills.
       const merchantGroups = new Map<string, Array<{
         amount: number;
         date: string;
         name: string;
       }>>();
 
-      for (const tx of transactions) {
-        const amount = parseFloat(tx.amount || "0");
-        if (amount <= 0) continue; // Only look at charges (positive amounts in Plaid = money out)
+      for (const tx of normalizedTxs) {
+        // Only look at outflows (money out of the account).
+        if (tx.direction !== "debit") continue;
+        if (tx.isPending) continue;
+        if (tx.isTransfer) continue;
 
-        // Guard 1: Plaid-flagged transfer (column is boolean; tolerate legacy
-        // string "true" values too).
-        if (tx.isTransfer === true || (tx as any).isTransfer === "true") continue;
-
-        // Guard 2: category-level excludes.
-        const catTop = (tx.category || tx.personalCategory || "").trim();
+        const catTop = (tx.category || "").trim();
         if (catTop && EXCLUDE_CATEGORIES.has(catTop)) continue;
 
-        // Guard 3: Plaid personal-finance-category detailed prefix excludes.
-        const pfcDetailed = (tx.personalFinanceCategoryDetailed || "").toString().toUpperCase();
-        if (pfcDetailed && EXCLUDE_PFC_PREFIXES.some(p => pfcDetailed.startsWith(p))) continue;
-
-        // Guard 4: name-pattern backstop — catches Scotiabank-style "Customer
-        // Transfer Dr. MB-*" credits that slip through category/PFC filters.
-        const rawName = (tx.merchantName || tx.name || "").toString();
-        if (TRANSFER_NAME_PATTERN.test(rawName)) continue;
-
-        // Guard 5: skip merchants the user has already declared as bills —
-        // those are known recurring expenses, not "hidden leaks".
-        const mkey = normalizeForMatch(tx.merchantName || tx.name || "");
+        const rawName = (tx.merchant || "").toString();
+        const mkey = normalizeForMatch(rawName);
         if (mkey && billMerchantKeys.has(mkey)) continue;
 
         const name = rawName.toLowerCase().trim() || "unknown";
@@ -12543,9 +12391,9 @@ ${JSON.stringify(txSummary)}`;
           merchantGroups.set(name, []);
         }
         merchantGroups.get(name)!.push({
-          amount,
+          amount: tx.amount,
           date: tx.date || "",
-          name: tx.merchantName || tx.name || "Unknown",
+          name: rawName || "Unknown",
         });
       }
 
@@ -12784,34 +12632,27 @@ ${JSON.stringify(txSummary)}`;
         userIds = await storage.getHouseholdMemberUserIds(householdId);
       }
 
-      // Get financial data
-      const [bills, incomes, plaidItems, budgets] = await Promise.all([
+      // Provider-agnostic fan-out. The adapter layer normalizes accounts
+      // from Plaid / MX / Manual / future aggregators into NormalizedAccount,
+      // so we no longer reach into storage.getPlaidItems / getPlaidAccounts
+      // directly — MX-only households now populate this number correctly.
+      const { getAllNormalizedAccounts } = await import("./engine/data-loaders");
+      const [bills, incomes, budgets, accounts] = await Promise.all([
         householdId ? storage.getBillsByUserIds(userIds) : storage.getBills(userId),
         householdId ? storage.getIncomesByUserIds(userIds) : storage.getIncomes(userId),
-        storage.getPlaidItems(userId),
-        storage.getBudgets(userId),
+        householdId ? storage.getBudgetsByUserIds(userIds) : storage.getBudgets(userId),
+        getAllNormalizedAccounts(userIds),
       ]);
 
-      // Calculate current balance
-      let currentBalance = 0;
-      if (plaidItems.length > 0) {
-        const allAccounts = await Promise.all(
-          plaidItems.map(item => storage.getPlaidAccounts(item.id))
-        );
-        const activeAccounts = allAccounts.flat().filter(a =>
-          a.isActive === "true" &&
-          (a.type === "depository" || a.subtype === "checking" || a.subtype === "savings")
-        );
-        currentBalance = activeAccounts.reduce((sum, acc) => 
-          sum + parseFloat(acc.balanceCurrent || "0"), 0
-        );
-      }
-
-      // Add manual accounts
-      const manualAccounts = await storage.getManualAccounts(userId);
-      currentBalance += manualAccounts
-        .filter(a => a.isActive === "true")
-        .reduce((sum, acc) => sum + parseFloat(acc.balance || "0"), 0);
+      // Liquid balance = active depository accounts across every provider.
+      const currentBalance = accounts
+        .filter(a => a.isActive)
+        .filter(a =>
+          a.accountType === "checking" ||
+          a.accountType === "savings" ||
+          a.accountType === "depository"
+        )
+        .reduce((sum, a) => sum + a.balance, 0);
 
       // Calculate upcoming bills for next 7 days
       const today = new Date();
@@ -13234,8 +13075,14 @@ ${JSON.stringify(txSummary)}`;
         userIds = await storage.getHouseholdMemberUserIds(householdId);
       }
 
-      // Get financial data
-      const [bills, incomes, savingsGoals, plaidItems] = await Promise.all([
+      // Provider-agnostic fan-out via the adapter layer — balances, bills,
+      // incomes, goals, and recent transactions all land as normalized shapes
+      // regardless of Plaid / MX / Manual / future aggregator.
+      const { getAllNormalizedAccounts, getAllNormalizedTransactions } = await import("./engine/data-loaders");
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const [bills, incomes, savingsGoals, accounts, normalizedTxns] = await Promise.all([
         householdId
           ? storage.getBillsByUserIds(userIds)
           : storage.getBills(userId),
@@ -13245,66 +13092,51 @@ ${JSON.stringify(txSummary)}`;
         householdId
           ? storage.getSavingsGoalsByUserIds(userIds)
           : storage.getSavingsGoals(userId),
-        storage.getPlaidItems(userId),
+        getAllNormalizedAccounts(userIds),
+        getAllNormalizedTransactions(userIds, thirtyDaysAgo, new Date()),
       ]);
 
-      // Calculate current balance from Plaid accounts
-      let currentBalance = 0;
-      let transactions: any[] = [];
-      let allPlaidAccounts: any[] = [];
-
-      if (plaidItems.length > 0) {
-        const allAccounts = await Promise.all(
-          plaidItems.map(item => storage.getPlaidAccounts(item.id))
-        );
-        allPlaidAccounts = allAccounts.flat();
-        const activeAccounts = allPlaidAccounts.filter(a =>
-          a.isActive === "true" &&
-          (a.type === "depository" || a.subtype === "checking" || a.subtype === "savings")
-        );
-
-        currentBalance = activeAccounts.reduce((sum, acc) => {
-          const balance = parseFloat(acc.balanceCurrent || "0");
-          return sum + balance;
-        }, 0);
-
-        const accountIds = activeAccounts.map(a => a.id);
-        if (accountIds.length > 0) {
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          transactions = await storage.getPlaidTransactions(accountIds, {
-            startDate: thirtyDaysAgo.toISOString().split('T')[0],
-          });
-        }
-      }
-
-      // Add manual account balances (cash, paypal, venmo, etc. are liquid assets)
-      const manualAccounts = await storage.getManualAccounts(userId);
-      const activeManualAccounts = manualAccounts.filter(a => a.isActive === "true");
-      currentBalance += activeManualAccounts.reduce((sum, acc) => {
-        return sum + parseFloat(acc.balance || "0");
-      }, 0);
-
-      // Build set of disabled Plaid account IDs for filtering
-      const disabledPlaidAccountIds = new Set(
-        allPlaidAccounts.filter(a => a.isActive !== "true").map(a => a.id)
+      // Liquid cash balance = active depository accounts across every provider.
+      // Checking / savings / generic depository; explicitly exclude credit,
+      // loan, investment, etc. (those aren't spendable).
+      const activeAccounts = accounts.filter(a => a.isActive);
+      const activeAccountIds = new Set(activeAccounts.map(a => a.id));
+      const liquidAccounts = activeAccounts.filter(a =>
+        a.accountType === "checking" ||
+        a.accountType === "savings" ||
+        a.accountType === "depository"
       );
+      const currentBalance = liquidAccounts.reduce((s, a) => s + a.balance, 0);
 
-      // Filter to active bills only:
-      // - Bill must not be paused (isPaused !== "true")
-      // - If linked to a Plaid account, that account must be active
+      // Keep raw-tx shape stable for downstream calculateAverageDailySpending
+      // (which expects Plaid-style { amount (string, debit = positive),
+      // category, date }). Map normalized → legacy shape inline.
+      const transactions = normalizedTxns
+        .filter(t => !t.isPending && !t.isTransfer)
+        .map(t => ({
+          date: t.date,
+          // Spending functions expect a positive-dollar string on debits.
+          // For credits (money in) we flip the sign so downstream avg-daily
+          // spending doesn't count income as an outflow.
+          amount: (t.direction === "debit" ? t.amount : -t.amount).toString(),
+          category: t.category,
+          personalCategory: t.category,
+          merchantName: t.merchant,
+        }));
+
+      // Filter to active bills: paused → out, linked to an inactive account
+      // (any provider) → out. This replaces the old Plaid-only disabled-id
+      // filter and generalizes to MX/Manual linkages.
       const activeBills = bills.filter(bill => {
         if (bill.isPaused === "true") return false;
-        if (bill.linkedPlaidAccountId && disabledPlaidAccountIds.has(bill.linkedPlaidAccountId)) return false;
+        if (bill.linkedPlaidAccountId && !activeAccountIds.has(bill.linkedPlaidAccountId)) return false;
         return true;
       });
 
-      // Filter to active incomes only:
-      // - Income must not be explicitly disabled (isActive !== "false")
-      // - If linked to a Plaid account, that account must be active
+      // Filter to active incomes (same rule as bills).
       const activeIncomes = incomes.filter(inc => {
         if (inc.isActive === "false") return false;
-        if (inc.linkedPlaidAccountId && disabledPlaidAccountIds.has(inc.linkedPlaidAccountId)) return false;
+        if (inc.linkedPlaidAccountId && !activeAccountIds.has(inc.linkedPlaidAccountId)) return false;
         return true;
       });
       let upcomingBills = 0;

@@ -72,6 +72,10 @@ interface DashboardData {
     realSpending: number;
     plannedCashFlow: number;
     plannedSavings: number;
+    // UAT-11 P0-2: true spending plan (sum of active budget rows), distinct
+    // from `realSpending`. Needed by the "Budgeted Spending" tile and The Gap
+    // so both surfaces stop comparing the plan against itself.
+    budgetTotal: number;
   };
   netWorth: {
     netWorth: number;
@@ -963,7 +967,12 @@ export default function Dashboard() {
             />
             <PlanStatCard
               title="Budgeted Spending"
-              value={formatCurrency(dashboard?.expenses.total ?? 0)}
+              // UAT-11 P0-2 (#85): was `expenses.total` (= actual spending MTD),
+              // which made the tile agree with the "Actual Spending" real-cash-flow
+              // tile and disagree with every gap calc that uses the plan.
+              // Now reads `cashFlow.budgetTotal`, the engine's authoritative
+              // budget-plan number.
+              value={formatCurrency(dashboard?.cashFlow.budgetTotal ?? 0)}
               icon={Receipt}
               description="Planned spending limits"
               isLoading={dashboardLoading}
@@ -1167,7 +1176,13 @@ export default function Dashboard() {
             </div>
             <div className="text-center p-4 rounded-lg bg-muted/30">
               <p className="text-xs text-muted-foreground mb-1">Spending Gap</p>
-              {(dashboard?.income.budgetedIncome ?? 0) === 0 ? (
+              {/* UAT-11 P0-2 (#82, #83): this panel used to compare actual
+                  spending against `budgetedIncome` — i.e. "under budget" was
+                  actually "under income", which contradicted the budgetOverage
+                  alert (which compares against the sum of budget rows).
+                  Now both surfaces key off `cashFlow.budgetTotal`, so "Over
+                  budget" on the alert and "Over budget" here agree. */}
+              {(dashboard?.cashFlow.budgetTotal ?? 0) === 0 ? (
                 <>
                   <p className="text-sm font-semibold text-muted-foreground">No budget set</p>
                   <p className="text-[10px] text-muted-foreground mt-1">
@@ -1176,11 +1191,11 @@ export default function Dashboard() {
                 </>
               ) : (
                 <>
-                  <p className={`text-xl font-bold ${(dashboard?.expenses.total ?? 0) <= (dashboard?.income.budgetedIncome ?? 0) ? "text-emerald-600" : "text-red-600"}`}>
-                    {(dashboard?.expenses.total ?? 0) > (dashboard?.income.budgetedIncome ?? 0) ? "+" : ""}{formatCurrency((dashboard?.gaps.spendingGap ?? 0))}
+                  <p className={`text-xl font-bold ${(dashboard?.expenses.total ?? 0) <= (dashboard?.cashFlow.budgetTotal ?? 0) ? "text-emerald-600" : "text-red-600"}`}>
+                    {(dashboard?.expenses.total ?? 0) > (dashboard?.cashFlow.budgetTotal ?? 0) ? "+" : ""}{formatCurrency((dashboard?.gaps.spendingGap ?? 0))}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    {(dashboard?.expenses.total ?? 0) <= (dashboard?.income.budgetedIncome ?? 0) ? "Under budget" : "Over budget"}
+                    {(dashboard?.expenses.total ?? 0) <= (dashboard?.cashFlow.budgetTotal ?? 0) ? "Under budget" : "Over budget"}
                   </p>
                 </>
               )}

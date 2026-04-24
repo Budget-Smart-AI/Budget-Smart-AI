@@ -98,8 +98,16 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       {/* Backwards compatibility redirects */}
       <Route path="/bank-accounts"><Redirect to="/accounts" /></Route>
       <Route path="/expenses" component={ExpensesPage} />
+      {/* Canonical is /expenses — /transactions was a common incorrect link
+       * surfaced during UAT-11 (TopNavBar search, external bookmarks). */}
+      <Route path="/transactions"><Redirect to="/expenses" /></Route>
       <Route path="/other-expenses"><Redirect to="/accounts" /></Route>
       <Route path="/subscriptions">{() => <Redirect to="/bills" />}</Route>
+      {/* Canonical is /savings — older feature name surfaced in docs/links. */}
+      <Route path="/savings-goals"><Redirect to="/savings" /></Route>
+      {/* Household lives under /settings/household; accept shortcuts. */}
+      <Route path="/household"><Redirect to="/settings/household" /></Route>
+      <Route path="/family"><Redirect to="/settings/household" /></Route>
       <Route path="/categories" component={Categories} />
       <Route path="/email-settings" component={EmailSettings} />
       <Route path="/settings"><Redirect to="/settings/profile" /></Route>
