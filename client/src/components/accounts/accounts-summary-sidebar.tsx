@@ -2,16 +2,26 @@
  * Monarch-style summary panel that sits next to the Accounts By-Type view.
  *
  * Responsibilities:
- *   - Aggregate all three provider sources into Assets / Liabilities / Net Worth
- *     using the same normalization helpers the by-type view uses.
- *   - Render a horizontal stacked bar for Assets vs Liabilities share.
+ *   - Render headline Assets / Liabilities / Net Worth numbers sourced from
+ *     the engine (SSOT) — see `engineTotals` prop. Falls back to a local
+ *     balance-sheet calc only when engine totals haven't loaded yet.
+ *   - Render a horizontal stacked bar for Assets vs Liabilities share, driven
+ *     by the engine totals.
  *   - Break down each side by group (Cash, Investments, Credit Cards, Loans,
- *     Other), with a toggle between $ totals and % of-side.
+ *     Other), with a toggle between $ totals and % of-side. Per-group numbers
+ *     remain from the local normalizer — the engine doesn't expose
+ *     Monarch-style group buckets yet (see ARCHITECTURE.md §6.1 / Phase B
+ *     Canonical Accounts).
  *   - View-mode dropdown (Balances / Performance / Recent activity). Only
  *     Balances is wired up today — the others emit a toast via the parent
  *     because they need extra endpoints; the UI slot is here so we can add
  *     them without another layout pass.
  *   - Download CSV of all accounts.
+ *
+ * SSOT note (ARCHITECTURE.md §6.1, UAT-12 #94): the headline Net Worth /
+ * Total Assets / Total Liabilities on THIS panel MUST match the Net Worth page
+ * and the Dashboard tile. All three now read from `loadAndCalculateNetWorth`
+ * via `/api/engine/accounts` → `engineTotals`.
  */
 
 import { useMemo, useState } from "react";
@@ -37,9 +47,27 @@ import {
 
 export type AccountsViewMode = "balances" | "performance" | "activity";
 
+/**
+ * Engine-sourced totals (SSOT). Shape matches `/api/engine/accounts` →
+ * `totals`. Liabilities is a positive number (amount owed).
+ */
+export interface AccountsEngineTotals {
+  assets: number;
+  liabilities: number;
+  netWorth: number;
+}
+
 interface AccountsSummarySidebarProps extends NormalizeInput {
   viewMode: AccountsViewMode;
   onViewModeChange: (mode: AccountsViewMode) => void;
+  /**
+   * Engine totals from `/api/engine/accounts`. When provided, these override
+   * the local `computeBalanceSheet` result for the headline Net Worth / Assets
+   * / Liabilities — this is the Phase A §6.1 SSOT cutover. Optional so the
+   * component keeps working if the parent hasn't wired the engine query yet
+   * (in which case it falls back to the local calc for all fields).
+   */
+  engineTotals?: AccountsEngineTotals;
 }
 
 function fmt(amount: number) {
@@ -60,6 +88,7 @@ export function AccountsSummarySidebar({
   manualAccounts,
   viewMode,
   onViewModeChange,
+  engineTotals,
 }: AccountsSummarySidebarProps) {
   const [displayMode, setDisplayMode] = useState<"totals" | "percent">("totals");
 
@@ -71,7 +100,16 @@ export function AccountsSummarySidebar({
     };
   }, [plaidGroups, mxMembers, manualAccounts]);
 
-  const { assets, liabilities, netWorth, byGroup } = balanceSheet;
+  // Per-group breakdown stays local (engine doesn't expose Monarch-style
+  // groups yet — that's Phase B Canonical Accounts). Headline totals come
+  // from the engine when available, otherwise fall back to the local calc.
+  // This is the §6.1 SSOT cutover: Net Worth / Assets / Liabilities shown
+  // on this panel now match the Net Worth page and the Dashboard tile.
+  const { byGroup } = balanceSheet;
+  const assets = engineTotals?.assets ?? balanceSheet.assets;
+  const liabilities = engineTotals?.liabilities ?? balanceSheet.liabilities;
+  const netWorth = engineTotals?.netWorth ?? balanceSheet.netWorth;
+
   const total = assets + liabilities;
   const assetShare = total > 0 ? (assets / total) * 100 : 0;
   const liabShare = total > 0 ? (liabilities / total) * 100 : 0;
