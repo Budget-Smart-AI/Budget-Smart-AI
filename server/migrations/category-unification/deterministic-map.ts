@@ -46,7 +46,7 @@ export const DETERMINISTIC_MAP: Record<string, string> = {
   "Pets":                   "lifestyle_pets",
   "Gifts":                  "lifestyle_gifts",
   "Donations":              "charity_donations",
-  "Travel":                 "travel",
+  "Travel":                 "travel_general",
   "Education":              "family_education",
   "Kids":                   "family_kids_activities",
   "Other":                  "uncategorized",
@@ -188,10 +188,10 @@ export const PLAID_CATEGORY_MAP: Record<string, string> = {
   "GENERAL_SERVICES_OTHER_GENERAL_SERVICES":          "business_services",
 
   // Travel
-  "TRAVEL_FLIGHTS":                         "travel",
-  "TRAVEL_LODGING":                         "travel",
-  "TRAVEL_RENTAL_CARS":                     "travel",
-  "TRAVEL_OTHER_TRAVEL":                    "travel",
+  "TRAVEL_FLIGHTS":                         "travel_general",
+  "TRAVEL_LODGING":                         "travel_general",
+  "TRAVEL_RENTAL_CARS":                     "travel_general",
+  "TRAVEL_OTHER_TRAVEL":                    "travel_general",
   "TRAVEL_GAS":                             "transport_fuel",
   "TRAVEL_PUBLIC_TRANSIT":                  "transport_public_transit",
 

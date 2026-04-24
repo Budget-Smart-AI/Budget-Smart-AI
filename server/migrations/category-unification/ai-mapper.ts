@@ -62,7 +62,7 @@ export const CANONICAL_SLUGS: readonly string[] = [
   // Business & Professional (3)
   "business_services", "business_office_supplies", "business_professional_fees",
   // Travel (1)
-  "travel",
+  "travel_general",
   // Income (5)
   "income_salary", "income_freelance", "income_investment", "income_rental", "income_other",
   // Transfers & Reversals (3)
@@ -93,7 +93,7 @@ lifestyle_shopping, lifestyle_entertainment, lifestyle_subscriptions, lifestyle_
 charity_donations,
 family_childcare, family_education, family_kids_activities,
 business_services, business_office_supplies, business_professional_fees,
-travel,
+travel_general,
 income_salary, income_freelance, income_investment, income_rental, income_other,
 transfer_internal, transfer_atm, transfer_refund,
 uncategorized
