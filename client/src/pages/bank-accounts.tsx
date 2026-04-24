@@ -88,6 +88,7 @@ import { BankProviderSelectionDialog } from "@/components/bank-provider-selectio
 import { UnlinkConfirmDialog } from "@/components/unlink-confirm-dialog";
 import { ConnectBankWizard } from "@/components/connect-bank-wizard";
 import { FloatingChatbot } from "@/components/floating-chatbot";
+import { RefreshLimitsModal, type RefreshModalMode } from "@/components/RefreshLimitsModal";
 import { DemoBanner } from "@/components/demo-banner";
 import { AccountsByTypeView } from "@/components/accounts/accounts-by-type-view";
 import { AccountsSummarySidebar, type AccountsViewMode } from "@/components/accounts/accounts-summary-sidebar";
@@ -1730,25 +1731,97 @@ export default function BankAccounts() {
     },
   });
 
-  // Refresh balances mutation
-  const refreshBalancesMutation = useMutation({
+  // Refresh usage query — plan-gated quota for manual refreshes
+  const { data: refreshUsage } = useQuery<{
+    used: number;
+    limit: number;
+    remaining: number;
+    cooldownSeconds: number;
+    plan: string;
+  }>({
+    queryKey: ["/api/plaid/transactions/refresh-usage"],
+  });
+
+  // Refresh limits modal state
+  const [refreshModalOpen, setRefreshModalOpen] = useState(false);
+  const [refreshModalMode, setRefreshModalMode] = useState<RefreshModalMode>("info");
+
+  // Gated refresh mutation — replaces old refreshBalancesMutation.
+  // Server-side bundles balance refresh + transaction refresh in one call.
+  // Uses raw fetch instead of apiRequest so we can inspect the response
+  // status code and JSON body for gating codes (PLAN_GATE, QUOTA_EXHAUSTED,
+  // COOLDOWN) before they get flattened into a generic Error message.
+  const refreshGatedMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/plaid/accounts/refresh-balances");
+      const res = await fetch("/api/plaid/transactions/refresh", {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Attach the parsed body so onError can inspect the code
+        const err: any = new Error(body?.message || body?.error || "Refresh failed");
+        err.status = res.status;
+        err.body = body;
+        throw err;
+      }
+      return body;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/plaid/accounts"] });
-      // Invalidate every engine query — accounts / bank-accounts / net-worth
-      // / dashboard all derive from the same underlying ledger and should
-      // refresh together when the connection graph changes.
+      queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/plaid/transactions/refresh-usage"] });
       queryClient.invalidateQueries({ predicate: (q) =>
         (q.queryKey[0] as string)?.startsWith?.("/api/engine/") ?? false
       });
-      toast({ title: "Balances refreshed" });
+      toast({ title: data?.message || "Transactions & balances refreshed" });
     },
-    onError: () => {
-      toast({ title: "Failed to refresh balances", variant: "destructive" });
+    onError: (error: any) => {
+      // Server returns { error: "plan_not_eligible"|"limit_exhausted"|"cooldown", usage: {...} }
+      const reason = error?.body?.error;
+      if (reason === "plan_not_eligible") {
+        setRefreshModalMode("upsell");
+        setRefreshModalOpen(true);
+        return;
+      }
+      if (reason === "limit_exhausted") {
+        setRefreshModalMode("exhausted");
+        setRefreshModalOpen(true);
+        return;
+      }
+      if (reason === "cooldown") {
+        setRefreshModalMode("cooldown");
+        setRefreshModalOpen(true);
+        return;
+      }
+      toast({ title: "Failed to refresh", variant: "destructive" });
     },
   });
+
+  // Handler: check gate client-side first, then call mutation
+  const handleGatedRefresh = () => {
+    if (!refreshUsage) {
+      // Usage data not loaded yet — just try the mutation, server will gate
+      refreshGatedMutation.mutate();
+      return;
+    }
+    if (refreshUsage.limit === 0) {
+      setRefreshModalMode("upsell");
+      setRefreshModalOpen(true);
+      return;
+    }
+    if (refreshUsage.remaining <= 0) {
+      setRefreshModalMode("exhausted");
+      setRefreshModalOpen(true);
+      return;
+    }
+    if (refreshUsage.cooldownSeconds > 0) {
+      setRefreshModalMode("cooldown");
+      setRefreshModalOpen(true);
+      return;
+    }
+    refreshGatedMutation.mutate();
+  };
 
   // Sync transactions mutation
   const syncMutation = useMutation({
@@ -2064,12 +2137,25 @@ export default function BankAccounts() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => refreshBalancesMutation.mutate()}
-                disabled={refreshBalancesMutation.isPending}
+                onClick={handleGatedRefresh}
+                disabled={refreshGatedMutation.isPending}
                 className="gap-1 text-xs sm:text-sm"
               >
-                <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 ${refreshBalancesMutation.isPending ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-3 w-3 sm:h-4 sm:w-4 ${refreshGatedMutation.isPending ? "animate-spin" : ""}`} />
                 <span className="hidden sm:inline">Refresh</span>
+                {refreshUsage && refreshUsage.limit > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-0.5 h-4 min-w-4 px-1 text-[10px] cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRefreshModalMode("info");
+                      setRefreshModalOpen(true);
+                    }}
+                  >
+                    {refreshUsage.remaining}/{refreshUsage.limit}
+                  </Badge>
+                )}
               </Button>
               <Button
                 variant="outline"
@@ -3171,6 +3257,16 @@ export default function BankAccounts() {
           source: "plaid",
           isoCurrencyCode: tellerTx.isoCurrencyCode || "CAD",
         } : null}
+      />
+
+      {/* Refresh Limits Modal */}
+      <RefreshLimitsModal
+        open={refreshModalOpen}
+        onOpenChange={setRefreshModalOpen}
+        mode={refreshModalMode}
+        used={refreshUsage?.used ?? 0}
+        limit={refreshUsage?.limit ?? 0}
+        cooldownSeconds={refreshUsage?.cooldownSeconds ?? 0}
       />
 
       {/* Bulk Match to Income / Bill Dialog */}
