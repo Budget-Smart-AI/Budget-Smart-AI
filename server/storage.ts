@@ -87,6 +87,12 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, and, gte, lte, inArray, desc, like, sql } from "drizzle-orm";
 import { encrypt as fieldEncrypt, decrypt as fieldDecrypt } from "./encryption";
+// ARCHITECTURE §6.2.6 dual-write: every storage create path populates
+// `canonical_category_id` at insert time via the shared sync resolver.
+// Sync-only (no Bedrock) to keep user-facing POST handlers fast; rows that
+// miss both deterministic maps land with NULL and are filled by a later
+// reconcile pass. See server/migrations/category-unification/resolver.ts.
+import { resolveCanonicalCategorySync } from "./migrations/category-unification/resolver";
 
 export interface IStorage {
   // Users
@@ -1448,11 +1454,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBill(insertBill: InsertBill & { userId: string }): Promise<Bill> {
+    // §6.2.6 dual-write: resolve canonical_category_id at insert time so the
+    // shadow column doesn't drift back to NULL after the one-time backfill.
+    // If the caller passed an explicit slug, honour it; otherwise resolve
+    // from the BSA legacy string.
+    const canonicalCategoryId =
+      (insertBill as any).canonicalCategoryId ??
+      resolveCanonicalCategorySync({
+        legacyCategory: insertBill.category,
+        merchantName: insertBill.merchant ?? insertBill.name ?? null,
+        amount: Number(insertBill.amount) || null,
+        rowKind: "bill",
+      }).canonicalId;
+
     const result = await db.insert(bills).values({
       userId: insertBill.userId,
       name: insertBill.name,
       amount: String(parseFloat(String(insertBill.amount))),
       category: insertBill.category,
+      canonicalCategoryId,
       dueDay: parseInt(String(insertBill.dueDay), 10),
       recurrence: insertBill.recurrence,
       customDates: insertBill.customDates || null,
@@ -1506,12 +1526,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createExpense(insertExpense: InsertExpense & { userId: string }): Promise<Expense> {
+    // §6.2.6 dual-write: resolve canonical_category_id at insert time.
+    const canonicalCategoryId =
+      (insertExpense as any).canonicalCategoryId ??
+      resolveCanonicalCategorySync({
+        legacyCategory: insertExpense.category,
+        merchantName: insertExpense.merchant ?? null,
+        amount: Number(insertExpense.amount) || null,
+        rowKind: "expense",
+      }).canonicalId;
+
     const result = await db.insert(expenses).values({
       userId: insertExpense.userId,
       merchant: insertExpense.merchant,
       amount: insertExpense.amount,
       date: insertExpense.date,
       category: insertExpense.category,
+      canonicalCategoryId,
       notes: insertExpense.notes || null,
     }).returning();
     return result[0];
@@ -1540,12 +1571,27 @@ export class DatabaseStorage implements IStorage {
   async createIncome(insertIncome: InsertIncome & { userId: string }): Promise<Income> {
     // Build the values object once so we can reuse it across NULL and NOT-NULL branches.
     const externalTxnId = (insertIncome as any).externalTransactionId ?? null;
+
+    // §6.2.6 dual-write: resolve canonical_category_id at insert time.
+    // `source` is the merchant-equivalent hint for income rows (carrier
+    // matching isn't relevant here, but an income legacy string like
+    // "Salary" or "Freelance" still lands cleanly in the deterministic map).
+    const canonicalCategoryId =
+      (insertIncome as any).canonicalCategoryId ??
+      resolveCanonicalCategorySync({
+        legacyCategory: insertIncome.category,
+        merchantName: insertIncome.source ?? null,
+        amount: Number(insertIncome.amount) || null,
+        rowKind: "income",
+      }).canonicalId;
+
     const values = {
       userId: insertIncome.userId,
       source: insertIncome.source,
       amount: insertIncome.amount,
       date: insertIncome.date,
       category: insertIncome.category,
+      canonicalCategoryId,
       isRecurring: insertIncome.isRecurring || "false",
       isActive: (insertIncome as any).isActive ?? "true",
       recurrence: insertIncome.recurrence || null,
@@ -1838,6 +1884,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction> {
+    // §6.2.6 dual-write: resolve canonical_category_id from the Plaid PFC
+    // detailed slug first (richer signal), falling back to the adapter-
+    // derived `personalCategory` (BSA legacy string). No AI call — this runs
+    // inside the sync loop and must stay cheap. Rows that miss both maps
+    // land with NULL and are filled by a nightly reconcile pass.
+    const pfcDetailed = (transaction as any).personalFinanceCategoryDetailed ?? null;
+    const canonicalCategoryId =
+      (transaction as any).canonicalCategoryId ??
+      resolveCanonicalCategorySync({
+        legacyCategory: transaction.personalCategory ?? null,
+        plaidDetailed: pfcDetailed,
+        merchantName: transaction.merchantName ?? transaction.name ?? null,
+        amount: Number(transaction.amount) || null,
+        rowKind: "plaid",
+      }).canonicalId;
+
     // Use upsert to handle duplicate transactions gracefully
     const result = await db.insert(plaidTransactions).values({
       plaidAccountId: transaction.plaidAccountId,
@@ -1849,6 +1911,7 @@ export class DatabaseStorage implements IStorage {
       logoUrl: (transaction as any).logoUrl || null,
       category: transaction.category || null,
       personalCategory: transaction.personalCategory || null,
+      canonicalCategoryId,
       personalFinanceCategoryDetailed: (transaction as any).personalFinanceCategoryDetailed || null,
       personalFinanceCategoryConfidence: (transaction as any).personalFinanceCategoryConfidence || null,
       paymentChannel: (transaction as any).paymentChannel || null,
@@ -1871,6 +1934,8 @@ export class DatabaseStorage implements IStorage {
         merchantName: sql`COALESCE(${transaction.merchantName || null}, plaid_transactions.merchant_name)`,
         logoUrl: sql`COALESCE(${transaction.logoUrl || null}, plaid_transactions.logo_url)`,
         category: sql`COALESCE(${transaction.category || null}, plaid_transactions.category)`,
+        // Keep canonical_category_id idempotent on re-sync: only fill if previously NULL
+        canonicalCategoryId: sql`COALESCE(plaid_transactions.canonical_category_id, ${canonicalCategoryId})`,
         personalFinanceCategoryDetailed: sql`COALESCE(${(transaction as any).personalFinanceCategoryDetailed || null}, plaid_transactions.personal_finance_category_detailed)`,
         personalFinanceCategoryConfidence: sql`COALESCE(${(transaction as any).personalFinanceCategoryConfidence || null}, plaid_transactions.personal_finance_category_confidence)`,
         paymentChannel: sql`COALESCE(${(transaction as any).paymentChannel || null}, plaid_transactions.payment_channel)`,
@@ -2811,6 +2876,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createManualTransaction(transaction: InsertManualTransaction & { userId: string; accountId: string }): Promise<ManualTransaction> {
+    // §6.2.6 dual-write: resolve canonical_category_id at insert time.
+    // Transfer rows (`isTransfer === "true"`) skip the resolver and land as
+    // NULL — the §6.3 transfer-classification pass will mark them explicitly.
+    const isTransferRow = transaction.isTransfer === "true";
+    const canonicalCategoryId =
+      (transaction as any).canonicalCategoryId ??
+      (isTransferRow
+        ? null
+        : resolveCanonicalCategorySync({
+            legacyCategory: transaction.category ?? null,
+            merchantName: transaction.merchant ?? null,
+            amount: Number(transaction.amount) || null,
+            rowKind: "manual",
+          }).canonicalId);
+
     const result = await db.insert(manualTransactions).values({
       accountId: transaction.accountId,
       userId: transaction.userId,
@@ -2818,6 +2898,7 @@ export class DatabaseStorage implements IStorage {
       date: transaction.date,
       merchant: transaction.merchant,
       category: transaction.category || null,
+      canonicalCategoryId,
       notes: transaction.notes || null,
       isTransfer: transaction.isTransfer || "false",
       createdAt: new Date().toISOString(),
