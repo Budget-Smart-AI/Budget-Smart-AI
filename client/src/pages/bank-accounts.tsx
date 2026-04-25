@@ -78,12 +78,12 @@ import {
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, BILL_CATEGORIES, MANUAL_ACCOUNT_TYPES, MX_SUPPORTED_COUNTRIES, type PlaidTransaction, type ManualAccount, type ManualTransaction } from "@shared/schema";
-import { getEffectiveCategoryBucket } from "@shared/categoryResolver";
+import { EXPENSE_CATEGORIES, MANUAL_ACCOUNT_TYPES, MX_SUPPORTED_COUNTRIES, type PlaidTransaction, type ManualAccount, type ManualTransaction } from "@shared/schema";
 import {
   useExpenseCategories,
   useCategoryMap,
   getCategoryDisplayName,
+  getCategoryColor,
 } from "@/lib/canonical-categories";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -2930,7 +2930,7 @@ export default function BankAccounts() {
                                 ) : (
                                   <div
                                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-white"
-                                    style={{ backgroundColor: CATEGORY_COLORS[(tx as any).category || 'Other'] || '#71717a' }}
+                                    style={{ backgroundColor: getCategoryColor(tx as any, categoryMap) }}
                                   >
                                     <span className="text-xs font-semibold">
                                       {((tx as any).merchantCleanName || tx.merchantName || tx.name).charAt(0).toUpperCase()}
@@ -2961,16 +2961,13 @@ export default function BankAccounts() {
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <button className="focus:outline-none">
-                                    {/* Use the shared resolver so Accounts, Expenses and Bills pages
-                                        render the same label for the same tx. Color chip reads from
-                                        the parent bucket (personalCategory/category) so a "Grocery"
-                                        subcategory still gets the "Food & Dining" green. */}
+                                    {/* §6.2.8: canonical color from the category map — single source of truth. */}
                                     <Badge
                                       variant="outline"
                                       className="text-xs cursor-pointer hover:opacity-80 transition-opacity"
                                       style={{
-                                        borderColor: CATEGORY_COLORS[getEffectiveCategoryBucket(tx as any)] || '#71717a',
-                                        color: CATEGORY_COLORS[getEffectiveCategoryBucket(tx as any)] || '#71717a',
+                                        borderColor: getCategoryColor(tx as any, categoryMap),
+                                        color: getCategoryColor(tx as any, categoryMap),
                                       }}
                                     >
                                       {getCategoryDisplayName(tx as any, categoryMap)}
