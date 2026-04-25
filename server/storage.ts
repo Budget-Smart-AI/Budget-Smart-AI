@@ -66,7 +66,7 @@ import {
   type MxMember, type InsertMxMember,
   type MxAccount, type InsertMxAccount,
   type MxTransaction, type InsertMxTransaction,
-  notificationSettings, customCategories, recurringExpenses,
+  notificationSettings, canonicalCategories, recurringExpenses,
   reconciliationRules, syncSchedules, notifications, budgetAlerts, spendingAlerts,
   onboardingAnalysis, households, householdMembers, householdInvitations,
   referralCodes, referrals, manualAccounts, manualTransactions, debtDetails,
@@ -2180,23 +2180,103 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  // Custom Categories
+  // Custom Categories — backed by canonical_categories with user_id set.
+  // §6.2.7-prep migration 0040 dropped the standalone custom_categories
+  // table; user-defined categories now live in canonical_categories
+  // (NULL user_id = system row, set user_id = user-owned). The legacy
+  // CustomCategory shape is preserved here as an API translation layer
+  // only — Phase B retires both this shape and the /api/custom-categories
+  // URL in favor of /api/categories returning the merged system+user view.
+  private canonicalToCustomShape(row: typeof canonicalCategories.$inferSelect): CustomCategory {
+    // Map the three booleans back to the legacy single-string `type`. A
+    // user-created custom row has exactly one of these set (see
+    // createCustomCategory below); fall back to "expense" if somehow none.
+    const type: CustomCategory["type"] = row.appliesToBill
+      ? "bill"
+      : row.appliesToIncome
+        ? "income"
+        : "expense";
+    return {
+      id: row.id,
+      userId: row.userId ?? "",
+      name: row.displayName,
+      type,
+      color: row.color,
+      icon: row.icon,
+      isActive: "true",
+    };
+  }
+
   async getCustomCategories(userId: string): Promise<CustomCategory[]> {
-    return db.select().from(customCategories).where(eq(customCategories.userId, userId));
+    const rows = await db
+      .select()
+      .from(canonicalCategories)
+      .where(eq(canonicalCategories.userId, userId));
+    return rows.map((r) => this.canonicalToCustomShape(r));
   }
 
   async createCustomCategory(category: InsertCustomCategory): Promise<CustomCategory> {
-    const result = await db.insert(customCategories).values(category).returning();
-    return result[0];
+    // Synthesize a TEXT id distinct from the slug-style system ids
+    // (see migration 0040 — same pattern as the data migration).
+    const id = `c_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+    const result = await db
+      .insert(canonicalCategories)
+      .values({
+        id,
+        displayName: category.name,
+        userId: category.userId,
+        appliesToExpense: category.type === "expense",
+        appliesToBill: category.type === "bill",
+        appliesToIncome: category.type === "income",
+        isTransfer: false,
+        isGroup: false,
+        color: category.color ?? null,
+        icon: category.icon ?? null,
+        sortOrder: 0,
+      })
+      .returning();
+    return this.canonicalToCustomShape(result[0]);
   }
 
   async updateCustomCategory(id: string, updates: Partial<CustomCategory>): Promise<CustomCategory | undefined> {
-    const result = await db.update(customCategories).set(updates).where(eq(customCategories.id, id)).returning();
-    return result[0];
+    // Translate the legacy fields the route passes through. Only allow
+    // editing rows that have a user_id set — never let this method touch
+    // a system canonical even by id collision.
+    const patch: Partial<typeof canonicalCategories.$inferInsert> = {};
+    if (updates.name !== undefined) patch.displayName = updates.name;
+    if (updates.color !== undefined) patch.color = updates.color;
+    if (updates.icon !== undefined) patch.icon = updates.icon;
+    if (updates.type !== undefined) {
+      patch.appliesToExpense = updates.type === "expense";
+      patch.appliesToBill = updates.type === "bill";
+      patch.appliesToIncome = updates.type === "income";
+    }
+    patch.updatedAt = new Date();
+
+    const result = await db
+      .update(canonicalCategories)
+      .set(patch)
+      .where(
+        and(
+          eq(canonicalCategories.id, id),
+          sql`${canonicalCategories.userId} IS NOT NULL`,
+        ),
+      )
+      .returning();
+    return result[0] ? this.canonicalToCustomShape(result[0]) : undefined;
   }
 
   async deleteCustomCategory(id: string): Promise<boolean> {
-    const result = await db.delete(customCategories).where(eq(customCategories.id, id)).returning();
+    // Same ownership guard as update — system canonicals are immutable.
+    const result = await db
+      .delete(canonicalCategories)
+      .where(
+        and(
+          eq(canonicalCategories.id, id),
+          sql`${canonicalCategories.userId} IS NOT NULL`,
+        ),
+      )
+      .returning();
     return result.length > 0;
   }
 
@@ -3016,7 +3096,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteAllCategoriesByUser(userId: string): Promise<void> {
-    await db.delete(customCategories).where(eq(customCategories.userId, userId));
+    // §6.2.7-prep migration 0040: only delete user-owned canonical rows;
+    // system canonicals (user_id IS NULL) are immutable and shared.
+    await db
+      .delete(canonicalCategories)
+      .where(eq(canonicalCategories.userId, userId));
   }
 
   async deleteAllNotificationsByUser(userId: string): Promise<void> {

@@ -10508,8 +10508,10 @@ ${JSON.stringify(txSummary)}`;
         if (catLimit === 0) {
           return res.status(402).json({ feature: "categories_management", remaining: 0, resetDate: null, upgradeRequired: true });
         }
+        // §6.2.7-prep migration 0040: custom_categories was dropped; user
+        // categories now live in canonical_categories with user_id set.
         const { rows: catRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(*)::int AS cnt FROM custom_categories WHERE user_id = $1",
+          "SELECT COUNT(*)::int AS cnt FROM canonical_categories WHERE user_id = $1",
           [userId]
         );
         if ((catRows[0]?.cnt ?? 0) >= catLimit) {

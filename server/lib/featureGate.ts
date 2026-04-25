@@ -419,7 +419,9 @@ async function getCumulativeItemCounts(userId: string): Promise<Map<string, numb
         (SELECT COUNT(*) FROM assets WHERE user_id = $1) as assets,
         (SELECT COUNT(*) FROM manual_accounts WHERE user_id = $1) as manual_accounts,
         (SELECT COUNT(*) FROM vault_documents WHERE user_id = $1) as vault_documents,
-        (SELECT COUNT(*) FROM custom_categories WHERE user_id = $1) as custom_categories`,
+        -- §6.2.7-prep migration 0040: custom_categories table was dropped;
+        -- user-owned categories now live in canonical_categories WHERE user_id IS NOT NULL.
+        (SELECT COUNT(*) FROM canonical_categories WHERE user_id = $1) as custom_categories`,
       [userId, currentMonthStr]
     );
 

@@ -1040,21 +1040,34 @@ export const insertNotificationSettingsSchema = createInsertSchema(notificationS
 export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type InsertNotificationSettings = z.infer<typeof insertNotificationSettingsSchema>;
 
-// Custom categories - user-defined expense/income categories
-export const customCategories = pgTable("custom_categories", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull(),
-  name: text("name").notNull(),
-  type: text("type").notNull(), // 'expense', 'income', 'bill'
-  color: text("color").default("#6366f1"),
-  icon: text("icon"), // Lucide icon name
-  isActive: text("is_active").default("true"),
-});
+// Custom categories — DEPRECATED. The custom_categories table was dropped
+// in migration 0040 (§6.2.7-prep). User-defined categories now live in
+// `canonical_categories` with `user_id` set; system categories have
+// `user_id IS NULL`. The CustomCategory type below is the legacy SHAPE
+// the API still emits for backward-compatible CRUD on /api/custom-categories
+// (the route URL stays for now to avoid frontend churn). Storage methods
+// translate between this shape and canonical_categories rows.
+//
+// Phase B will drop /api/custom-categories in favor of /api/categories
+// returning the merged system+user view. At that point this type goes too.
+export interface CustomCategory {
+  id: string;
+  userId: string;
+  name: string;
+  type: "expense" | "income" | "bill";
+  color: string | null;
+  icon: string | null;
+  isActive: string;
+}
 
-export const insertCustomCategorySchema = createInsertSchema(customCategories).omit({ id: true }).extend({
+export const insertCustomCategorySchema = z.object({
+  userId: z.string(),
+  name: z.string().min(1),
   type: z.enum(["expense", "income", "bill"]),
+  color: z.string().nullable().optional(),
+  icon: z.string().nullable().optional(),
+  isActive: z.string().optional(),
 });
-export type CustomCategory = typeof customCategories.$inferSelect;
 export type InsertCustomCategory = z.infer<typeof insertCustomCategorySchema>;
 
 // Recurring expenses (subscriptions)
@@ -2513,9 +2526,13 @@ export type InsertUserWatchlist = z.infer<typeof insertUserWatchlistSchema>;
 // drop the legacy columns.
 
 export const canonicalCategories = pgTable("canonical_categories", {
-  id: text("id").primaryKey(),                                    // immutable slug
+  id: text("id").primaryKey(),                                    // immutable slug for system rows; "c_<uuid>" for user-owned rows
   displayName: text("display_name").notNull(),
   parentId: text("parent_id"),                                    // FK enforced in SQL migration
+  // Ownership: NULL = system canonical (immutable to non-admins),
+  // set = user-defined custom category (added in migration 0040,
+  // §6.2.7-prep — replaces the separate custom_categories table).
+  userId: varchar("user_id"),
   appliesToExpense: boolean("applies_to_expense").notNull().default(false),
   appliesToBill: boolean("applies_to_bill").notNull().default(false),
   appliesToIncome: boolean("applies_to_income").notNull().default(false),
