@@ -27,10 +27,7 @@
     "seed:registry": "tsx scripts/seed-income-registry.ts",
     "backfill:merchant-names:dry": "tsx scripts/backfill-merchant-names.ts --dry-run",
     "backfill:merchant-names": "tsx scripts/backfill-merchant-names.ts",
-    "seed:canonical-categories": "tsx scripts/seed-canonical-categories.ts",
-    "backfill:categories:inspect": "tsx server/migrations/category-unification/inspect-legacy.ts",
-    "backfill:categories:dry": "tsx server/migrations/category-unification/run-backfill.ts --dry-run",
-    "backfill:categories": "tsx server/migrations/category-unification/run-backfill.ts"
+    "seed:canonical-categories": "tsx scripts/seed-canonical-categories.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1010.0",

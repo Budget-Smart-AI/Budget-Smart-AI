@@ -105,6 +105,20 @@ export const DETERMINISTIC_MAP: Record<string, string> = {
   "ATM Deposit":                "transfer_atm",
   "Annual Cash Back":           "transfer_refund",
   "Cash Back Credit Adjustment":"transfer_refund",
+
+  // ═══ POST-INSPECT ADDITIONS (2026-04-24) ═══
+  // Identified by the §6.2.5 inspect pass as frequent unmapped strings.
+  // "Maintenance" intentionally NOT mapped — AI fallback handles the
+  // home-vs-auto split per-merchant (Jiffy Lube vs. Home Depot).
+  // "Transportation" left for AI — too generic for a safe default.
+  "Dining":                 "food_restaurants",
+  "Fitness":                "health_personal_care",    // canonical literally covers gyms/fitness
+  "Clothing":               "lifestyle_shopping",
+  "Communications":         "utilities_phone_mobile",
+  "Parking & Tolls":        "transport_tolls_parking",
+  "Business Expense":       "business_services",
+  "Business":               "business_services",
+  "Cash & ATM":             "transfer_atm",
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -239,6 +253,21 @@ export const PLAID_CATEGORY_MAP: Record<string, string> = {
   "INCOME_UNEMPLOYMENT":                    "income_other",
   "INCOME_WAGES":                           "income_salary",
   "INCOME_OTHER_INCOME":                    "income_other",
+
+  // ═══ POST-INSPECT ADDITIONS (2026-04-24) ═══
+  // Plaid slugs found in prod but missing from the initial map.
+  // Identified by the §6.2.5 inspect pass.
+  "INCOME_SALARY":                          "income_salary",     // 147 rows
+  "INCOME_OTHER":                           "income_other",      // 5 rows
+  "INCOME_GIG_ECONOMY":                     "income_freelance",  // 2 rows
+  "INCOME_CONTRACTOR":                      "income_freelance",  // 1 row
+
+  // Venmo/Zelle/CashApp transfers — Plaid emits FROM_APPS suffix
+  "TRANSFER_IN_TRANSFER_IN_FROM_APPS":      "transfer_internal", // 8 rows
+  "TRANSFER_OUT_TRANSFER_OUT_FROM_APPS":    "transfer_internal", // 113 rows
+
+  // Cash advance on credit card — labeled by Plaid as a bank fee
+  "BANK_FEES_CASH_ADVANCE":                 "finance_bank_fees", // 12 rows
 };
 
 // ─────────────────────────────────────────────────────────────────────────
