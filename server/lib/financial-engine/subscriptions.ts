@@ -61,14 +61,16 @@ const LEGACY_SUBSCRIPTION_CATEGORIES = new Set<string>(['Subscriptions']);
  *     resolver)
  */
 function isSubscriptionCategory(bill: Bill): boolean {
-  if (LEGACY_SUBSCRIPTION_CATEGORIES.has(bill.category)) return true;
-  // Try direct match against the Monarch list.
-  if ((SUBSCRIPTION_LIKE_CATEGORIES as readonly string[]).includes(bill.category)) {
+  // §6.2.8: category column dropped — use canonicalCategoryId as the source of truth.
+  // Check if the canonical slug is a subscription-like category.
+  const canonicalId = bill.canonicalCategoryId || "";
+  if (canonicalId === "lifestyle_subscriptions") return true;
+  // Also check against the Monarch subscription-like list by display name
+  if (LEGACY_SUBSCRIPTION_CATEGORIES.has(canonicalId)) return true;
+  if ((SUBSCRIPTION_LIKE_CATEGORIES as readonly string[]).includes(canonicalId)) {
     return true;
   }
-  // If the bill's category name is a legacy BSAI name, map it to Monarch
-  // and check the flag on the def.
-  const def = findMonarchCategory(bill.category);
+  const def = findMonarchCategory(canonicalId);
   if (def?.subscriptionLike) return true;
   return false;
 }
@@ -118,7 +120,7 @@ function billToSubscriptionOccurrence(bill: Bill, today: Date): BillOccurrence &
     billId: bill.id,
     billName: bill.name,
     amount: parseFloat(bill.amount),
-    category: bill.category,
+    category: bill.canonicalCategoryId,
     dueDate: nextDue ? format(nextDue, 'yyyy-MM-dd') : '',
     recurrence: bill.recurrence,
     isPaused: bill.isPaused === 'true',

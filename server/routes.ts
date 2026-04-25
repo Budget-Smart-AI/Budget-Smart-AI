@@ -851,29 +851,8 @@ export async function registerRoutes(
       // propagate to the linked plaid_transaction / mx_transaction so the
       // Accounts page shows the same value. Mirrors the PATCH /api/expenses
       // reverse-sync at line 1046.
-      if (parsed.data.category && bill.id) {
-        try {
-          await pool.query(
-            `UPDATE plaid_transactions
-                SET personal_category = $1,
-                    subcategory       = $1,
-                    category          = $1
-              WHERE matched_bill_id = $2`,
-            [parsed.data.category, bill.id]
-          );
-          await pool.query(
-            `UPDATE mx_transactions
-                SET personal_category = $1,
-                    subcategory       = $1,
-                    category          = $1
-              WHERE matched_bill_id = $2`,
-            [parsed.data.category, bill.id]
-          );
-        } catch (syncErr) {
-          // Non-fatal — the bill itself was saved; log and continue
-          console.error("[bill→txn reverse-sync] failed:", syncErr);
-        }
-      }
+      // §6.2.8: category column dropped — reverse-sync removed.
+      // canonicalCategoryId is now the single source of truth.
 
       res.json(bill);
     } catch (error) {
@@ -1073,35 +1052,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Expense not found" });
       }
 
-      // ── Reverse-sync: expense → linked bank transaction ──
-      // When a user edits category on the Expenses page, propagate to
-      // the linked plaid_transaction / mx_transaction so the Accounts
-      // page shows the same value.
-      if (parsed.data.category && expense.id) {
-        try {
-          // Update any plaid_transaction whose matched_expense_id points here
-          await pool.query(
-            `UPDATE plaid_transactions
-                SET personal_category = $1,
-                    subcategory       = $1,
-                    category          = $1
-              WHERE matched_expense_id = $2`,
-            [parsed.data.category, expense.id]
-          );
-          // Update any mx_transaction whose matched_expense_id points here
-          await pool.query(
-            `UPDATE mx_transactions
-                SET personal_category = $1,
-                    subcategory       = $1,
-                    category          = $1
-              WHERE matched_expense_id = $2`,
-            [parsed.data.category, expense.id]
-          );
-        } catch (syncErr) {
-          // Non-fatal — the expense itself was saved; log and continue
-          console.error("[expense→txn reverse-sync] failed:", syncErr);
-        }
-      }
+      // §6.2.8: category/personal_category columns dropped — expense→txn reverse-sync removed.
 
       res.json(expense);
     } catch (error) {
@@ -2840,31 +2791,8 @@ Return JSON: { "income": [...] }`;
               updated_at  = NOW()
       `, [rawPattern, cleanName, category || null]);
 
-      // Update category on the authenticated user's transactions only
-      if (category) {
-        await pool.query(`
-          UPDATE plaid_transactions pt
-          SET personal_category = $1
-          FROM plaid_accounts pa
-          JOIN plaid_items pi2 ON pi2.id = pa.plaid_item_id
-          WHERE pt.plaid_account_id = pa.id
-            AND pi2.user_id = $3
-            AND pt.merchant_name = $2
-        `, [category, rawPattern, userId]);
-        await pool.query(`
-          UPDATE mx_transactions mt
-          SET personal_category = $1
-          FROM mx_accounts ma
-          JOIN mx_members mm ON mm.id = ma.mx_member_id
-          WHERE mt.mx_account_id = ma.id
-            AND mm.user_id = $3
-            AND mt.description = $2
-        `, [category, rawPattern, userId]);
-        await pool.query(`
-          UPDATE manual_transactions SET category = $1
-          WHERE merchant = $2 AND user_id = $3
-        `, [category, rawPattern, userId]);
-      }
+      // §6.2.8: category/personal_category columns dropped from provider tables.
+      // Merchant category is persisted in merchant_enrichment only (upserted above).
 
       res.json({ success: true });
     } catch (error) {
@@ -7656,21 +7584,8 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
       // Write the MOST SPECIFIC label (subcategory when available, else
       // the parent bucket) so Accounts' getEffectiveCategory() and the
       // expense row show the identical string after a user edit.
-      const displayCategory = subcategory || category;
-      async function fanoutToLinkedRows(matchedExpenseId: string | null, matchedBillId: string | null) {
-        if (matchedExpenseId) {
-          await pool.query(
-            `UPDATE expenses SET category = $1 WHERE id = $2 AND user_id = $3`,
-            [displayCategory, matchedExpenseId, userId]
-          ).catch((e: any) => console.warn("[category-fanout] expenses update failed:", e?.message));
-        }
-        if (matchedBillId) {
-          await pool.query(
-            `UPDATE bills SET category = $1 WHERE id = $2 AND user_id = $3`,
-            [displayCategory, matchedBillId, userId]
-          ).catch((e: any) => console.warn("[category-fanout] bills update failed:", e?.message));
-        }
-      }
+      // §6.2.8: category column dropped from expenses & bills — fanoutToLinkedRows removed.
+      // Category is now resolved via canonical_category_id on each table.
 
       if (type === 'plaid') {
         // Verify ownership via account
@@ -7684,14 +7599,14 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         );
         if (check.rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
 
+        // §6.2.8: category and personal_category columns dropped.
+        // Only write subcategory, enrichment_source, enrichment_confidence, merchant_clean_name.
         const updateFields: string[] = [
-          'category = $1',
-          'subcategory = $2',
-          'personal_category = $3',
-          'enrichment_source = $4',
-          'enrichment_confidence = $5',
+          'subcategory = $1',
+          'enrichment_source = $2',
+          'enrichment_confidence = $3',
         ];
-        const values: unknown[] = [category, subcategory || null, category, 'user_correction', '1.00'];
+        const values: unknown[] = [subcategory || null, 'user_correction', '1.00'];
         if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
         values.push(id);
         const { rows } = await pool.query(
@@ -7710,12 +7625,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           ).catch(() => {});
         }
 
-        // Fan out to reconciled expense/bill so the Expenses and Bills
-        // pages pick up the change on the next refetch.
-        await fanoutToLinkedRows(
-          check.rows[0].matched_expense_id as string | null,
-          check.rows[0].matched_bill_id as string | null
-        );
+        // §6.2.8: fanoutToLinkedRows removed — category column dropped from expenses & bills.
 
         return res.json(rows[0]);
       } else if (type === 'mx') {
@@ -7730,23 +7640,18 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         if (check.rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
 
         const updateFields: string[] = [
-          'category = $1',
-          'subcategory = $2',
-          'personal_category = $3',
-          'enrichment_source = $4',
-          'enrichment_confidence = $5',
+          'subcategory = $1',
+          'enrichment_source = $2',
+          'enrichment_confidence = $3',
         ];
-        const values: unknown[] = [category, subcategory || null, category, 'user_correction', '1.00'];
+        const values: unknown[] = [subcategory || null, 'user_correction', '1.00'];
         if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
         values.push(id);
         const { rows } = await pool.query(
           `UPDATE mx_transactions SET ${updateFields.join(', ')} WHERE id = $${values.length} RETURNING *`,
           values
         );
-        await fanoutToLinkedRows(
-          check.rows[0].matched_expense_id as string | null,
-          check.rows[0].matched_bill_id as string | null
-        );
+        // §6.2.8: fanoutToLinkedRows removed — category column dropped from expenses & bills.
         return res.json(rows[0]);
       } else {
         // manual transaction — no bank-level personal_category column,
@@ -7758,8 +7663,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         );
         if (check.rows.length === 0) return res.status(404).json({ error: "Transaction not found" });
 
-        const updateFields: string[] = ['category = $1', 'subcategory = $2', 'enrichment_source = $3', 'enrichment_confidence = $4'];
-        const values: unknown[] = [category, subcategory || null, 'user_correction', '1.00'];
+        // §6.2.8: category column dropped from manual_transactions.
+        const updateFields: string[] = ['subcategory = $1', 'enrichment_source = $2', 'enrichment_confidence = $3'];
+        const values: unknown[] = [subcategory || null, 'user_correction', '1.00'];
         if (merchantName) { updateFields.push(`merchant_clean_name = $${values.length + 1}`); values.push(merchantName); }
         values.push(id);
         const { rows } = await pool.query(
@@ -8994,8 +8900,8 @@ Provide clear, specific, and actionable financial advice based on the data above
         if (!writeLegacyCategory) writeLegacyCategory = rows[0].display_name;
       }
 
+      // §6.2.8: category column dropped — only write canonicalCategoryId
       const writes: any = {};
-      if (writeLegacyCategory) writes.category = writeLegacyCategory;
       if (writeCanonicalId) writes.canonicalCategoryId = writeCanonicalId;
 
       let updated: any;
@@ -18229,12 +18135,33 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
         accountId: string;
         amount: string;
         merchant: string;
-        category: string;
+        category?: string;
+        canonicalCategoryId?: string;
         date: string;
         isTransfer?: string;
         transferPairId?: string;
         status?: string;
       }
+
+      // §6.2.8: category column dropped — resolve legacy demo labels to canonical slugs
+      const DEMO_CAT_MAP: Record<string, string> = {
+        "Payroll": "income_salary",
+        "Mortgage": "housing_mortgage",
+        "Electricity": "utilities_electricity",
+        "Utilities": "utilities_gas_heating",
+        "Internet": "utilities_internet",
+        "Groceries": "food_groceries",
+        "Coffee Shops": "food_coffee",
+        "Subscriptions": "lifestyle_subscriptions",
+        "Gas & Fuel": "transport_fuel",
+        "Restaurants": "food_restaurants",
+        "Loan Payments": "finance_debt_payment",
+        "Transfers": "transfer_internal",
+        "Other": "uncategorized",
+        "Dining Out": "food_restaurants",
+        "Gas": "transport_fuel",
+        "Entertainment": "lifestyle_entertainment",
+      };
 
       const txns: DemoTxn[] = [
         // ── Month 1 (60-90 days ago) ──────────────────────────────────────
@@ -18317,48 +18244,51 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
         { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(28) },
         { accountId: chequingId, amount: "3500.00",  merchant: "Roche Pharmaceuticals",          category: "Payroll",        date: daysAgo(14) },
         { accountId: chequingId, amount: "-2100.00", merchant: "TD Mortgage Payment",            category: "Mortgage",       date: daysAgo(27) },
-        { accountId: chequingId, amount: "-95.00",   merchant: "Hydro One",                      category: "Electricity",    date: daysAgo(23) },
-        { accountId: chequingId, amount: "-110.00",  merchant: "Enbridge Gas",                   category: "Utilities",      date: daysAgo(18) },
-        { accountId: chequingId, amount: "-89.00",   merchant: "Rogers Internet",                category: "Internet",       date: daysAgo(27) },
-        { accountId: chequingId, amount: "-152.40",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(26) },
-        { accountId: visaId,     amount: "-85.70",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(22) },
-        { accountId: visaId,     amount: "-220.00",  merchant: "Costco",                         category: "Groceries",      date: daysAgo(19) },
-        { accountId: chequingId, amount: "-168.30",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(15) },
-        { accountId: visaId,     amount: "-79.40",   merchant: "Metro",                          category: "Groceries",      date: daysAgo(11) },
-        { accountId: chequingId, amount: "-141.60",  merchant: "Loblaws",                        category: "Groceries",      date: daysAgo(7)  },
-        { accountId: visaId,     amount: "-7.80",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(28) },
-        { accountId: visaId,     amount: "-6.50",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(25) },
-        { accountId: visaId,     amount: "-11.90",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(23) },
-        { accountId: visaId,     amount: "-7.20",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(21) },
-        { accountId: visaId,     amount: "-6.90",    merchant: "Tim Hortons",                    category: "Coffee Shops",   date: daysAgo(18) },
-        { accountId: visaId,     amount: "-10.50",   merchant: "Starbucks",                      category: "Coffee Shops",   date: daysAgo(16) },
-        { accountId: visaId,     amount: "-19.99",   merchant: "Netflix",                        category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-10.99",   merchant: "Spotify",                        category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-9.99",    merchant: "Amazon Prime",                   category: "Subscriptions",  date: daysAgo(27) },
-        { accountId: visaId,     amount: "-73.60",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(26) },
-        { accountId: visaId,     amount: "-77.20",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(19) },
-        { accountId: visaId,     amount: "-69.80",   merchant: "Petro-Canada",                   category: "Gas & Fuel",     date: daysAgo(12) },
-        { accountId: visaId,     amount: "-80.40",   merchant: "Shell",                          category: "Gas & Fuel",     date: daysAgo(5)  },
-        { accountId: visaId,     amount: "-46.30",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(25) },
-        { accountId: visaId,     amount: "-69.90",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(20) },
-        { accountId: visaId,     amount: "-43.50",   merchant: "East Side Marios",               category: "Restaurants",    date: daysAgo(16) },
-        { accountId: visaId,     amount: "-91.00",   merchant: "The Keg",                        category: "Restaurants",    date: daysAgo(12) },
-        { accountId: visaId,     amount: "-50.20",   merchant: "Swiss Chalet",                   category: "Restaurants",    date: daysAgo(8)  },
-        { accountId: visaId,     amount: "-47.60",   merchant: "Thai Express",                   category: "Restaurants",    date: daysAgo(4)  },
-        // Transfer pair (AI Teller demo — Unmatched status)
-        { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",            category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
-        { accountId: savingsId,  amount: "500.00",   merchant: "Transfer from Chequing",         category: "Transfers",      date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
-        // Unmatched Debit Memo (reconciliation demo)
-        { accountId: chequingId, amount: "-300.00",  merchant: "Debit Memo",                     category: "Other",          date: daysAgo(10), status: "Unmatched" },
+         // §6.2.8: category column dropped — use canonical_category_id slugs directly
+         { accountId: chequingId, amount: "-95.00",   merchant: "Hydro One",                      canonicalCategoryId: "utilities_electricity",    date: daysAgo(23) },
+         { accountId: chequingId, amount: "-110.00",  merchant: "Enbridge Gas",                   canonicalCategoryId: "utilities_gas_heating",    date: daysAgo(18) },
+         { accountId: chequingId, amount: "-89.00",   merchant: "Rogers Internet",                canonicalCategoryId: "utilities_internet",       date: daysAgo(27) },
+         { accountId: chequingId, amount: "-152.40",  merchant: "Loblaws",                        canonicalCategoryId: "food_groceries",           date: daysAgo(26) },
+         { accountId: visaId,     amount: "-85.70",   merchant: "Metro",                          canonicalCategoryId: "food_groceries",           date: daysAgo(22) },
+         { accountId: visaId,     amount: "-220.00",  merchant: "Costco",                         canonicalCategoryId: "food_groceries",           date: daysAgo(19) },
+         { accountId: chequingId, amount: "-168.30",  merchant: "Loblaws",                        canonicalCategoryId: "food_groceries",           date: daysAgo(15) },
+         { accountId: visaId,     amount: "-79.40",   merchant: "Metro",                          canonicalCategoryId: "food_groceries",           date: daysAgo(11) },
+         { accountId: chequingId, amount: "-141.60",  merchant: "Loblaws",                        canonicalCategoryId: "food_groceries",           date: daysAgo(7)  },
+         { accountId: visaId,     amount: "-7.80",    merchant: "Tim Hortons",                    canonicalCategoryId: "food_coffee",              date: daysAgo(28) },
+         { accountId: visaId,     amount: "-6.50",    merchant: "Tim Hortons",                    canonicalCategoryId: "food_coffee",              date: daysAgo(25) },
+         { accountId: visaId,     amount: "-11.90",   merchant: "Starbucks",                      canonicalCategoryId: "food_coffee",              date: daysAgo(23) },
+         { accountId: visaId,     amount: "-7.20",    merchant: "Tim Hortons",                    canonicalCategoryId: "food_coffee",              date: daysAgo(21) },
+         { accountId: visaId,     amount: "-6.90",    merchant: "Tim Hortons",                    canonicalCategoryId: "food_coffee",              date: daysAgo(18) },
+         { accountId: visaId,     amount: "-10.50",   merchant: "Starbucks",                      canonicalCategoryId: "food_coffee",              date: daysAgo(16) },
+         { accountId: visaId,     amount: "-19.99",   merchant: "Netflix",                        canonicalCategoryId: "lifestyle_subscriptions",  date: daysAgo(27) },
+         { accountId: visaId,     amount: "-10.99",   merchant: "Spotify",                        canonicalCategoryId: "lifestyle_subscriptions",  date: daysAgo(27) },
+         { accountId: visaId,     amount: "-9.99",    merchant: "Amazon Prime",                   canonicalCategoryId: "lifestyle_subscriptions",  date: daysAgo(27) },
+         { accountId: visaId,     amount: "-73.60",   merchant: "Petro-Canada",                   canonicalCategoryId: "transport_fuel",           date: daysAgo(26) },
+         { accountId: visaId,     amount: "-77.20",   merchant: "Shell",                          canonicalCategoryId: "transport_fuel",           date: daysAgo(19) },
+         { accountId: visaId,     amount: "-69.80",   merchant: "Petro-Canada",                   canonicalCategoryId: "transport_fuel",           date: daysAgo(12) },
+         { accountId: visaId,     amount: "-80.40",   merchant: "Shell",                          canonicalCategoryId: "transport_fuel",           date: daysAgo(5)  },
+         { accountId: visaId,     amount: "-46.30",   merchant: "Thai Express",                   canonicalCategoryId: "food_restaurants",         date: daysAgo(25) },
+         { accountId: visaId,     amount: "-69.90",   merchant: "Swiss Chalet",                   canonicalCategoryId: "food_restaurants",         date: daysAgo(20) },
+         { accountId: visaId,     amount: "-43.50",   merchant: "East Side Marios",               canonicalCategoryId: "food_restaurants",         date: daysAgo(16) },
+         { accountId: visaId,     amount: "-91.00",   merchant: "The Keg",                        canonicalCategoryId: "food_restaurants",         date: daysAgo(12) },
+         { accountId: visaId,     amount: "-50.20",   merchant: "Swiss Chalet",                   canonicalCategoryId: "food_restaurants",         date: daysAgo(8)  },
+         { accountId: visaId,     amount: "-47.60",   merchant: "Thai Express",                   canonicalCategoryId: "food_restaurants",         date: daysAgo(4)  },
+         // Transfer pair (AI Teller demo — Unmatched status)
+         { accountId: chequingId, amount: "-500.00",  merchant: "Transfer to Savings",            canonicalCategoryId: "transfer_internal",        date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
+         { accountId: savingsId,  amount: "500.00",   merchant: "Transfer from Chequing",         canonicalCategoryId: "transfer_internal",        date: daysAgo(15), isTransfer: "true", transferPairId, status: "Unmatched" },
+         // Unmatched Debit Memo (reconciliation demo)
+         { accountId: chequingId, amount: "-300.00",  merchant: "Debit Memo",                     canonicalCategoryId: "uncategorized",            date: daysAgo(10), status: "Unmatched" },
       ];
 
       let txnCount = 0;
       for (const t of txns) {
+        // §6.2.8: category column dropped — resolve to canonical_category_id
+        const resolvedCatId = t.canonicalCategoryId || DEMO_CAT_MAP[t.category!] || "uncategorized";
         await pool.query(
           `INSERT INTO manual_transactions
-             (user_id, account_id, date, amount, merchant, category, is_transfer, is_demo)
+             (user_id, account_id, date, amount, merchant, canonical_category_id, is_transfer, is_demo)
            VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
-          [userId, t.accountId, t.date, t.amount, t.merchant, t.category, t.isTransfer || "false"]
+          [userId, t.accountId, t.date, t.amount, t.merchant, resolvedCatId, t.isTransfer || "false"]
         );
         txnCount++;
       }
@@ -18374,10 +18304,12 @@ Keep responses concise (3-5 sentences). Always end with a brief disclaimer.`;
         { category: "Subscriptions", amount: "75.00"   },
       ];
       for (const b of budgets) {
+        // §6.2.8: category column dropped — resolve to canonical_category_id
+        const budgetCatId = DEMO_CAT_MAP[b.category] || "uncategorized";
         await pool.query(
-          `INSERT INTO budgets (user_id, category, amount, month, is_demo)
+          `INSERT INTO budgets (user_id, canonical_category_id, amount, month, is_demo)
            VALUES ($1, $2, $3, $4, true)`,
-          [userId, b.category, b.amount, currentMonth]
+          [userId, budgetCatId, b.amount, currentMonth]
         );
       }
 

@@ -93,7 +93,8 @@ async function getSpendingComparison(userId: string): Promise<SpendingData> {
   for (const tx of thisWeekTxs) {
     const amount = parseFloat(tx.amount);
     if (amount <= 0) continue;
-    const cat = tx.personalCategory || tx.category || "Other";
+    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
+    const cat = tx.canonicalCategoryId || "Other";
     if (!byCategory[cat]) byCategory[cat] = { thisWeek: 0, lastWeek: 0 };
     byCategory[cat].thisWeek += amount;
   }
@@ -101,7 +102,8 @@ async function getSpendingComparison(userId: string): Promise<SpendingData> {
   for (const tx of lastWeekTxs) {
     const amount = parseFloat(tx.amount);
     if (amount <= 0) continue;
-    const cat = tx.personalCategory || tx.category || "Other";
+    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
+    const cat = tx.canonicalCategoryId || "Other";
     if (!byCategory[cat]) byCategory[cat] = { thisWeek: 0, lastWeek: 0 };
     byCategory[cat].lastWeek += amount;
   }
@@ -143,7 +145,8 @@ async function getBudgetTrajectories(userId: string): Promise<BudgetStatus[]> {
   for (const tx of transactions) {
     const amount = parseFloat(tx.amount);
     if (amount <= 0) continue;
-    const cat = tx.personalCategory || tx.category || "Other";
+    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
+    const cat = tx.canonicalCategoryId || "Other";
     spendingByCategory[cat] = (spendingByCategory[cat] || 0) + amount;
   }
 
@@ -152,7 +155,8 @@ async function getBudgetTrajectories(userId: string): Promise<BudgetStatus[]> {
 
   for (const budget of budgets) {
     const budgeted = parseFloat(budget.amount);
-    const spent = spendingByCategory[budget.category] || 0;
+    // §6.2.8: category column dropped — use canonicalCategoryId
+    const spent = spendingByCategory[budget.canonicalCategoryId] || 0;
     const percentUsed = (spent / budgeted) * 100;
 
     // Project spending based on current pace
@@ -161,7 +165,7 @@ async function getBudgetTrajectories(userId: string): Promise<BudgetStatus[]> {
     const projectedOverage = projectedTotal - budgeted;
 
     statuses.push({
-      category: budget.category,
+      category: budget.canonicalCategoryId,
       budgeted,
       spent,
       percentUsed,

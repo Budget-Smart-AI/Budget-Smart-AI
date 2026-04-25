@@ -27,6 +27,7 @@ import { eq, and, ilike, desc, sql, isNull, ne } from "drizzle-orm";
 import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 import { sendSpendingAlertEmail } from "../email";
 import { classifyIncomeTransaction } from "./financial-engine/categories/income-classifier";
+import { resolveCanonicalCategorySync } from "../migrations/category-unification/resolver";
 
 // ─── Fix 5: Startup migration — backfill externalTransactionId on existing expenses ─
 
@@ -387,23 +388,21 @@ const SKIP_MERCHANT_KEYWORDS = [
  *   3. transaction_type           — 'special' = non-purchase (transfer/payment)
  */
 function isTransferTransaction(tx: PlaidTransaction): boolean {
-  const personalCat = (
-    (tx as any).personal_finance_category ||
-    tx.personalCategory ||
+  // §6.2.8: category/personalCategory columns dropped — use personalFinanceCategoryDetailed + canonicalCategoryId
+  const pfcDetailed = (
+    (tx as any).personalFinanceCategoryDetailed ||
     ''
   ).toLowerCase();
 
-  const category = (tx.category || '').toLowerCase();
-  const transactionType = ((tx as any).transaction_type || tx.transactionType || '').toLowerCase();
+  const canonicalId = (tx.canonicalCategoryId || '').toLowerCase();
+  const transactionType = ((tx as any).transaction_type || (tx as any).transactionType || '').toLowerCase();
 
   return (
-    personalCat.includes('transfer') ||
-    personalCat.includes('loan_payment') ||
-    personalCat.includes('credit_card_payment') ||
-    personalCat.includes('savings') ||
-    category.includes('transfer') ||
-    category.includes('credit card payment') ||
-    category.includes('loan payment') ||
+    pfcDetailed.includes('transfer') ||
+    pfcDetailed.includes('loan_payment') ||
+    pfcDetailed.includes('credit_card_payment') ||
+    pfcDetailed.includes('savings') ||
+    canonicalId.includes('transfer') ||
     transactionType === 'special'
   );
 }
@@ -548,8 +547,9 @@ async function getCategorySpend(userId: string, category: string | null, periodS
   if (!category) return 0;
   const periodStartStr = periodStart.toISOString().substring(0, 10);
   const exps = await storage.getExpenses(userId);
+  // §6.2.8: category column dropped — match on canonicalCategoryId slug instead
   return exps
-    .filter((e: Expense) => e.date >= periodStartStr && (e.category || "").toLowerCase() === category.toLowerCase())
+    .filter((e: Expense) => e.date >= periodStartStr && (e.canonicalCategoryId || "").toLowerCase() === category.toLowerCase())
     .reduce((sum: number, e: Expense) => sum + effectiveAmount(e), 0);
 }
 
@@ -704,8 +704,10 @@ export async function autoReconcile(userId: string): Promise<{
     }
 
     const txAmount = parseFloat(tx.amount as string);
-    const cat = (tx.category || "").toUpperCase();
-    const personalCat = (tx.personalCategory || "").toLowerCase();
+    // §6.2.8: category/personalCategory columns dropped — use personalFinanceCategoryDetailed + canonicalCategoryId
+    const pfcDetailedStr = ((tx as any).personalFinanceCategoryDetailed || "");
+    const cat = pfcDetailedStr.toUpperCase();
+    const personalCat = pfcDetailedStr.toLowerCase();
     const pfcDetailedRaw = (tx as any).personalFinanceCategoryDetailed
       ? String((tx as any).personalFinanceCategoryDetailed).toUpperCase()
       : "";
@@ -720,7 +722,7 @@ export async function autoReconcile(userId: string): Promise<{
     // 12,000+ Plaid institutions (Chase, TD, Barclays, Commonwealth, etc.).
     // Never hardcodes bank names or institution-specific strings.
     if (isTransferTransaction(tx)) {
-      console.log(`[AutoReconciler] Skipping transfer transaction: "${source}" (Plaid category: ${tx.personalCategory || tx.category || tx.transactionType})`);
+      console.log(`[AutoReconciler] Skipping transfer transaction: "${source}" (PFC: ${(tx as any).personalFinanceCategoryDetailed || tx.canonicalCategoryId || "unknown"})`);
       continue;
     }
 
@@ -964,24 +966,23 @@ export async function autoReconcile(userId: string): Promise<{
     }
 
     // ── Fix 1: Comprehensive skip checks ────────────────────────────────
-    const category = tx.category || '';
-    const personalCat = tx.personalCategory || '';
+    // §6.2.8: category/personalCategory columns dropped — use personalFinanceCategoryDetailed + canonicalCategoryId
+    const pfcStep3 = ((tx as any).personalFinanceCategoryDetailed || '').toUpperCase();
+    const canonicalStep3 = (tx.canonicalCategoryId || '').toUpperCase();
     const merchantName = (
       tx.merchantCleanName ||
       tx.name || ''
     ).toLowerCase();
 
     const skipByCategory =
-      SKIP_CATEGORIES.includes(category) ||
-      SKIP_CATEGORIES.includes(personalCat) ||
-      SKIP_CATEGORIES.includes(category.toUpperCase()) ||
-      SKIP_CATEGORIES.includes(personalCat.toUpperCase()) ||
-      category.toUpperCase().includes('TRANSFER') ||
-      personalCat.toUpperCase().includes('TRANSFER') ||
-      category.toUpperCase().includes('INCOME') ||
-      personalCat.toUpperCase().includes('INCOME') ||
-      category.toUpperCase().includes('BANK_FEE') ||
-      personalCat.toUpperCase().includes('BANK_FEE');
+      SKIP_CATEGORIES.includes(pfcStep3) ||
+      SKIP_CATEGORIES.includes(canonicalStep3) ||
+      pfcStep3.includes('TRANSFER') ||
+      canonicalStep3.includes('TRANSFER') ||
+      pfcStep3.includes('INCOME') ||
+      canonicalStep3.includes('INCOME') ||
+      pfcStep3.includes('BANK_FEE') ||
+      canonicalStep3.includes('BANK_FEE');
 
     const skipByMerchant =
       SKIP_MERCHANT_KEYWORDS.some(keyword =>
@@ -1059,8 +1060,8 @@ export async function autoReconcile(userId: string): Promise<{
       console.warn(`[AutoReconciler] Duplicate check failed for tx ${tx.id}:`, dupErr);
     }
 
-    // Map Plaid/personal category to a valid expense category, defaulting to "Other"
-    const expenseCategory = mapToExpenseCategory(tx.personalCategory || tx.category);
+    // §6.2.8: Map PFC detailed string to expense category for resolver input
+    const expenseCategory = mapToExpenseCategory((tx as any).personalFinanceCategoryDetailed || tx.canonicalCategoryId);
 
     // ── Currency detection & CAD conversion ─────────────────────────────
     const isoCurrency = (tx.isoCurrencyCode || "CAD").toUpperCase();
@@ -1143,7 +1144,8 @@ export async function autoReconcile(userId: string): Promise<{
     if (txAmount <= 0) continue;
 
     // Skip transfers and income categories
-    const cat = (tx.personalCategory || tx.category || "").toUpperCase();
+    // §6.2.8: category/personalCategory dropped — use PFC detailed + canonicalCategoryId
+    const cat = ((tx as any).personalFinanceCategoryDetailed || tx.canonicalCategoryId || "").toUpperCase();
     if (
       SKIP_CATEGORIES.includes(cat) ||
       cat.includes("TRANSFER") ||
@@ -1155,14 +1157,14 @@ export async function autoReconcile(userId: string): Promise<{
     const merchantName = tx.merchantCleanName || tx.merchantName || tx.name || "Unknown";
 
     try {
-      // Check if a subscription bill already exists for this merchant
+      // §6.2.8: category column dropped — use canonicalCategoryId slug "lifestyle_subscriptions"
       const existingBills = await db
         .select()
         .from(billsTable)
         .where(
           and(
             eq(billsTable.userId, userId),
-            eq(billsTable.category, "Subscriptions"),
+            eq(billsTable.canonicalCategoryId, "lifestyle_subscriptions"),
             ilike(billsTable.merchant, `%${merchantName.replace(/[%_]/g, "\\$&")}%`)
           )
         )
@@ -1176,7 +1178,7 @@ export async function autoReconcile(userId: string): Promise<{
             .where(
               and(
                 eq(billsTable.userId, userId),
-                eq(billsTable.category, "Subscriptions"),
+                eq(billsTable.canonicalCategoryId, "lifestyle_subscriptions"),
                 ilike(billsTable.name, `%${merchantName.replace(/[%_]/g, "\\$&")}%`)
               )
             )
@@ -1220,14 +1222,12 @@ export async function autoReconcile(userId: string): Promise<{
         const dueDay = new Date(tx.date).getUTCDate();
         const nextBillingDate = calcNextDueDate(tx.date, billingCycle, dueDay);
 
-        // Map personal category to a bill category
-        const billCategory = "Subscriptions";
-
+        // §6.2.8: category column dropped — use canonicalCategoryId slug
         await storage.createBill({
           userId,
           name: merchantName,
           amount: String(txAmount),
-          category: billCategory,
+          canonicalCategoryId: "lifestyle_subscriptions",
           recurrence: billingCycle as any,
           dueDay,
           merchant: merchantName,

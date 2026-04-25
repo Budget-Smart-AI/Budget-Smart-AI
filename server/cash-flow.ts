@@ -182,7 +182,7 @@ export function getBillsInRange(bills: Bill[], startDate: Date, endDate: Date): 
         type: "bill",
         name: bill.name,
         amount: -toDollars(Math.abs(toCents(bill.amount))), // Bills are negative
-        category: bill.category,
+        category: bill.canonicalCategoryId,
       });
 
       paymentsCount++;
@@ -303,7 +303,7 @@ export function getIncomeInRange(incomes: Income[], startDate: Date, endDate: Da
         type: "income",
         name: inc.source,
         amount: effectiveAmount, // Income is positive
-        category: inc.category,
+        category: inc.canonicalCategoryId,
       });
 
       // Move to next occurrence. Income doesn't carry one_time explicitly —
@@ -370,7 +370,8 @@ export function detectRecurringIncomeFromTransactions(
     if ((t as any).isTransfer === true || (t as any).isTransfer === "true") return false;
     if (t.matchType === 'transfer') return false;
 
-    const cat = ((t as any).personalCategory || t.category || "").toLowerCase();
+    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
+    const cat = (t.canonicalCategoryId || "").toLowerCase();
     if (INCOME_EXCLUDE_CATEGORIES.has(cat)) return false;
 
     const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
@@ -492,7 +493,8 @@ export function calculateAverageDailySpending(transactions: PlaidTransaction[], 
     if (t.matchType === 'bill') return false; // Already tracked as bills
     if (t.matchType === 'transfer') return false;
     if ((t as any).isTransfer === true || (t as any).isTransfer === "true") return false;
-    const cat = ((t as any).personalCategory || t.category || "").toLowerCase();
+    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
+    const cat = (t.canonicalCategoryId || "").toLowerCase();
     if (NON_SPENDING_CATEGORIES.has(cat)) return false;
     const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
     if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) return false;
@@ -551,7 +553,8 @@ export function getSpendingByDayOfWeek(transactions: PlaidTransaction[]): Record
     if (amountCents <= 0 || t.matchType === 'bill') continue; // Skip income and bill payments
     if (t.matchType === 'transfer') continue;
     if ((t as any).isTransfer === true || (t as any).isTransfer === "true") continue;
-    const cat = ((t as any).personalCategory || t.category || "").toLowerCase();
+    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
+    const cat = (t.canonicalCategoryId || "").toLowerCase();
     if (NON_SPENDING_CATEGORIES.has(cat)) continue;
     const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
     if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) continue;
