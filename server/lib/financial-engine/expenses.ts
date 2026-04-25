@@ -24,6 +24,7 @@ import {
 import { ExpenseResult } from './types';
 import type { NormalizedTransaction } from './normalized-types';
 import type { Expense } from '@shared/schema';
+import { isTransferCanonical } from '../canonical-flags';
 // NOTE: provider-specific transfer detection has been moved into the adapter
 // layer. Adapters set `tx.isTransfer` based on Plaid PFC / MX top-level /
 // manual flags. The engine only reads that pre-computed boolean here.
@@ -88,15 +89,19 @@ function isTransferCategoryByKeyword(category: string | null | undefined): boole
  * True if a normalized transaction is a transfer (and therefore should be
  * excluded from spending totals).
  *
- * The adapter layer now owns this decision: every adapter sets
- * `tx.isTransfer` using provider-specific signals (Plaid PFC primary, MX
- * top-level, manual toggle). The engine simply reads that boolean.
- *
- * A category-name keyword fallback remains for defense-in-depth — if an
- * adapter ever forgets to flag a transfer, we still catch it by name.
+ * Resolution order (cheapest signal first):
+ *   1. `tx.isTransfer` — adapter-set boolean from Plaid PFC primary / MX
+ *      top-level / manual toggle. The primary path.
+ *   2. §6.3.1 canonical-id check — `canonical_category_id IN (transfer_*)`.
+ *      Catches rows where the adapter missed `isTransfer` but the resolver
+ *      still landed on a transfer canonical.
+ *   3. Legacy keyword fallback against the engine's Monarch-aligned
+ *      `tx.category` string. Defense-in-depth for older rows / future
+ *      providers that haven't been wired into the canonical resolver yet.
  */
 function isTransferTransaction(tx: NormalizedTransaction): boolean {
   if (tx.isTransfer) return true;
+  if (isTransferCanonical(tx.canonicalCategoryId)) return true;
   return isTransferCategoryByKeyword(tx.category);
 }
 

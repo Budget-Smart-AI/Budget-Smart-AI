@@ -17,6 +17,7 @@ import { storage } from "./storage";
 import { income as incomeTable } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { format, differenceInDays, parseISO } from "date-fns";
+import { isNonIncomeCanonical } from "./lib/canonical-flags";
 
 const MIN_INCOME_THRESHOLD = 200; // Ignore deposits under $200
 
@@ -35,27 +36,18 @@ const NON_INCOME_PFC_DETAILED_PREFIXES = [
   "BANK_FEES_",
 ];
 
-const NON_INCOME_CATEGORY_VALUES = new Set([
-  "transfer",
-  "credit card",
-  "payment",
-  "loan",
-  "loan payments",
-  "internal account transfer",
-  "transfer_in",
-  "transfer_out",
-  "loan_payments",
-  "bank_fees",
-]);
-
-/** True if a Plaid tx row is a transfer/loan/fee, not real income. */
+/** True if a Plaid tx row is a transfer/loan/fee, not real income.
+ *
+ * §6.3.1: replaced the local NON_INCOME_CATEGORY_VALUES legacy-string set
+ * with the canonical-id helper isNonIncomeCanonical. The PFC detailed
+ * prefix check stays as a defense-in-depth fallback for rows that arrived
+ * before the canonical resolver ran. */
 function isNonIncomeTx(t: any): boolean {
   const pfcDetailed = String(t.personalFinanceCategoryDetailed || "").toUpperCase();
   if (pfcDetailed && NON_INCOME_PFC_DETAILED_PREFIXES.some((p) => pfcDetailed.startsWith(p))) {
     return true;
   }
-  const cat = String(t.category || t.personalCategory || "").toLowerCase();
-  if (NON_INCOME_CATEGORY_VALUES.has(cat)) return true;
+  if (isNonIncomeCanonical(t.canonicalCategoryId)) return true;
   if (t.isTransfer === true || t.isTransfer === "true") return true;
   return false;
 }

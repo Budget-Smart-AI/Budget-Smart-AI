@@ -20,6 +20,7 @@ function toDollars(cents: number): number {
   return Math.round(cents) / 100;
 }
 import type { Bill, Income, PlaidTransaction, PlaidAccount } from "@shared/schema";
+import { isNonSpendingCanonical } from "./lib/canonical-flags";
 
 export interface CashFlowEvent {
   date: string;
@@ -471,19 +472,16 @@ export function detectRecurringIncomeFromTransactions(
  * Calculate average daily spending from historical transactions
  */
 export function calculateAverageDailySpending(transactions: PlaidTransaction[], days: number = 30): number {
-  // Exclude bill payments (tracked separately), transfers, and large loan/mortgage payments
-  // that inflate the "daily discretionary spending" average.
-  const NON_SPENDING_CATEGORIES = new Set([
-    "transfer", "transfers", "credit card", "credit card payment", "payment", "internal account transfer",
-    "mortgage", "housing", "loan", "loans", "loan payment",
-  ]);
+  // Exclude bill payments (tracked separately), transfers, and debt-servicing
+  // rows that inflate the "daily discretionary spending" average.
+  // §6.3.1: canonical-id check via isNonSpendingCanonical — replaces the
+  // legacy NON_SPENDING_CATEGORIES set that compared against legacy strings.
   const NON_SPENDING_DETAILED_PREFIXES = [
     "TRANSFER_IN_", "TRANSFER_OUT_", "LOAN_PAYMENTS_", "LOAN_DISBURSEMENT_",
   ];
-  // UAT-8: same backstop as detectRecurringIncomeFromTransactions — keeps
-  // bank-labelled transfers (e.g. "MB-CASH ADVANCE", "Transfer To Savings")
-  // out of the "daily discretionary spending" number even when the aggregator
-  // categorises them loosely.
+  // UAT-8: backstop for bank-labelled transfers (e.g. "MB-CASH ADVANCE",
+  // "Transfer To Savings") even when the aggregator categorises them
+  // loosely and the canonical resolver missed.
   const TRANSFER_NAME_PATTERN =
     /\b(transfer|tfr|xfer|cash\s*advance|e[-\s]?transfer|interac|mb[-\s]?[a-z]+|internal\s+transfer|account\s+transfer|to\s+savings|from\s+savings|zelle)\b/i;
 
@@ -493,9 +491,7 @@ export function calculateAverageDailySpending(transactions: PlaidTransaction[], 
     if (t.matchType === 'bill') return false; // Already tracked as bills
     if (t.matchType === 'transfer') return false;
     if ((t as any).isTransfer === true || (t as any).isTransfer === "true") return false;
-    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
-    const cat = (t.canonicalCategoryId || "").toLowerCase();
-    if (NON_SPENDING_CATEGORIES.has(cat)) return false;
+    if (isNonSpendingCanonical(t.canonicalCategoryId)) return false;
     const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
     if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) return false;
     const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
@@ -537,11 +533,9 @@ export function getSpendingByDayOfWeek(transactions: PlaidTransaction[]): Record
   };
 
   // Same exclusions as calculateAverageDailySpending so the daily pattern isn't skewed
-  // by mortgage/loan payments, transfers, or bill-matched outflows.
-  const NON_SPENDING_CATEGORIES = new Set([
-    "transfer", "transfers", "credit card", "credit card payment", "payment", "internal account transfer",
-    "mortgage", "housing", "loan", "loans", "loan payment",
-  ]);
+  // by debt-service payments, transfers, or bill-matched outflows.
+  // §6.3.1: canonical-id check via isNonSpendingCanonical — replaces the
+  // legacy NON_SPENDING_CATEGORIES set that compared against legacy strings.
   const NON_SPENDING_DETAILED_PREFIXES = [
     "TRANSFER_IN_", "TRANSFER_OUT_", "LOAN_PAYMENTS_", "LOAN_DISBURSEMENT_",
   ];
@@ -553,9 +547,7 @@ export function getSpendingByDayOfWeek(transactions: PlaidTransaction[]): Record
     if (amountCents <= 0 || t.matchType === 'bill') continue; // Skip income and bill payments
     if (t.matchType === 'transfer') continue;
     if ((t as any).isTransfer === true || (t as any).isTransfer === "true") continue;
-    // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
-    const cat = (t.canonicalCategoryId || "").toLowerCase();
-    if (NON_SPENDING_CATEGORIES.has(cat)) continue;
+    if (isNonSpendingCanonical(t.canonicalCategoryId)) continue;
     const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
     if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) continue;
     const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
