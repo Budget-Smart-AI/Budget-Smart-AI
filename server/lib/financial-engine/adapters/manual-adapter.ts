@@ -84,6 +84,10 @@ export class ManualAdapter implements BankingAdapter {
         direction: isCredit ? "credit" : "debit",
         merchant: cleanedMerchant,
         category: canonical,
+        // §6.2.7-prep: pull canonical_category_id directly off the source row.
+        // Phase A's INSERT-time dual-write populates this on every manual
+        // tx INSERT (transfer rows stay NULL until §6.3).
+        canonicalCategoryId: tx.canonicalCategoryId ?? null,
         categoryConfidence: confidence,
         rawProviderCategory: String(rawCategory),
         isTransfer,

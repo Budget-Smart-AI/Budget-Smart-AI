@@ -100,10 +100,16 @@ export interface ExpenseResult {
   previousTotal: number;
   /** Month-over-month change percentage */
   momChangePercent: number;
-  /** Spending by category */
+  /** Spending by canonical category id. §6.2.7-prep: keys are
+   * canonical_categories.id slugs ("food_groceries", "c_<uuid>", etc.) or
+   * the sentinel "__uncategorized__" for rows where canonical_category_id
+   * is NULL. Consumers must look up display name / color / icon via
+   * canonical_categories rather than treating the key as a display name. */
   byCategory: Record<string, number>;
-  /** Top 5 spending categories sorted by amount */
-  topCategories: Array<{ category: string; amount: number; percentage: number }>;
+  /** Top 5 spending categories sorted by amount. §6.2.7-prep: emits
+   * canonicalCategoryId (or NULL for the uncategorized bucket) instead
+   * of a display string. */
+  topCategories: Array<{ canonicalCategoryId: string | null; amount: number; percentage: number }>;
   /** Top merchants by spending */
   topMerchants: Array<{ merchant: string; amount: number; count: number }>;
   /** Average daily spending */

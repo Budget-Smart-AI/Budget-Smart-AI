@@ -154,6 +154,10 @@ export class MxAdapter implements BankingAdapter {
         direction: isCredit ? "credit" : "debit",
         merchant: cleanedMerchant,
         category: canonical,
+        // §6.2.7-prep: pull canonical_category_id directly off the source row.
+        // Phase A's INSERT-time dual-write populates this on every mx_transactions
+        // INSERT; older rows are backfilled.
+        canonicalCategoryId: tx.canonicalCategoryId ?? null,
         categoryConfidence: confidence,
         rawProviderCategory: String(rawCategory),
         isTransfer,

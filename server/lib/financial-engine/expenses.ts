@@ -116,7 +116,11 @@ function getTransactionAmount(tx: NormalizedTransaction): number {
 // ─── Deduplication ─────────────────────────────────────────────────────────
 
 /**
- * Internal type for deduplicated expense records
+ * Internal type for deduplicated expense records.
+ * §6.2.7-prep: carries `canonicalCategoryId` from the source row alongside
+ * the legacy `category` string. byCategory / topCategories aggregations
+ * key on the canonical id; the legacy field is kept for fallbacks during
+ * the transition (Phase D drops it).
  */
 interface DedupedExpense {
   id: string;
@@ -124,6 +128,7 @@ interface DedupedExpense {
   amount: number; // in dollars
   date: string; // yyyy-MM-dd
   category: string;
+  canonicalCategoryId: string | null;
 }
 
 /**
@@ -175,6 +180,7 @@ function deduplicateExpenses(
           amount: parseFloat(String(exp.amount)),
           date: exp.date,
           category: exp.category || 'Other',
+          canonicalCategoryId: exp.canonicalCategoryId ?? null,
         });
       }
     } catch (e) {
@@ -219,6 +225,7 @@ function deduplicateExpenses(
         amount,
         date: tx.date,
         category: tx.category,
+        canonicalCategoryId: tx.canonicalCategoryId ?? null,
       });
     } catch (e) {
       // Skip malformed transactions
@@ -232,36 +239,52 @@ function deduplicateExpenses(
 // ─── Aggregation Helpers ────────────────────────────────────────────────────
 
 /**
- * Group expenses by category and sum amounts
+ * Sentinel key used in byCategory aggregations when a tx row has no
+ * canonical_category_id assigned (resolver miss at insert time, or a
+ * pre-Phase-A row that wasn't backfilled). Consumers translate this to
+ * "Uncategorized" for display.
+ */
+const UNCATEGORIZED_KEY = "__uncategorized__";
+
+/**
+ * Group expenses by canonical category id and sum amounts.
+ * §6.2.7-prep: keys are canonical_categories.id slugs (e.g. "food_groceries"
+ * or "c_<uuid>" for user-owned), or UNCATEGORIZED_KEY for rows where
+ * canonicalCategoryId is NULL. Consumers must look up display fields
+ * via canonical_categories rather than treating the key as a display name.
  *
  * @param expenses Array of deduplicated expenses
- * @returns Object mapping category to total amount
+ * @returns Object mapping canonical category id (or UNCATEGORIZED_KEY) to total amount
  */
 function groupByCategory(expenses: DedupedExpense[]): Record<string, number> {
   const byCategory: Record<string, number> = {};
   for (const exp of expenses) {
-    if (!byCategory[exp.category]) {
-      byCategory[exp.category] = 0;
+    const key = exp.canonicalCategoryId ?? UNCATEGORIZED_KEY;
+    if (!byCategory[key]) {
+      byCategory[key] = 0;
     }
-    byCategory[exp.category] += exp.amount;
+    byCategory[key] += exp.amount;
   }
   return byCategory;
 }
 
 /**
- * Get top 5 categories by spending
+ * Get top 5 categories by spending.
+ * §6.2.7-prep: emits canonicalCategoryId (slug or UNCATEGORIZED_KEY)
+ * instead of a display string. Consumers look up display name / color /
+ * icon via canonical_categories.
  *
- * @param byCategory Category totals object
+ * @param byCategory Category totals keyed on canonical id or UNCATEGORIZED_KEY
  * @param totalSpent Total spending across all categories
  * @returns Top 5 categories with percentages
  */
 function getTopCategories(
   byCategory: Record<string, number>,
   totalSpent: number
-): Array<{ category: string; amount: number; percentage: number }> {
+): Array<{ canonicalCategoryId: string | null; amount: number; percentage: number }> {
   const categories = Object.entries(byCategory)
-    .map(([category, amount]) => ({
-      category,
+    .map(([key, amount]) => ({
+      canonicalCategoryId: key === UNCATEGORIZED_KEY ? null : key,
       amount,
       percentage: totalSpent > 0 ? (amount / totalSpent) * 100 : 0,
     }))

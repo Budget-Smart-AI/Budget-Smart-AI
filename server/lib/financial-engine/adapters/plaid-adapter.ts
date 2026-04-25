@@ -187,6 +187,10 @@ export class PlaidAdapter implements BankingAdapter {
         direction: isCredit ? "credit" : "debit",
         merchant: cleanedMerchant,
         category: canonical,
+        // §6.2.7-prep: pull canonical_category_id directly off the source row.
+        // Phase A's INSERT-time dual-write populates this on every plaid_transactions
+        // INSERT/upsert; rows that pre-date the dual-write have it backfilled.
+        canonicalCategoryId: tx.canonicalCategoryId ?? null,
         categoryConfidence: confidence,
         rawProviderCategory: String(rawCategory),
         isTransfer,

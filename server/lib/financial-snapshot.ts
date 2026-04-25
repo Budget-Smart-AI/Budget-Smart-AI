@@ -38,6 +38,7 @@ import {
 
 import { EngineStorage } from "../engine/storage";
 import { getAllNormalizedTransactions } from "../engine/data-loaders";
+import { pool } from "../db";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -212,9 +213,22 @@ export async function getHouseholdFinancialSnapshot(
   const monthlyBills = round(billsResult.monthlyEstimate);
   const monthlySurplus = round(monthlyIncome - monthlySpending);
 
+  // §6.2.7-prep: categoryTotals is keyed on canonical_categories.id slugs
+  // (or the engine's "__uncategorized__" sentinel). Translate to display
+  // names for AI prompt consumption — the AI reasons over natural language,
+  // not slug ids. One DB query is enough; the canonical taxonomy is small
+  // (~67 system rows + a handful of user customs).
+  const slugToDisplayName = await loadCanonicalDisplayNameMap();
   const spendingByCategory: Record<string, number> = {};
-  for (const [cat, total] of Object.entries(categoryTotals)) {
-    spendingByCategory[cat] = round(total / months);
+  for (const [slug, total] of Object.entries(categoryTotals)) {
+    const displayName =
+      slug === "__uncategorized__"
+        ? "Uncategorized"
+        : (slugToDisplayName.get(slug) ?? slug);
+    // Multiple slugs could in theory map to the same display name (shouldn't
+    // happen with current taxonomy, but be defensive — sum if so).
+    spendingByCategory[displayName] =
+      (spendingByCategory[displayName] ?? 0) + round(total / months);
   }
 
   return {
@@ -243,4 +257,22 @@ function round(n: number): number {
 
 function toIsoDate(d: Date): string {
   return d.toISOString().split("T")[0];
+}
+
+/**
+ * Load canonical_categories.id → display_name map for translating engine
+ * output (slugs) into display names for AI prompt consumption.
+ *
+ * Includes user-owned rows alongside system rows — both have `display_name`,
+ * and downstream AI prompts shouldn't have to know the difference. Pre-launch
+ * this is ~67 system rows + a handful of user customs, so a per-snapshot
+ * query is fine; can cache in-process if it ever shows up in profiles.
+ */
+async function loadCanonicalDisplayNameMap(): Promise<Map<string, string>> {
+  const { rows } = await pool.query<{ id: string; display_name: string }>(
+    "SELECT id, display_name FROM canonical_categories",
+  );
+  const m = new Map<string, string>();
+  for (const r of rows) m.set(r.id, r.display_name);
+  return m;
 }

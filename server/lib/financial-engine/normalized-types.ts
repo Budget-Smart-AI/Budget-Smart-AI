@@ -71,6 +71,12 @@ export interface NormalizedTransaction {
   /** Resolved category name. Adapters set this to the canonical
    * Monarch-aligned category via `remapCategory`. Never a raw vendor enum. */
   category: string;
+  /** §6.2.7-prep: canonical_category_id slug from canonical_categories.
+   * Adapters pull this directly off the source row (`tx.canonicalCategoryId`)
+   * since Phase A's INSERT-time dual-write populates it. NULL is allowed
+   * for rows the resolver couldn't map at insert time; the engine buckets
+   * those under '__uncategorized__' in byCategory aggregations. */
+  canonicalCategoryId?: string | null;
   /** Is this a transfer between the user's own accounts? */
   isTransfer: boolean;
   /** Is this transaction still pending? */

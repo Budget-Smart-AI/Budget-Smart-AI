@@ -91,6 +91,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema";
 import { getEffectiveCategory } from "@shared/categoryResolver";
+import { useCategoryMap } from "@/lib/canonical-categories";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
 
@@ -120,8 +121,10 @@ interface ExpenseResult {
   count: number;
   previousTotal: number;
   momChangePercent: number;
+  // §6.2.7-prep: byCategory keys are canonical_categories.id slugs (or
+  // "__uncategorized__"); look up display names via the canonical hook.
   byCategory: Record<string, number>;
-  topCategories: Array<{ category: string; amount: number; percentage: number }>;
+  topCategories: Array<{ canonicalCategoryId: string | null; amount: number; percentage: number }>;
   topMerchants: Array<{ merchant: string; amount: number; count: number }>;
   dailyAverage: number;
   projectedMonthly: number;
@@ -576,6 +579,9 @@ const PAGE_SIZE = 25;
 export default function ExpensesPage() {
   const { toast } = useToast();
 
+  // §6.2.7-prep: canonical lookup for the "top category" stat card.
+  const categoryMap = useCategoryMap();
+
   // modal state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | undefined>();
@@ -672,6 +678,12 @@ export default function ExpensesPage() {
       return res.json();
     },
   });
+
+  // §6.2.7-prep: resolve the top category's canonical id → display name.
+  const topCategoryCanonicalId = expenseStats?.topCategories?.[0]?.canonicalCategoryId ?? null;
+  const topCategoryDisplayName = topCategoryCanonicalId
+    ? (categoryMap.get(topCategoryCanonicalId)?.displayName ?? "Uncategorized")
+    : "Uncategorized";
 
   // ── mutations ──────────────────────────────────────────────────────────────
 
@@ -1103,7 +1115,10 @@ export default function ExpensesPage() {
             ) : expenseStats?.topCategories && expenseStats.topCategories.length > 0 ? (
               <>
                 <p className="text-2xl font-bold">{formatCurrency(expenseStats.topCategories[0].amount)}</p>
-                <p className="text-xs text-muted-foreground mt-1 truncate">{expenseStats.topCategories[0].category}</p>
+                <p className="text-xs text-muted-foreground mt-1 truncate">
+                  {/* §6.2.7-prep: resolve canonical id → display name from the hook. */}
+                  {topCategoryDisplayName}
+                </p>
               </>
             ) : (
               <p className="text-2xl font-bold text-muted-foreground">—</p>

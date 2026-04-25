@@ -28,6 +28,7 @@ import {
 import { format, parseISO } from "date-fns";
 import type { SavingsGoal } from "@shared/schema";
 import { FinancialHealthScore } from "@/components/financial-health-score";
+import { useCategoryMap } from "@/lib/canonical-categories";
 import { DemoBanner } from "@/components/demo-banner";
 import { CashFlowForecast } from "@/components/cash-flow-forecast";
 import { SmartSavings } from "@/components/smart-savings";
@@ -52,8 +53,10 @@ interface DashboardData {
     count: number;
     previousTotal: number;
     momChangePercent: number;
+    // §6.2.7-prep: byCategory keys are canonical_categories.id slugs (or the
+    // sentinel "__uncategorized__"); look up display fields via the canonical hook.
     byCategory: Record<string, number>;
-    topCategories: Array<{ category: string; amount: number; percentage: number }>;
+    topCategories: Array<{ canonicalCategoryId: string | null; amount: number; percentage: number }>;
     topMerchants: Array<{ merchant: string; amount: number; count: number }>;
     dailyAverage: number;
     projectedMonthly: number;
@@ -279,6 +282,20 @@ function PlanStatCard({
 // [REMOVED] WhereYourMoneyWent local-calc widget — replaced by engine-powered
 // inline rendering at line ~841 using dashboard.expenses.topCategories
 
+// §6.2.7-prep: icon-name string → Lucide component for the topCategories card.
+// canonical_categories.icon stores names like "ShoppingCart" / "Home"; resolve
+// to the actual component here. Falls back to BarChart3 for unknown names
+// (and for the uncategorized bucket).
+const DASHBOARD_ICON_BY_NAME: Record<string, LucideIcon> = {
+  CreditCard, Home, Smartphone, UtensilsCrossed, ShoppingCart, Car, Lightbulb,
+  Tv, ShoppingBag, Heart, Shield, BarChart3, Wallet, DollarSign, Receipt,
+  Calendar, TrendingUp, TrendingDown, Building2, CircleDollarSign, PiggyBank,
+};
+function resolveDashboardIcon(iconName: string | null): LucideIcon {
+  if (!iconName) return BarChart3;
+  return DASHBOARD_ICON_BY_NAME[iconName] || BarChart3;
+}
+
 // Fix My Cashflow CTA Component
 function FixMyCashflowCTA({ 
   cashflowAmount, 
@@ -387,6 +404,11 @@ export default function Dashboard() {
     () => localStorage.getItem("birthday_banner_dismissed") === new Date().toDateString()
   );
   const qc = useQueryClient();
+
+  // §6.2.7-prep: canonical category lookup map for the topCategories card.
+  // The hook fetches /api/categories once and caches; the map is keyed on
+  // canonical_categories.id so we can resolve display fields by slug.
+  const categoryMap = useCategoryMap();
 
   const { data: session } = useQuery({ queryKey: ["/api/auth/session"], retry: false });
   const sessionData = session as any;
@@ -767,58 +789,33 @@ export default function Dashboard() {
                 ) : (
                   <div className="space-y-3">
                     {dashboard.expenses.topCategories.map((item) => {
-                      const categoryIcons: Record<string, LucideIcon> = {
-                        "Credit Cards": CreditCard,
-                        "Rent": Home,
-                        "Mortgage": Home,
-                        "Subscriptions": Smartphone,
-                        "Food": UtensilsCrossed,
-                        "Groceries": ShoppingCart,
-                        "Transportation": Car,
-                        "Utilities": Lightbulb,
-                        "Entertainment": Tv,
-                        "Shopping": ShoppingBag,
-                        "Healthcare": Heart,
-                        "Insurance": Shield,
-                      };
-                      // Per-category palette. Each entry is { icon-bg, icon-fg,
-                      // bar-fill, bar-track } — kept as literal class strings so
-                      // Tailwind's JIT can pick them up. Fallback = slate.
-                      const categoryPalette: Record<
-                        string,
-                        { iconBg: string; iconFg: string; barFill: string; barTrack: string }
-                      > = {
-                        "Healthcare":     { iconBg: "bg-rose-100 dark:bg-rose-950/40",      iconFg: "text-rose-600 dark:text-rose-400",      barFill: "bg-rose-500",     barTrack: "bg-rose-100/60 dark:bg-rose-950/30" },
-                        "Insurance":      { iconBg: "bg-emerald-100 dark:bg-emerald-950/40", iconFg: "text-emerald-600 dark:text-emerald-400", barFill: "bg-emerald-500", barTrack: "bg-emerald-100/60 dark:bg-emerald-950/30" },
-                        "Transportation": { iconBg: "bg-sky-100 dark:bg-sky-950/40",        iconFg: "text-sky-600 dark:text-sky-400",        barFill: "bg-sky-500",      barTrack: "bg-sky-100/60 dark:bg-sky-950/30" },
-                        "Shopping":       { iconBg: "bg-violet-100 dark:bg-violet-950/40",  iconFg: "text-violet-600 dark:text-violet-400",  barFill: "bg-violet-500",   barTrack: "bg-violet-100/60 dark:bg-violet-950/30" },
-                        "Food":           { iconBg: "bg-amber-100 dark:bg-amber-950/40",    iconFg: "text-amber-600 dark:text-amber-400",    barFill: "bg-amber-500",    barTrack: "bg-amber-100/60 dark:bg-amber-950/30" },
-                        "Groceries":      { iconBg: "bg-amber-100 dark:bg-amber-950/40",    iconFg: "text-amber-600 dark:text-amber-400",    barFill: "bg-amber-500",    barTrack: "bg-amber-100/60 dark:bg-amber-950/30" },
-                        "Rent":           { iconBg: "bg-indigo-100 dark:bg-indigo-950/40",  iconFg: "text-indigo-600 dark:text-indigo-400",  barFill: "bg-indigo-500",   barTrack: "bg-indigo-100/60 dark:bg-indigo-950/30" },
-                        "Mortgage":       { iconBg: "bg-indigo-100 dark:bg-indigo-950/40",  iconFg: "text-indigo-600 dark:text-indigo-400",  barFill: "bg-indigo-500",   barTrack: "bg-indigo-100/60 dark:bg-indigo-950/30" },
-                        "Subscriptions":  { iconBg: "bg-teal-100 dark:bg-teal-950/40",      iconFg: "text-teal-600 dark:text-teal-400",      barFill: "bg-teal-500",     barTrack: "bg-teal-100/60 dark:bg-teal-950/30" },
-                        "Utilities":      { iconBg: "bg-yellow-100 dark:bg-yellow-950/40",  iconFg: "text-yellow-600 dark:text-yellow-400",  barFill: "bg-yellow-500",   barTrack: "bg-yellow-100/60 dark:bg-yellow-950/30" },
-                        "Entertainment":  { iconBg: "bg-pink-100 dark:bg-pink-950/40",      iconFg: "text-pink-600 dark:text-pink-400",      barFill: "bg-pink-500",     barTrack: "bg-pink-100/60 dark:bg-pink-950/30" },
-                        "Credit Cards":   { iconBg: "bg-orange-100 dark:bg-orange-950/40",  iconFg: "text-orange-600 dark:text-orange-400",  barFill: "bg-orange-500",   barTrack: "bg-orange-100/60 dark:bg-orange-950/30" },
-                      };
-                      const fallbackPalette = {
-                        iconBg: "bg-slate-100 dark:bg-slate-900/50",
-                        iconFg: "text-slate-600 dark:text-slate-400",
-                        barFill: "bg-slate-500",
-                        barTrack: "bg-slate-100/60 dark:bg-slate-900/40",
-                      };
-                      const palette = categoryPalette[item.category] ?? fallbackPalette;
-                      const IconComponent = categoryIcons[item.category] || BarChart3;
+                      // §6.2.7-prep: resolve display fields from the canonical
+                      // hook. Falls back gracefully when canonicalCategoryId is
+                      // null (uncategorized bucket) or the row is missing from
+                      // the map (race condition during first load).
+                      const canonical = item.canonicalCategoryId
+                        ? categoryMap.get(item.canonicalCategoryId)
+                        : undefined;
+                      const displayName = canonical?.displayName ?? "Uncategorized";
+                      const color = canonical?.color ?? "#71717a"; // slate-500
+                      const iconName = canonical?.icon ?? null;
+                      const IconComponent = resolveDashboardIcon(iconName);
                       const maxAmount = dashboard.expenses.topCategories[0]?.amount || item.amount;
                       const pct = Math.min(100, Math.max(0, (item.amount / maxAmount) * 100));
                       return (
-                        <div key={item.category} className="space-y-1.5">
+                        <div
+                          key={item.canonicalCategoryId ?? "uncategorized"}
+                          className="space-y-1.5"
+                        >
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2">
-                              <div className={`p-1.5 rounded-md ${palette.iconBg}`}>
-                                <IconComponent className={`h-3.5 w-3.5 ${palette.iconFg}`} />
+                              <div
+                                className="p-1.5 rounded-md"
+                                style={{ backgroundColor: `${color}1f` /* ~12% opacity */ }}
+                              >
+                                <IconComponent className="h-3.5 w-3.5" style={{ color }} />
                               </div>
-                              <span className="font-medium">{item.category}</span>
+                              <span className="font-medium">{displayName}</span>
                             </div>
                             <span className="font-semibold tabular-nums text-foreground">
                               {formatCurrency(item.amount)}
@@ -828,16 +825,17 @@ export default function Dashboard() {
                            * (the shadcn Progress primitive uses bg-primary on
                            * the indicator which would force every bar green). */}
                           <div
-                            className={`h-2 w-full rounded-full overflow-hidden ${palette.barTrack}`}
+                            className="h-2 w-full rounded-full overflow-hidden"
+                            style={{ backgroundColor: `${color}29` /* ~16% opacity track */ }}
                             role="progressbar"
                             aria-valuenow={Math.round(pct)}
                             aria-valuemin={0}
                             aria-valuemax={100}
-                            aria-label={`${item.category} spend as share of top category`}
+                            aria-label={`${displayName} spend as share of top category`}
                           >
                             <div
-                              className={`h-full rounded-full transition-all ${palette.barFill}`}
-                              style={{ width: `${pct}%` }}
+                              className="h-full rounded-full transition-all"
+                              style={{ backgroundColor: color, width: `${pct}%` }}
                             />
                           </div>
                         </div>
