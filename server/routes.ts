@@ -10486,30 +10486,32 @@ ${JSON.stringify(txSummary)}`;
   });
 
   // FEATURE: CATEGORIES_MANAGEMENT | tier: free | limit: 20 categories
-  // ============ CUSTOM CATEGORIES ============
+  // ============ CATEGORIES (system + user-owned) ============
+  // §6.2.7 Phase B: replaces /api/custom-categories. The taxonomy is
+  // a single canonical_categories table — system rows have user_id IS NULL,
+  // user-owned rows have user_id set. GET returns the merged view; POST/
+  // PATCH/DELETE only touch the caller's own user-owned rows (system
+  // canonicals are immutable through this surface).
 
-  app.get("/api/custom-categories", requireAuth, async (req, res) => {
+  app.get("/api/categories", requireAuth, async (req, res) => {
     try {
-      const categories = await storage.getCustomCategories(req.session.userId!);
+      const categories = await storage.getAllCategories(req.session.userId!);
       res.json(categories);
     } catch (error) {
-      console.error("Error getting custom categories:", error);
-      res.status(500).json({ error: "Failed to get custom categories" });
+      console.error("Error getting categories:", error);
+      res.status(500).json({ error: "Failed to get categories" });
     }
   });
 
-  app.post("/api/custom-categories", requireAuth, async (req, res) => {
+  app.post("/api/categories", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const user = await storage.getUser(userId);
       const plan = await getEffectivePlan(userId);
       const catLimit = await getFeatureLimit(plan, "categories_management");
       if (catLimit !== null) {
         if (catLimit === 0) {
           return res.status(402).json({ feature: "categories_management", remaining: 0, resetDate: null, upgradeRequired: true });
         }
-        // §6.2.7-prep migration 0040: custom_categories was dropped; user
-        // categories now live in canonical_categories with user_id set.
         const { rows: catRows } = await pool.query<{ cnt: number }>(
           "SELECT COUNT(*)::int AS cnt FROM canonical_categories WHERE user_id = $1",
           [userId]
@@ -10518,40 +10520,77 @@ ${JSON.stringify(txSummary)}`;
           return res.status(402).json({ feature: "categories_management", remaining: 0, resetDate: null });
         }
       }
-      const category = await storage.createCustomCategory({
-        ...req.body,
-        userId,
+
+      // Validate the request body — must specify display name and at
+      // least one of the three applies-to flags.
+      const { displayName, appliesToExpense, appliesToBill, appliesToIncome, color, icon } = req.body ?? {};
+      if (typeof displayName !== "string" || !displayName.trim()) {
+        return res.status(400).json({ error: "displayName is required" });
+      }
+      const expense = appliesToExpense === true;
+      const bill = appliesToBill === true;
+      const income = appliesToIncome === true;
+      if (!(expense || bill || income)) {
+        return res.status(400).json({ error: "At least one of appliesToExpense / appliesToBill / appliesToIncome must be true" });
+      }
+
+      const category = await storage.createUserCategory(userId, {
+        displayName: displayName.trim(),
+        appliesToExpense: expense,
+        appliesToBill: bill,
+        appliesToIncome: income,
+        color: typeof color === "string" ? color : null,
+        icon: typeof icon === "string" ? icon : null,
       });
       res.status(201).json(category);
     } catch (error) {
-      console.error("Error creating custom category:", error);
-      res.status(500).json({ error: "Failed to create custom category" });
+      console.error("Error creating category:", error);
+      res.status(500).json({ error: "Failed to create category" });
     }
   });
 
-  app.patch("/api/custom-categories/:id", requireAuth, async (req, res) => {
+  app.patch("/api/categories/:id", requireAuth, async (req, res) => {
     try {
-      const category = await storage.updateCustomCategory((req.params.id as string), req.body);
+      const userId = req.session.userId!;
+      const id = req.params.id as string;
+      const { displayName, appliesToExpense, appliesToBill, appliesToIncome, color, icon } = req.body ?? {};
+
+      // Build the patch from whichever fields the client sent.
+      const updates: Parameters<typeof storage.updateUserCategory>[2] = {};
+      if (displayName !== undefined) {
+        if (typeof displayName !== "string" || !displayName.trim()) {
+          return res.status(400).json({ error: "displayName must be a non-empty string" });
+        }
+        updates.displayName = displayName.trim();
+      }
+      if (appliesToExpense !== undefined) updates.appliesToExpense = appliesToExpense === true;
+      if (appliesToBill !== undefined) updates.appliesToBill = appliesToBill === true;
+      if (appliesToIncome !== undefined) updates.appliesToIncome = appliesToIncome === true;
+      if (color !== undefined) updates.color = typeof color === "string" ? color : null;
+      if (icon !== undefined) updates.icon = typeof icon === "string" ? icon : null;
+
+      const category = await storage.updateUserCategory(id, userId, updates);
       if (!category) {
-        return res.status(404).json({ error: "Category not found" });
+        return res.status(404).json({ error: "Category not found or not owned by you" });
       }
       res.json(category);
     } catch (error) {
-      console.error("Error updating custom category:", error);
-      res.status(500).json({ error: "Failed to update custom category" });
+      console.error("Error updating category:", error);
+      res.status(500).json({ error: "Failed to update category" });
     }
   });
 
-  app.delete("/api/custom-categories/:id", requireAuth, async (req, res) => {
+  app.delete("/api/categories/:id", requireAuth, async (req, res) => {
     try {
-      const success = await storage.deleteCustomCategory((req.params.id as string));
+      const userId = req.session.userId!;
+      const success = await storage.deleteUserCategory(req.params.id as string, userId);
       if (!success) {
-        return res.status(404).json({ error: "Category not found" });
+        return res.status(404).json({ error: "Category not found or not owned by you" });
       }
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting custom category:", error);
-      res.status(500).json({ error: "Failed to delete custom category" });
+      console.error("Error deleting category:", error);
+      res.status(500).json({ error: "Failed to delete category" });
     }
   });
 

@@ -80,6 +80,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, BILL_CATEGORIES, MANUAL_ACCOUNT_TYPES, MX_SUPPORTED_COUNTRIES, type PlaidTransaction, type ManualAccount, type ManualTransaction } from "@shared/schema";
 import { getEffectiveCategory, getEffectiveCategoryBucket } from "@shared/categoryResolver";
+import { useExpenseCategories } from "@/lib/canonical-categories";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditCardIcon, TrendingUp, ScanLine } from "lucide-react";
@@ -1688,18 +1689,17 @@ export default function BankAccounts() {
   const { data: expenses = [] } = useQuery<any[]>({ queryKey: ["/api/expenses"] });
   const { data: incomes = [] } = useQuery<any[]>({ queryKey: ["/api/income"] });
 
-  // Fetch custom categories
-  const { data: customCategories = [] } = useQuery<{ id: string; name: string; type: string; color: string }[]>({
-    queryKey: ["/api/custom-categories"],
-  });
-
-  // Combine default and custom expense categories
+  // §6.2.7 Phase B: read user-owned expense categories from the unified
+  // canonical hook instead of /api/custom-categories. The legacy
+  // EXPENSE_CATEGORIES enum is preserved here for the dropdown until
+  // Phase C migrates this surface fully to canonical names.
+  const expenseCategoriesAll = useExpenseCategories();
   const allExpenseCategories = useMemo(() => {
-    const customExpenseNames = customCategories
-      .filter(c => c.type === "expense")
-      .map(c => c.name);
-    return [...EXPENSE_CATEGORIES, ...customExpenseNames];
-  }, [customCategories]);
+    const userExpenseNames = expenseCategoriesAll
+      .filter((c) => c.userId !== null)
+      .map((c) => c.displayName);
+    return [...EXPENSE_CATEGORIES, ...userExpenseNames];
+  }, [expenseCategoriesAll]);
 
   // Fetch manual accounts
   const { data: manualAccounts = [], isLoading: manualAccountsLoading } = useQuery<ManualAccount[]>({

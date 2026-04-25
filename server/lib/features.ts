@@ -72,7 +72,7 @@
  * UTILITIES (10 features)
  * ├─ RECEIPT_SCANNER             → /api/receipts/upload, server/routes/receipts.ts
  * ├─ FINANCIAL_VAULT             → /api/vault/*, server/routes/vault.ts
- * ├─ CATEGORIES_MANAGEMENT       → /api/custom-categories, client/src/pages/categories.tsx
+ * ├─ CATEGORIES_MANAGEMENT       → /api/categories, client/src/pages/categories.tsx
  * ├─ MERCHANT_MANAGEMENT         → /api/merchants, client/src/pages/merchants.tsx
  * ├─ NOTIFICATIONS               → /api/notifications, client/src/components/notifications-dropdown.tsx
  * ├─ SECURITY_ALERTS             → /api/anomalies, client/src/pages/anomalies.tsx

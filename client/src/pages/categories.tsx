@@ -1,6 +1,13 @@
 // FEATURE: CATEGORIES_MANAGEMENT | tier: free | limit: 20 categories
+//
+// §6.2.7 Phase B — Categories management page rewired to read directly
+// from canonical_categories via /api/categories. Drops the legacy
+// EXPENSE_/INCOME_/BILL_CATEGORIES enum imports + the hardcoded
+// CATEGORY_ICONS display-name map; everything now flows from the merged
+// system + user-owned hook.
+
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { HelpTooltip } from "@/components/help-tooltip";
 import { Button } from "@/components/ui/button";
@@ -10,25 +17,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { 
+import {
   Plus, Tag, Trash2, Edit, ShoppingCart, UtensilsCrossed, Car, Clapperboard, ShoppingBag,
   Heart, GraduationCap, Dumbbell, Zap, CreditCard, Plane, Wrench, Home, Wifi, Fuel,
   Shirt, ParkingCircle, User, Banknote, Coffee, Train, CarTaxiFront, Sparkles,
   Sofa, FileCheck, Briefcase, Building2, MoreHorizontal, DollarSign, Laptop,
   TrendingUp, Gift, RotateCcw, Receipt, Phone, Tv, Shield, Stethoscope,
   Music, Cloud, Gamepad2, Newspaper, BookOpen, Baby, Dog, Scissors, Pill,
-  Droplets, Flame, Trash, Landmark, PiggyBank, CircleDollarSign
+  Droplets, Flame, Trash, Landmark, PiggyBank, CircleDollarSign,
+  type LucideIcon,
 } from "lucide-react";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, BILL_CATEGORIES } from "@shared/schema";
-
-interface CustomCategory {
-  id: string;
-  name: string;
-  type: string;
-  color: string;
-  icon?: string;
-  isActive: string;
-}
+import {
+  useCanonicalCategories,
+  useExpenseCategories,
+  useBillCategories,
+  useIncomeCategories,
+} from "@/lib/canonical-categories";
+import type { CanonicalCategory } from "@shared/schema";
 
 const COLORS = [
   "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16",
@@ -37,112 +42,92 @@ const COLORS = [
   "#ec4899", "#f43f5e", "#64748b",
 ];
 
-const CATEGORY_ICONS: Record<string, any> = {
-  "Groceries": ShoppingCart,
-  "Restaurant & Bars": UtensilsCrossed,
-  "Transportation": Car,
-  "Entertainment": Clapperboard,
-  "Shopping": ShoppingBag,
-  "Healthcare": Heart,
-  "Education": GraduationCap,
-  "Fitness": Dumbbell,
-  "Electrical": Zap,
-  "Credit Card": CreditCard,
-  "Travel": Plane,
-  "Maintenance": Wrench,
-  "Mortgage": Home,
-  "Communications": Wifi,
-  "Gas": Fuel,
-  "Clothing": Shirt,
-  "Parking & Tolls": ParkingCircle,
-  "Personal": User,
-  "Cash & ATM": Banknote,
-  "Coffee Shops": Coffee,
-  "Public Transit": Train,
-  "Taxi & Ride Share": CarTaxiFront,
-  "Fun Money": Sparkles,
-  "Furniture & Houseware": Sofa,
-  "Check": FileCheck,
-  "Business Travel & Meals": Briefcase,
-  "Business Auto Expenses": Building2,
-  "Other": MoreHorizontal,
-  "Salary": DollarSign,
-  "Freelance": Laptop,
-  "Business": Briefcase,
-  "Investments": TrendingUp,
-  "Rental": Home,
-  "Gifts": Gift,
-  "Refunds": RotateCcw,
-  "Rent": Home,
-  "Utilities": Zap,
-  "Internet": Wifi,
-  "Phone": Phone,
-  "Subscriptions": Tv,
-  "Insurance": Shield,
-  "Medical": Stethoscope,
-  "Loans": Landmark,
-  "Streaming": Tv,
-  "Music": Music,
-  "Cloud Storage": Cloud,
-  "Gaming": Gamepad2,
-  "News & Magazines": Newspaper,
-  "Learning": BookOpen,
-  "Childcare": Baby,
-  "Pet Care": Dog,
-  "Beauty": Scissors,
-  "Pharmacy": Pill,
-  "Water": Droplets,
-  "Heating": Flame,
-  "Waste": Trash,
-  "Savings": PiggyBank,
-  "Membership": CircleDollarSign,
+// Map icon-name strings (as stored in canonical_categories.icon) to the
+// Lucide component. Falls back to Tag for unknown names. Add icons here
+// when you add new canonical rows that reference them.
+const ICON_BY_NAME: Record<string, LucideIcon> = {
+  ShoppingCart, UtensilsCrossed, Car, Clapperboard, ShoppingBag,
+  Heart, GraduationCap, Dumbbell, Zap, CreditCard, Plane, Wrench, Home, Wifi, Fuel,
+  Shirt, ParkingCircle, User, Banknote, Coffee, Train, CarTaxiFront, Sparkles,
+  Sofa, FileCheck, Briefcase, Building2, MoreHorizontal, DollarSign, Laptop,
+  TrendingUp, Gift, RotateCcw, Receipt, Phone, Tv, Shield, Stethoscope,
+  Music, Cloud, Gamepad2, Newspaper, BookOpen, Baby, Dog, Scissors, Pill,
+  Droplets, Flame, Trash, Landmark, PiggyBank, CircleDollarSign, Tag,
 };
 
-function getCategoryIcon(categoryName: string) {
-  const IconComponent = CATEGORY_ICONS[categoryName] || Tag;
-  return IconComponent;
+function resolveIcon(iconName: string | null | undefined): LucideIcon {
+  if (!iconName) return Tag;
+  return ICON_BY_NAME[iconName] || Tag;
+}
+
+// ─── Form / dialog ──────────────────────────────────────────────────────────
+
+interface CategoryFormData {
+  displayName: string;
+  type: "expense" | "income" | "bill";
+  color: string;
+}
+
+function fromCanonicalToForm(cat: CanonicalCategory): CategoryFormData {
+  // Map the three booleans back to a single dropdown value. User-owned rows
+  // have exactly one of these set (createUserCategory enforces this).
+  const type: CategoryFormData["type"] = cat.appliesToBill
+    ? "bill"
+    : cat.appliesToIncome
+      ? "income"
+      : "expense";
+  return {
+    displayName: cat.displayName,
+    type,
+    color: cat.color || "#6366f1",
+  };
 }
 
 function CategoryDialog({
   onSuccess,
   editingCategory,
   open,
-  onOpenChange
+  onOpenChange,
 }: {
   onSuccess: () => void;
-  editingCategory?: CustomCategory | null;
+  editingCategory?: CanonicalCategory | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const { toast } = useToast();
-  const [formData, setFormData] = useState({
-    name: "",
+  const [formData, setFormData] = useState<CategoryFormData>({
+    displayName: "",
     type: "expense",
     color: "#6366f1",
   });
 
   const handleOpenChange = (newOpen: boolean) => {
     if (newOpen && editingCategory) {
-      setFormData({
-        name: editingCategory.name,
-        type: editingCategory.type,
-        color: editingCategory.color,
-      });
+      setFormData(fromCanonicalToForm(editingCategory));
     } else if (newOpen && !editingCategory) {
-      setFormData({ name: "", type: "expense", color: "#6366f1" });
+      setFormData({ displayName: "", type: "expense", color: "#6366f1" });
     }
     onOpenChange(newOpen);
   };
 
+  // Convert form's single `type` value to the three boolean flags the API expects.
+  const buildPayload = (data: CategoryFormData) => ({
+    displayName: data.displayName,
+    appliesToExpense: data.type === "expense",
+    appliesToBill: data.type === "bill",
+    appliesToIncome: data.type === "income",
+    color: data.color,
+  });
+
   const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      await apiRequest("POST", "/api/custom-categories", data);
+    mutationFn: async (data: CategoryFormData) => {
+      await apiRequest("POST", "/api/categories", buildPayload(data));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/custom-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       toast({ title: "Category created" });
       onOpenChange(false);
-      setFormData({ name: "", type: "expense", color: "#6366f1" });
+      setFormData({ displayName: "", type: "expense", color: "#6366f1" });
       onSuccess();
     },
     onError: () => {
@@ -151,14 +136,14 @@ function CategoryDialog({
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (data: any) => {
-      await apiRequest("PATCH", `/api/custom-categories/${editingCategory!.id}`, data);
+    mutationFn: async (data: CategoryFormData) => {
+      await apiRequest("PATCH", `/api/categories/${editingCategory!.id}`, buildPayload(data));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/custom-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       toast({ title: "Category updated" });
       onOpenChange(false);
-      setFormData({ name: "", type: "expense", color: "#6366f1" });
+      setFormData({ displayName: "", type: "expense", color: "#6366f1" });
       onSuccess();
     },
     onError: () => {
@@ -188,8 +173,8 @@ function CategoryDialog({
             <Input
               id="name"
               placeholder="e.g., Pet Expenses, Side Hustle"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              value={formData.displayName}
+              onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
               data-testid="input-category-name"
             />
           </div>
@@ -198,7 +183,9 @@ function CategoryDialog({
             <Label htmlFor="type">Category Type</Label>
             <Select
               value={formData.type}
-              onValueChange={(value) => setFormData({ ...formData, type: value })}
+              onValueChange={(value) =>
+                setFormData({ ...formData, type: value as CategoryFormData["type"] })
+              }
               disabled={!!editingCategory}
             >
               <SelectTrigger data-testid="select-category-type">
@@ -233,7 +220,7 @@ function CategoryDialog({
 
           <Button
             onClick={handleSubmit}
-            disabled={isPending || !formData.name}
+            disabled={isPending || !formData.displayName.trim()}
             className="w-full"
             data-testid="button-save-category"
           >
@@ -245,23 +232,28 @@ function CategoryDialog({
   );
 }
 
-function CategoryItem({ name, color }: { name: string; color?: string }) {
-  const Icon = getCategoryIcon(name);
+// ─── List items ─────────────────────────────────────────────────────────────
+
+function SystemCategoryItem({ category }: { category: CanonicalCategory }) {
+  const Icon = resolveIcon(category.icon);
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/50 text-sm">
-      <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" style={color ? { color } : undefined} />
-      <span className="truncate">{name}</span>
+      <Icon
+        className="w-4 h-4 text-muted-foreground flex-shrink-0"
+        style={category.color ? { color: category.color } : undefined}
+      />
+      <span className="truncate">{category.displayName}</span>
     </div>
   );
 }
 
-function CustomCategoryItem({ 
-  category, 
-  onEdit, 
-  onDelete 
-}: { 
-  category: CustomCategory; 
-  onEdit: () => void; 
+function UserCategoryItem({
+  category,
+  onEdit,
+  onDelete,
+}: {
+  category: CanonicalCategory;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -272,25 +264,15 @@ function CustomCategoryItem({
       <div className="flex items-center gap-2">
         <div
           className="w-4 h-4 rounded-full flex-shrink-0"
-          style={{ backgroundColor: category.color }}
+          style={{ backgroundColor: category.color || "#6366f1" }}
         />
-        <span className="text-sm">{category.name}</span>
+        <span className="text-sm">{category.displayName}</span>
       </div>
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onEdit}
-          data-testid={`button-edit-${category.id}`}
-        >
+        <Button variant="ghost" size="icon" onClick={onEdit} data-testid={`button-edit-${category.id}`}>
           <Edit className="w-4 h-4" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onDelete}
-          data-testid={`button-delete-${category.id}`}
-        >
+        <Button variant="ghost" size="icon" onClick={onDelete} data-testid={`button-delete-${category.id}`}>
           <Trash2 className="w-4 h-4 text-destructive" />
         </Button>
       </div>
@@ -298,26 +280,43 @@ function CustomCategoryItem({
   );
 }
 
+// ─── Page ───────────────────────────────────────────────────────────────────
+
 export default function Categories() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<CustomCategory | null>(null);
+  const [editingCategory, setEditingCategory] = useState<CanonicalCategory | null>(null);
 
-  const { data: customCategories = [], isLoading } = useQuery<CustomCategory[]>({
-    queryKey: ["/api/custom-categories"],
+  const { isLoading } = useCanonicalCategories();
+
+  // Filtered views from the unified hook. Each one mixes system (user_id IS NULL)
+  // and user-owned (user_id = me) rows; we partition for display below.
+  const expenseAll = useExpenseCategories();
+  const billAll = useBillCategories();
+  const incomeAll = useIncomeCategories();
+
+  const partitionByOwnership = (rows: CanonicalCategory[]) => ({
+    system: rows.filter((r) => r.userId === null),
+    user: rows.filter((r) => r.userId !== null),
   });
+  const expense = partitionByOwnership(expenseAll);
+  const income = partitionByOwnership(incomeAll);
+  const bill = partitionByOwnership(billAll);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/custom-categories/${id}`);
+      await apiRequest("DELETE", `/api/categories/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/custom-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       toast({ title: "Category deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete category", variant: "destructive" });
     },
   });
 
-  const handleEditCategory = (category: CustomCategory) => {
+  const handleEditCategory = (category: CanonicalCategory) => {
     setEditingCategory(category);
     setDialogOpen(true);
   };
@@ -326,10 +325,6 @@ export default function Categories() {
     setEditingCategory(null);
     setDialogOpen(true);
   };
-
-  const expenseCategories = customCategories.filter(c => c.type === "expense");
-  const incomeCategories = customCategories.filter(c => c.type === "income");
-  const billCategories = customCategories.filter(c => c.type === "bill");
 
   if (isLoading) {
     return (
@@ -373,24 +368,24 @@ export default function Categories() {
               Expense Categories
             </CardTitle>
             <CardDescription>
-              {EXPENSE_CATEGORIES.length} default categories + {expenseCategories.length} custom
+              {expense.system.length} default categories + {expense.user.length} custom
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <div className="text-sm font-medium text-muted-foreground mb-3">Default Categories</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-                {EXPENSE_CATEGORIES.map((cat) => (
-                  <CategoryItem key={cat} name={cat} />
+                {expense.system.map((cat) => (
+                  <SystemCategoryItem key={cat.id} category={cat} />
                 ))}
               </div>
             </div>
-            {expenseCategories.length > 0 && (
+            {expense.user.length > 0 && (
               <div>
                 <div className="text-sm font-medium text-muted-foreground mb-3">Custom Categories</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                  {expenseCategories.map((cat) => (
-                    <CustomCategoryItem
+                  {expense.user.map((cat) => (
+                    <UserCategoryItem
                       key={cat.id}
                       category={cat}
                       onEdit={() => handleEditCategory(cat)}
@@ -410,24 +405,24 @@ export default function Categories() {
               Income Categories
             </CardTitle>
             <CardDescription>
-              {INCOME_CATEGORIES.length} default categories + {incomeCategories.length} custom
+              {income.system.length} default categories + {income.user.length} custom
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <div className="text-sm font-medium text-muted-foreground mb-3">Default Categories</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-                {INCOME_CATEGORIES.map((cat) => (
-                  <CategoryItem key={cat} name={cat} />
+                {income.system.map((cat) => (
+                  <SystemCategoryItem key={cat.id} category={cat} />
                 ))}
               </div>
             </div>
-            {incomeCategories.length > 0 && (
+            {income.user.length > 0 && (
               <div>
                 <div className="text-sm font-medium text-muted-foreground mb-3">Custom Categories</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                  {incomeCategories.map((cat) => (
-                    <CustomCategoryItem
+                  {income.user.map((cat) => (
+                    <UserCategoryItem
                       key={cat.id}
                       category={cat}
                       onEdit={() => handleEditCategory(cat)}
@@ -447,24 +442,24 @@ export default function Categories() {
               Bill Categories
             </CardTitle>
             <CardDescription>
-              {BILL_CATEGORIES.length} default categories + {billCategories.length} custom
+              {bill.system.length} default categories + {bill.user.length} custom
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <div className="text-sm font-medium text-muted-foreground mb-3">Default Categories</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-                {BILL_CATEGORIES.map((cat) => (
-                  <CategoryItem key={cat} name={cat} />
+                {bill.system.map((cat) => (
+                  <SystemCategoryItem key={cat.id} category={cat} />
                 ))}
               </div>
             </div>
-            {billCategories.length > 0 && (
+            {bill.user.length > 0 && (
               <div>
                 <div className="text-sm font-medium text-muted-foreground mb-3">Custom Categories</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                  {billCategories.map((cat) => (
-                    <CustomCategoryItem
+                  {bill.user.map((cat) => (
+                    <UserCategoryItem
                       key={cat.id}
                       category={cat}
                       onEdit={() => handleEditCategory(cat)}

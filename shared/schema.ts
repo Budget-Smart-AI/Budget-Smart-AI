@@ -1040,35 +1040,11 @@ export const insertNotificationSettingsSchema = createInsertSchema(notificationS
 export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type InsertNotificationSettings = z.infer<typeof insertNotificationSettingsSchema>;
 
-// Custom categories — DEPRECATED. The custom_categories table was dropped
-// in migration 0040 (§6.2.7-prep). User-defined categories now live in
-// `canonical_categories` with `user_id` set; system categories have
-// `user_id IS NULL`. The CustomCategory type below is the legacy SHAPE
-// the API still emits for backward-compatible CRUD on /api/custom-categories
-// (the route URL stays for now to avoid frontend churn). Storage methods
-// translate between this shape and canonical_categories rows.
-//
-// Phase B will drop /api/custom-categories in favor of /api/categories
-// returning the merged system+user view. At that point this type goes too.
-export interface CustomCategory {
-  id: string;
-  userId: string;
-  name: string;
-  type: "expense" | "income" | "bill";
-  color: string | null;
-  icon: string | null;
-  isActive: string;
-}
-
-export const insertCustomCategorySchema = z.object({
-  userId: z.string(),
-  name: z.string().min(1),
-  type: z.enum(["expense", "income", "bill"]),
-  color: z.string().nullable().optional(),
-  icon: z.string().nullable().optional(),
-  isActive: z.string().optional(),
-});
-export type InsertCustomCategory = z.infer<typeof insertCustomCategorySchema>;
+// Custom categories — REMOVED in §6.2.7 Phase B (commit after f15e6b9).
+// The custom_categories table was dropped in migration 0040 and the legacy
+// CustomCategory shape was retired. User-defined categories now live in
+// `canonical_categories` with `user_id` set; system rows have `user_id IS NULL`.
+// Use the CanonicalCategory type for both system and user-owned rows.
 
 // Recurring expenses (subscriptions)
 export const recurringExpenses = pgTable("recurring_expenses", {
