@@ -8961,16 +8961,48 @@ Provide clear, specific, and actionable financial advice based on the data above
       const gateResult = await checkAndConsume(userId, plan, "ai_teller");
       if (!gateResult.allowed) return res.status(402).json({ error: "upgrade_required" });
 
-      const { transaction_id, new_category, reason, source = "plaid" } = req.body;
-      if (!transaction_id || !new_category) {
-        return res.status(400).json({ error: "transaction_id and new_category required" });
+      // §6.2.7-prep Phase C: accept either canonical_category_id (preferred,
+      // sent when the frontend picked from /api/categories) or the legacy
+      // new_category string (from older AI Teller call sites). When a
+      // canonical id is provided we look it up to derive display_name for
+      // the legacy `category` column write; when only a string comes in we
+      // let storage.updateXxxTransaction's sync resolver populate canonical.
+      const { transaction_id, new_category, canonical_category_id, reason, source = "plaid" } =
+        req.body ?? {};
+      if (!transaction_id || (!new_category && !canonical_category_id)) {
+        return res.status(400).json({
+          error: "transaction_id and one of canonical_category_id / new_category required",
+        });
       }
+
+      // Resolve to a (canonicalCategoryId, legacyCategoryName) pair the
+      // storage layer can write to both columns.
+      let writeCanonicalId: string | null = canonical_category_id ?? null;
+      let writeLegacyCategory: string | null = new_category ?? null;
+      if (writeCanonicalId) {
+        const { rows } = await pool.query<{ id: string; display_name: string; user_id: string | null }>(
+          "SELECT id, display_name, user_id FROM canonical_categories WHERE id = $1",
+          [writeCanonicalId],
+        );
+        if (rows.length === 0) {
+          return res.status(400).json({ error: "Unknown canonical_category_id" });
+        }
+        // Ownership guard: user can only assign system canonicals or their own.
+        if (rows[0].user_id !== null && rows[0].user_id !== userId) {
+          return res.status(403).json({ error: "Cannot assign another user's custom category" });
+        }
+        if (!writeLegacyCategory) writeLegacyCategory = rows[0].display_name;
+      }
+
+      const writes: any = {};
+      if (writeLegacyCategory) writes.category = writeLegacyCategory;
+      if (writeCanonicalId) writes.canonicalCategoryId = writeCanonicalId;
 
       let updated: any;
       if (source === "mx") {
-        updated = await storage.updateMxTransaction(transaction_id, { category: new_category } as any);
+        updated = await storage.updateMxTransaction(transaction_id, writes);
       } else {
-        updated = await storage.updatePlaidTransaction(transaction_id, { category: new_category } as any);
+        updated = await storage.updatePlaidTransaction(transaction_id, writes);
       }
 
       // Dismiss related miscategory flags
@@ -8983,9 +9015,9 @@ Provide clear, specific, and actionable financial advice based on the data above
         eventType: "data.ai_teller_action",
         eventCategory: "data",
         actorId: userId,
-        action: `AI Teller recategorized transaction ${transaction_id} to "${new_category}" — user confirmed`,
+        action: `AI Teller recategorized transaction ${transaction_id} to "${writeLegacyCategory ?? writeCanonicalId}" — user confirmed`,
         outcome: "success",
-        metadata: { transaction_id, new_category, reason },
+        metadata: { transaction_id, new_category: writeLegacyCategory, canonical_category_id: writeCanonicalId, reason },
       });
 
       return res.json({ success: true, updated });

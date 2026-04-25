@@ -62,6 +62,7 @@ import { canonicalizeRecurrence } from "@shared/recurrence";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
 import { IncomeRegistryManager } from "@/components/income-registry-manager";
+import { useCategoryMap, getCategoryDisplayName } from "@/lib/canonical-categories";
 
 const incomeFormSchema = z.object({
   source: z.string().min(1, "Source is required"),
@@ -664,6 +665,9 @@ function IncomeForm({
 }
 
 export default function IncomePage() {
+  // §6.2.7-prep Phase C: canonical-aware category map for income row badges.
+  const categoryMap = useCategoryMap();
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDetectDialogOpen, setIsDetectDialogOpen] = useState(false);
   // Step 6: registry manager dialog (rate changes + mode classification)
@@ -1189,7 +1193,7 @@ export default function IncomePage() {
                         <span>•</span>
                         <span>{inc.recurrence}</span>
                         <span>•</span>
-                        <Badge variant="outline" className="text-xs">{inc.category}</Badge>
+                        <Badge variant="outline" className="text-xs">{getCategoryDisplayName(inc as any, categoryMap)}</Badge>
                       </div>
                     </div>
                     <span className="text-xs text-muted-foreground">

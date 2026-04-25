@@ -312,7 +312,11 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
   const existing = await storage.getPlaidTransactionByTransactionId(tx.transaction_id);
 
   if (existing) {
-    // Update existing transaction — preserve enrichment fields
+    // Update existing transaction — preserve enrichment fields.
+    // §6.2.7-prep Phase C: pass existing canonicalCategoryId through so the
+    // dual-write branch in updatePlaidTransaction does NOT re-resolve from
+    // pfcPrimary on every sync. COALESCE semantics — sync-driven updates
+    // never overwrite a user-corrected or AI-Teller-corrected canonical.
     await storage.updatePlaidTransaction(existing.id, {
       amount: tx.amount.toString(),
       date: tx.date,
@@ -320,6 +324,7 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       merchantName: tx.merchant_name || null,
       logoUrl: logoUrl,
       category: pfcPrimary,
+      canonicalCategoryId: existing.canonicalCategoryId ?? null,
       personalCategory: mappedCategory,
       pending: tx.pending ? "true" : "false",
       isActive: "true",
@@ -333,7 +338,7 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       counterpartyName: counterpartyName,
       counterpartyType: counterpartyType,
       counterpartyWebsite: counterpartyWebsite,
-    });
+    } as any);
   } else {
     // Fetch reconciliation context
     const bills = await storage.getBills(userId);

@@ -79,8 +79,12 @@ import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, BILL_CATEGORIES, MANUAL_ACCOUNT_TYPES, MX_SUPPORTED_COUNTRIES, type PlaidTransaction, type ManualAccount, type ManualTransaction } from "@shared/schema";
-import { getEffectiveCategory, getEffectiveCategoryBucket } from "@shared/categoryResolver";
-import { useExpenseCategories } from "@/lib/canonical-categories";
+import { getEffectiveCategoryBucket } from "@shared/categoryResolver";
+import {
+  useExpenseCategories,
+  useCategoryMap,
+  getCategoryDisplayName,
+} from "@/lib/canonical-categories";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Wallet, Trash2, Upload, Download, Banknote, CreditCard as CreditCardIcon, TrendingUp, ScanLine } from "lucide-react";
@@ -1570,6 +1574,9 @@ function ReconnectBankButton({
 }
 
 export default function BankAccounts() {
+  // §6.2.7-prep Phase C: canonical-aware category map for tx badge rendering.
+  const categoryMap = useCategoryMap();
+
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [search, setSearch] = useState("");
   const [matchFilter, setMatchFilter] = useState("all");
@@ -2966,7 +2973,7 @@ export default function BankAccounts() {
                                         color: CATEGORY_COLORS[getEffectiveCategoryBucket(tx as any)] || '#71717a',
                                       }}
                                     >
-                                      {getEffectiveCategory(tx as any)}
+                                      {getCategoryDisplayName(tx as any, categoryMap)}
                                     </Badge>
                                   </button>
                                 </DropdownMenuTrigger>

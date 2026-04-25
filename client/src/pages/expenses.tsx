@@ -90,8 +90,10 @@ import { format, parseISO, startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, TAX_CATEGORIES, type Expense } from "@shared/schema";
-import { getEffectiveCategory } from "@shared/categoryResolver";
-import { useCategoryMap } from "@/lib/canonical-categories";
+import {
+  useCategoryMap,
+  getCategoryDisplayName,
+} from "@/lib/canonical-categories";
 import { FloatingChatbot, type TransactionContext } from "@/components/floating-chatbot";
 import { DemoBanner } from "@/components/demo-banner";
 
@@ -243,6 +245,10 @@ function isAlreadyMatched(expense: Expense): boolean {
 
 function ExpenseSummary({ expense, onClose }: { expense: Expense; onClose: () => void }) {
   const status = getExpenseStatus(expense);
+  // §6.2.7-prep Phase C: canonical-aware display name. Falls back to legacy
+  // expense.category until the column drops in §6.2.8.
+  const categoryMap = useCategoryMap();
+  const expenseCategoryName = getCategoryDisplayName(expense as any, categoryMap);
 
   const statusLabel: Record<ExpenseStatus, string> = {
     reconciled: "Reconciled",
@@ -284,8 +290,8 @@ function ExpenseSummary({ expense, onClose }: { expense: Expense; onClose: () =>
         </div>
         <div>
           <p className="text-muted-foreground text-xs uppercase tracking-wide mb-0.5">Category</p>
-          <Badge className={`text-xs font-medium ${getCategoryColor(getEffectiveCategory(expense as any))}`} variant="secondary">
-            {getEffectiveCategory(expense as any)}
+          <Badge className={`text-xs font-medium ${getCategoryColor(expenseCategoryName)}`} variant="secondary">
+            {expenseCategoryName}
           </Badge>
         </div>
         {expense.notes && (
@@ -1397,9 +1403,15 @@ export default function ExpensesPage() {
 
                         {/* Category */}
                         <TableCell>
-                          <Badge className={`text-xs font-medium ${getCategoryColor(expense.category)}`} variant="secondary">
-                            {expense.category}
-                          </Badge>
+                          {/* §6.2.7-prep Phase C: canonical-aware display name */}
+                          {(() => {
+                            const name = getCategoryDisplayName(expense as any, categoryMap);
+                            return (
+                              <Badge className={`text-xs font-medium ${getCategoryColor(name)}`} variant="secondary">
+                                {name}
+                              </Badge>
+                            );
+                          })()}
                         </TableCell>
 
                         {/* Amount — Part 3: show foreign currency info */}

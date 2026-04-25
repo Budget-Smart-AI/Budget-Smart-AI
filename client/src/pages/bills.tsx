@@ -58,6 +58,10 @@ import { format, setDate, addMonths, isBefore, addDays, addWeeks, getDay, setDay
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BILL_CATEGORIES, RECURRENCE_OPTIONS, type Bill } from "@shared/schema";
+import {
+  useCategoryMap,
+  getCategoryDisplayName,
+} from "@/lib/canonical-categories";
 import { useFeatureUsage } from "@/contexts/FeatureUsageContext";
 import { AlertTriangle, Crown } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -800,6 +804,9 @@ function ImportDialog({
 }
 
 export default function Bills() {
+  // §6.2.7-prep Phase C: canonical-aware category map for bill row badges.
+  const categoryMap = useCategoryMap();
+
   const [activeTab, setActiveTab] = useState("bills");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
@@ -1536,7 +1543,8 @@ export default function Bills() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="secondary">{bill.category}</Badge>
+                            {/* §6.2.7-prep Phase C: canonical-aware display name */}
+                            <Badge variant="secondary">{getCategoryDisplayName(bill as any, categoryMap)}</Badge>
                           </TableCell>
                           <TableCell>
                             {bill.startDate ? format(parseISO(bill.startDate), "MMM d, yyyy") : "-"}

@@ -1515,7 +1515,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateBill(id: string, updates: Partial<InsertBill>): Promise<Bill | undefined> {
-    const result = await db.update(bills).set(updates).where(eq(bills.id, id)).returning();
+    // §6.2.7-prep Phase C: keep canonical_category_id in sync with the legacy
+    // `category` column on update. Sync resolver only — no AI from PATCH
+    // handlers. Caller-provided canonicalCategoryId wins (e.g. when the
+    // frontend has already resolved canonical via the hook).
+    const finalUpdates: any = { ...updates };
+    if (
+      updates.category !== undefined &&
+      (updates as any).canonicalCategoryId === undefined
+    ) {
+      let merchantHint: string | null =
+        (updates as any).merchant ?? (updates as any).name ?? null;
+      if (merchantHint === null) {
+        const existing = await this.getBill(id);
+        merchantHint = existing?.merchant ?? existing?.name ?? null;
+      }
+      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
+        legacyCategory: updates.category,
+        merchantName: merchantHint,
+        amount: updates.amount !== undefined ? Number(updates.amount) || null : null,
+        rowKind: "bill",
+      }).canonicalId;
+    }
+    const result = await db.update(bills).set(finalUpdates).where(eq(bills.id, id)).returning();
     return result[0];
   }
 
@@ -1566,7 +1588,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateExpense(id: string, updates: Partial<InsertExpense>): Promise<Expense | undefined> {
-    const result = await db.update(expenses).set(updates).where(eq(expenses.id, id)).returning();
+    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update.
+    const finalUpdates: any = { ...updates };
+    if (
+      updates.category !== undefined &&
+      (updates as any).canonicalCategoryId === undefined
+    ) {
+      let merchantHint: string | null = (updates as any).merchant ?? null;
+      if (merchantHint === null) {
+        const existing = await this.getExpense(id);
+        merchantHint = existing?.merchant ?? null;
+      }
+      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
+        legacyCategory: updates.category,
+        merchantName: merchantHint,
+        amount: updates.amount !== undefined ? Number(updates.amount) || null : null,
+        rowKind: "expense",
+      }).canonicalId;
+    }
+    const result = await db.update(expenses).set(finalUpdates).where(eq(expenses.id, id)).returning();
     return result[0];
   }
 
@@ -1674,7 +1714,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateIncome(id: string, updates: Partial<InsertIncome>): Promise<Income | undefined> {
-    const result = await db.update(income).set(updates).where(eq(income.id, id)).returning();
+    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update.
+    // For income rows, `source` is the merchant-equivalent hint.
+    const finalUpdates: any = { ...updates };
+    if (
+      updates.category !== undefined &&
+      (updates as any).canonicalCategoryId === undefined
+    ) {
+      let merchantHint: string | null = (updates as any).source ?? null;
+      if (merchantHint === null) {
+        const existing = await this.getIncome(id);
+        merchantHint = existing?.source ?? null;
+      }
+      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
+        legacyCategory: updates.category,
+        merchantName: merchantHint,
+        amount: updates.amount !== undefined ? Number(updates.amount) || null : null,
+        rowKind: "income",
+      }).canonicalId;
+    }
+    const result = await db.update(income).set(finalUpdates).where(eq(income.id, id)).returning();
     return result[0];
   }
 
@@ -1984,7 +2043,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePlaidTransaction(id: string, updates: Partial<PlaidTransaction>): Promise<PlaidTransaction | undefined> {
-    const result = await db.update(plaidTransactions).set(updates).where(eq(plaidTransactions.id, id)).returning();
+    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update,
+    // primarily for the AI Teller recategorize endpoint at routes.ts:8957.
+    const finalUpdates: any = { ...updates };
+    if (
+      (updates as any).category !== undefined &&
+      (updates as any).canonicalCategoryId === undefined
+    ) {
+      const existing = await db.select().from(plaidTransactions).where(eq(plaidTransactions.id, id)).limit(1);
+      const row = existing[0];
+      const merchantHint: string | null =
+        (updates as any).merchantCleanName ??
+        (updates as any).merchantName ??
+        (updates as any).name ??
+        row?.merchantCleanName ?? row?.merchantName ?? row?.name ?? null;
+      const amountForResolver =
+        (updates as any).amount !== undefined
+          ? Number((updates as any).amount) || null
+          : row?.amount ? Number(row.amount) || null : null;
+      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
+        legacyCategory: (updates as any).category,
+        merchantName: merchantHint,
+        amount: amountForResolver,
+        rowKind: "plaid",
+        plaidDetailed:
+          (updates as any).personalFinanceCategoryDetailed ??
+          row?.personalFinanceCategoryDetailed ?? null,
+      }).canonicalId;
+    }
+    const result = await db.update(plaidTransactions).set(finalUpdates).where(eq(plaidTransactions.id, id)).returning();
     return result[0];
   }
 
@@ -2161,7 +2248,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateMxTransaction(id: string, updates: Partial<MxTransaction>): Promise<MxTransaction | undefined> {
-    const result = await db.update(mxTransactions).set(updates).where(eq(mxTransactions.id, id)).returning();
+    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update,
+    // primarily for the AI Teller recategorize endpoint at routes.ts:8957.
+    const finalUpdates: any = { ...updates };
+    if (
+      (updates as any).category !== undefined &&
+      (updates as any).canonicalCategoryId === undefined
+    ) {
+      const existing = await db.select().from(mxTransactions).where(eq(mxTransactions.id, id)).limit(1);
+      const row = existing[0];
+      const merchantHint: string | null =
+        (updates as any).merchantCleanName ??
+        (updates as any).description ??
+        row?.merchantCleanName ?? row?.description ?? null;
+      const amountForResolver =
+        (updates as any).amount !== undefined
+          ? Number((updates as any).amount) || null
+          : row?.amount ? Number(row.amount) || null : null;
+      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
+        legacyCategory: (updates as any).category,
+        merchantName: merchantHint,
+        amount: amountForResolver,
+        rowKind: "mx",
+      }).canonicalId;
+    }
+    const result = await db.update(mxTransactions).set(finalUpdates).where(eq(mxTransactions.id, id)).returning();
     return result[0];
   }
 
@@ -3097,7 +3208,37 @@ export class DatabaseStorage implements IStorage {
     // Get original transaction to adjust balance if amount changed
     const original = await this.getManualTransaction(id);
 
-    const result = await db.update(manualTransactions).set(updates).where(eq(manualTransactions.id, id)).returning();
+    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update.
+    // Transfer rows (`isTransfer === "true"`, either pre-existing or being
+    // set in this update) bypass the resolver and remain NULL until §6.3.
+    const finalUpdates: any = { ...updates };
+    if (
+      updates.category !== undefined &&
+      (updates as any).canonicalCategoryId === undefined
+    ) {
+      const willBeTransfer =
+        ((updates as any).isTransfer ?? original?.isTransfer) === "true";
+      if (willBeTransfer) {
+        finalUpdates.canonicalCategoryId = null;
+      } else {
+        const merchantHint: string | null =
+          (updates as any).merchant ?? original?.merchant ?? null;
+        const amountForResolver =
+          updates.amount !== undefined
+            ? Number(updates.amount) || null
+            : original?.amount
+              ? Number(original.amount) || null
+              : null;
+        finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
+          legacyCategory: updates.category,
+          merchantName: merchantHint,
+          amount: amountForResolver,
+          rowKind: "manual",
+        }).canonicalId;
+      }
+    }
+
+    const result = await db.update(manualTransactions).set(finalUpdates).where(eq(manualTransactions.id, id)).returning();
 
     // Adjust account balance if amount changed
     if (original && updates.amount !== undefined && result[0]) {
