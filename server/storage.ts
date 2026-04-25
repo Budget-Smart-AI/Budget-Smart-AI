@@ -731,7 +731,7 @@ export class MemStorage implements IStorage {
 
   async createBill(insertBill: InsertBill & { userId: string }): Promise<Bill> {
     const id = randomUUID();
-    const bill: Bill = {
+    const bill = {
       ...insertBill,
       id,
       userId: insertBill.userId,
@@ -745,7 +745,7 @@ export class MemStorage implements IStorage {
       isPaused: insertBill.isPaused || null,
       merchant: insertBill.merchant || null,
       linkedPlaidAccountId: insertBill.linkedPlaidAccountId ?? null,
-    };
+    } as Bill;
     this.bills.set(id, bill);
     return bill;
   }
@@ -791,7 +791,7 @@ export class MemStorage implements IStorage {
 
   async createExpense(insertExpense: InsertExpense & { userId: string }): Promise<Expense> {
     const id = randomUUID();
-    const expense: Expense = { 
+    const expense = { 
       ...insertExpense, 
       id,
       userId: insertExpense.userId,
@@ -799,7 +799,7 @@ export class MemStorage implements IStorage {
       taxDeductible: insertExpense.taxDeductible ?? null,
       taxCategory: insertExpense.taxCategory ?? null,
       isBusinessExpense: insertExpense.isBusinessExpense ?? null,
-    };
+    } as Expense;
     this.expenses.set(id, expense);
     return expense;
   }
@@ -832,7 +832,7 @@ export class MemStorage implements IStorage {
 
   async createIncome(insertIncome: InsertIncome & { userId: string }): Promise<Income> {
     const id = randomUUID();
-    const incomeRecord: Income = {
+    const incomeRecord = {
       ...insertIncome,
       id,
       userId: insertIncome.userId,
@@ -844,7 +844,7 @@ export class MemStorage implements IStorage {
       linkedPlaidAccountId: insertIncome.linkedPlaidAccountId ?? null,
       amountChangeDate: insertIncome.amountChangeDate ?? null,
       futureAmount: insertIncome.futureAmount ?? null,
-    };
+    } as Income;
     this.incomes.set(id, incomeRecord);
     return incomeRecord;
   }
@@ -967,7 +967,7 @@ export class MemStorage implements IStorage {
   async getPlaidTransactions(_accountIds: string[], _options?: { startDate?: string; endDate?: string }): Promise<PlaidTransaction[]> { return []; }
   async getPlaidTransactionByTransactionId(_transactionId: string): Promise<PlaidTransaction | undefined> { return undefined; }
   async getRecentTransactionIds(_userId: string, _daysBack: number): Promise<string[]> { return []; }
-  async createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction> { return { id: randomUUID(), ...transaction, merchantName: transaction.merchantName || null, category: transaction.category || null, personalCategory: transaction.personalCategory || null, pending: transaction.pending || "false", matchType: transaction.matchType || null, matchedBillId: transaction.matchedBillId || null, matchedExpenseId: transaction.matchedExpenseId || null, matchedIncomeId: transaction.matchedIncomeId || null, reconciled: transaction.reconciled || "false", isoCurrencyCode: transaction.isoCurrencyCode || "CAD", taxDeductible: transaction.taxDeductible || null, taxCategory: transaction.taxCategory || null, isBusinessExpense: transaction.isBusinessExpense || null, logoUrl: transaction.logoUrl || null, createdAt: transaction.createdAt || null, merchantCleanName: null, merchantLogoUrl: null, subcategory: null, merchantType: null, isSubscription: "false", enrichmentSource: null, enrichmentConfidence: null } as PlaidTransaction; }
+  async createPlaidTransaction(transaction: InsertPlaidTransaction): Promise<PlaidTransaction> { return { id: randomUUID(), ...transaction, merchantName: transaction.merchantName || null, canonicalCategoryId: transaction.canonicalCategoryId || "uncategorized", pending: transaction.pending || "false", matchType: transaction.matchType || null, matchedBillId: transaction.matchedBillId || null, matchedExpenseId: transaction.matchedExpenseId || null, matchedIncomeId: transaction.matchedIncomeId || null, reconciled: transaction.reconciled || "false", isoCurrencyCode: transaction.isoCurrencyCode || "CAD", taxDeductible: transaction.taxDeductible || null, taxCategory: transaction.taxCategory || null, isBusinessExpense: transaction.isBusinessExpense || null, logoUrl: transaction.logoUrl || null, createdAt: transaction.createdAt || null, merchantCleanName: null, merchantLogoUrl: null, subcategory: null, merchantType: null, isSubscription: "false", enrichmentSource: null, enrichmentConfidence: null } as PlaidTransaction; }
   async updatePlaidTransaction(_id: string, _updates: Partial<PlaidTransaction>): Promise<PlaidTransaction | undefined> { return undefined; }
   async deleteRemovedTransactions(_transactionIds: string[]): Promise<void> {}
   async getUnmatchedTransactions(_accountIds: string[]): Promise<PlaidTransaction[]> { return []; }
@@ -1471,25 +1471,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBill(insertBill: InsertBill & { userId: string }): Promise<Bill> {
-    // §6.2.6 dual-write: resolve canonical_category_id at insert time so the
-    // shadow column doesn't drift back to NULL after the one-time backfill.
-    // If the caller passed an explicit slug, honour it; otherwise resolve
-    // from the BSA legacy string.
-    const canonicalCategoryId =
-      (insertBill as any).canonicalCategoryId ??
-      resolveCanonicalCategorySync({
-        legacyCategory: insertBill.category,
-        merchantName: insertBill.merchant ?? insertBill.name ?? null,
-        amount: Number(insertBill.amount) || null,
-        rowKind: "bill",
-      }).canonicalId;
-
+    // §6.2.8: canonicalCategoryId is the single source of truth — legacy
+    // `category` column was dropped in migration 0041.
     const result = await db.insert(bills).values({
       userId: insertBill.userId,
       name: insertBill.name,
       amount: String(parseFloat(String(insertBill.amount))),
-      category: insertBill.category,
-      canonicalCategoryId,
+      canonicalCategoryId: insertBill.canonicalCategoryId,
       dueDay: parseInt(String(insertBill.dueDay), 10),
       recurrence: insertBill.recurrence,
       customDates: insertBill.customDates || null,
@@ -1515,29 +1503,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateBill(id: string, updates: Partial<InsertBill>): Promise<Bill | undefined> {
-    // §6.2.7-prep Phase C: keep canonical_category_id in sync with the legacy
-    // `category` column on update. Sync resolver only — no AI from PATCH
-    // handlers. Caller-provided canonicalCategoryId wins (e.g. when the
-    // frontend has already resolved canonical via the hook).
-    const finalUpdates: any = { ...updates };
-    if (
-      updates.category !== undefined &&
-      (updates as any).canonicalCategoryId === undefined
-    ) {
-      let merchantHint: string | null =
-        (updates as any).merchant ?? (updates as any).name ?? null;
-      if (merchantHint === null) {
-        const existing = await this.getBill(id);
-        merchantHint = existing?.merchant ?? existing?.name ?? null;
-      }
-      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
-        legacyCategory: updates.category,
-        merchantName: merchantHint,
-        amount: updates.amount !== undefined ? Number(updates.amount) || null : null,
-        rowKind: "bill",
-      }).canonicalId;
-    }
-    const result = await db.update(bills).set(finalUpdates).where(eq(bills.id, id)).returning();
+    // §6.2.8: canonicalCategoryId is the single source of truth.
+    const result = await db.update(bills).set(updates).where(eq(bills.id, id)).returning();
     return result[0];
   }
 
@@ -1565,11 +1532,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createExpense(insertExpense: InsertExpense & { userId: string }): Promise<Expense> {
-    // §6.2.6 dual-write: resolve canonical_category_id at insert time.
+    // §6.2.8 Phase D: category column dropped — canonicalCategoryId is sole source of truth.
     const canonicalCategoryId =
       (insertExpense as any).canonicalCategoryId ??
       resolveCanonicalCategorySync({
-        legacyCategory: insertExpense.category,
+        legacyCategory: null,
         merchantName: insertExpense.merchant ?? null,
         amount: Number(insertExpense.amount) || null,
         rowKind: "expense",
@@ -1580,7 +1547,6 @@ export class DatabaseStorage implements IStorage {
       merchant: insertExpense.merchant,
       amount: insertExpense.amount,
       date: insertExpense.date,
-      category: insertExpense.category,
       canonicalCategoryId,
       notes: insertExpense.notes || null,
     }).returning();
@@ -1588,25 +1554,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateExpense(id: string, updates: Partial<InsertExpense>): Promise<Expense | undefined> {
-    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update.
-    const finalUpdates: any = { ...updates };
-    if (
-      updates.category !== undefined &&
-      (updates as any).canonicalCategoryId === undefined
-    ) {
-      let merchantHint: string | null = (updates as any).merchant ?? null;
-      if (merchantHint === null) {
-        const existing = await this.getExpense(id);
-        merchantHint = existing?.merchant ?? null;
-      }
-      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
-        legacyCategory: updates.category,
-        merchantName: merchantHint,
-        amount: updates.amount !== undefined ? Number(updates.amount) || null : null,
-        rowKind: "expense",
-      }).canonicalId;
-    }
-    const result = await db.update(expenses).set(finalUpdates).where(eq(expenses.id, id)).returning();
+    // §6.2.8 Phase D: category column dropped — pass updates directly.
+    const result = await db.update(expenses).set(updates).where(eq(expenses.id, id)).returning();
     return result[0];
   }
 
@@ -1636,7 +1585,7 @@ export class DatabaseStorage implements IStorage {
     const canonicalCategoryId =
       (insertIncome as any).canonicalCategoryId ??
       resolveCanonicalCategorySync({
-        legacyCategory: insertIncome.category,
+        legacyCategory: null,
         merchantName: insertIncome.source ?? null,
         amount: Number(insertIncome.amount) || null,
         rowKind: "income",
@@ -1647,7 +1596,6 @@ export class DatabaseStorage implements IStorage {
       source: insertIncome.source,
       amount: insertIncome.amount,
       date: insertIncome.date,
-      category: insertIncome.category,
       canonicalCategoryId,
       isRecurring: insertIncome.isRecurring || "false",
       isActive: (insertIncome as any).isActive ?? "true",
@@ -1714,26 +1662,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateIncome(id: string, updates: Partial<InsertIncome>): Promise<Income | undefined> {
-    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update.
-    // For income rows, `source` is the merchant-equivalent hint.
-    const finalUpdates: any = { ...updates };
-    if (
-      updates.category !== undefined &&
-      (updates as any).canonicalCategoryId === undefined
-    ) {
-      let merchantHint: string | null = (updates as any).source ?? null;
-      if (merchantHint === null) {
-        const existing = await this.getIncome(id);
-        merchantHint = existing?.source ?? null;
-      }
-      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
-        legacyCategory: updates.category,
-        merchantName: merchantHint,
-        amount: updates.amount !== undefined ? Number(updates.amount) || null : null,
-        rowKind: "income",
-      }).canonicalId;
-    }
-    const result = await db.update(income).set(finalUpdates).where(eq(income.id, id)).returning();
+    // §6.2.8 Phase D: category column dropped — pass updates directly.
+    const result = await db.update(income).set(updates).where(eq(income.id, id)).returning();
     return result[0];
   }
 
@@ -1757,9 +1687,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBudget(insertBudget: InsertBudget & { userId: string }): Promise<Budget> {
+    // §6.2.8 Phase D: category column dropped — use canonicalCategoryId.
     const result = await db.insert(budgets).values({
       userId: insertBudget.userId,
-      category: insertBudget.category,
+      canonicalCategoryId: (insertBudget as any).canonicalCategoryId,
       amount: insertBudget.amount,
       month: insertBudget.month,
     }).returning();
@@ -1969,7 +1900,7 @@ export class DatabaseStorage implements IStorage {
     const canonicalCategoryId =
       (transaction as any).canonicalCategoryId ??
       resolveCanonicalCategorySync({
-        legacyCategory: transaction.personalCategory ?? null,
+      legacyCategory: (transaction as any).personalCategory ?? transaction.canonicalCategoryId ?? null,
         plaidDetailed: pfcDetailed,
         merchantName: transaction.merchantName ?? transaction.name ?? null,
         amount: Number(transaction.amount) || null,
@@ -1977,6 +1908,7 @@ export class DatabaseStorage implements IStorage {
       }).canonicalId;
 
     // Use upsert to handle duplicate transactions gracefully
+    // §6.2.8 Phase D: category & personalCategory columns dropped in migration 0041.
     const result = await db.insert(plaidTransactions).values({
       plaidAccountId: transaction.plaidAccountId,
       transactionId: transaction.transactionId,
@@ -1985,8 +1917,6 @@ export class DatabaseStorage implements IStorage {
       name: transaction.name,
       merchantName: transaction.merchantName || null,
       logoUrl: (transaction as any).logoUrl || null,
-      category: transaction.category || null,
-      personalCategory: transaction.personalCategory || null,
       canonicalCategoryId,
       personalFinanceCategoryDetailed: (transaction as any).personalFinanceCategoryDetailed || null,
       personalFinanceCategoryConfidence: (transaction as any).personalFinanceCategoryConfidence || null,
@@ -2009,7 +1939,7 @@ export class DatabaseStorage implements IStorage {
         // Preserve enrichment fields on upsert — use COALESCE so existing data is not overwritten with null
         merchantName: sql`COALESCE(${transaction.merchantName || null}, plaid_transactions.merchant_name)`,
         logoUrl: sql`COALESCE(${transaction.logoUrl || null}, plaid_transactions.logo_url)`,
-        category: sql`COALESCE(${transaction.category || null}, plaid_transactions.category)`,
+        // §6.2.8 Phase D: category column dropped — removed from onConflictDoUpdate set.
         // Keep canonical_category_id idempotent on re-sync: only fill if previously NULL
         canonicalCategoryId: sql`COALESCE(plaid_transactions.canonical_category_id, ${canonicalCategoryId})`,
         personalFinanceCategoryDetailed: sql`COALESCE(${(transaction as any).personalFinanceCategoryDetailed || null}, plaid_transactions.personal_finance_category_detailed)`,
@@ -2026,7 +1956,7 @@ export class DatabaseStorage implements IStorage {
       enrichTransaction({
         rawDescription: transaction.name,
         amount: Math.abs(parseFloat(transaction.amount)),
-        providerCategory: transaction.category || undefined,
+        providerCategory: (transaction as any).category || undefined,
       }).then(async (enriched) => {
         await db.update(plaidTransactions).set({
           merchantCleanName: enriched.cleanName,
@@ -2043,35 +1973,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePlaidTransaction(id: string, updates: Partial<PlaidTransaction>): Promise<PlaidTransaction | undefined> {
-    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update,
-    // primarily for the AI Teller recategorize endpoint at routes.ts:8957.
-    const finalUpdates: any = { ...updates };
-    if (
-      (updates as any).category !== undefined &&
-      (updates as any).canonicalCategoryId === undefined
-    ) {
-      const existing = await db.select().from(plaidTransactions).where(eq(plaidTransactions.id, id)).limit(1);
-      const row = existing[0];
-      const merchantHint: string | null =
-        (updates as any).merchantCleanName ??
-        (updates as any).merchantName ??
-        (updates as any).name ??
-        row?.merchantCleanName ?? row?.merchantName ?? row?.name ?? null;
-      const amountForResolver =
-        (updates as any).amount !== undefined
-          ? Number((updates as any).amount) || null
-          : row?.amount ? Number(row.amount) || null : null;
-      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
-        legacyCategory: (updates as any).category,
-        merchantName: merchantHint,
-        amount: amountForResolver,
-        rowKind: "plaid",
-        plaidDetailed:
-          (updates as any).personalFinanceCategoryDetailed ??
-          row?.personalFinanceCategoryDetailed ?? null,
-      }).canonicalId;
-    }
-    const result = await db.update(plaidTransactions).set(finalUpdates).where(eq(plaidTransactions.id, id)).returning();
+    // §6.2.8 Phase D: category column dropped — pass updates directly.
+    const result = await db.update(plaidTransactions).set(updates).where(eq(plaidTransactions.id, id)).returning();
     return result[0];
   }
 
@@ -2219,7 +2122,7 @@ export class DatabaseStorage implements IStorage {
         set: {
           amount: transaction.amount,
           description: transaction.description,
-          category: transaction.category,
+          // §6.2.8 Phase D: category column dropped — removed from onConflictDoUpdate set.
           topLevelCategory: transaction.topLevelCategory,
           status: transaction.status,
           postedAt: transaction.postedAt,
@@ -2231,7 +2134,7 @@ export class DatabaseStorage implements IStorage {
         enrichTransaction({
           rawDescription: transaction.description,
           amount: Math.abs(parseFloat(transaction.amount)),
-          providerCategory: transaction.category || undefined,
+          providerCategory: (transaction as any).category || transaction.topLevelCategory || undefined,
         }).then(async (enriched) => {
           await db.update(mxTransactions).set({
             merchantCleanName: enriched.cleanName,
@@ -2248,31 +2151,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateMxTransaction(id: string, updates: Partial<MxTransaction>): Promise<MxTransaction | undefined> {
-    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update,
-    // primarily for the AI Teller recategorize endpoint at routes.ts:8957.
-    const finalUpdates: any = { ...updates };
-    if (
-      (updates as any).category !== undefined &&
-      (updates as any).canonicalCategoryId === undefined
-    ) {
-      const existing = await db.select().from(mxTransactions).where(eq(mxTransactions.id, id)).limit(1);
-      const row = existing[0];
-      const merchantHint: string | null =
-        (updates as any).merchantCleanName ??
-        (updates as any).description ??
-        row?.merchantCleanName ?? row?.description ?? null;
-      const amountForResolver =
-        (updates as any).amount !== undefined
-          ? Number((updates as any).amount) || null
-          : row?.amount ? Number(row.amount) || null : null;
-      finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
-        legacyCategory: (updates as any).category,
-        merchantName: merchantHint,
-        amount: amountForResolver,
-        rowKind: "mx",
-      }).canonicalId;
-    }
-    const result = await db.update(mxTransactions).set(finalUpdates).where(eq(mxTransactions.id, id)).returning();
+    // §6.2.8 Phase D: category column dropped — pass updates directly.
+    const result = await db.update(mxTransactions).set(updates).where(eq(mxTransactions.id, id)).returning();
     return result[0];
   }
 
@@ -3163,7 +3043,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createManualTransaction(transaction: InsertManualTransaction & { userId: string; accountId: string }): Promise<ManualTransaction> {
-    // §6.2.6 dual-write: resolve canonical_category_id at insert time.
+    // §6.2.8 Phase D: category column dropped — canonicalCategoryId is sole source of truth.
     // Transfer rows (`isTransfer === "true"`) skip the resolver and land as
     // NULL — the §6.3 transfer-classification pass will mark them explicitly.
     const isTransferRow = transaction.isTransfer === "true";
@@ -3172,7 +3052,7 @@ export class DatabaseStorage implements IStorage {
       (isTransferRow
         ? null
         : resolveCanonicalCategorySync({
-            legacyCategory: transaction.category ?? null,
+            legacyCategory: null,
             merchantName: transaction.merchant ?? null,
             amount: Number(transaction.amount) || null,
             rowKind: "manual",
@@ -3184,7 +3064,6 @@ export class DatabaseStorage implements IStorage {
       amount: transaction.amount,
       date: transaction.date,
       merchant: transaction.merchant,
-      category: transaction.category || null,
       canonicalCategoryId,
       notes: transaction.notes || null,
       isTransfer: transaction.isTransfer || "false",
@@ -3208,37 +3087,8 @@ export class DatabaseStorage implements IStorage {
     // Get original transaction to adjust balance if amount changed
     const original = await this.getManualTransaction(id);
 
-    // §6.2.7-prep Phase C: keep canonical_category_id in sync on update.
-    // Transfer rows (`isTransfer === "true"`, either pre-existing or being
-    // set in this update) bypass the resolver and remain NULL until §6.3.
-    const finalUpdates: any = { ...updates };
-    if (
-      updates.category !== undefined &&
-      (updates as any).canonicalCategoryId === undefined
-    ) {
-      const willBeTransfer =
-        ((updates as any).isTransfer ?? original?.isTransfer) === "true";
-      if (willBeTransfer) {
-        finalUpdates.canonicalCategoryId = null;
-      } else {
-        const merchantHint: string | null =
-          (updates as any).merchant ?? original?.merchant ?? null;
-        const amountForResolver =
-          updates.amount !== undefined
-            ? Number(updates.amount) || null
-            : original?.amount
-              ? Number(original.amount) || null
-              : null;
-        finalUpdates.canonicalCategoryId = resolveCanonicalCategorySync({
-          legacyCategory: updates.category,
-          merchantName: merchantHint,
-          amount: amountForResolver,
-          rowKind: "manual",
-        }).canonicalId;
-      }
-    }
-
-    const result = await db.update(manualTransactions).set(finalUpdates).where(eq(manualTransactions.id, id)).returning();
+    // §6.2.8 Phase D: category column dropped — pass updates directly.
+    const result = await db.update(manualTransactions).set(updates).where(eq(manualTransactions.id, id)).returning();
 
     // Adjust account balance if amount changed
     if (original && updates.amount !== undefined && result[0]) {

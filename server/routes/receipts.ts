@@ -186,7 +186,7 @@ async function matchReceiptToTransaction(
       merchant: receipt.merchant || "Unknown",
       amount: String(receipt.amount),
       date: receipt.date,
-      category: expenseCategory,
+      canonicalCategoryId: expenseCategory,
       notes: `Auto-created from scanned receipt`,
     });
 
@@ -497,7 +497,7 @@ router.post('/:receiptId/create-expense', authenticate, async (req, res) => {
       merchant: merchant ?? receipt.merchant,
       amount: String(amount ?? receipt.amount),
       date: date ?? receipt.date,
-      category: resolvedCategory as typeof EXPENSE_CATEGORIES[number],
+      canonicalCategoryId: resolvedCategory as typeof EXPENSE_CATEGORIES[number],
       notes: notes ?? null,
     });
 

@@ -244,7 +244,7 @@ function BillForm({
     defaultValues: {
       name: bill?.name || "",
       amount: bill?.amount || "",
-      category: (bill?.category as typeof BILL_CATEGORIES[number]) || "Other",
+      category: (bill?.canonicalCategoryId as typeof BILL_CATEGORIES[number]) || "Other",
       dueDay: bill?.dueDay || 1,
       recurrence: (bill?.recurrence as typeof RECURRENCE_OPTIONS[number]) || "monthly",
       customDates: bill?.customDates || null,
@@ -1509,7 +1509,7 @@ export default function Bills() {
                 <TableHeader>
                   <TableRow>
                     <SortHeader label="Name" sortKey="name" />
-                    <SortHeader label="Category" sortKey="category" />
+                    <SortHeader label="Category" sortKey="canonicalCategoryId" />
                     <SortHeader label="Start Date" sortKey="startDate" />
                     <SortHeader label="Next Due" sortKey="nextDue" />
                     <TableHead>Recurrence</TableHead>

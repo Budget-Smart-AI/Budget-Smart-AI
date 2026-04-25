@@ -589,12 +589,12 @@ router.get("/budgets", async (req: Request, res: Response) => {
     // Map Drizzle numeric strings → engine number types
     const result = calculateBudgets({
       budgets: budgetsData.map((b) => ({
-        category: b.category,
+        category: b.canonicalCategoryId,
         amount: parseFloat(String(b.amount ?? 0)),
         month: b.month,
       })),
       expenses: expensesData.map((e) => ({
-        category: e.category,
+        category: e.canonicalCategoryId,
         amount: parseFloat(String(e.amount ?? 0)),
         date: e.date,
       })),
@@ -1157,7 +1157,7 @@ router.get("/tax", async (req: Request, res: Response) => {
         id: e.id,
         date: e.date,
         merchant: e.merchant,
-        category: e.category ?? "Other",
+        category: e.canonicalCategoryId ?? "Other",
         amount: parseFloat(String(e.amount ?? 0)) || 0,
         // `expenses.taxDeductible` is a Postgres text column storing "true"/"false".
         // Drizzle surfaces it as `string | null`, so we only need the string check.

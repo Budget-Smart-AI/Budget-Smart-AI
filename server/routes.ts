@@ -289,7 +289,7 @@ export async function registerRoutes(
       const rows = bills.map(bill => [
         escapeCSV(bill.name),
         escapeCSV(bill.amount),
-        escapeCSV(bill.category),
+        escapeCSV(bill.canonicalCategoryId),
         String(bill.dueDay),
         escapeCSV(bill.recurrence),
         escapeCSV(bill.customDates),
@@ -432,7 +432,7 @@ export async function registerRoutes(
       const existingBillNames = existingBills.map(b => b.name.toLowerCase());
       // Subscriptions are bills with category "Subscriptions"
       const existingSubscriptionNames = existingBills
-        .filter(b => b.category === "Subscriptions")
+        .filter(b => b.canonicalCategoryId === "lifestyle_subscriptions")
         .map(b => b.name.toLowerCase());
 
       // Get all Plaid transactions from the last 12 months
@@ -1339,7 +1339,7 @@ export async function registerRoutes(
           date: t.date,
           name: t.merchantName || t.name,
           amount: Math.abs(parseFloat(t.amount)),
-          category: t.category,
+          canonicalCategoryId: t.canonicalCategoryId,
         }));
 
       if (inflowTx.length === 0) return [];
@@ -1910,7 +1910,7 @@ Return JSON: { "income": [...] }`;
       // Group by category and sum amounts
       const result: Record<string, number> = {};
       for (const exp of monthExpenses) {
-        const cat = exp.category;
+        const cat = exp.canonicalCategoryId;
         if (cat) {
           result[cat] = (result[cat] || 0) + parseFloat(exp.amount);
         }
@@ -1971,7 +1971,7 @@ Return JSON: { "income": [...] }`;
           const allExpenses = await storage.getExpenses(userId);
           const filtered = allExpenses.filter((e: any) => e.date && e.date.startsWith(monthStr));
           for (const exp of filtered) {
-            const cat = exp.category || "Other";
+            const cat = exp.canonicalCategoryId || "Other";
             map[cat] = (map[cat] || 0) + parseFloat(exp.amount);
           }
           return map;
@@ -1982,7 +1982,7 @@ Return JSON: { "income": [...] }`;
           const filtered = allExpenses.filter((e: any) => e.date && e.date.startsWith(monthStr));
           const map: Record<string, number> = {};
           for (const exp of filtered) {
-            const cat = exp.category || "Other";
+            const cat = exp.canonicalCategoryId || "Other";
             map[cat] = (map[cat] || 0) + parseFloat(exp.amount);
           }
           return map;
@@ -7769,7 +7769,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         merchant: transaction.merchantName || transaction.name,
         amount: Math.abs(parseFloat(transaction.amount)).toString(),
         date: transaction.date,
-        category: category || transaction.personalCategory || "Other",
+        canonicalCategoryId: category || transaction.canonicalCategoryId || "uncategorized",
         notes: `Imported from bank transaction`,
       });
 
@@ -7778,7 +7778,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         matchType: "expense",
         matchedExpenseId: expense.id,
         reconciled: "true",
-        personalCategory: category || transaction.personalCategory || "Other",
+        canonicalCategoryId: category || transaction.canonicalCategoryId || "uncategorized",
       });
 
       res.json({ expense, transaction: { id, matchType: "expense", matchedExpenseId: expense.id } });
@@ -7808,14 +7808,14 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         const transaction = allTransactions.find(t => t.id === txId);
         if (!transaction) continue;
 
-        const expenseCategory = category || transaction.personalCategory || "Other";
+        const expenseCategory = category || transaction.canonicalCategoryId || "Other";
 
         const expense = await storage.createExpense({
           userId: req.session.userId!,
           merchant: transaction.merchantName || transaction.name,
           amount: Math.abs(parseFloat(transaction.amount)).toString(),
           date: transaction.date,
-          category: expenseCategory,
+          canonicalCategoryId: expenseCategory,
           notes: `Imported from bank transaction`,
         });
 
@@ -7823,7 +7823,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           matchType: "expense",
           matchedExpenseId: expense.id,
           reconciled: "true",
-          personalCategory: expenseCategory,
+          canonicalCategoryId: expenseCategory,
         });
         created++;
       }
@@ -8524,7 +8524,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           name: b.name,
           amount: parseFloat(b.amount),
           dueDay: b.dueDay,
-          category: b.category,
+          category: b.canonicalCategoryId,
           recurrence: b.recurrence,
         }));
 
@@ -8533,7 +8533,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
         .map(i => ({
           source: i.source,
           amount: parseFloat(i.amount),
-          category: i.category,
+          category: i.canonicalCategoryId,
           recurrence: i.recurrence,
         }));
 
@@ -9723,7 +9723,8 @@ Rules:
           source: "Monthly Income",
           amount: String(monthlyIncome),
           date: today,
-          category: "Salary",
+          canonicalCategoryId: "income_salary",
+          isActive: "true",
           isRecurring: "true",
           recurrence: "monthly",
           dueDay: 1,
@@ -9732,11 +9733,11 @@ Rules:
 
       if (budgetCategory && budgetAmount && parseFloat(String(budgetAmount)) > 0) {
         const existing = await storage.getBudgetsByMonth(userId, month);
-        const alreadyExists = existing.find(b => b.category === budgetCategory);
+        const alreadyExists = existing.find(b => b.canonicalCategoryId === budgetCategory);
         if (!alreadyExists) {
           await storage.createBudget({
             userId,
-            category: budgetCategory as any,
+            canonicalCategoryId: budgetCategory as any,
             amount: String(budgetAmount),
             month,
           });
@@ -9796,7 +9797,7 @@ Rules:
         name: t.name,
         merchantName: t.merchantName,
         amount: t.amount,
-        category: t.category,
+        category: t.canonicalCategoryId,
       }));
 
       console.log(`Analyzing ${txSummary.length} transactions for recurring patterns...`);
@@ -9907,7 +9908,7 @@ ${JSON.stringify(txSummary)}`;
             source: inc.source,
             amount: String(inc.amount),
             date: today,
-            category: inc.category || "Other",
+            canonicalCategoryId: inc.category || "Other",
             isRecurring: "true",
             recurrence: inc.recurrence || "monthly",
             dueDay: inc.dueDay || 1,
@@ -10946,7 +10947,7 @@ ${JSON.stringify(txSummary)}`;
           date: t.date,
           description: t.merchantName || t.name || "",
           amount: t.amount != null ? String(t.amount) : "0.00",
-          category: t.personalCategory || t.category || "",
+          category: t.canonicalCategoryId || "",
           account: accountNameMap.get(t.plaidAccountId) ?? "",
           status: t.pending === "true" ? "Pending" : "Posted",
           notes: "",
@@ -10955,7 +10956,7 @@ ${JSON.stringify(txSummary)}`;
           date: t.date,
           description: t.description || "",
           amount: t.amount != null ? String(t.amount) : "0.00",
-          category: t.personalCategory || t.category || "",
+          category: t.canonicalCategoryId || "",
           account: accountNameMap.get(t.mxAccountId) ?? "",
           status: t.status ?? "Posted",
           notes: "",
@@ -10964,7 +10965,7 @@ ${JSON.stringify(txSummary)}`;
           date: t.date,
           description: t.merchant || "",
           amount: t.amount != null ? String(t.amount) : "0.00",
-          category: t.category || "",
+          category: t.canonicalCategoryId || "",
           account: accountNameMap.get(t.accountId ?? "") ?? "",
           status: "Posted",
           notes: t.notes || "",
@@ -11186,7 +11187,7 @@ ${JSON.stringify(txSummary)}`;
       // Group by category
       const byCategory: Record<string, number> = {};
       for (const expense of filtered) {
-        const cat = expense.category || "Other";
+        const cat = expense.canonicalCategoryId || "Other";
         byCategory[cat] = (byCategory[cat] || 0) + parseFloat(expense.amount);
       }
 
@@ -11257,17 +11258,17 @@ ${JSON.stringify(txSummary)}`;
       // Calculate actual spending per category
       const actualByCategory: Record<string, number> = {};
       for (const expense of monthExpenses) {
-        const cat = expense.category || "Other";
+        const cat = expense.canonicalCategoryId || "Other";
         actualByCategory[cat] = (actualByCategory[cat] || 0) + parseFloat(expense.amount);
       }
 
       // Combine budget and actual
       const data = budgets.map(budget => ({
-        category: budget.category,
+        category: budget.canonicalCategoryId,
         budgeted: parseFloat(budget.amount),
-        actual: actualByCategory[budget.category] || 0,
-        remaining: parseFloat(budget.amount) - (actualByCategory[budget.category] || 0),
-        percentUsed: Math.round(((actualByCategory[budget.category] || 0) / parseFloat(budget.amount)) * 100),
+        actual: actualByCategory[budget.canonicalCategoryId] || 0,
+        remaining: parseFloat(budget.amount) - (actualByCategory[budget.canonicalCategoryId] || 0),
+        percentUsed: Math.round(((actualByCategory[budget.canonicalCategoryId] || 0) / parseFloat(budget.amount)) * 100),
       }));
 
       res.json(data);
@@ -11692,7 +11693,7 @@ ${JSON.stringify(txSummary)}`;
         currentBalance,
         activeBills,
         activeIncomes,
-        transactions,
+        transactions as any,
         days,
         60
       );
@@ -12126,8 +12127,8 @@ ${JSON.stringify(txSummary)}`;
       const cancellableBills = bills.filter(b => 
         b.recurrence !== "one_time" && 
         b.isPaused !== "true" &&
-        (b.category === "Subscriptions" || b.category === "Entertainment" || 
-         b.category === "Fitness" || b.category === "Communications")
+        (b.canonicalCategoryId === "Subscriptions" || b.canonicalCategoryId === "Entertainment" || 
+         b.canonicalCategoryId === "Fitness" || b.canonicalCategoryId === "Communications")
       );
 
       // Get debts for extra payment scenarios
@@ -12140,7 +12141,7 @@ ${JSON.stringify(txSummary)}`;
           id: b.id,
           name: b.name,
           amount: b.amount,
-          category: b.category,
+          category: b.canonicalCategoryId,
           recurrence: b.recurrence,
         })),
         debts: debtsWithBalance.map(d => ({
@@ -13035,7 +13036,7 @@ ${JSON.stringify(txSummary)}`;
       }
 
       // Calculate predicted spending (next 14 days based on historical average)
-      const avgDailySpending = calculateAverageDailySpending(transactions, 30);
+      const avgDailySpending = calculateAverageDailySpending(transactions as any, 30);
       const predictedSpending = avgDailySpending * 14;
 
       // Calculate safety buffer (10% of balance or $200, whichever is higher)
@@ -13389,7 +13390,7 @@ ${JSON.stringify(txSummary)}`;
           if (merchantName.includes(rule.merchantPattern.toLowerCase())) {
             await storage.updatePlaidTransaction(tx.id, {
               matchType: rule.matchType,
-              personalCategory: rule.matchedCategory,
+              canonicalCategoryId: rule.matchedCategory,
               reconciled: "true",
               matchedBillId: rule.matchType === "bill" ? rule.matchedItemId : null,
               matchedIncomeId: rule.matchType === "income" ? rule.matchedItemId : null,
@@ -13421,7 +13422,7 @@ ${JSON.stringify(txSummary)}`;
 
             await storage.updatePlaidTransaction(tx.id, {
               matchType: "income",
-              personalCategory: matchedIncome?.category || "Other",
+              canonicalCategoryId: matchedIncome?.canonicalCategoryId || "Other",
               reconciled: "true",
               matchedIncomeId: matchedIncome?.id || null,
             });
@@ -13431,7 +13432,7 @@ ${JSON.stringify(txSummary)}`;
               newRules.push({
                 pattern: merchantName.substring(0, 20),
                 matchType: "income",
-                category: matchedIncome?.category || "Other",
+                category: matchedIncome?.canonicalCategoryId || "Other",
               });
             }
             reconciledCount++;
@@ -13447,7 +13448,7 @@ ${JSON.stringify(txSummary)}`;
           if (matchedBill) {
             await storage.updatePlaidTransaction(tx.id, {
               matchType: "bill",
-              personalCategory: matchedBill.category,
+              canonicalCategoryId: matchedBill.canonicalCategoryId,
               reconciled: "true",
               matchedBillId: matchedBill.id,
             });
@@ -13456,7 +13457,7 @@ ${JSON.stringify(txSummary)}`;
               newRules.push({
                 pattern: merchantName.substring(0, 20),
                 matchType: "bill",
-                category: matchedBill.category,
+                category: matchedBill.canonicalCategoryId,
               });
             }
             reconciledCount++;
@@ -14026,7 +14027,7 @@ The Budget Smart AI Team`,
             date: row.date,
             amount: String(amount),
             merchant: row.merchant || "Unknown",
-            category: (row.category || null) as any,
+            canonicalCategoryId: (row.category || null) as any,
             notes: row.notes || null,
           });
           results.imported++;
@@ -14241,7 +14242,7 @@ The Budget Smart AI Team`,
           date: tx.date,
           amount: tx.amount,
           merchant: tx.merchantName || tx.name,
-          category: tx.personalCategory || tx.category,
+          category: tx.canonicalCategoryId,
           notes: null,
           source: "plaid" as const,
           accountId: tx.plaidAccountId,
@@ -14256,7 +14257,7 @@ The Budget Smart AI Team`,
           date: tx.date,
           amount: tx.amount,
           merchant: tx.merchant,
-          category: tx.category,
+          category: tx.canonicalCategoryId,
           notes: tx.notes,
           source: "manual" as const,
           accountId: tx.accountId,
@@ -15424,7 +15425,7 @@ ${advisorData.analysis.content.slice(0, 1000)}`;
             date,
             type: "bill",
             amount: bill.amount,
-            category: bill.category,
+            category: bill.canonicalCategoryId,
             recurring: bill.recurrence !== "once",
           });
 

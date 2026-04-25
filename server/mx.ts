@@ -780,8 +780,6 @@ async function upsertMXTransaction(
     merchantCleanName: merchantCleanName,
     merchantLogoUrl: merchantLogoUrl,
     logoUrl: merchantLogoUrl,
-    category: tx.top_level_category || 'OTHER',
-    personalCategory,
     canonicalCategoryId,
     pending: tx.status === 'PENDING' ? 'true' : 'false',
     isoCurrencyCode: 'CAD',

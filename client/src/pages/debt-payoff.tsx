@@ -314,10 +314,10 @@ function SetAprDialog({ open, onClose, debts, onSaved }: SetAprDialogProps) {
           .map(d => ({
             id: d.id,
             name: d.name,
-            category: d.category,
+            category: d.debtType,
             currentApr: d.interestRate,
-            suggestedApr: getSuggestedApr(d.category),
-            editedApr: d.interestRate > 0 ? String(d.interestRate) : String(getSuggestedApr(d.category)),
+            suggestedApr: getSuggestedApr(d.debtType),
+            editedApr: d.interestRate > 0 ? String(d.interestRate) : String(getSuggestedApr(d.debtType)),
             isPlaid: false,
           }))
       );

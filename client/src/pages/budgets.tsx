@@ -150,7 +150,7 @@ function BudgetForm({
   const form = useForm<BudgetFormValues>({
     resolver: zodResolver(budgetFormSchema),
     defaultValues: {
-      category: (budget?.category as typeof EXPENSE_CATEGORIES[number]) || availableCategories[0],
+      category: (budget?.canonicalCategoryId as typeof EXPENSE_CATEGORIES[number]) || availableCategories[0],
       amount: budget?.amount || "",
       month: budget?.month || currentMonth,
     },
@@ -922,7 +922,7 @@ export default function BudgetsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Budget</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the budget for "{deletingBudget?.category}"? This action cannot be undone.
+              Are you sure you want to delete the budget for "{deletingBudget?.canonicalCategoryId}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

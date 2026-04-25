@@ -167,7 +167,6 @@ export const bills = pgTable("bills", {
   userId: varchar("user_id").notNull(), // Owner of this bill
   name: text("name").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
-  category: text("category").notNull(),
   dueDay: integer("due_day").notNull(), // Day of month (1-31) or day of week (0-6) for weekly
   recurrence: text("recurrence").notNull(), // weekly, biweekly, monthly, yearly, custom
   customDates: text("custom_dates"), // JSON array of custom payment dates (yyyy-MM-dd format)
@@ -189,10 +188,8 @@ export const bills = pgTable("bills", {
   detectionConfidence: text("detection_confidence"), // "high" | "medium" | "low"
   lastVerifiedAt: timestamp("last_verified_at"),
   lastVerifiedBy: text("last_verified_by"), // "user" | "system"
-  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
-  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
-  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
-  canonicalCategoryId: text("canonical_category_id"),
+  // ─── Canonical category (single source of truth after migration 0041) ───
+  canonicalCategoryId: text("canonical_category_id").notNull(),
 });
 
 // Expenses table - for one-time purchases
@@ -202,7 +199,6 @@ export const expenses = pgTable("expenses", {
   merchant: text("merchant").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   date: text("date").notNull(), // Stored as "yyyy-MM-dd" string
-  category: text("category").notNull(),
   notes: text("notes"),
   // Tax fields
   taxDeductible: text("tax_deductible").default("false"),
@@ -212,10 +208,8 @@ export const expenses = pgTable("expenses", {
   // For Plaid: transaction.transactionId  |  For MX: transaction.guid
   // Unique per user so the DB rejects duplicate auto-imports on reconnection.
   externalTransactionId: text("external_transaction_id"),
-  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
-  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
-  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
-  canonicalCategoryId: text("canonical_category_id"),
+  // ─── Canonical category (single source of truth after migration 0041) ───
+  canonicalCategoryId: text("canonical_category_id").notNull(),
 }, (table) => ({
   uniqueUserExternalTransaction: uniqueIndex(
     "expenses_user_external_transaction_unique"
@@ -227,7 +221,7 @@ export const insertBillSchema = createInsertSchema(bills).omit({ id: true, lastN
   userId: z.string().optional(), // Will be set by route from session
   amount: z.string().or(z.number()).transform((val) => String(val)),
   dueDay: z.number().min(0).max(31), // 0-6 for weekly (day of week), 1-31 for monthly
-  category: z.enum(BILL_CATEGORIES),
+  canonicalCategoryId: z.string(),
   recurrence: z.enum(RECURRENCE_OPTIONS),
   customDates: z.string().nullable().optional(), // JSON array of dates
   startingBalance: z.string().or(z.number()).transform((val) => val ? String(val) : null).nullable().optional(),
@@ -254,7 +248,7 @@ export const updateBillSchema = insertBillSchema.partial();
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, userId: true }).extend({
   userId: z.string().optional(), // Will be set by route from session
   amount: z.string().or(z.number()).transform((val) => String(val)),
-  category: z.enum(EXPENSE_CATEGORIES),
+  canonicalCategoryId: z.string(),
   date: z.string(),
   taxDeductible: z.string().optional(),
   taxCategory: z.string().nullable().optional(),
@@ -299,7 +293,6 @@ export const income = pgTable("income", {
   source: text("source").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   date: text("date").notNull(), // Stored as "yyyy-MM-dd" string
-  category: text("category").notNull(),
   isRecurring: text("is_recurring").default("false"),
   recurrence: text("recurrence"), // Added for income recurrence
   dueDay: integer("due_day"), // Added for income recurring days (1st/15th etc)
@@ -329,16 +322,14 @@ export const income = pgTable("income", {
   lastVerifiedBy: text("last_verified_by"), // "user" | "system"
   // ─── Backfill flag (migration 0035) ─────────────────────────────────────────
   confidenceFlag: text("confidence_flag"), // 'backfill_corrected' | 'needs_manual_review' | 'backfill_no_history'
-  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
-  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
-  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
-  canonicalCategoryId: text("canonical_category_id"),
+  // ─── Canonical category (single source of truth — §6.2.8) ───
+  canonicalCategoryId: text("canonical_category_id").notNull(),
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true, userId: true }).extend({
   userId: z.string().optional(), // Will be set by route from session
   amount: z.string().or(z.number()).transform((val) => String(val)),
-  category: z.enum(INCOME_CATEGORIES),
+  canonicalCategoryId: z.string(),
   date: z.string(),
   isRecurring: z.union([z.boolean().transform(val => val ? 'true' : 'false'), z.string()]).optional(),
   recurrence: z.enum(RECURRENCE_OPTIONS).nullable().optional(),
@@ -509,7 +500,7 @@ export type IncomeSourceAmount = typeof incomeSourceAmounts.$inferSelect;
 export const budgets = pgTable("budgets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(), // Owner of this budget
-  category: text("category").notNull(),
+  canonicalCategoryId: text("canonical_category_id").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   month: text("month").notNull(), // Stored as "yyyy-MM" string
 });
@@ -517,7 +508,7 @@ export const budgets = pgTable("budgets", {
 export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true, userId: true }).extend({
   userId: z.string().optional(), // Will be set by route from session
   amount: z.string().or(z.number()).transform((val) => String(val)),
-  category: z.enum(EXPENSE_CATEGORIES),
+  canonicalCategoryId: z.string(),
   month: z.string(),
 });
 
@@ -602,9 +593,7 @@ export const mxTransactions = pgTable("mx_transactions", {
   description: text("description").notNull(), // Enriched description from MX
   originalDescription: text("original_description"), // Raw bank description
   merchantGuid: text("merchant_guid"), // For logo lookup
-  category: text("category"), // MX category
   topLevelCategory: text("top_level_category"), // MX top level category
-  personalCategory: text("personal_category"), // Mapped Budget Smart AI category
   transactionType: text("transaction_type"), // DEBIT, CREDIT
   isBillPay: text("is_bill_pay").default("false"),
   isDirectDeposit: text("is_direct_deposit").default("false"),
@@ -636,10 +625,8 @@ export const mxTransactions = pgTable("mx_transactions", {
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
   needsReview: boolean("needs_review").default(false),
-  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
-  // Populated by the backfill and by the dual-write sync path (§6.2.6). Legacy
-  // `personal_category` TEXT remains authoritative until the read-path cutover.
-  canonicalCategoryId: text("canonical_category_id"),
+  // ─── Canonical category (single source of truth — §6.2.8) ───
+  canonicalCategoryId: text("canonical_category_id").notNull(),
 });
 
 export const insertMxMemberSchema = createInsertSchema(mxMembers).omit({ id: true });
@@ -701,8 +688,6 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   name: text("name").notNull(),
   merchantName: text("merchant_name"),
   logoUrl: text("logo_url"), // Merchant logo URL from Plaid (100x100 PNG)
-  category: text("category"), // Plaid's category
-  personalCategory: text("personal_category"), // Mapped Budget Smart AI category
   pending: text("pending").default("false"),
   // Reconciliation fields
   matchType: text("match_type"), // bill, expense, income, unmatched
@@ -740,11 +725,8 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   transferPairId: uuid("transfer_pair_id"), // shared UUID linking matched transfer pairs
   // Soft-delete flag for /transactions/sync REMOVED events
   isActive: text("is_active").default("true"),
-  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
-  // Populated by the backfill and by the dual-write sync path (§6.2.6) via
-  // PLAID_CATEGORY_MAP. Legacy `personal_category` TEXT remains authoritative
-  // until the read-path cutover completes (§6.2.7).
-  canonicalCategoryId: text("canonical_category_id"),
+  // ─── Canonical category (single source of truth — §6.2.8) ───
+  canonicalCategoryId: text("canonical_category_id").notNull(),
 });
 
 // ============ USER REFRESH USAGE (Plaid transactionsRefresh quota tracking) ============
@@ -782,7 +764,6 @@ export const manualTransactions = pgTable("manual_transactions", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   date: text("date").notNull(), // yyyy-MM-dd
   merchant: text("merchant").notNull(),
-  category: text("category"),
   notes: text("notes"),
   isTransfer: text("is_transfer").default("false"),
   // Tax fields
@@ -799,9 +780,7 @@ export const manualTransactions = pgTable("manual_transactions", {
   enrichmentSource: varchar("enrichment_source", { length: 50 }),
   enrichmentConfidence: numeric("enrichment_confidence", { precision: 3, scale: 2 }),
   needsReview: boolean("needs_review").default(false),
-  // ─── Canonical Categories shadow column (migration 0039, ARCHITECTURE.md §6.2.4) ───
-  // Populated by the backfill. Legacy `category` TEXT remains authoritative until
-  // the read-path cutover completes (§6.2.7). Do not read from this during Phase A.
+  // ─── Canonical category (single source of truth — §6.2.8) ───
   canonicalCategoryId: text("canonical_category_id"),
 });
 
@@ -817,7 +796,7 @@ export type InsertManualAccount = z.infer<typeof insertManualAccountSchema>;
 export const insertManualTransactionSchema = createInsertSchema(manualTransactions).omit({ id: true, userId: true }).extend({
   userId: z.string().optional(), // Will be set by route from session
   amount: z.string().or(z.number()).transform((val) => String(val)),
-  category: z.enum(EXPENSE_CATEGORIES).optional().nullable(),
+  canonicalCategoryId: z.string().optional().nullable(),
   date: z.string(),
   taxDeductible: z.string().optional(),
   taxCategory: z.string().nullable().optional(),

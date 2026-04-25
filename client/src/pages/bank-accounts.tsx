@@ -715,7 +715,7 @@ function ReconcileDialog({
   useEffect(() => {
     if (transaction && isEditMode) {
       setMatchType(transaction.matchType || "unmatched");
-      setCategory(transaction.personalCategory || "Other");
+      setCategory(transaction.canonicalCategoryId || "Other");
       // Set matched ID based on type
       if (transaction.matchType === "bill" && transaction.matchedBillId) {
         setMatchedId(transaction.matchedBillId);
@@ -730,7 +730,7 @@ function ReconcileDialog({
       // Reset for new reconciliation
       setMatchType("unmatched");
       setMatchedId("");
-      setCategory(transaction.personalCategory || "Other");
+      setCategory(transaction.canonicalCategoryId || "Other");
     }
   }, [transaction, isEditMode]);
 
@@ -1109,7 +1109,7 @@ function ManualTransactionDialog({
       setAmount(Math.abs(txAmount).toString());
       setDate(transaction.date);
       setMerchant(transaction.merchant);
-      setCategory(transaction.category || "Other");
+      setCategory(transaction.canonicalCategoryId || "Other");
       setNotes(transaction.notes || "");
     } else {
       setAmount("");
@@ -3228,7 +3228,7 @@ export default function BankAccounts() {
           open={!!drilldownTransaction}
           onOpenChange={(open) => { if (!open) setDrilldownTransaction(null); }}
           merchant={drilldownTransaction.merchantName || drilldownTransaction.name}
-          category={drilldownTransaction.personalCategory || undefined}
+          category={drilldownTransaction.canonicalCategoryId || undefined}
           initialTransaction={drilldownTransaction as any}
         />
       )}
@@ -3261,7 +3261,7 @@ export default function BankAccounts() {
           merchant: (tellerTx as any).merchantCleanName || tellerTx.merchantName || tellerTx.name,
           amount: parseFloat(tellerTx.amount),
           date: tellerTx.date,
-          category: tellerTx.personalCategory || (tellerTx as any).category || "Other",
+          category: tellerTx.canonicalCategoryId || (tellerTx as any).category || "Other",
           source: "plaid",
           isoCurrencyCode: tellerTx.isoCurrencyCode || "CAD",
         } : null}

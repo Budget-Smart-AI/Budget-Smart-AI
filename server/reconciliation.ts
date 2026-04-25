@@ -138,7 +138,7 @@ function dateProximity(transactionDate: string, dueDay: number): boolean {
 }
 
 export function reconcileTransaction(
-  transaction: { amount: string; date: string; name: string; merchantName: string | null; category: string | null },
+  transaction: { amount: string; date: string; name: string; merchantName: string | null; category?: string | null },
   bills: Bill[],
   expenses: Expense[],
   incomes: Income[]
@@ -211,7 +211,7 @@ function matchBill(txAmountCents: number, txDate: string, txName: string, bills:
         matchType: "bill",
         matchedId: bestMatch.bill.id,
         confidence,
-        personalCategory: bestMatch.bill.category,
+        personalCategory: "Other",
       };
     }
   }
@@ -236,7 +236,7 @@ function matchExpense(txAmountCents: number, txDate: string, txName: string, exp
       matchType: "expense",
       matchedId: expense.id,
       confidence: similarity >= 0.5 ? "high" : "medium",
-      personalCategory: expense.category,
+      personalCategory: "Other",
     };
   }
 
@@ -272,7 +272,7 @@ function matchIncome(txAmountCents: number, txDate: string, txName: string, cate
       matchType: "income",
       matchedId: bestMatch.income.id,
       confidence: bestMatch.score >= 7 ? "high" : "medium",
-      personalCategory: bestMatch.income.category,
+      personalCategory: "Other",
     };
   }
 

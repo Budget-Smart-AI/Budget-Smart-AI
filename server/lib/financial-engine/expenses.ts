@@ -179,7 +179,7 @@ function deduplicateExpenses(
           merchant: exp.merchant || 'Unknown',
           amount: parseFloat(String(exp.amount)),
           date: exp.date,
-          category: exp.category || 'Other',
+          category: exp.canonicalCategoryId || 'Other',
           canonicalCategoryId: exp.canonicalCategoryId ?? null,
         });
       }

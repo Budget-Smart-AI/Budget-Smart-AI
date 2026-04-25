@@ -112,7 +112,7 @@ async function migrateExpensesToManualTransactions(): Promise<MigrationResult> {
             amount: expense.amount,
             date: expense.date,
             merchant: expense.merchant,
-            category: expense.category,
+            canonicalCategoryId: expense.canonicalCategoryId,
             notes: expense.notes ? `${expense.notes} [Migrated from expenses]` : "[Migrated from expenses]",
             isTransfer: "false",
             createdAt: new Date().toISOString(),

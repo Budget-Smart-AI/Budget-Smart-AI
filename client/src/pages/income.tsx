@@ -158,7 +158,7 @@ function IncomeForm({
     defaultValues: {
       source: income?.source || "",
       amount: income?.amount || "",
-      category: (income?.category as typeof INCOME_CATEGORIES[number]) || "Salary",
+      category: (income?.canonicalCategoryId as typeof INCOME_CATEGORIES[number]) || "Salary",
       date: income?.date || defaultDate,
       isRecurring: income?.isRecurring === "true",
       recurrence: (income?.recurrence as typeof RECURRENCE_OPTIONS[number]) || "monthly",
@@ -725,7 +725,7 @@ export default function IncomePage() {
       merchant: inc.source,
       amount: parseFloat(inc.amount as string),
       date: inc.date,
-      category: inc.category,
+      category: inc.canonicalCategoryId,
       notes: inc.notes || undefined,
       source: "manual",
     });
@@ -933,7 +933,7 @@ export default function IncomePage() {
   ];
   const looksLikeTransfer = (inc: Income) => {
     const src = (inc.source || "").toLowerCase();
-    const cat = (inc.category || "").toLowerCase();
+    const cat = (inc.canonicalCategoryId || "").toLowerCase();
     if (cat === "transfer" || cat === "loan_payments" || cat === "bank_fees") return true;
     return TRANSFER_HINTS.some((h) => src.includes(h));
   };

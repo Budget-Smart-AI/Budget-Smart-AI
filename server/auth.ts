@@ -330,7 +330,7 @@ async function createDemoData(): Promise<void> {
     ];
     
     for (const bill of bills) {
-      await storage.createBill(bill);
+      await storage.createBill(bill as any);
     }
     
     // Create sample budgets (using canonicalCategoryId)

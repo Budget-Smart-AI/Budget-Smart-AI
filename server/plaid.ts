@@ -323,9 +323,7 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       name: tx.name,
       merchantName: tx.merchant_name || null,
       logoUrl: logoUrl,
-      category: pfcPrimary,
       canonicalCategoryId: existing.canonicalCategoryId ?? null,
-      personalCategory: mappedCategory,
       pending: tx.pending ? "true" : "false",
       isActive: "true",
       // Enrichment fields
@@ -352,7 +350,6 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       date: tx.date,
       name: tx.name,
       merchantName: tx.merchant_name || null,
-      category: pfcPrimary,
     };
 
     const matchResult = reconcileTransaction(txData, bills, expensesList, incomes);
@@ -370,8 +367,6 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       name: tx.name,
       merchantName: tx.merchant_name || null,
       logoUrl: logoUrl,
-      category: pfcPrimary,
-      personalCategory: matchResult.personalCategory || mappedCategory,
       pending: tx.pending ? "true" : "false",
       matchType: matchResult.matchType,
       matchedBillId: matchResult.matchType === "bill" ? matchResult.matchedId || null : null,
@@ -389,6 +384,7 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       counterpartyName: counterpartyName,
       counterpartyType: counterpartyType,
       counterpartyWebsite: counterpartyWebsite,
+      canonicalCategoryId: "uncategorized",
     });
   }
 }
@@ -515,8 +511,7 @@ export async function backfillPlaidEnrichment(
         t.transaction_id,
         t.name,
         t.amount,
-        t.date,
-        t.category
+        t.date
       FROM plaid_transactions t
       JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
       JOIN plaid_items pi ON pi.id = pa.plaid_item_id
@@ -572,11 +567,10 @@ export async function backfillPlaidEnrichment(
               logo_url = COALESCE($2, logo_url),
               merchant_entity_id = COALESCE($3, merchant_entity_id),
               payment_channel = COALESCE($4, payment_channel),
-              category = COALESCE($5, category),
-              personal_finance_category_detailed = COALESCE($6, personal_finance_category_detailed),
-              personal_finance_category_confidence = COALESCE($7, personal_finance_category_confidence)
-            WHERE id = $8
-          `, [merchantName, logoUrl, merchantEntityId, paymentChannel, pfcPrimary, pfcDetailed, pfcConfidence, dbRow.id]);
+              personal_finance_category_detailed = COALESCE($5, personal_finance_category_detailed),
+              personal_finance_category_confidence = COALESCE($6, personal_finance_category_confidence)
+            WHERE id = $7
+          `, [merchantName, logoUrl, merchantEntityId, paymentChannel, pfcDetailed, pfcConfidence, dbRow.id]);
 
           updated++;
         }

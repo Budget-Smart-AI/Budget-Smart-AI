@@ -783,7 +783,7 @@ export function calculateIncomeForPeriod(params: {
             // For past/current months we already have the actual on bySource.
             // Only use the legacy projection for future months.
             amount: isFutureMonth ? monthlyAmount : 0,
-            category: incomeRecord.category || 'Other',
+            category: incomeRecord.canonicalCategoryId || 'Other',
             isRecurring: incomeRecord.isRecurring === 'true',
             frequency: incomeRecord.recurrence || undefined,
             confidence: isFutureMonth ? "low" : "none",
