@@ -112,7 +112,7 @@ export async function detectAnomalies(userId: string): Promise<AnomalyAlert[]> {
     date: t.date,
     merchant: t.merchantName || t.name,
     amount: parseFloat(t.amount),
-    category: t.category,
+    category: t.canonicalCategoryId,
   }));
 
   let aiAlerts: Array<{

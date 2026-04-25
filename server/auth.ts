@@ -268,13 +268,13 @@ async function createDemoData(): Promise<void> {
   };
   
   try {
-    // Create sample income sources (using correct schema: source, date, category from enum)
+    // Create sample income sources (using canonicalCategoryId)
     const incomes = [
-      { userId: demoUserId, source: "Software Developer Salary", amount: "8500.00", date: today, category: "Salary" as const, isActive: "true", isRecurring: "true", recurrence: "monthly" as const },
-      { userId: demoUserId, source: "Freelance Web Design", amount: "1500.00", date: today, category: "Freelance" as const, isActive: "true", isRecurring: "true", recurrence: "monthly" as const },
-      { userId: demoUserId, source: "Investment Dividends", amount: "350.00", date: today, category: "Investments" as const, isActive: "true", isRecurring: "true", recurrence: "yearly" as const },
-      { userId: demoUserId, source: "Rental Income", amount: "1200.00", date: today, category: "Rental" as const, isActive: "true", isRecurring: "true", recurrence: "monthly" as const },
-      { userId: demoUserId, source: "Side Business Revenue", amount: "800.00", date: today, category: "Business" as const, isActive: "true", isRecurring: "true", recurrence: "monthly" as const }
+      { userId: demoUserId, source: "Software Developer Salary", amount: "8500.00", date: today, canonicalCategoryId: "income_salary", isActive: "true", isRecurring: "true", recurrence: "monthly" as const },
+      { userId: demoUserId, source: "Freelance Web Design", amount: "1500.00", date: today, canonicalCategoryId: "income_freelance", isActive: "true", isRecurring: "true", recurrence: "monthly" as const },
+      { userId: demoUserId, source: "Investment Dividends", amount: "350.00", date: today, canonicalCategoryId: "income_investments", isActive: "true", isRecurring: "true", recurrence: "yearly" as const },
+      { userId: demoUserId, source: "Rental Income", amount: "1200.00", date: today, canonicalCategoryId: "income_rental", isActive: "true", isRecurring: "true", recurrence: "monthly" as const },
+      { userId: demoUserId, source: "Side Business Revenue", amount: "800.00", date: today, canonicalCategoryId: "income_business", isActive: "true", isRecurring: "true", recurrence: "monthly" as const }
     ];
     
     for (const income of incomes) {
@@ -284,64 +284,64 @@ async function createDemoData(): Promise<void> {
     // Create comprehensive sample bills including many subscriptions
     const bills = [
       // Housing & Utilities
-      { userId: demoUserId, name: "Apartment Rent", amount: "2200.00", dueDay: 1, category: "Rent" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Electric Bill", amount: "145.00", dueDay: 15, category: "Utilities" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Water & Sewer", amount: "65.00", dueDay: 20, category: "Utilities" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Gas Bill", amount: "78.00", dueDay: 18, category: "Utilities" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Internet Service", amount: "79.99", dueDay: 20, category: "Internet" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Renters Insurance", amount: "32.00", dueDay: 1, category: "Insurance" as const, recurrence: "monthly" as const, isPaused: "false" },
+      { userId: demoUserId, name: "Apartment Rent", amount: "2200.00", dueDay: 1, canonicalCategoryId: "housing_rent", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Electric Bill", amount: "145.00", dueDay: 15, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Water & Sewer", amount: "65.00", dueDay: 20, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Gas Bill", amount: "78.00", dueDay: 18, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Internet Service", amount: "79.99", dueDay: 20, canonicalCategoryId: "housing_internet", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Renters Insurance", amount: "32.00", dueDay: 1, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
       
       // Transportation
-      { userId: demoUserId, name: "Car Payment", amount: "450.00", dueDay: 10, category: "Loans" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Car Insurance", amount: "185.00", dueDay: 5, category: "Insurance" as const, recurrence: "monthly" as const, isPaused: "false" },
+      { userId: demoUserId, name: "Car Payment", amount: "450.00", dueDay: 10, canonicalCategoryId: "financial_loans", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Car Insurance", amount: "185.00", dueDay: 5, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
       
       // Insurance & Health
-      { userId: demoUserId, name: "Health Insurance", amount: "320.00", dueDay: 1, category: "Insurance" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Life Insurance", amount: "45.00", dueDay: 15, category: "Insurance" as const, recurrence: "monthly" as const, isPaused: "false" },
+      { userId: demoUserId, name: "Health Insurance", amount: "320.00", dueDay: 1, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Life Insurance", amount: "45.00", dueDay: 15, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
       
       // Phone
-      { userId: demoUserId, name: "Phone Bill (Verizon)", amount: "85.00", dueDay: 22, category: "Phone" as const, recurrence: "monthly" as const, isPaused: "false" },
+      { userId: demoUserId, name: "Phone Bill (Verizon)", amount: "85.00", dueDay: 22, canonicalCategoryId: "housing_phone", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
       
       // Streaming Subscriptions
-      { userId: demoUserId, name: "Netflix", amount: "15.99", dueDay: 12, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Spotify Family", amount: "16.99", dueDay: 18, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Disney+", amount: "13.99", dueDay: 8, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "HBO Max", amount: "15.99", dueDay: 14, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Amazon Prime", amount: "14.99", dueDay: 3, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "YouTube Premium", amount: "13.99", dueDay: 25, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Apple iCloud+", amount: "2.99", dueDay: 7, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Hulu", amount: "17.99", dueDay: 16, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
+      { userId: demoUserId, name: "Netflix", amount: "15.99", dueDay: 12, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Spotify Family", amount: "16.99", dueDay: 18, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Disney+", amount: "13.99", dueDay: 8, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "HBO Max", amount: "15.99", dueDay: 14, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Amazon Prime", amount: "14.99", dueDay: 3, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "YouTube Premium", amount: "13.99", dueDay: 25, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Apple iCloud+", amount: "2.99", dueDay: 7, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Hulu", amount: "17.99", dueDay: 16, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
       
       // Software & Tools
-      { userId: demoUserId, name: "Microsoft 365", amount: "12.99", dueDay: 5, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Adobe Creative Cloud", amount: "54.99", dueDay: 11, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Dropbox Plus", amount: "11.99", dueDay: 19, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "1Password", amount: "4.99", dueDay: 22, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "ChatGPT Plus", amount: "20.00", dueDay: 9, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
+      { userId: demoUserId, name: "Microsoft 365", amount: "12.99", dueDay: 5, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Adobe Creative Cloud", amount: "54.99", dueDay: 11, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Dropbox Plus", amount: "11.99", dueDay: 19, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "1Password", amount: "4.99", dueDay: 22, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "ChatGPT Plus", amount: "20.00", dueDay: 9, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
       
       // Fitness & Wellness
-      { userId: demoUserId, name: "Gym Membership (Equinox)", amount: "189.00", dueDay: 1, category: "Fitness" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Peloton App", amount: "12.99", dueDay: 6, category: "Fitness" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Headspace", amount: "12.99", dueDay: 21, category: "Subscriptions" as const, recurrence: "monthly" as const, isPaused: "false" },
+      { userId: demoUserId, name: "Gym Membership (Equinox)", amount: "189.00", dueDay: 1, canonicalCategoryId: "health_fitness", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Peloton App", amount: "12.99", dueDay: 6, canonicalCategoryId: "health_fitness", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Headspace", amount: "12.99", dueDay: 21, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
       
       // Other
-      { userId: demoUserId, name: "Student Loan Payment", amount: "285.00", dueDay: 28, category: "Loans" as const, recurrence: "monthly" as const, isPaused: "false" },
-      { userId: demoUserId, name: "Credit Card (Chase Sapphire)", amount: "95.00", dueDay: 1, category: "Other" as const, recurrence: "yearly" as const, isPaused: "false" }
+      { userId: demoUserId, name: "Student Loan Payment", amount: "285.00", dueDay: 28, canonicalCategoryId: "financial_loans", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Credit Card (Chase Sapphire)", amount: "95.00", dueDay: 1, canonicalCategoryId: "uncategorized", recurrence: "yearly" as const, isPaused: "false", autoDetected: "false" }
     ];
     
     for (const bill of bills) {
       await storage.createBill(bill);
     }
     
-    // Create sample budgets (using correct schema with month)
+    // Create sample budgets (using canonicalCategoryId)
     const budgets = [
-      { userId: demoUserId, category: "Groceries" as const, amount: "700.00", month: currentMonth },
-      { userId: demoUserId, category: "Restaurant & Bars" as const, amount: "400.00", month: currentMonth },
-      { userId: demoUserId, category: "Transportation" as const, amount: "300.00", month: currentMonth },
-      { userId: demoUserId, category: "Entertainment" as const, amount: "250.00", month: currentMonth },
-      { userId: demoUserId, category: "Shopping" as const, amount: "400.00", month: currentMonth },
-      { userId: demoUserId, category: "Personal" as const, amount: "150.00", month: currentMonth },
-      { userId: demoUserId, category: "Healthcare" as const, amount: "200.00", month: currentMonth }
+      { userId: demoUserId, canonicalCategoryId: "food_groceries", amount: "700.00", month: currentMonth },
+      { userId: demoUserId, canonicalCategoryId: "food_restaurants", amount: "400.00", month: currentMonth },
+      { userId: demoUserId, canonicalCategoryId: "transport_public_transit", amount: "300.00", month: currentMonth },
+      { userId: demoUserId, canonicalCategoryId: "lifestyle_entertainment", amount: "250.00", month: currentMonth },
+      { userId: demoUserId, canonicalCategoryId: "lifestyle_shopping", amount: "400.00", month: currentMonth },
+      { userId: demoUserId, canonicalCategoryId: "health_personal_care", amount: "150.00", month: currentMonth },
+      { userId: demoUserId, canonicalCategoryId: "health_medical", amount: "200.00", month: currentMonth }
     ];
     
     for (const budget of budgets) {
@@ -447,18 +447,18 @@ async function createDemoData(): Promise<void> {
       await storage.createManualTransaction(tx);
     }
     
-    // Create sample expenses (one-time purchases)
+    // Create sample expenses (one-time purchases, using canonicalCategoryId)
     const expenses = [
-      { userId: demoUserId, merchant: "Apple Store", amount: "1299.00", date: daysAgo(25), category: "Shopping" as const, notes: "New MacBook Pro" },
-      { userId: demoUserId, merchant: "IKEA", amount: "456.00", date: daysAgo(18), category: "Furniture & Houseware" as const, notes: "New desk and chair" },
-      { userId: demoUserId, merchant: "REI", amount: "189.00", date: daysAgo(20), category: "Shopping" as const, notes: "Hiking gear" },
-      { userId: demoUserId, merchant: "Home Depot", amount: "87.50", date: daysAgo(22), category: "Maintenance" as const, notes: "Tools and supplies" },
-      { userId: demoUserId, merchant: "Dentist Office", amount: "150.00", date: daysAgo(14), category: "Healthcare" as const, notes: "Dental cleaning" },
-      { userId: demoUserId, merchant: "Auto Shop", amount: "245.00", date: daysAgo(28), category: "Maintenance" as const, notes: "Oil change and tire rotation" },
-      { userId: demoUserId, merchant: "Farmers Insurance", amount: "185.00", date: daysAgo(5), category: "Other" as const, notes: "Monthly car insurance" },
-      { userId: demoUserId, merchant: "PetSmart", amount: "78.99", date: daysAgo(9), category: "Other" as const, notes: "Dog food and treats" },
-      { userId: demoUserId, merchant: "Airbnb", amount: "425.00", date: daysAgo(30), category: "Travel" as const, notes: "Weekend getaway deposit" },
-      { userId: demoUserId, merchant: "Southwest Airlines", amount: "289.00", date: daysAgo(35), category: "Travel" as const, notes: "Flight to LA" }
+      { userId: demoUserId, merchant: "Apple Store", amount: "1299.00", date: daysAgo(25), canonicalCategoryId: "lifestyle_shopping", notes: "New MacBook Pro" },
+      { userId: demoUserId, merchant: "IKEA", amount: "456.00", date: daysAgo(18), canonicalCategoryId: "housing_furnishings", notes: "New desk and chair" },
+      { userId: demoUserId, merchant: "REI", amount: "189.00", date: daysAgo(20), canonicalCategoryId: "lifestyle_shopping", notes: "Hiking gear" },
+      { userId: demoUserId, merchant: "Home Depot", amount: "87.50", date: daysAgo(22), canonicalCategoryId: "housing_maintenance", notes: "Tools and supplies" },
+      { userId: demoUserId, merchant: "Dentist Office", amount: "150.00", date: daysAgo(14), canonicalCategoryId: "health_medical", notes: "Dental cleaning" },
+      { userId: demoUserId, merchant: "Auto Shop", amount: "245.00", date: daysAgo(28), canonicalCategoryId: "transport_auto_maintenance", notes: "Oil change and tire rotation" },
+      { userId: demoUserId, merchant: "Farmers Insurance", amount: "185.00", date: daysAgo(5), canonicalCategoryId: "financial_insurance", notes: "Monthly car insurance" },
+      { userId: demoUserId, merchant: "PetSmart", amount: "78.99", date: daysAgo(9), canonicalCategoryId: "lifestyle_pets", notes: "Dog food and treats" },
+      { userId: demoUserId, merchant: "Airbnb", amount: "425.00", date: daysAgo(30), canonicalCategoryId: "travel_general", notes: "Weekend getaway deposit" },
+      { userId: demoUserId, merchant: "Southwest Airlines", amount: "289.00", date: daysAgo(35), canonicalCategoryId: "travel_general", notes: "Flight to LA" }
     ];
     
     for (const expense of expenses) {

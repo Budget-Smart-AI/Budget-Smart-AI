@@ -54,7 +54,7 @@ function detectLargePurchases(
   // Group by category too
   const categoryAmounts: Record<string, number[]> = {};
   for (const tx of historicalTransactions) {
-    const category = tx.category || "Other";
+    const category = tx.canonicalCategoryId || "Other";
     if (!categoryAmounts[category]) categoryAmounts[category] = [];
     categoryAmounts[category].push(Math.abs(parseFloat(tx.amount)));
   }
@@ -64,7 +64,7 @@ function detectLargePurchases(
     if (amount <= 0) continue; // Skip income
 
     const merchant = tx.merchantName || tx.name || "Unknown";
-    const category = tx.category || "Other";
+    const category = tx.canonicalCategoryId || "Other";
 
     // Check against merchant history first
     if (merchantAmounts[merchant] && merchantAmounts[merchant].length >= 3) {

@@ -197,7 +197,7 @@ async function sendBillReminder(bill: Bill, dueDate: Date): Promise<boolean> {
   const subject = `Upcoming Bill Reminder - ${bill.name}`;
   const body = `Your bill for ${bill.name} in the amount of ${formatCurrency(bill.amount)} is due tomorrow (${format(dueDate, "MMMM d, yyyy")}).
 
-Category: ${bill.category}
+Category: ${bill.canonicalCategoryId}
 Recurrence: ${bill.recurrence}
 ${bill.notes ? `Notes: ${bill.notes}` : ""}
 
@@ -452,7 +452,7 @@ async function generateWeeklySummary(userId: string): Promise<WeeklySummary> {
   // Group expenses by category
   const expensesByCategory: Record<string, number> = {};
   for (const expense of weekExpenses) {
-    const cat = expense.category || "Other";
+    const cat = expense.canonicalCategoryId || "Other";
     expensesByCategory[cat] = (expensesByCategory[cat] || 0) + parseFloat(expense.amount);
   }
 
@@ -481,12 +481,12 @@ async function generateWeeklySummary(userId: string): Promise<WeeklySummary> {
   const budgetStatus: { category: string; spent: number; limit: number; percent: number }[] = [];
   for (const budget of budgets) {
     const catExpenses = monthExpenses.filter((e: Expense) =>
-      e.category.toLowerCase() === budget.category.toLowerCase()
+      e.canonicalCategoryId.toLowerCase() === budget.canonicalCategoryId.toLowerCase()
     );
     const spent = catExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const limit = parseFloat(budget.amount);
     const percent = limit > 0 ? (spent / limit) * 100 : 0;
-    budgetStatus.push({ category: budget.category, spent, limit, percent });
+    budgetStatus.push({ category: budget.canonicalCategoryId, spent, limit, percent });
   }
 
   // Get savings goals progress
@@ -553,7 +553,7 @@ async function generateMonthlySummary(userId: string): Promise<MonthlySummary> {
   // Group expenses by category
   const expensesByCategory: Record<string, number> = {};
   for (const expense of lastMonthExpenses) {
-    const cat = expense.category || "Other";
+    const cat = expense.canonicalCategoryId || "Other";
     expensesByCategory[cat] = (expensesByCategory[cat] || 0) + parseFloat(expense.amount);
   }
 
@@ -569,7 +569,7 @@ async function generateMonthlySummary(userId: string): Promise<MonthlySummary> {
 
   for (const budget of budgets) {
     const catExpenses = lastMonthExpenses.filter((e: Expense) =>
-      e.category.toLowerCase() === budget.category.toLowerCase()
+      e.canonicalCategoryId.toLowerCase() === budget.canonicalCategoryId.toLowerCase()
     );
     const spent = catExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const limit = parseFloat(budget.amount);
@@ -577,7 +577,7 @@ async function generateMonthlySummary(userId: string): Promise<MonthlySummary> {
     let status = "On Track";
     if (percent >= 100) status = "Over Budget";
     else if (percent >= 80) status = "Warning";
-    budgetPerformance.push({ category: budget.category, spent, limit, percent, status });
+    budgetPerformance.push({ category: budget.canonicalCategoryId, spent, limit, percent, status });
   }
 
   // Get savings goals progress

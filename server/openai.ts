@@ -205,7 +205,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
         return JSON.stringify(bills.map(b => ({
           name: b.name,
           amount: b.amount,
-          category: b.category,
+          category: b.canonicalCategoryId,
           dueDay: b.dueDay,
           recurrence: b.recurrence,
           startingBalance: b.startingBalance,
@@ -223,7 +223,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
           merchant: e.merchant,
           amount: e.amount,
           date: e.date,
-          category: e.category,
+          category: e.canonicalCategoryId,
           notes: e.notes,
         })));
       }
@@ -234,7 +234,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
           source: i.source,
           amount: i.amount,
           date: i.date,
-          category: i.category,
+          category: i.canonicalCategoryId,
           isRecurring: i.isRecurring,
           recurrence: i.recurrence,
           notes: i.notes,
@@ -277,8 +277,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
           name: t.name,
           merchantName: t.merchantName,
           amount: t.amount,
-          category: t.category,
-          personalCategory: t.personalCategory,
+          category: t.canonicalCategoryId,
           matchType: t.matchType,
           pending: t.pending,
         })));
@@ -292,7 +291,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
           budgets = await storage.getBudgets(args.userId);
         }
         return JSON.stringify(budgets.map(b => ({
-          category: b.category,
+          category: b.canonicalCategoryId,
           amount: b.amount,
           month: b.month,
         })));
@@ -325,7 +324,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
         expenses
           .filter(e => e.date >= args.startDate && e.date <= args.endDate)
           .forEach(e => {
-            const cat = e.category || "Other";
+            const cat = e.canonicalCategoryId || "Other";
             categoryTotals[cat] = (categoryTotals[cat] || 0) + parseFloat(e.amount);
           });
 
@@ -333,7 +332,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
         bankTx
           .filter(t => parseFloat(t.amount) > 0 && t.matchType !== "expense")
           .forEach(t => {
-            const cat = t.personalCategory || "Other";
+            const cat = t.canonicalCategoryId || "Other";
             categoryTotals[cat] = (categoryTotals[cat] || 0) + parseFloat(t.amount);
           });
 
@@ -382,9 +381,9 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
 
         // Top categories
         const catTotals: Record<string, number> = {};
-        monthExpenses.forEach(e => { catTotals[e.category] = (catTotals[e.category] || 0) + parseFloat(e.amount); });
+        monthExpenses.forEach(e => { catTotals[e.canonicalCategoryId] = (catTotals[e.canonicalCategoryId] || 0) + parseFloat(e.amount); });
         bankTx.filter(t => parseFloat(t.amount) > 0).forEach(t => {
-          const cat = t.personalCategory || "Other";
+          const cat = t.canonicalCategoryId || "Other";
           catTotals[cat] = (catTotals[cat] || 0) + parseFloat(t.amount);
         });
         const topCategories = Object.entries(catTotals).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c, a]) => ({ category: c, amount: a.toFixed(2) }));
@@ -423,9 +422,9 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
           const totalBank = bankTx.filter(t => parseFloat(t.amount) > 0).reduce((s, t) => s + parseFloat(t.amount), 0);
 
           const catTotals: Record<string, number> = {};
-          monthExpenses.forEach(e => { catTotals[e.category] = (catTotals[e.category] || 0) + parseFloat(e.amount); });
+          monthExpenses.forEach(e => { catTotals[e.canonicalCategoryId] = (catTotals[e.canonicalCategoryId] || 0) + parseFloat(e.amount); });
           bankTx.filter(t => parseFloat(t.amount) > 0).forEach(t => {
-            const cat = t.personalCategory || "Other";
+            const cat = t.canonicalCategoryId || "Other";
             catTotals[cat] = (catTotals[cat] || 0) + parseFloat(t.amount);
           });
 
@@ -466,7 +465,7 @@ export async function executeToolCall(name: string, args: any): Promise<string> 
             upcoming.push({
               name: bill.name,
               amount: bill.amount,
-              category: bill.category,
+              category: bill.canonicalCategoryId,
               daysUntilDue,
               recurrence: bill.recurrence,
             });

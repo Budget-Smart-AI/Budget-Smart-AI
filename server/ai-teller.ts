@@ -220,11 +220,11 @@ export async function buildTellerSystemPrompt(
     const currentMonth = format(new Date(), "yyyy-MM");
     const matchingBudget = allBudgets.find(
       (b) =>
-        b.category.toLowerCase() === txCtx.category.toLowerCase() &&
+        b.canonicalCategoryId.toLowerCase() === txCtx.category.toLowerCase() &&
         (b.month === currentMonth || !b.month),
     );
     if (matchingBudget) {
-      budgetInfo = `Budget for ${matchingBudget.category}: ${fmtAmount(parseFloat(matchingBudget.amount), false)}/month`;
+      budgetInfo = `Budget for ${matchingBudget.canonicalCategoryId}: ${fmtAmount(parseFloat(matchingBudget.amount), false)}/month`;
     }
   } catch (err) {
     console.error("[AI Teller] Error fetching budget:", err);
