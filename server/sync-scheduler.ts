@@ -216,20 +216,17 @@ export async function initializeSyncScheduler(): Promise<void> {
     try {
       const allUsers = await storage.getUsers();
       const { runTellerAnalysis } = await import('./ai-teller');
-      let totalFlags = 0;
+      // runTellerAnalysis is Promise<void> — it logs its own per-user flag
+      // count internally, so we don't need to track totals here.
       for (const user of allUsers) {
         try {
           // Get recent transactions (last 7 days) for this user
           const recentTxIds = await storage.getRecentTransactionIds(String(user.id), 7);
           if (recentTxIds.length === 0) continue;
-          const flags = await runTellerAnalysis(String(user.id), recentTxIds);
-          totalFlags += flags.length;
+          await runTellerAnalysis(String(user.id), recentTxIds);
         } catch (err) {
           console.error(`[Sync] Teller analysis failed for user ${user.id}:`, err);
         }
-      }
-      if (totalFlags > 0) {
-        console.log(`[Sync] Nightly teller analysis: created ${totalFlags} flag(s) across ${allUsers.length} user(s)`);
       }
     } catch (err) {
       console.error('[Sync] Nightly teller analysis failed:', err);
