@@ -4052,8 +4052,22 @@ Return JSON: { "income": [...] }`;
       await storage.deleteAllBudgetAlertsByUser(userId);
       await storage.deleteAllSpendingAlertsByUser(userId);
       await storage.deleteAllDebtDetailsByUser(userId);
+
+      // Child history tables MUST be wiped before their parents (FK joins
+      // via holding_id / asset_id, both of which are about to disappear).
+      try {
+        await pool.query(`DELETE FROM holdings_history WHERE holding_id IN (SELECT id FROM holdings WHERE user_id = $1)`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] holdings_history cleanup failed:", err);
+      }
       await storage.deleteAllHoldingsByUser(userId);
       await storage.deleteAllInvestmentAccountsByUser(userId);
+
+      try {
+        await pool.query(`DELETE FROM asset_value_history WHERE asset_id IN (SELECT id FROM assets WHERE user_id = $1)`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] asset_value_history cleanup failed:", err);
+      }
       await storage.deleteAllAssetsByUser(userId);
       await storage.deleteAllNetWorthSnapshotsByUser(userId);
       await storage.deleteAllSyncSchedulesByUser(userId);
@@ -4092,11 +4106,140 @@ Return JSON: { "income": [...] }`;
         // Table may not exist — non-fatal
       }
 
-      // Anomaly alerts
+      // Anomaly alerts (legacy table — may not exist on all envs)
       try {
         await pool.query(`DELETE FROM anomaly_alerts WHERE user_id = $1`, [userId]);
       } catch (err) {
-        console.warn("[FreshStart] Anomaly alerts cleanup failed:", err);
+        // Table may not exist on this env — non-fatal
+      }
+
+      // ── Comprehensive sweep: registry / derived / per-user state tables ──
+      // Every table below holds per-user financial/state data that must NOT
+      // survive a Fresh Start. The pre-2026-04-26 implementation missed all
+      // of these, so a Fresh Start would leave behind:
+      //   - income_sources / income_source_amounts (auto-detected payroll
+      //     patterns like "Coreslab" + "Roche" stuck in the registry)
+      //   - ai_insights / leak_alerts / payday_recommendations (cached AI
+      //     output referring to deleted transactions)
+      //   - watchlists, autopilot rules, what-if scenarios, etc.
+      // Each cleanup is wrapped in its own try/catch so a missing table on
+      // an older env doesn't abort the rest of the sweep.
+
+      // Income registry (must wipe amounts before sources — FK on source_id)
+      try {
+        await pool.query(`DELETE FROM income_source_amounts WHERE source_id IN (SELECT id FROM income_sources WHERE user_id = $1)`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] income_source_amounts cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM income_sources WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] income_sources cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM income_audit WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] income_audit cleanup failed:", err);
+      }
+
+      // Plaid refresh-rate-limit usage tracking
+      try {
+        await pool.query(`DELETE FROM user_refresh_usage WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] user_refresh_usage cleanup failed:", err);
+      }
+
+      // AI insights / recommendations / anomalies / leaks (all referenced
+      // deleted transactions — cached output is now stale)
+      try {
+        await pool.query(`DELETE FROM ai_insights WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] ai_insights cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM transaction_anomalies WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] transaction_anomalies cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM savings_recommendations WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] savings_recommendations cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM leak_alerts WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] leak_alerts cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM payday_recommendations WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] payday_recommendations cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM spendability_snapshots WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] spendability_snapshots cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM what_if_scenarios WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] what_if_scenarios cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM autopilot_rules WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] autopilot_rules cleanup failed:", err);
+      }
+
+      // Bill payment tracking + reminder log
+      try {
+        await pool.query(`DELETE FROM bill_payments WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] bill_payments cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM bill_reminders_sent WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] bill_reminders_sent cleanup failed:", err);
+      }
+
+      // AI cost tracking + system alert dismissals + watchlists
+      try {
+        await pool.query(`DELETE FROM user_ai_costs WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] user_ai_costs cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM system_alert_dismissals WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] system_alert_dismissals cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM user_watchlists WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] user_watchlists cleanup failed:", err);
+      }
+
+      // Household memberships + financial professional links
+      try {
+        await pool.query(`DELETE FROM household_members WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] household_members cleanup failed:", err);
+      }
+      try {
+        await pool.query(`DELETE FROM financial_professionals WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] financial_professionals cleanup failed:", err);
+      }
+
+      // User-owned canonical categories (system rows have user_id IS NULL
+      // and must be preserved). Safe to run last because every table that
+      // FK-referenced canonical_category_id has already been wiped above.
+      try {
+        await pool.query(`DELETE FROM canonical_categories WHERE user_id = $1`, [userId]);
+      } catch (err) {
+        console.warn("[FreshStart] user-owned canonical_categories cleanup failed:", err);
       }
 
       // 5. Reset onboarding
