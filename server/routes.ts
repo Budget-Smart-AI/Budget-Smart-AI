@@ -4060,10 +4060,13 @@ Return JSON: { "income": [...] }`;
       await storage.deleteAllOnboardingAnalysisByUser(userId);
       await storage.deleteAllNotificationsByUser(userId);
 
-      // Split expenses (raw SQL)
+      // Split expenses (raw SQL).
+      // split_expenses.created_by is the userId who created the split;
+      // there is no user_id column. Earlier code used the wrong column
+      // name and the cleanup silently failed (caught by the try/catch).
       try {
-        await pool.query(`DELETE FROM split_participants WHERE split_expense_id IN (SELECT id FROM split_expenses WHERE user_id = $1)`, [userId]);
-        await pool.query(`DELETE FROM split_expenses WHERE user_id = $1`, [userId]);
+        await pool.query(`DELETE FROM split_participants WHERE split_expense_id IN (SELECT id FROM split_expenses WHERE created_by = $1)`, [userId]);
+        await pool.query(`DELETE FROM split_expenses WHERE created_by = $1`, [userId]);
       } catch (err) {
         console.warn("[FreshStart] Split expense cleanup failed:", err);
       }

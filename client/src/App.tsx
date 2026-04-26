@@ -209,7 +209,11 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
   }, [onboardingStatus]);
 
   useEffect(() => {
-    if (location === "/setup-wizard") {
+    // Onboarding is a modal, not a router-addressable path. Handle the
+    // /setup-wizard and /onboarding aliases (used by Fresh Start, demo
+    // banner, settings page) by toggling the modal state and redirecting
+    // back to the dashboard so the URL stays clean.
+    if (location === "/setup-wizard" || location === "/onboarding") {
       setShowOnboarding(true);
       setLocation("/");
     }
