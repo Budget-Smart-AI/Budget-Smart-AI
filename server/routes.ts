@@ -1198,18 +1198,19 @@ export async function registerRoutes(
       let removed = 0;
 
       // ── Step 1: Remove EXACT duplicates only when ALL fields match ──────────
-      // Requires source + date + amount + category + notes ALL identical.
+      // Requires source + date + amount + canonical_category_id + notes ALL identical.
       // This catches the case where the same record was inserted twice (e.g., a
       // double-sync bug) but will NOT delete legitimate same-day same-amount
       // payments from different transactions (e.g., 3 × $400 Stripe payouts).
+      // §6.2.8: legacy `category` column dropped — use canonical_category_id instead.
       const { rows: exactDupGroups } = await dedupPool.query(`
-        SELECT source, date, amount, category, notes,
+        SELECT source, date, amount, canonical_category_id, notes,
                COUNT(*) as cnt,
                MIN(id) as keep_id,
                ARRAY_AGG(id ORDER BY created_at ASC, id ASC) as all_ids
         FROM income
         WHERE user_id = $1
-        GROUP BY source, date, amount, category, notes
+        GROUP BY source, date, amount, canonical_category_id, notes
         HAVING COUNT(*) > 1
       `, [userId]);
 
@@ -1849,8 +1850,9 @@ Return JSON: { "income": [...] }`;
         }
         // Use the month from the request body so limits apply per-month, not just current month
         const targetMonthStr = (req.body.month as string) || new Date().toISOString().slice(0, 7);
+        // §6.2.8: legacy `category` column dropped — count by canonical_category_id instead.
         const { rows: budgetRows } = await pool.query<{ cnt: number }>(
-          "SELECT COUNT(DISTINCT category)::int AS cnt FROM budgets WHERE user_id = $1 AND month = $2",
+          "SELECT COUNT(DISTINCT canonical_category_id)::int AS cnt FROM budgets WHERE user_id = $1 AND month = $2",
           [userId, targetMonthStr]
         );
         if ((budgetRows[0]?.cnt ?? 0) >= budgetLimit) {
@@ -1943,14 +1945,18 @@ Return JSON: { "income": [...] }`;
 
       async function getSpendingByCategory(y: number, m: number): Promise<Record<string, number>> {
         // Try Plaid transactions first, fall back to manual expenses
+        // §6.2.8: legacy `category` and `personal_finance_category` columns dropped from
+        // plaid_transactions — group by canonical_category_id and resolve display name
+        // via JOIN to canonical_categories.
         try {
           const { rows } = await pool.query(
             `SELECT
-              COALESCE(personal_finance_category, category, 'Other') as category,
-              SUM(ABS(amount::numeric)) as total
+              COALESCE(cc.display_name, 'Other') as category,
+              SUM(ABS(pt.amount::numeric)) as total
             FROM plaid_transactions pt
             JOIN plaid_accounts pa ON pa.id = pt.plaid_account_id
             JOIN plaid_items pi ON pi.id = pa.plaid_item_id
+            LEFT JOIN canonical_categories cc ON cc.id = pt.canonical_category_id
             WHERE pi.user_id = $1
               AND pi.status = 'active'
               AND EXTRACT(YEAR FROM pt.date::date) = $2
@@ -8537,8 +8543,9 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           recurrence: i.recurrence,
         }));
 
+      // §6.2.8: budgets.category renamed to canonicalCategoryId.
       const budgetStatus = currentMonthBudgets.map((b: any) => ({
-        category: b.category,
+        category: b.canonicalCategoryId,
         budgeted: parseFloat(b.amount),
         month: b.month,
       }));
@@ -9294,10 +9301,18 @@ Rules:
 
       // Get existing budgets for target month (household-aware so we don't
       // re-suggest categories that a partner already budgeted).
+      // §6.2.8: budgets store canonicalCategoryId (slug); categorySummaries
+      // store the canonical display name. Map slug→display name to compare.
       const existingBudgets = householdId
         ? (await storage.getBudgetsByUserIds(userIds)).filter((b: any) => b.month === targetMonth)
         : await storage.getBudgetsByMonth(userId, targetMonth);
-      const existingCategories = existingBudgets.map((b: any) => b.category);
+      const allCanonicalCats = await storage.getAllCategories(userId);
+      const slugToDisplayName = new Map<string, string>(
+        allCanonicalCats.map((c: any) => [c.id, c.displayName])
+      );
+      const existingCategories = existingBudgets.map((b: any) =>
+        slugToDisplayName.get(b.canonicalCategoryId) || b.canonicalCategoryId
+      );
 
       // Filter out categories that already have budgets
       const filteredSummaries = categorySummaries.filter(s => !existingCategories.includes(s.category));
@@ -10306,12 +10321,14 @@ ${JSON.stringify(txSummary)}`;
     }
   });
 
-  // GET /api/subscriptions — list all user subscriptions (bills with category="Subscriptions")
+  // GET /api/subscriptions — list all user subscriptions
+  // §6.2.8: bills.category renamed to canonicalCategoryId. The "Subscriptions"
+  // bucket is canonical id `lifestyle_subscriptions` (per seed-canonical-categories.ts).
   app.get("/api/subscriptions", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
       const bills = await storage.getBills(userId);
-      const subscriptions = bills.filter((b: any) => b.category === "Subscriptions");
+      const subscriptions = bills.filter((b: any) => b.canonicalCategoryId === "lifestyle_subscriptions");
       res.json(subscriptions);
     } catch (error) {
       console.error("GET /api/subscriptions error:", error);
@@ -10324,7 +10341,7 @@ ${JSON.stringify(txSummary)}`;
     try {
       const userId = req.session.userId!;
       const bills = await storage.getBills(userId);
-      const subscriptions = bills.filter((b: any) => b.category === "Subscriptions");
+      const subscriptions = bills.filter((b: any) => b.canonicalCategoryId === "lifestyle_subscriptions");
       const active = subscriptions.filter((b: any) => b.isPaused !== "true");
 
       const monthlyTotal = active.reduce((sum: number, sub: any) => {

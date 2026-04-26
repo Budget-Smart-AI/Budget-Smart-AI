@@ -247,8 +247,11 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
   let count = 0;
 
   // Enrich plaid_transactions — also pass through Plaid's detailed PFC enum
+  // §6.2.8: legacy `category` and `personal_category` columns dropped — derive
+  // primary PFC from `personal_finance_category_detailed` (e.g.
+  // FOOD_AND_DRINK_GROCERIES → FOOD_AND_DRINK).
   const plaidPending = await pool.query(
-    `SELECT t.id, t.name AS description, t.amount, t.category,
+    `SELECT t.id, t.name AS description, t.amount,
             t.personal_finance_category_detailed
      FROM plaid_transactions t
      JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
@@ -261,25 +264,30 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
 
   for (const tx of plaidPending.rows) {
     try {
+      // Derive Plaid's primary PFC (e.g. "FOOD_AND_DRINK") from the detailed
+      // enum (e.g. "FOOD_AND_DRINK_GROCERIES") by stripping the last segment.
+      const pfcDetailed: string | null = tx.personal_finance_category_detailed || null;
+      const pfcPrimary: string | null = pfcDetailed
+        ? pfcDetailed.split('_').slice(0, -1).join('_') || pfcDetailed
+        : null;
       const result = await enrichTransaction({
         rawDescription: tx.description,
         amount: Math.abs(parseFloat(tx.amount)),
-        providerCategory: tx.category,
-        plaidCategoryDetailed: tx.personal_finance_category_detailed || null,
-        plaidCategoryPrimary: tx.category,
+        providerCategory: pfcPrimary ?? undefined,
+        plaidCategoryDetailed: pfcDetailed ?? undefined,
+        plaidCategoryPrimary: pfcPrimary ?? undefined,
       });
       await pool.query(
         `UPDATE plaid_transactions SET
           merchant_clean_name = $1,
           merchant_logo_url = $2,
-          personal_category = $3,
-          subcategory = $4,
-          merchant_type = $5,
-          is_subscription = $6,
-          enrichment_source = $7,
-          enrichment_confidence = $8
-         WHERE id = $9`,
-        [result.cleanName, result.logoUrl, result.category, result.subcategory, result.merchantType,
+          subcategory = $3,
+          merchant_type = $4,
+          is_subscription = $5,
+          enrichment_source = $6,
+          enrichment_confidence = $7
+         WHERE id = $8`,
+        [result.cleanName, result.logoUrl, result.subcategory, result.merchantType,
          result.isSubscription ? 'true' : 'false', result.source, result.confidence, tx.id]
       );
       count++;
@@ -289,9 +297,11 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
     }
   }
 
-  // Enrich mx_transactions (MX doesn't have PFC detailed)
+  // Enrich mx_transactions (MX doesn't have PFC detailed).
+  // §6.2.8: legacy `category` column dropped — fall back to MX's
+  // `top_level_category` for the providerCategory hint.
   const mxPending = await pool.query(
-    `SELECT t.id, t.description, t.amount, t.category
+    `SELECT t.id, t.description, t.amount, t.top_level_category
      FROM mx_transactions t
      JOIN mx_accounts ma ON ma.id = t.mx_account_id
      WHERE ma.mx_member_id IN (SELECT id FROM mx_members WHERE user_id = $1)
@@ -306,7 +316,7 @@ export async function enrichPendingTransactions(userId: string, limit = 50): Pro
       const result = await enrichTransaction({
         rawDescription: tx.description,
         amount: Math.abs(parseFloat(tx.amount)),
-        providerCategory: tx.category,
+        providerCategory: tx.top_level_category || undefined,
       });
       await pool.query(
         `UPDATE mx_transactions SET

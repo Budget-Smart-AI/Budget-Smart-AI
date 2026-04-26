@@ -28,6 +28,7 @@ import type { PlaidTransaction, Bill, Expense } from "../../shared/schema";
 import { sendSpendingAlertEmail } from "../email";
 import { classifyIncomeTransaction } from "./financial-engine/categories/income-classifier";
 import { resolveCanonicalCategorySync } from "../migrations/category-unification/resolver";
+import { isNonSpendingCanonical } from "./canonical-flags";
 
 // ─── Fix 5: Startup migration — backfill externalTransactionId on existing expenses ─
 
@@ -1338,6 +1339,11 @@ export async function autoReconcileMX(userId: string): Promise<{
   try {
     // Fetch unmatched MX DEBIT transactions for this user
     const { pool } = await import("../db");
+    // §6.2.8: legacy `category` column dropped from mx_transactions — use
+    // canonical_category_id (resolved via the unified taxonomy) plus the
+    // §6.3.1 isNonSpendingCanonical helper instead of string-matching the
+    // raw provider category. top_level_category is still useful as a
+    // coarse hint and stays in the SELECT.
     const { rows: txRows } = await pool.query<{
       id: string;
       transaction_guid: string;
@@ -1346,7 +1352,7 @@ export async function autoReconcileMX(userId: string): Promise<{
       description: string;
       merchant_clean_name: string | null;
       top_level_category: string | null;
-      category: string | null;
+      canonical_category_id: string | null;
       transaction_type: string | null;
       is_income: string | null;
       is_bill_pay: string | null;
@@ -1356,7 +1362,7 @@ export async function autoReconcileMX(userId: string): Promise<{
     }>(`
       SELECT mt.id, mt.transaction_guid, mt.amount, mt.date,
              mt.description, mt.merchant_clean_name,
-             mt.top_level_category, mt.category,
+             mt.top_level_category, mt.canonical_category_id,
              mt.transaction_type, mt.is_income, mt.is_bill_pay, mt.is_fee,
              mt.matched_expense_id, mt.reconciled
       FROM mx_transactions mt
@@ -1389,14 +1395,18 @@ export async function autoReconcileMX(userId: string): Promise<{
       if (txAmount <= 0) { skipped++; continue; }
 
       const topCat = (tx.top_level_category || '').toUpperCase();
-      const cat = (tx.category || '').toUpperCase();
       const txType = (tx.transaction_type || '').toUpperCase();
 
-      // Skip by MX category
+      // Skip by MX category. §6.2.8/§6.3.1: legacy `category` string check
+      // replaced with canonical-id helper isNonSpendingCanonical, which
+      // catches transfers + credit-card payments + debt payments via the
+      // canonical taxonomy. top_level_category keyword check stays as a
+      // coarse defense-in-depth signal.
       const skipByCategory =
-        SKIP_CATEGORIES.some(s => topCat.includes(s) || cat.includes(s)) ||
-        topCat.includes('TRANSFER') || cat.includes('TRANSFER') ||
-        topCat.includes('INCOME') || cat.includes('INCOME') ||
+        SKIP_CATEGORIES.some(s => topCat.includes(s)) ||
+        topCat.includes('TRANSFER') ||
+        topCat.includes('INCOME') ||
+        isNonSpendingCanonical(tx.canonical_category_id) ||
         tx.is_income === 'true' ||
         tx.is_bill_pay === 'true' ||
         tx.is_fee === 'true' ||
@@ -1467,7 +1477,7 @@ export async function autoReconcileMX(userId: string): Promise<{
       }
 
       // ── CREATE new expense ───────────────────────────────────────────────
-      const expenseCategory = mapToExpenseCategory(tx.top_level_category || tx.category);
+      const expenseCategory = mapToExpenseCategory(tx.top_level_category || tx.description);
 
       try {
         const newExpense = await storage.createExpense({
