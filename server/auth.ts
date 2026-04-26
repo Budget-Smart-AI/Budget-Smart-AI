@@ -284,53 +284,53 @@ async function createDemoData(): Promise<void> {
     // Create comprehensive sample bills including many subscriptions
     const bills = [
       // Housing & Utilities
-      { userId: demoUserId, name: "Apartment Rent", amount: "2200.00", dueDay: 1, canonicalCategoryId: "housing_rent", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Electric Bill", amount: "145.00", dueDay: 15, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Water & Sewer", amount: "65.00", dueDay: 20, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Gas Bill", amount: "78.00", dueDay: 18, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Internet Service", amount: "79.99", dueDay: 20, canonicalCategoryId: "housing_internet", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Renters Insurance", amount: "32.00", dueDay: 1, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Apartment Rent", amount: "2200.00", dueDay: 1, canonicalCategoryId: "housing_rent", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Electric Bill", amount: "145.00", dueDay: 15, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Water & Sewer", amount: "65.00", dueDay: 20, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Gas Bill", amount: "78.00", dueDay: 18, canonicalCategoryId: "housing_utilities", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Internet Service", amount: "79.99", dueDay: 20, canonicalCategoryId: "housing_internet", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Renters Insurance", amount: "32.00", dueDay: 1, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
       
       // Transportation
-      { userId: demoUserId, name: "Car Payment", amount: "450.00", dueDay: 10, canonicalCategoryId: "financial_loans", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Car Insurance", amount: "185.00", dueDay: 5, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Car Payment", amount: "450.00", dueDay: 10, canonicalCategoryId: "financial_loans", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Car Insurance", amount: "185.00", dueDay: 5, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
       
       // Insurance & Health
-      { userId: demoUserId, name: "Health Insurance", amount: "320.00", dueDay: 1, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Life Insurance", amount: "45.00", dueDay: 15, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Health Insurance", amount: "320.00", dueDay: 1, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Life Insurance", amount: "45.00", dueDay: 15, canonicalCategoryId: "financial_insurance", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
       
       // Phone
-      { userId: demoUserId, name: "Phone Bill (Verizon)", amount: "85.00", dueDay: 22, canonicalCategoryId: "housing_phone", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Phone Bill (Verizon)", amount: "85.00", dueDay: 22, canonicalCategoryId: "housing_phone", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
       
       // Streaming Subscriptions
-      { userId: demoUserId, name: "Netflix", amount: "15.99", dueDay: 12, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Spotify Family", amount: "16.99", dueDay: 18, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Disney+", amount: "13.99", dueDay: 8, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "HBO Max", amount: "15.99", dueDay: 14, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Amazon Prime", amount: "14.99", dueDay: 3, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "YouTube Premium", amount: "13.99", dueDay: 25, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Apple iCloud+", amount: "2.99", dueDay: 7, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Hulu", amount: "17.99", dueDay: 16, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Netflix", amount: "15.99", dueDay: 12, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Spotify Family", amount: "16.99", dueDay: 18, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Disney+", amount: "13.99", dueDay: 8, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "HBO Max", amount: "15.99", dueDay: 14, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Amazon Prime", amount: "14.99", dueDay: 3, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "YouTube Premium", amount: "13.99", dueDay: 25, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Apple iCloud+", amount: "2.99", dueDay: 7, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Hulu", amount: "17.99", dueDay: 16, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
       
       // Software & Tools
-      { userId: demoUserId, name: "Microsoft 365", amount: "12.99", dueDay: 5, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Adobe Creative Cloud", amount: "54.99", dueDay: 11, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Dropbox Plus", amount: "11.99", dueDay: 19, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "1Password", amount: "4.99", dueDay: 22, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "ChatGPT Plus", amount: "20.00", dueDay: 9, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Microsoft 365", amount: "12.99", dueDay: 5, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Adobe Creative Cloud", amount: "54.99", dueDay: 11, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Dropbox Plus", amount: "11.99", dueDay: 19, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "1Password", amount: "4.99", dueDay: 22, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "ChatGPT Plus", amount: "20.00", dueDay: 9, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
       
       // Fitness & Wellness
-      { userId: demoUserId, name: "Gym Membership (Equinox)", amount: "189.00", dueDay: 1, canonicalCategoryId: "health_fitness", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Peloton App", amount: "12.99", dueDay: 6, canonicalCategoryId: "health_fitness", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Headspace", amount: "12.99", dueDay: 21, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
+      { userId: demoUserId, name: "Gym Membership (Equinox)", amount: "189.00", dueDay: 1, canonicalCategoryId: "health_fitness", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Peloton App", amount: "12.99", dueDay: 6, canonicalCategoryId: "health_fitness", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Headspace", amount: "12.99", dueDay: 21, canonicalCategoryId: "lifestyle_subscriptions", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
       
       // Other
-      { userId: demoUserId, name: "Student Loan Payment", amount: "285.00", dueDay: 28, canonicalCategoryId: "financial_loans", recurrence: "monthly" as const, isPaused: "false", autoDetected: "false" },
-      { userId: demoUserId, name: "Credit Card (Chase Sapphire)", amount: "95.00", dueDay: 1, canonicalCategoryId: "uncategorized", recurrence: "yearly" as const, isPaused: "false", autoDetected: "false" }
+      { userId: demoUserId, name: "Student Loan Payment", amount: "285.00", dueDay: 28, canonicalCategoryId: "financial_loans", recurrence: "monthly" as const, isPaused: "false", autoDetected: false },
+      { userId: demoUserId, name: "Credit Card (Chase Sapphire)", amount: "95.00", dueDay: 1, canonicalCategoryId: "uncategorized", recurrence: "yearly" as const, isPaused: "false", autoDetected: false }
     ];
     
     for (const bill of bills) {
-      await storage.createBill(bill as any);
+      await storage.createBill(bill);
     }
     
     // Create sample budgets (using canonicalCategoryId)

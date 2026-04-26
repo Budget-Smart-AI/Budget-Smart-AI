@@ -50,6 +50,14 @@ export interface PlaidTransactionShape {
   counterpartyName: string | null;
   category: string | null;
   personalCategory: string | null;
+  /**
+   * Canonical category id (post-§6.2.x SSOT). Required by cash-flow.ts
+   * `isNonSpendingCanonical(t.canonicalCategoryId)` filter at the heart of
+   * `calculateAverageDailySpending` / `detectRecurringIncomeFromTransactions`.
+   * Was absent from the shape before §6.4 cleanup, which caused those
+   * filters to silently no-op on shimmed callers.
+   */
+  canonicalCategoryId: string | null;
   personalFinanceCategoryDetailed: string | null;
   matchType: string | null;
   pending: boolean;
@@ -78,6 +86,7 @@ export function normalizedToPlaidShape(
       counterpartyName: t.merchant || null,
       category: t.category || null,
       personalCategory: t.category || null,
+      canonicalCategoryId: t.canonicalCategoryId ?? null,
       personalFinanceCategoryDetailed:
         (t.providerSignals?.pfcDetailed as string | undefined) ?? null,
       matchType,

@@ -19,8 +19,14 @@ function toCents(amount: string | number): number {
 function toDollars(cents: number): number {
   return Math.round(cents) / 100;
 }
-import type { Bill, Income, PlaidTransaction, PlaidAccount } from "@shared/schema";
+import type { Bill, Income, PlaidAccount } from "@shared/schema";
+import type { PlaidTransactionShape } from "./engine/plaid-shape-shim";
 import { isNonSpendingCanonical } from "./lib/canonical-flags";
+
+// All call sites pass `PlaidTransactionShape[]` (output of
+// `normalizedToPlaidShape`). The shape is a structural subset of the legacy
+// PlaidTransaction row — every field this engine reads is on the shape, so
+// narrowing the signatures lets us drop the `as any` casts at the call sites.
 
 export interface CashFlowEvent {
   date: string;
@@ -340,7 +346,7 @@ export function getIncomeInRange(incomes: Income[], startDate: Date, endDate: Da
  * - Refunds / one-off credits (not enough occurrences)
  */
 export function detectRecurringIncomeFromTransactions(
-  transactions: PlaidTransaction[],
+  transactions: PlaidTransactionShape[],
   startDate: Date,
   endDate: Date,
 ): CashFlowEvent[] {
@@ -368,19 +374,19 @@ export function detectRecurringIncomeFromTransactions(
   const credits = transactions.filter(t => {
     const amountCents = toCents(t.amount);
     if (amountCents >= 0) return false; // Plaid: negative = deposit
-    if ((t as any).isTransfer === true || (t as any).isTransfer === "true") return false;
+    if (t.isTransfer === true) return false;
     if (t.matchType === 'transfer') return false;
 
     // §6.2.8: category/personalCategory columns dropped — use canonicalCategoryId
     const cat = (t.canonicalCategoryId || "").toLowerCase();
     if (INCOME_EXCLUDE_CATEGORIES.has(cat)) return false;
 
-    const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
+    const detailed = (t.personalFinanceCategoryDetailed || "").toUpperCase();
     if (INCOME_EXCLUDE_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) return false;
 
     // Name-pattern backstop for bank-labelled transfers that arrive with
     // neutral categories (e.g. "Other", "Uncategorized").
-    const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
+    const name = (t.counterpartyName || t.merchantName || t.name || "").toString();
     if (TRANSFER_NAME_PATTERN.test(name)) return false;
 
     return true;
@@ -389,10 +395,10 @@ export function detectRecurringIncomeFromTransactions(
   if (credits.length < 2) return [];
 
   // 2. Group by merchant/counterparty fingerprint
-  const groups = new Map<string, PlaidTransaction[]>();
+  const groups = new Map<string, PlaidTransactionShape[]>();
   for (const t of credits) {
-    const key = ((t as any).counterpartyName
-      || (t as any).merchantName
+    const key = (t.counterpartyName
+      || t.merchantName
       || t.name
       || "").trim().toUpperCase().replace(/\s+/g, " ");
     if (!key) continue;
@@ -471,7 +477,7 @@ export function detectRecurringIncomeFromTransactions(
 /**
  * Calculate average daily spending from historical transactions
  */
-export function calculateAverageDailySpending(transactions: PlaidTransaction[], days: number = 30): number {
+export function calculateAverageDailySpending(transactions: PlaidTransactionShape[], days: number = 30): number {
   // Exclude bill payments (tracked separately), transfers, and debt-servicing
   // rows that inflate the "daily discretionary spending" average.
   // §6.3.1: canonical-id check via isNonSpendingCanonical — replaces the
@@ -490,11 +496,11 @@ export function calculateAverageDailySpending(transactions: PlaidTransaction[], 
     if (amountCents <= 0) return false; // Skip income (negative in Plaid)
     if (t.matchType === 'bill') return false; // Already tracked as bills
     if (t.matchType === 'transfer') return false;
-    if ((t as any).isTransfer === true || (t as any).isTransfer === "true") return false;
+    if (t.isTransfer === true) return false;
     if (isNonSpendingCanonical(t.canonicalCategoryId)) return false;
-    const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
+    const detailed = (t.personalFinanceCategoryDetailed || "").toUpperCase();
     if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) return false;
-    const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
+    const name = (t.counterpartyName || t.merchantName || t.name || "").toString();
     if (TRANSFER_NAME_PATTERN.test(name)) return false;
     return true;
   });
@@ -515,7 +521,7 @@ export function calculateAverageDailySpending(transactions: PlaidTransaction[], 
  * transactions happened on Sundays. Requires >=2 occurrences to produce a
  * DOW-specific number; otherwise falls back to 0 (caller uses overall avg).
  */
-export function getSpendingByDayOfWeek(transactions: PlaidTransaction[]): Record<number, number> {
+export function getSpendingByDayOfWeek(transactions: PlaidTransactionShape[]): Record<number, number> {
   const byDay: Record<number, { totalCents: number; count: number }> = {
     0: { totalCents: 0, count: 0 },
     1: { totalCents: 0, count: 0 },
@@ -546,11 +552,11 @@ export function getSpendingByDayOfWeek(transactions: PlaidTransaction[]): Record
     const amountCents = toCents(t.amount);
     if (amountCents <= 0 || t.matchType === 'bill') continue; // Skip income and bill payments
     if (t.matchType === 'transfer') continue;
-    if ((t as any).isTransfer === true || (t as any).isTransfer === "true") continue;
+    if (t.isTransfer === true) continue;
     if (isNonSpendingCanonical(t.canonicalCategoryId)) continue;
-    const detailed = ((t as any).personalFinanceCategoryDetailed || "").toUpperCase();
+    const detailed = (t.personalFinanceCategoryDetailed || "").toUpperCase();
     if (NON_SPENDING_DETAILED_PREFIXES.some(p => detailed.startsWith(p))) continue;
-    const name = ((t as any).counterpartyName || (t as any).merchantName || t.name || "").toString();
+    const name = (t.counterpartyName || t.merchantName || t.name || "").toString();
     if (TRANSFER_NAME_PATTERN.test(name)) continue;
 
     const d = parseISO(t.date);
@@ -605,7 +611,7 @@ export function generateCashFlowForecast(
   currentBalance: number,
   bills: Bill[],
   incomes: Income[],
-  transactions: PlaidTransaction[],
+  transactions: PlaidTransactionShape[],
   days: number = 30,
   historicalDays: number = 30
 ): CashFlowForecast {

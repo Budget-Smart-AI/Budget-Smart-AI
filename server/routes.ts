@@ -11779,7 +11779,7 @@ ${JSON.stringify(txSummary)}`;
         currentBalance,
         activeBills,
         activeIncomes,
-        transactions as any,
+        transactions,
         days,
       );
 
@@ -11856,7 +11856,7 @@ ${JSON.stringify(txSummary)}`;
         currentBalance,
         activeBills,
         activeIncomes,
-        transactions as any,
+        transactions,
         days,
         60
       );
@@ -12190,7 +12190,7 @@ ${JSON.stringify(txSummary)}`;
         currentBalance,
         baselineBills,
         activeIncomes,
-        transactions as any,
+        transactions,
         90,
       );
 
@@ -12198,7 +12198,7 @@ ${JSON.stringify(txSummary)}`;
         currentBalance,
         activeSimulatedBills,
         simulatedIncomes,
-        transactions as any,
+        transactions,
         90,
       );
 
@@ -13146,21 +13146,17 @@ ${JSON.stringify(txSummary)}`;
       );
       const currentBalance = liquidAccounts.reduce((s, a) => s + a.balance, 0);
 
-      // Keep raw-tx shape stable for downstream calculateAverageDailySpending
-      // (which expects Plaid-style { amount (string, debit = positive),
-      // category, date }). Map normalized → legacy shape inline.
-      const transactions = normalizedTxns
-        .filter(t => !t.isPending && !t.isTransfer)
-        .map(t => ({
-          date: t.date,
-          // Spending functions expect a positive-dollar string on debits.
-          // For credits (money in) we flip the sign so downstream avg-daily
-          // spending doesn't count income as an outflow.
-          amount: (t.direction === "debit" ? t.amount : -t.amount).toString(),
-          category: t.category,
-          personalCategory: t.category,
-          merchantName: t.merchant,
-        }));
+      // §6.4 cleanup: use the canonical shim instead of an inline mapping.
+      // The previous inline shape was missing matchType/isTransfer/
+      // canonicalCategoryId/personalFinanceCategoryDetailed, which silently
+      // disabled the engine's transfer + non-spending filters. The shim
+      // populates all fields the engine reads. Pending transactions are still
+      // pre-filtered (the engine doesn't drop pending on its own); transfers
+      // and non-spending categories are dropped by the engine's own filters.
+      const { normalizedToPlaidShape } = await import("./engine/plaid-shape-shim");
+      const transactions = normalizedToPlaidShape(
+        normalizedTxns.filter(t => !t.isPending),
+      );
 
       // Filter to active bills: paused → out, linked to an inactive account
       // (any provider) → out. This replaces the old Plaid-only disabled-id
@@ -13199,7 +13195,7 @@ ${JSON.stringify(txSummary)}`;
       }
 
       // Calculate predicted spending (next 14 days based on historical average)
-      const avgDailySpending = calculateAverageDailySpending(transactions as any, 30);
+      const avgDailySpending = calculateAverageDailySpending(transactions, 30);
       const predictedSpending = avgDailySpending * 14;
 
       // Calculate safety buffer (10% of balance or $200, whichever is higher)
