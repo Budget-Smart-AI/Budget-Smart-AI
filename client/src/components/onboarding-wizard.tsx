@@ -84,10 +84,10 @@ function detectCountry(): string {
 // Module-level constant so the useEffect that clamps server-provided step
 // values and the render both agree on the bound. Changing this requires
 // updating the labels array inside StepProgress too.
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 function StepProgress({ current, total }: { current: number; total: number }) {
-  const labels = ["Welcome", "Connect Bank", "Monthly Income", "You're Ready!"];
+  const labels = ["Welcome", "Connect Bank", "Scanning", "Confirm Income", "You're Ready!"];
   // Defensively clamp. If upstream state is ever out of range (e.g., stale
   // cached onboarding status pointing at a step that no longer exists after
   // a Fresh Start), we still render a sane "Step N of total — label" rather
@@ -185,6 +185,7 @@ function ConnectBankStep({
   onBankConnected,
   initialCountry,
   onCountryChange,
+  bankAlreadyConnected,
 }: {
   onNext: () => void;
   onSkip: () => void;
@@ -192,6 +193,14 @@ function ConnectBankStep({
   onBankConnected: (connected: boolean, accountCount?: number, txCount?: number) => void;
   initialCountry: string;
   onCountryChange: (country: string, state: string) => void;
+  /**
+   * Loop-bug guard. If the parent already knows a bank is connected
+   * (from /api/onboarding/status.hasPlaidConnection or local state from a
+   * prior step transition), initialise this component into the "connected"
+   * branch so a remount mid-flow doesn't dump the user back into the
+   * country-selector or the Get-Your-Phone-Ready substep.
+   */
+  bankAlreadyConnected?: boolean;
 }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   // Provider-agnostic bank-link intent. Held in component state ONLY — never
@@ -201,7 +210,12 @@ function ConnectBankStep({
   const [intentId, setIntentId] = useState<string | null>(null);
   const [mxIntentId, setMxIntentId] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [connected, setConnected] = useState(false);
+  // Loop-bug fix: when ConnectBankStep remounts (e.g., wizard re-opened after
+  // a refresh and the server still routes the user back to step 2 because
+  // currentStep wasn't bumped past 2), seed `connected` from the parent's
+  // hasPlaidConnection signal so we land in the "Bank connected!" branch
+  // instead of the country selector / phone-ready substep.
+  const [connected, setConnected] = useState(!!bankAlreadyConnected);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState("");
   const [accountCount, setAccountCount] = useState(0);
@@ -295,6 +309,17 @@ function ConnectBankStep({
       setIsSyncing(true);
       setSyncMessage("🎉 Connected! Finding your transactions...");
 
+      // Loop-bug fix: persist step=3 (Scanning) IMMEDIATELY after the
+      // exchange-token succeeds — BEFORE polling fetch-historical. The
+      // previous code saved step=3 after polling, which meant if the user
+      // refreshed mid-sync (or the wizard remounted while still polling),
+      // the server still reported currentStep=2 and the wizard would route
+      // the user back through the country selector / phone-ready substep.
+      // Fire-and-forget — a save-step network failure here is non-fatal.
+      apiRequest("POST", "/api/onboarding/save-step", { step: 3 }).catch((err) =>
+        console.warn("[wizard] save-step:3 failed (non-fatal):", err),
+      );
+
       // Poll for transactions
       let attempts = 0;
       const maxAttempts = 10;
@@ -332,12 +357,6 @@ function ConnectBankStep({
 
       setIsSyncing(false);
       setSyncMessage("");
-      // Save as step 3 — user has COMPLETED step 2 and is now ready for step 3
-      // (Monthly Income). Saving step 2 would cause the server to still report
-      // currentStep=2 on refresh, sending the user back through the bank-
-      // connect flow and producing "Bank account limit reached" on a second
-      // attempt.
-      await apiRequest("POST", "/api/onboarding/save-step", { step: 3 });
     } catch {
       toast({ title: "Failed to connect bank account", variant: "destructive" });
       setConnected(false);
@@ -456,7 +475,11 @@ function ConnectBankStep({
           onBankConnected(true, 1, 0);
           setShowMxWidget(false);
           onPlaidOpen?.(false);
-          await apiRequest("POST", "/api/onboarding/save-step", { step: 2 });
+          // Loop-bug fix: previous code saved step:2 here, leaving the server
+          // stuck on the same step the user was already on — so on refresh
+          // they got bounced back through the bank-connect flow. Save step:3
+          // (Scanning) so the wizard advances correctly.
+          await apiRequest("POST", "/api/onboarding/save-step", { step: 3 });
         }
       }
     };
@@ -859,79 +882,318 @@ function ConnectBankStep({
   );
 }
 
-// ─── Step 3: Monthly Income ───────────────────────────────────────────────────
+// ─── Step 3: Scanning Your Finances ───────────────────────────────────────────
+//
+// Plaid sync timing reality: when the user finishes Connect Bank, the
+// fetch-historical call has just landed transactions in the DB but the
+// IncomeDetector hasn't run yet (it's on a 24h scheduler). This step
+// triggers detection on demand via POST /api/onboarding/detect-now and
+// polls /api/onboarding/status every 3s for the result. If detection
+// completes within 30s, we advance to Confirm Income with the detected
+// sources prefilled. If it times out, we advance anyway — Confirm Income
+// shows a manual-entry fallback when no sources are present.
+//
+// The loading copy cycles through a few states ("Reading transactions",
+// "Detecting income", "Identifying recurring bills") so the user feels
+// progress instead of staring at a static spinner.
+
+function ScanningStep({
+  onComplete,
+  onSkip,
+}: {
+  // Pass the freshly-returned sources up so the parent doesn't have to
+  // wait on the /api/onboarding/status query refetch — eliminates the race
+  // where ConfirmIncomeStep mounts with empty detectedSources because the
+  // status cache hadn't picked up the detect-now write yet.
+  onComplete: (sources: DetectedIncomeSource[]) => void;
+  onSkip: () => void;
+}) {
+  const [phase, setPhase] = useState(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [detectError, setDetectError] = useState<string | null>(null);
+  const detectTriggeredRef = useRef(false);
+  const completedRef = useRef(false);
+
+  const phases = [
+    { label: "Reading your transactions...", emoji: "📖" },
+    { label: "Detecting your income sources...", emoji: "💰" },
+    { label: "Identifying recurring bills...", emoji: "📋" },
+    { label: "Almost done...", emoji: "✨" },
+  ];
+
+  // Cycle the phase label every 4s so the user feels progress.
+  useEffect(() => {
+    const t = setInterval(() => {
+      setPhase((p) => Math.min(p + 1, phases.length - 1));
+    }, 4000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Track elapsed seconds for the timeout fallback.
+  useEffect(() => {
+    const t = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Trigger on-demand detection once on mount. The endpoint runs
+  // detectRecurringIncomeSuggestions synchronously and persists results to
+  // onboardingAnalysis.analysisData.incomeSources, so the polling read
+  // path picks them up.
+  useEffect(() => {
+    if (detectTriggeredRef.current) return;
+    detectTriggeredRef.current = true;
+    (async () => {
+      try {
+        const res = await apiRequest("POST", "/api/onboarding/detect-now");
+        const data = await res.json();
+        if (completedRef.current) return;
+        completedRef.current = true;
+        // detect-now already persisted analysisData + step=4 server-side.
+        // Invalidate the status query so any later read of the wizard
+        // (refresh, re-open) picks up the fresh state — but we don't wait
+        // for the refetch; we pass the sources directly via onComplete to
+        // avoid the race where ConfirmIncomeStep mounts before the query
+        // has updated.
+        queryClient.invalidateQueries({ queryKey: ["/api/onboarding/status"] });
+        const sources: DetectedIncomeSource[] = Array.isArray(data?.incomeSources)
+          ? data.incomeSources
+          : [];
+        onComplete(sources);
+      } catch (err: any) {
+        if (completedRef.current) return;
+        completedRef.current = true;
+        console.warn("[wizard] detect-now failed:", err);
+        setDetectError(err?.message || "Detection failed");
+        // Still advance — ConfirmIncomeStep handles the empty case.
+        onComplete([]);
+      }
+    })();
+  }, [onComplete]);
+
+  // Hard timeout — if detect-now hangs for >30s, advance anyway.
+  useEffect(() => {
+    if (elapsedSec >= 30 && !completedRef.current) {
+      completedRef.current = true;
+      console.warn("[wizard] detect-now exceeded 30s, advancing without results");
+      onComplete([]);
+    }
+  }, [elapsedSec, onComplete]);
+
+  const current = phases[phase];
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center space-y-3">
+        <div className="text-5xl mb-2 animate-bounce">{current.emoji}</div>
+        <h2 className="text-xl font-bold">Scanning your finances</h2>
+        <p className="text-sm text-muted-foreground">
+          We're analyzing up to 12 months of transactions to find your income, bills, and spending patterns. This usually takes 10–30 seconds.
+        </p>
+      </div>
+
+      <div className="bg-muted/40 border border-border rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
+          <p className="text-sm font-medium">{current.label}</p>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-300"
+            style={{ width: `${Math.min((elapsedSec / 30) * 100, 100)}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {elapsedSec < 30
+            ? `${elapsedSec}s elapsed — please don't close this window`
+            : "Taking longer than expected. We'll keep working in the background."}
+        </p>
+      </div>
+
+      {detectError && (
+        <div className="text-xs text-amber-600 dark:text-amber-400 text-center">
+          {detectError} — moving on. You can add income manually next.
+        </div>
+      )}
+
+      <button
+        onClick={onSkip}
+        className="w-full text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors py-1"
+      >
+        Skip scanning — I'll add income manually
+      </button>
+    </div>
+  );
+}
+
+// ─── Step 4: Confirm Detected Income ──────────────────────────────────────────
+
+// Detected income source shape (matches what /api/onboarding/detect-now writes
+// into onboardingAnalysis.analysisData.incomeSources). Kept loose because the
+// upstream detector also produces optional fields like confidence/occurrences
+// that we surface in the UI but don't require.
+interface DetectedIncomeSource {
+  source: string;
+  amount: number;
+  category?: string | null;
+  recurrence?: string | null;
+  dueDay?: number | null;
+  confidence?: "high" | "medium" | "low" | null;
+  occurrences?: number | null;
+}
+
+// Convert per-pay amount + cadence into approximate monthly take-home for
+// the wizard's monthlyIncome summary. Used only for the "Saved!" recap on
+// the final step — the detected source itself is stored at its native
+// cadence in the DB so projections/forecasts stay accurate.
+function paydayToMonthly(amount: number, recurrence?: string | null): number {
+  const r = (recurrence || "monthly").toLowerCase();
+  if (r === "weekly") return amount * 52 / 12;
+  if (r === "biweekly") return amount * 26 / 12;
+  if (r === "semi-monthly") return amount * 2;
+  if (r === "monthly") return amount;
+  if (r === "quarterly") return amount / 3;
+  if (r === "yearly") return amount / 12;
+  return amount;
+}
+
+function recurrenceLabel(r?: string | null): string {
+  switch ((r || "").toLowerCase()) {
+    case "weekly": return "Weekly";
+    case "biweekly": return "Every 2 weeks";
+    case "semi-monthly": return "Twice a month";
+    case "monthly": return "Monthly";
+    case "quarterly": return "Quarterly";
+    case "yearly": return "Yearly";
+    default: return r ? String(r) : "Recurring";
+  }
+}
 
 function MonthlyIncomeStep({
   onNext,
   onSkip,
-  detectedIncome,
-  detectedEmployer,
+  detectedSources,
   selectedCountry,
 }: {
-  onNext: (income: number | null) => void;
+  // Pass back the chosen monthly-equivalent take-home for the summary card.
+  // null means user skipped without confirming/entering anything.
+  onNext: (monthlyIncome: number | null, confirmedSources: DetectedIncomeSource[]) => void;
   onSkip: () => void;
-  detectedIncome?: number | null;
-  detectedEmployer?: string | null;
+  detectedSources: DetectedIncomeSource[];
   selectedCountry: string;
 }) {
-  const [income, setIncome] = useState<string>(detectedIncome ? String(detectedIncome) : "");
-  const [confirmed, setConfirmed] = useState(false);
+  // Tracks which detected sources the user has accepted. Default-on so a
+  // "Continue" click without any toggling persists everything we found.
+  const [accepted, setAccepted] = useState<Record<number, boolean>>(() =>
+    Object.fromEntries(detectedSources.map((_, i) => [i, true])),
+  );
+  const [manualIncome, setManualIncome] = useState("");
 
-  // Currency label based on country
   const currencyLabel =
     selectedCountry === "CA" ? "CAD $" :
     selectedCountry === "GB" ? "GBP £" :
     selectedCountry === "AU" ? "AUD $" :
     "USD $";
 
-  const handleNext = () => {
-    const val = parseFloat(income);
-    onNext(isNaN(val) || val <= 0 ? null : val);
+  const hasDetected = detectedSources.length > 0;
+
+  const acceptedSources = detectedSources.filter((_, i) => accepted[i]);
+  const acceptedMonthly = acceptedSources.reduce(
+    (sum, s) => sum + paydayToMonthly(s.amount, s.recurrence),
+    0,
+  );
+
+  const handleContinue = () => {
+    if (hasDetected && acceptedSources.length > 0) {
+      onNext(Math.round(acceptedMonthly), acceptedSources);
+      return;
+    }
+    // Fallback: manual entry path (no detected sources OR user deselected
+    // every detected one and typed a number).
+    const val = parseFloat(manualIncome);
+    if (!isNaN(val) && val > 0) {
+      onNext(val, []);
+      return;
+    }
+    onNext(null, []);
   };
 
+  const continueDisabled = hasDetected
+    ? acceptedSources.length === 0 && (!manualIncome || parseFloat(manualIncome) <= 0)
+    : !manualIncome || parseFloat(manualIncome) <= 0;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="text-center space-y-2">
         <div className="text-3xl mb-2">💰</div>
-        <h2 className="text-xl font-bold">What's your monthly take-home income?</h2>
+        <h2 className="text-xl font-bold">
+          {hasDetected ? "We found your income" : "Add your income"}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          This helps us calculate how much you can save and spend
+          {hasDetected
+            ? "Confirm the sources we detected from your transactions"
+            : "We couldn't auto-detect income yet — add it manually below or skip and we'll keep watching"}
         </p>
       </div>
 
-      {detectedIncome && detectedEmployer && !confirmed && (
-        <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4 space-y-3">
-          <p className="text-sm font-medium text-green-800 dark:text-green-200">
-            ✅ We detected your income as{" "}
-            <strong>${detectedIncome.toLocaleString()}</strong> from{" "}
-            <strong>{detectedEmployer}</strong> — is this correct?
-          </p>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1 border-green-300 text-green-700 hover:bg-green-100"
-              onClick={() => {
-                setIncome(String(detectedIncome));
-                setConfirmed(true);
-              }}
-            >
-              ✓ Yes, that's correct
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="flex-1"
-              onClick={() => setConfirmed(true)}
-            >
-              No, I'll adjust
-            </Button>
-          </div>
+      {hasDetected && (
+        <div className="space-y-2">
+          {detectedSources.map((src, i) => {
+            const isOn = accepted[i] !== false;
+            const monthly = paydayToMonthly(src.amount, src.recurrence);
+            return (
+              <button
+                key={i}
+                onClick={() => setAccepted((a) => ({ ...a, [i]: !isOn }))}
+                className={`w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${
+                  isOn
+                    ? "border-green-500 bg-green-50 dark:bg-green-950/20 ring-1 ring-green-500"
+                    : "border-border bg-muted/20 opacity-60"
+                }`}
+              >
+                <div className="mt-0.5 shrink-0">
+                  {isOn ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  ) : (
+                    <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/40" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{src.source}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {currencyLabel}
+                    {src.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    {" · "}
+                    {recurrenceLabel(src.recurrence)}
+                    {src.confidence ? ` · ${src.confidence} confidence` : ""}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground/80 mt-0.5">
+                    ≈ {currencyLabel}
+                    {Math.round(monthly).toLocaleString()} / month
+                  </p>
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
 
+      {hasDetected && acceptedSources.length > 0 && (
+        <div className="rounded-lg bg-primary/5 border border-primary/20 px-3 py-2 text-center">
+          <p className="text-xs font-medium text-muted-foreground">Estimated monthly income</p>
+          <p className="text-lg font-bold text-primary">
+            {currencyLabel}
+            {Math.round(acceptedMonthly).toLocaleString()}
+          </p>
+        </div>
+      )}
+
+      {/* Manual entry — always available. When detection found something it
+          acts as "add another source"; when it didn't, it's the primary
+          input. */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Monthly take-home income</label>
+        <label className="text-sm font-medium">
+          {hasDetected ? "Add another source (optional)" : "Monthly take-home income"}
+        </label>
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium text-sm">
             {currencyLabel}
@@ -941,20 +1203,22 @@ function MonthlyIncomeStep({
             min="0"
             step="100"
             placeholder="e.g. 4500"
-            value={income}
-            onChange={(e) => setIncome(e.target.value)}
+            value={manualIncome}
+            onChange={(e) => setManualIncome(e.target.value)}
             className="pl-20 text-lg h-12"
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          Enter your net (after-tax) monthly income
-        </p>
+        {!hasDetected && (
+          <p className="text-xs text-muted-foreground">
+            Enter your net (after-tax) monthly income
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">
         <Button
-          onClick={handleNext}
-          disabled={!income || parseFloat(income) <= 0}
+          onClick={handleContinue}
+          disabled={continueDisabled}
           className="w-full gap-2"
           size="lg"
         >
@@ -1240,9 +1504,13 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
   // the wizard into a step index that has no matching render branch.
   useEffect(() => {
     if (!onboardingStatus) return;
-    if (onboardingStatus.hasPlaidConnection && step === 1) {
+    // Loop-bug fix: seed parent's `bankConnected` state whenever the server
+    // reports a Plaid connection, regardless of the current step. Previously
+    // this only fired when `step === 1`, which meant ConnectBankStep — when
+    // remounted at step 2 — had no signal that a bank was already connected
+    // and dropped the user back into the country selector.
+    if (onboardingStatus.hasPlaidConnection && !bankConnected) {
       setBankConnected(true);
-      setStep(2);
     }
     if (onboardingStatus.analysisData?.recurringBills) {
       setBillsDetected(onboardingStatus.analysisData.recurringBills.length);
@@ -1262,14 +1530,28 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
   // clamp above is enough to prevent "Step 5 of 4" ghosts; we don't need to
   // force-reset local step.
 
-  // Detect income from analysis data
-  const detectedIncome = onboardingStatus?.analysisData?.incomeSources?.[0];
-  const detectedIncomeAmount = detectedIncome
-    ? Math.round(parseFloat(detectedIncome.amount || "0"))
-    : null;
-  const detectedEmployer = detectedIncome?.source || null;
+  // Detected income sources written by POST /api/onboarding/detect-now into
+  // analysisData.incomeSources during the Scanning step. Mapped into the
+  // DetectedIncomeSource shape ConfirmIncomeStep consumes — note `amount` is
+  // a number here, but legacy AI-generated rows may have it as a string,
+  // so coerce defensively.
+  const detectedSources: DetectedIncomeSource[] = Array.isArray(
+    onboardingStatus?.analysisData?.incomeSources,
+  )
+    ? onboardingStatus!.analysisData!.incomeSources!.map((s: any) => ({
+        source: String(s.source ?? s.name ?? "Income"),
+        amount: typeof s.amount === "number" ? s.amount : parseFloat(s.amount ?? "0"),
+        category: s.category ?? null,
+        recurrence: s.recurrence ?? null,
+        dueDay: typeof s.dueDay === "number" ? s.dueDay : null,
+        confidence: s.confidence ?? null,
+        occurrences: typeof s.occurrences === "number" ? s.occurrences : null,
+      })).filter((s: DetectedIncomeSource) => s.amount > 0)
+    : [];
 
-  // Top spending categories from analysis
+  // Top spending categories from analysis (still surfaced in the optional
+  // BudgetGoalStep, kept here for compatibility even though that step was
+  // removed from the live flow).
   const topCategories = onboardingStatus?.analysisData?.recurringBills
     ? onboardingStatus.analysisData.recurringBills
         .slice(0, 5)
@@ -1323,23 +1605,69 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     setSelectedState(state);
   }, []);
 
-  const handleIncomeNext = async (income: number | null) => {
+  const handleIncomeNext = async (
+    income: number | null,
+    confirmedSources: DetectedIncomeSource[],
+  ) => {
     setMonthlyIncome(income);
     setProgress((p) => ({ ...p, income: income !== null }));
 
-    if (income && !isDemo) {
-      try {
-        await apiRequest("POST", "/api/onboarding/save-income-goal", {
-          monthlyIncome: income,
-        });
-      } catch (err) {
-        console.error("Failed to save income:", err);
+    if (!isDemo) {
+      // Persist the manual monthly figure (if user typed one) for the
+      // budget-helper paths that read it as a baseline.
+      if (income) {
+        try {
+          await apiRequest("POST", "/api/onboarding/save-income-goal", {
+            monthlyIncome: income,
+          });
+        } catch (err) {
+          console.error("Failed to save income:", err);
+        }
+      }
+      // Persist each confirmed detected source as an actual Income row so
+      // Dashboard / Forecast / Money Timeline pick them up immediately.
+      // /api/onboarding/save-selections already does the createIncome loop
+      // with the right shape (source/amount/category/recurrence/dueDay).
+      if (confirmedSources.length > 0) {
+        try {
+          await apiRequest("POST", "/api/onboarding/save-selections", {
+            incomeSources: confirmedSources.map((s) => ({
+              source: s.source,
+              amount: s.amount,
+              category: s.category || "Salary",
+              recurrence: s.recurrence || "monthly",
+              dueDay: s.dueDay || 1,
+            })),
+            bills: [],
+          });
+        } catch (err) {
+          console.error("Failed to save detected income sources:", err);
+        }
       }
     }
-    // Step 4 = You're Ready (budget step removed — budget creation is in the Budget panel)
-    await apiRequest("POST", "/api/onboarding/save-step", { step: 4 });
-    setStep(4);
+    // Step 5 = You're Ready (Welcome / Connect Bank / Scanning / Confirm Income / Ready)
+    await apiRequest("POST", "/api/onboarding/save-step", { step: 5 });
+    setStep(5);
   };
+
+  // Live override of detected sources, threaded directly from ScanningStep
+  // so ConfirmIncomeStep sees the fresh result on its first render — without
+  // waiting on the /api/onboarding/status query refetch. Falls back to the
+  // analysisData-derived list when this is null (e.g., user hit refresh
+  // mid-flow and the wizard re-opened at step 4).
+  const [liveDetectedSources, setLiveDetectedSources] = useState<DetectedIncomeSource[] | null>(null);
+
+  // Scanning step → Confirm Income transition. ScanningStep already
+  // persisted analysisData + step=4 server-side via detect-now; here we
+  // just stash the fresh sources and bump local step.
+  const handleScanningComplete = useCallback((sources: DetectedIncomeSource[]) => {
+    setLiveDetectedSources(sources);
+    setStep(4);
+  }, []);
+
+  // Effective list passed to ConfirmIncomeStep: live result wins, query-
+  // derived list is the fallback for refresh / re-open paths.
+  const effectiveDetectedSources = liveDetectedSources ?? detectedSources;
 
   return (
     <Dialog
@@ -1367,31 +1695,46 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
           <ConnectBankStep
             onNext={() => setStep(3)}
             onSkip={async () => {
-              await apiRequest("POST", "/api/onboarding/save-step", { step: 3 });
-              setStep(3);
+              // User chose "add manually" — skip past Scanning + Confirm
+              // Income directly to Ready. Saving step:5 keeps the server
+              // and the local state in agreement on refresh.
+              await apiRequest("POST", "/api/onboarding/save-step", { step: 5 });
+              setStep(5);
             }}
             onPlaidOpen={setPlaidOpen}
             onBankConnected={handleBankConnected}
             initialCountry={selectedCountry}
             onCountryChange={handleCountryChange}
+            bankAlreadyConnected={bankConnected || onboardingStatus?.hasPlaidConnection}
           />
         )}
 
         {step === 3 && (
-          <MonthlyIncomeStep
-            onNext={handleIncomeNext}
+          <ScanningStep
+            onComplete={handleScanningComplete}
             onSkip={async () => {
+              // User opted out of scanning — still advance to Confirm
+              // Income with whatever (likely empty) detectedSources we
+              // have so they can enter manually.
               await apiRequest("POST", "/api/onboarding/save-step", { step: 4 });
               setStep(4);
             }}
-            detectedIncome={detectedIncomeAmount}
-            detectedEmployer={detectedEmployer}
+          />
+        )}
+
+        {step === 4 && (
+          <MonthlyIncomeStep
+            onNext={handleIncomeNext}
+            onSkip={async () => {
+              await apiRequest("POST", "/api/onboarding/save-step", { step: 5 });
+              setStep(5);
+            }}
+            detectedSources={effectiveDetectedSources}
             selectedCountry={selectedCountry}
           />
         )}
 
-        {/* Step 4 = You're Ready! (BudgetGoalStep removed — budgets are created in the Budget panel) */}
-        {step === 4 && (
+        {step === 5 && (
           <ReadyStep
             onComplete={handleComplete}
             onExplore={handleComplete}

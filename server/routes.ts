@@ -4139,7 +4139,8 @@ Return JSON: { "income": [...] }`;
       try {
         await pool.query(`DELETE FROM income_audit WHERE user_id = $1`, [userId]);
       } catch (err) {
-        console.warn("[FreshStart] income_audit cleanup failed:", err);
+        // Table is in schema.ts:360 but never made it onto prod Neon
+        // (likely dropped or never migrated). Non-fatal — silently skip.
       }
 
       // Plaid refresh-rate-limit usage tracking
@@ -9801,9 +9802,16 @@ Rules:
       const analysis = await storage.getOnboardingAnalysis(userId);
       const plaidItemsList = await storage.getPlaidItems(userId);
 
+      // Wizard step routing — must stay aligned with onboarding-wizard.tsx
+      // TOTAL_STEPS=5 (Welcome / Connect Bank / Scanning / Confirm Income / Ready).
+      // The floors below upgrade the step based on observable user state so a
+      // user who refreshes mid-flow lands on a sane page even if no
+      // save-step call was made for the section they reached. The
+      // analysis.step override always wins so the wizard's explicit
+      // save-step calls are authoritative.
       let currentStep = 1;
       if (plaidItemsList.length > 0) currentStep = 2;
-      if (analysis?.analysisData && analysis.analysisData !== "{}") currentStep = 3;
+      if (analysis?.analysisData && analysis.analysisData !== "{}") currentStep = 4;
       if (analysis?.step && analysis.step > currentStep) currentStep = analysis.step;
 
       res.json({
@@ -9911,6 +9919,68 @@ Rules:
     } catch (error: any) {
       console.error("Error saving income/goal:", error);
       res.status(500).json({ error: error.message || "Failed to save income and goal" });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /api/onboarding/detect-now — On-demand income detection for the
+  // setup wizard's Scanning step. Runs detectRecurringIncomeSuggestions
+  // synchronously instead of waiting for the nightly scheduler. Persists
+  // the detected sources into onboardingAnalysis.analysisData.incomeSources
+  // in a shape compatible with the wizard's existing detectedIncome read
+  // path (source / amount / category / recurrence / dueDay).
+  // ──────────────────────────────────────────────────────────────────────────
+  app.post("/api/onboarding/detect-now", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const { detectRecurringIncomeSuggestions } = await import("./recurring-income-detector");
+
+      const suggestions = await detectRecurringIncomeSuggestions(userId);
+
+      // Map IncomeSuggestion shape (name/amount/category/...) into the wizard's
+      // analysisData.incomeSources shape (source/amount/category/...).
+      const incomeSources = suggestions.map((s) => ({
+        source: s.name,
+        amount: s.amount,
+        category: s.category || "Other",
+        recurrence: s.recurrence,
+        dueDay: s.dueDay,
+        confidence: s.confidence,
+        occurrences: s.occurrences,
+        frequency: s.frequency,
+      }));
+
+      const existing = await storage.getOnboardingAnalysis(userId);
+      let merged: any = { incomeSources };
+      try {
+        if (existing?.analysisData && existing.analysisData !== "{}") {
+          const prev = JSON.parse(existing.analysisData);
+          merged = { ...prev, incomeSources };
+        }
+      } catch {
+        // Corrupt existing analysisData — overwrite cleanly.
+      }
+
+      // Step 4 = Confirm Detected Income (post-Scanning). Even if no sources
+      // were found, we still advance — ConfirmIncomeStep handles the empty
+      // case with a manual-entry fallback.
+      if (existing) {
+        await storage.updateOnboardingAnalysis(userId, {
+          analysisData: JSON.stringify(merged),
+          step: 4,
+        });
+      } else {
+        await storage.createOnboardingAnalysis({
+          userId,
+          analysisData: JSON.stringify(merged),
+          step: 4,
+        });
+      }
+
+      res.json({ incomeSources, count: incomeSources.length });
+    } catch (error: any) {
+      console.error("Error in /api/onboarding/detect-now:", error);
+      res.status(500).json({ error: error?.message || "Failed to detect income" });
     }
   });
 
