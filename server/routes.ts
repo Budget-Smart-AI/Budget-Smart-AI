@@ -13942,6 +13942,19 @@ The Budget Smart AI Team`,
         userId,
         accountId,
       });
+
+      // §6.3.2 + §6.3.3: a new manual tx might pair with a Plaid/MX transfer
+      // (user records a manual transfer-out, sync brings in the matching
+      // transfer-in) or be a refund of a prior charge. Fire-and-forget.
+      const { matchTransferPairs } = await import("./lib/transfer-pair-matcher");
+      const { matchRefunds } = await import("./lib/refund-matcher");
+      matchTransferPairs(userId).catch((err) =>
+        console.error("[POST /api/transactions/manual] matchTransferPairs failed:", err)
+      );
+      matchRefunds(userId).catch((err) =>
+        console.error("[POST /api/transactions/manual] matchRefunds failed:", err)
+      );
+
       res.status(201).json(transaction);
     } catch (error) {
       console.error("Error creating manual transaction:", error);
@@ -14051,6 +14064,20 @@ The Budget Smart AI Team`,
         } catch (err) {
           results.errors.push(`Row ${i + 2}: ${(err as Error).message}`);
         }
+      }
+
+      // §6.3.2 + §6.3.3: bulk import may include transfers paired with synced
+      // bank rows or refunds of prior charges. Fire matchers once after the
+      // whole batch (not per row) to keep the import fast.
+      if (results.imported > 0) {
+        const { matchTransferPairs } = await import("./lib/transfer-pair-matcher");
+        const { matchRefunds } = await import("./lib/refund-matcher");
+        matchTransferPairs(userId).catch((err) =>
+          console.error("[manual-tx CSV import] matchTransferPairs failed:", err)
+        );
+        matchRefunds(userId).catch((err) =>
+          console.error("[manual-tx CSV import] matchRefunds failed:", err)
+        );
       }
 
       res.json(results);

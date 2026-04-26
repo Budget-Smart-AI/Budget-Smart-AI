@@ -27,6 +27,10 @@ import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 import { mxMembers, plaidTransactions, users } from "@shared/schema";
 import * as crypto from "crypto";
+// §6.3.2 / §6.3.3: cross-provider transfer-pair + refund matchers run after
+// every MX sync, mirroring the Plaid wire-in.
+import { matchTransferPairs } from "./lib/transfer-pair-matcher";
+import { matchRefunds } from "./lib/refund-matcher";
 // §6.2.6 dual-write: resolve canonical_category_id inline during MX sync so
 // new MX rows carry the shadow column from day one. Sync-only (no Bedrock).
 import { resolveCanonicalCategorySync } from "./migrations/category-unification/resolver";
@@ -875,6 +879,18 @@ export async function syncMXTransactions(
       .where(eq(mxMembers.id, memberId));
 
     console.log(`[MX Sync] Complete for user ${userId}: processed ${addedCount} transactions`);
+
+    // §6.3.2 + §6.3.3: cross-provider transfer-pair matching + refund linking
+    // after every MX sync that added/modified transactions. Fire-and-forget.
+    if (addedCount > 0 || updatedCount > 0) {
+      matchTransferPairs(userId).catch((err) =>
+        console.error('[MX Sync] matchTransferPairs failed:', err)
+      );
+      matchRefunds(userId).catch((err) =>
+        console.error('[MX Sync] matchRefunds failed:', err)
+      );
+    }
+
     return { added: addedCount, updated: updatedCount, removed: 0 };
 
   } catch (error) {

@@ -9,7 +9,10 @@ import { plaidItems, plaidTransactions } from "@shared/schema";
 import { storage } from "./storage";
 import { reconcileTransaction } from "./reconciliation";
 import { autoReconcile } from "./lib/auto-reconciler";
-import { randomUUID } from "crypto";
+// §6.3.2 / §6.3.3: cross-provider transfer-pair + refund matchers replace the
+// Plaid-only detectTransferPairs that previously lived in this file.
+import { matchTransferPairs } from "./lib/transfer-pair-matcher";
+import { matchRefunds } from "./lib/refund-matcher";
 
 const configuration = new Configuration({
   basePath: PlaidEnvironments.production,
@@ -390,102 +393,6 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
 }
 
 /**
- * Detect transfer pairs after a sync batch.
- *
- * Finds pairs of transactions where:
- * - Same absolute amount
- * - Within 2 days of each other
- * - One positive (debit), one negative (credit)
- * - Across different accounts (same user)
- *
- * Marks both as is_transfer=true, matchType="transfer", and links them
- * via a shared transfer_pair_id UUID.
- */
-async function detectTransferPairs(userId: string): Promise<number> {
-  let pairsFound = 0;
-
-  try {
-    // Find candidate transactions: unmatched, not already flagged as transfers,
-    // belonging to this user's Plaid accounts
-    const result = await pool.query(`
-      SELECT
-        t.id,
-        t.transaction_id,
-        t.amount,
-        t.date,
-        t.plaid_account_id,
-        t.name
-      FROM plaid_transactions t
-      JOIN plaid_accounts pa ON pa.id = t.plaid_account_id
-      JOIN plaid_items pi ON pi.id = pa.plaid_item_id
-      WHERE pi.user_id = $1
-        AND t.is_active = 'true'
-        AND (t.is_transfer IS NULL OR t.is_transfer = false)
-        AND (t.match_type IS NULL OR t.match_type = 'unmatched')
-      ORDER BY t.date, ABS(t.amount::numeric)
-    `, [userId]);
-
-    const txs = result.rows;
-
-    // Build a map: amount → list of transactions with that absolute amount
-    const byAmount = new Map<string, typeof txs>();
-    for (const tx of txs) {
-      const absAmt = Math.abs(parseFloat(tx.amount)).toFixed(2);
-      if (!byAmount.has(absAmt)) byAmount.set(absAmt, []);
-      byAmount.get(absAmt)!.push(tx);
-    }
-
-    // For each amount group, find debit/credit pairs within 2 days across different accounts
-    for (const [, group] of byAmount) {
-      if (group.length < 2) continue;
-
-      const debits = group.filter(t => parseFloat(t.amount) > 0);  // money out
-      const credits = group.filter(t => parseFloat(t.amount) < 0); // money in
-
-      for (const debit of debits) {
-        for (const credit of credits) {
-          // Must be different accounts
-          if (debit.plaid_account_id === credit.plaid_account_id) continue;
-
-          // Must be within 2 days of each other
-          const debitDate = new Date(debit.date);
-          const creditDate = new Date(credit.date);
-          const daysDiff = Math.abs((debitDate.getTime() - creditDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysDiff > 2) continue;
-
-          // Found a transfer pair — link them
-          const pairId = randomUUID();
-          await pool.query(`
-            UPDATE plaid_transactions
-            SET is_transfer = true,
-                transfer_pair_id = $1::uuid,
-                match_type = 'transfer',
-                reconciled = 'true'
-            WHERE id = ANY($2::text[])
-          `, [pairId, [debit.id, credit.id]]);
-
-          console.log(`[Transfer Detection] Paired: ${debit.name} (${debit.amount}) ↔ ${credit.name} (${credit.amount}) on ${debit.date}/${credit.date} — pairId: ${pairId}`);
-          pairsFound++;
-
-          // Mark these as processed so we don't double-pair them
-          debit.is_transfer = true;
-          credit.is_transfer = true;
-          break; // Only pair each debit once
-        }
-      }
-    }
-
-    if (pairsFound > 0) {
-      console.log(`[Transfer Detection] Found ${pairsFound} transfer pair(s) for user ${userId}`);
-    }
-  } catch (err) {
-    console.error(`[Transfer Detection] Error for user ${userId}:`, err);
-  }
-
-  return pairsFound;
-}
-
-/**
  * One-time backfill: calls Plaid /transactions/enrich on all existing
  * plaid_transactions rows that are missing merchant_name, in batches of 100.
  *
@@ -721,10 +628,15 @@ export async function syncTransactions(
 
     console.log(`[Plaid Sync] Complete for item ${itemId}: +${addedCount} added, ${modifiedCount} modified, ${removedCount} removed`);
 
-    // Run transfer detection after sync if any transactions were added/modified
+    // §6.3.2 + §6.3.3: cross-provider transfer-pair matching + refund linking
+    // after every sync that added/modified transactions. Fire-and-forget so
+    // sync return latency stays low; matchers log their own errors.
     if (addedCount > 0 || modifiedCount > 0) {
-      detectTransferPairs(userId).catch((err) =>
-        console.error("[syncTransactions] detectTransferPairs failed:", err)
+      matchTransferPairs(userId).catch((err) =>
+        console.error("[syncTransactions] matchTransferPairs failed:", err)
+      );
+      matchRefunds(userId).catch((err) =>
+        console.error("[syncTransactions] matchRefunds failed:", err)
       );
     }
 

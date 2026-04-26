@@ -52,40 +52,6 @@ function toDollars(cents: number): number {
 // ─── Transaction Filtering ──────────────────────────────────────────────────
 
 /**
- * Legacy keyword-based transfer category check.
- *
- * Kept as a fallback for non-Plaid / non-MX transactions (manual entries,
- * other providers, or older imports without PFC enrichment). The primary
- * detection path is now `isTransferByResolver()` which uses Plaid PFC
- * primary + MX top-level when available — see imports above.
- *
- * Why both: relying on string-matching alone misses transactions where the
- * adapter normalised the category to a non-keyword name, and being too
- * aggressive on keywords ("payment" appearing in arbitrary merchant names
- * for example) caused false positives. The PFC-first resolver fixes both.
- */
-const TRANSFER_CATEGORY_KEYWORDS = new Set([
-  'transfer',
-  'transfers',
-  'transfer_in',
-  'transfer_out',
-  'loan_payments',
-  'credit card payment',
-  'payment',
-]);
-
-function isTransferCategoryByKeyword(category: string | null | undefined): boolean {
-  if (!category) return false;
-  const categoryLower = String(category).toLowerCase();
-  for (const keyword of TRANSFER_CATEGORY_KEYWORDS) {
-    if (categoryLower.includes(keyword)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
  * True if a normalized transaction is a transfer (and therefore should be
  * excluded from spending totals).
  *
@@ -95,14 +61,17 @@ function isTransferCategoryByKeyword(category: string | null | undefined): boole
  *   2. §6.3.1 canonical-id check — `canonical_category_id IN (transfer_*)`.
  *      Catches rows where the adapter missed `isTransfer` but the resolver
  *      still landed on a transfer canonical.
- *   3. Legacy keyword fallback against the engine's Monarch-aligned
- *      `tx.category` string. Defense-in-depth for older rows / future
- *      providers that haven't been wired into the canonical resolver yet.
+ *
+ * §6.3.x cleanup: the legacy `TRANSFER_CATEGORY_KEYWORDS` keyword fallback
+ * was removed once the canonical resolver became the single source of truth
+ * across all sync paths (Plaid, MX, manual). Every row now has either a
+ * `canonicalCategoryId` set by the adapter (via the resolver) or an
+ * adapter-set `isTransfer` boolean — both of which are caught above.
  */
 function isTransferTransaction(tx: NormalizedTransaction): boolean {
   if (tx.isTransfer) return true;
   if (isTransferCanonical(tx.canonicalCategoryId)) return true;
-  return isTransferCategoryByKeyword(tx.category);
+  return false;
 }
 
 // ─── Normalized Transaction Helpers ────────────────────────────────────────

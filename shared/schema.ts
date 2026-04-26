@@ -627,6 +627,9 @@ export const mxTransactions = pgTable("mx_transactions", {
   needsReview: boolean("needs_review").default(false),
   // ─── Canonical category (single source of truth — §6.2.8) ───
   canonicalCategoryId: text("canonical_category_id").notNull(),
+  // ─── Transfer/refund linking (§6.3.2 / §6.3.3) ───────────────
+  transferPairId: uuid("transfer_pair_id"), // shared UUID linking matched transfer pairs across providers
+  refundOfTransactionId: varchar("refund_of_transaction_id"), // points at original charge tx.id
 });
 
 export const insertMxMemberSchema = createInsertSchema(mxMembers).omit({ id: true });
@@ -723,6 +726,8 @@ export const plaidTransactions = pgTable("plaid_transactions", {
   // Transfer detection fields
   isTransfer: boolean("is_transfer").default(false),
   transferPairId: uuid("transfer_pair_id"), // shared UUID linking matched transfer pairs
+  // Refund linking (§6.3.3) — points at original charge tx.id when this row is a refund
+  refundOfTransactionId: varchar("refund_of_transaction_id"),
   // Soft-delete flag for /transactions/sync REMOVED events
   isActive: text("is_active").default("true"),
   // ─── Canonical category (single source of truth — §6.2.8) ───
@@ -782,6 +787,9 @@ export const manualTransactions = pgTable("manual_transactions", {
   needsReview: boolean("needs_review").default(false),
   // ─── Canonical category (single source of truth — §6.2.8) ───
   canonicalCategoryId: text("canonical_category_id"),
+  // ─── Transfer/refund linking (§6.3.2 / §6.3.3) ───────────────
+  transferPairId: uuid("transfer_pair_id"), // shared UUID linking matched transfer pairs across providers
+  refundOfTransactionId: varchar("refund_of_transaction_id"), // points at original charge tx.id
 });
 
 export const insertManualAccountSchema = createInsertSchema(manualAccounts).omit({ id: true, userId: true }).extend({
