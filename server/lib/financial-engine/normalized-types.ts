@@ -215,4 +215,143 @@ export interface BankingAdapter {
    *  manual-with-keywords, but adapters can override for provider-specific
    *  shortcuts. */
   classifyIncome(input: ClassifyIncomeInput): ClassifyIncomeResult;
+
+  /**
+   * Provider-First SSOT (added 2026-04-26 — see PROVIDER_FIRST_SSOT_STRATEGY.md).
+   *
+   * Return all recurring inflow + outflow streams the provider has detected for
+   * this user. Replaces our home-grown recurring-income-detector.ts and
+   * bill-detection.ts — Plaid's `/transactions/recurring/get` and MX's
+   * recurring_transactions endpoint do this with ML trained on tens of
+   * millions of accounts; we just normalize their output to one shape.
+   *
+   * Implementations:
+   *   - PlaidAdapter: calls `/transactions/recurring/get` per Plaid item,
+   *     merges inflow_streams + outflow_streams from the response.
+   *   - MxAdapter: calls MX's recurring transactions endpoint per member.
+   *   - ManualAdapter: synthesizes streams from user-flagged income/bills
+   *     rows (no provider-side detection — manual entries are user-driven).
+   */
+  getRecurringStreams(userId: string): Promise<NormalizedRecurringStream[]>;
+}
+
+// ─── Normalized Recurring Stream ──────────────────────────────────────────
+//
+// Provider-First SSOT shape (added 2026-04-26). Every provider's recurring
+// detection collapses into this single type. Downstream code (period
+// calculator, Income page, wizard, AI snapshot, Forecast) reads from this —
+// never from raw provider data.
+//
+// Maps directly from:
+//   - Plaid `/transactions/recurring/get` response (inflow_streams[] + outflow_streams[])
+//   - MX `/users/{user}/recurring_transactions` response
+//   - Manual income_sources / bills rows the user explicitly created
+
+/** Recurring frequency, normalized across providers. */
+export type RecurringStreamFrequency =
+  | "weekly"
+  | "biweekly"
+  | "semi-monthly"
+  | "monthly"
+  | "quarterly"
+  | "yearly"
+  | "irregular"
+  | null;
+
+/** Stream lifecycle stage. Mirrors Plaid's status enum (it's the most
+ * granular); MX states map onto it; manual entries are always "active". */
+export type RecurringStreamStatus =
+  | "early_detection"  // < 3 occurrences (Plaid's pre-mature stage)
+  | "active"            // current and being observed
+  | "mature"            // ≥ 3 occurrences with stable cadence
+  | "late"              // expected occurrence missed
+  | "tombstoned";       // user dismissed (soft delete — see strategy §8.2)
+
+/** Plaid's confidence_level values, harmonised across providers. */
+export type RecurringStreamConfidence =
+  | "very_high"
+  | "high"
+  | "medium"
+  | "low";
+
+export interface NormalizedRecurringStream {
+  /** Provider-stable id. Plaid `stream_id`, MX recurring guid, or
+   *  `manual-income-{rowId}` / `manual-bill-{rowId}` for manual entries. */
+  streamId: string;
+  /** Originating provider (provenance / debugging only — caller code MUST
+   *  NOT branch on this). */
+  providerSource: "plaid" | "mx" | "manual";
+  /** Which Plaid item / MX member / "manual" pseudo-item this stream
+   *  belongs to. Used to scope webhook re-fetches to a single item. */
+  itemId: string;
+  /** Account the stream lands in. Must match a NormalizedAccount.id. */
+  accountId: string;
+  /** Inflow = income (paychecks, dividends, gig payouts).
+   *  Outflow = bills + subscriptions. */
+  direction: "inflow" | "outflow";
+  /** Display merchant name (provider-cleaned). For Plaid this is
+   *  `merchant_name` from the stream payload; for MX, the recurring
+   *  transaction's merchant.name; for manual, the user-entered source. */
+  merchant: string;
+  /** Canonical merchant id (Plaid `entity_id`, MX `merchant.guid`, null
+   *  for manual). Used by tombstone-resurfacing logic to recognise a
+   *  Plaid-renamed stream as the same logical merchant. */
+  merchantId: string | null;
+  /** Canonical category id (resolved through the adapter's remapCategory). */
+  category: string;
+  /** Raw provider category for debugging — `INCOME_WAGES`, `Subscriptions`,
+   *  etc. Don't use for branching; downstream reads `category`. */
+  rawProviderCategory: string;
+  /** Cadence inferred or asserted by the provider. */
+  frequency: RecurringStreamFrequency;
+  /** Lifecycle stage (mature / active / etc.). Drives auto-promotion gate. */
+  status: RecurringStreamStatus;
+  /** Provider's confidence in this stream. very_high+mature = auto-promote
+   *  candidate (per strategy §8.1 decision). */
+  confidence: RecurringStreamConfidence;
+  /** Most recent occurrence amount, in dollars (always positive). */
+  lastAmount: number;
+  /** Average across observed occurrences. Equal to lastAmount for streams
+   *  with one occurrence. */
+  averageAmount: number;
+  /** Most recent occurrence date (yyyy-MM-dd). */
+  lastDate: string;
+  /** Provider-predicted next occurrence date (yyyy-MM-dd) when known. Plaid
+   *  populates this; MX may; manual leaves null and the period calculator
+   *  computes from frequency + lastDate instead. */
+  nextExpectedDate: string | null;
+  /** Number of observed occurrences in the detection window. */
+  occurrenceCount: number;
+  /** Provider says this stream is currently active. Tombstoned streams set
+   *  this false at the registry layer (provider may still report active). */
+  isActive: boolean;
+  /** Member transaction ids comprising this stream. Used to highlight
+   *  recurring rows in transaction lists without storing a per-tx flag
+   *  (per strategy §8.4 decision — no `recurring_indicator` column). */
+  rawTransactionIds: string[];
+}
+
+// ─── Normalized Merchant ──────────────────────────────────────────────────
+//
+// Provider-First SSOT shape (added 2026-04-26). Cleaned merchant data
+// already provided by Plaid (`counterparties[0]` / `merchant_name`) and MX
+// (`merchant`). Replaces most of the AI-driven merchant-enricher path —
+// see strategy §1.5.
+
+export interface NormalizedMerchant {
+  /** Canonical merchant id from the provider. Plaid `entity_id`, MX
+   *  `merchant.guid`. Null when the provider has no canonical id (free-form
+   *  manual entries, ATM ops, etc.). */
+  entityId: string | null;
+  /** Display name — already cleaned. "Starbucks" not "TST*STARBUCKS #1234". */
+  cleanName: string;
+  /** Logo URL when the provider supplied one. */
+  logoUrl: string | null;
+  /** Merchant website URL when supplied. */
+  websiteUrl: string | null;
+  /** Canonical category id the merchant typically classifies into. */
+  category: string;
+  /** Confidence in the merchant data. Maps from Plaid
+   *  `personal_finance_category.confidence_level`. */
+  confidence: RecurringStreamConfidence;
 }

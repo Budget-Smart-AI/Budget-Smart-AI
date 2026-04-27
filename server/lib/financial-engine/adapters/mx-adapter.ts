@@ -21,6 +21,10 @@ import {
   BankingAdapter,
   NormalizedAccount,
   NormalizedTransaction,
+  NormalizedRecurringStream,
+  RecurringStreamFrequency,
+  RecurringStreamStatus,
+  RecurringStreamConfidence,
   AccountCategory,
   ProviderItemStatus,
   ClassifyIncomeInput,
@@ -218,6 +222,171 @@ export class MxAdapter implements BankingAdapter {
       merchant: input.merchant ?? null,
     });
     return { category: r.category, isIncome: r.isIncome };
+  }
+
+  // ─── Recurring streams (Phase 1, Provider-First SSOT) ───────────────────
+  //
+  // MX exposes recurring transaction analysis at:
+  //   GET /users/{user_guid}/recurring_transactions
+  //
+  // Returns objects covering both inflows (income) and outflows (bills/subs)
+  // in one array. Ryan confirmed 2026-04-26: included at our pricing tier
+  // with no additional fees.
+  //
+  // Failure mode: if the endpoint isn't accessible at our tier (returns 403
+  // / 404), we log and return an empty array. Plaid streams continue to
+  // work; the user just won't see MX-detected streams. No UI breakage.
+  async getRecurringStreams(userId: string): Promise<NormalizedRecurringStream[]> {
+    const { storage } = await import("../../../storage");
+
+    const user = await storage.getUser(userId);
+    if (!user || !user.mxUserGuid) return [];
+
+    const members = await storage.getMxMembers(userId);
+    if (members.length === 0) return [];
+
+    // Lazy import the legacy axios client (added export 2026-04-26 for this).
+    const { mxClient } = await import("../../../mx");
+    if (!mxClient) {
+      console.warn("[MxAdapter] mxClient not exported from server/mx.ts — recurring streams unavailable");
+      return [];
+    }
+    const userGuid = user.mxUserGuid;
+
+    const streams: NormalizedRecurringStream[] = [];
+
+    let response;
+    try {
+      // Endpoint shape: GET /users/{user_guid}/recurring_transactions returns
+      // a paginated list. We don't paginate here — typical user has < 50
+      // recurring streams across all members; one page suffices.
+      response = await mxClient.get(`/users/${userGuid}/recurring_transactions`);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404 || status === 403) {
+        console.warn(`[MxAdapter] recurring_transactions endpoint returned ${status} — feature may not be enabled at our MX tier`);
+        return [];
+      }
+      console.warn(`[MxAdapter] recurring_transactions fetch failed:`, err?.message);
+      return [];
+    }
+
+    const records = response?.data?.recurring_transactions || [];
+    if (!Array.isArray(records)) {
+      console.warn("[MxAdapter] recurring_transactions response.data.recurring_transactions is not an array");
+      return [];
+    }
+
+    // Build a map of memberGuid → memberId so streams reference our local
+    // member id, not MX's GUID. The downstream period calculator + tombstone
+    // logic deals in our own ids.
+    const memberIdByGuid = new Map<string, string>();
+    for (const m of members) {
+      if (m.memberGuid) memberIdByGuid.set(m.memberGuid, m.id);
+    }
+
+    for (const r of records) {
+      streams.push(this.mxRecordToNormalized(r, memberIdByGuid));
+    }
+
+    return streams;
+  }
+
+  /** Map an MX recurring_transaction record into the provider-agnostic shape. */
+  private mxRecordToNormalized(
+    r: any,
+    memberIdByGuid: Map<string, string>,
+  ): NormalizedRecurringStream {
+    // MX uses transaction_type "CREDIT" (money in) / "DEBIT" (money out) on
+    // recurring records the same way as on regular transactions.
+    const txType = String(r.transaction_type || "").toUpperCase();
+    const direction: "inflow" | "outflow" = txType === "CREDIT" ? "inflow" : "outflow";
+
+    const lastAmount = Math.abs(parseFloat(String(r.last_amount ?? r.amount ?? 0))) || 0;
+    const averageAmount = Math.abs(parseFloat(String(r.average_amount ?? lastAmount))) || lastAmount;
+
+    const merchant = this.normalizeMerchant(
+      r.merchant_name || r.description || r.original_description || "Unknown",
+    );
+
+    const { category } = this.remapCategory(r.category || r.top_level_category || null, {
+      mxCategory: r.category ? String(r.category) : null,
+      mxTopLevel: r.top_level_category ? String(r.top_level_category) : null,
+      merchant,
+    });
+
+    return {
+      streamId: String(r.guid || r.id || `mx-${Math.random().toString(36).slice(2)}`),
+      providerSource: "mx",
+      itemId: memberIdByGuid.get(String(r.member_guid)) || String(r.member_guid || ""),
+      accountId: String(r.account_guid || r.account_id || ""),
+      direction,
+      merchant: merchant || "Unknown",
+      merchantId: r.merchant_guid ? String(r.merchant_guid) : null,
+      category,
+      rawProviderCategory: String(r.category || r.top_level_category || ""),
+      frequency: mapMxFrequency(r.frequency || r.recurrence),
+      // MX doesn't expose an explicit lifecycle enum the way Plaid does; we
+      // treat MX records as "active" by default (since the endpoint returns
+      // active recurring patterns) and "tombstoned" when MX flags them as
+      // ended. Confidence comes from the is_recurring flag (when MX is
+      // confident enough to include the record, we trust it as "high").
+      status: r.is_active === false || r.ended === true ? "tombstoned" : "active",
+      confidence: r.confidence
+        ? mapMxConfidence(r.confidence)
+        : (r.is_recurring ? "high" : "medium"),
+      lastAmount,
+      averageAmount,
+      lastDate: r.last_transacted_at?.slice(0, 10) || r.last_date || "",
+      nextExpectedDate: r.next_expected_at?.slice(0, 10) || r.next_expected_date || null,
+      occurrenceCount: parseInt(String(r.transaction_count || r.occurrence_count || 0), 10) || 0,
+      isActive: r.is_active !== false && r.ended !== true,
+      // MX recurring records don't enumerate member transaction_ids the way
+      // Plaid streams do. Leave empty; the period calculator falls back to
+      // matching individual mx_transactions rows by merchantId/name.
+      rawTransactionIds: [],
+    };
+  }
+}
+
+// ─── MX → Normalized helpers ─────────────────────────────────────────────
+
+function mapMxFrequency(f: string | null | undefined): RecurringStreamFrequency {
+  switch (String(f || "").toLowerCase()) {
+    case "weekly": return "weekly";
+    case "biweekly":
+    case "bi-weekly":
+    case "bi_weekly":
+      return "biweekly";
+    case "semimonthly":
+    case "semi-monthly":
+    case "semi_monthly":
+      return "semi-monthly";
+    case "monthly": return "monthly";
+    case "quarterly": return "quarterly";
+    case "yearly":
+    case "annual":
+    case "annually":
+      return "yearly";
+    default: return null;
+  }
+}
+
+function mapMxConfidence(c: string | number | null | undefined): RecurringStreamConfidence {
+  if (typeof c === "number") {
+    if (c >= 0.9) return "very_high";
+    if (c >= 0.75) return "high";
+    if (c >= 0.5) return "medium";
+    return "low";
+  }
+  switch (String(c || "").toLowerCase()) {
+    case "very_high":
+    case "very-high":
+      return "very_high";
+    case "high": return "high";
+    case "medium": return "medium";
+    case "low": return "low";
+    default: return "medium";
   }
 }
 

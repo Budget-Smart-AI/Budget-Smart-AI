@@ -20,6 +20,10 @@ import {
   BankingAdapter,
   NormalizedAccount,
   NormalizedTransaction,
+  NormalizedRecurringStream,
+  RecurringStreamFrequency,
+  RecurringStreamStatus,
+  RecurringStreamConfidence,
   AccountCategory,
   ProviderItemStatus,
   ClassifyIncomeInput,
@@ -240,6 +244,200 @@ export class PlaidAdapter implements BankingAdapter {
       merchant: input.merchant ?? null,
     });
     return { category: r.category, isIncome: r.isIncome };
+  }
+
+  // ─── Recurring streams (Phase 1, Provider-First SSOT) ───────────────────
+  //
+  // Calls Plaid's `/transactions/recurring/get` per Plaid item the user has,
+  // merges inflow_streams + outflow_streams, and returns the unified
+  // NormalizedRecurringStream[]. Replaces our home-grown
+  // detectRecurringIncomeSuggestions / bill-detection algorithms with
+  // Plaid's ML-trained clustering (free with our existing Transactions
+  // product — Ryan confirmed 2026-04-26, see PROVIDER_FIRST_SSOT_STRATEGY.md).
+  //
+  // The merchantId enrichment requires a join into local plaid_transactions
+  // because TransactionStream doesn't expose merchant_entity_id directly —
+  // we look up one of the stream's transaction_ids and pull the entity id
+  // off the cached row. Failing that, merchantId is null and downstream
+  // tombstone-resurfacing logic (strategy §8.2) falls back to fuzzy name
+  // matching.
+  async getRecurringStreams(userId: string): Promise<NormalizedRecurringStream[]> {
+    // Lazy imports to keep this file engine-pure (no DB / network deps at module load).
+    const { storage } = await import("../../../storage");
+    const { plaidClient } = await import("../../../plaid");
+    const { pool } = await import("../../../db");
+
+    // storage.getPlaidItems already decrypts accessToken via _decryptPlaidItem.
+    // No double-decrypt needed (would corrupt the token).
+    const items = await storage.getPlaidItems(userId);
+    if (items.length === 0) return [];
+
+    const streams: NormalizedRecurringStream[] = [];
+
+    for (const item of items) {
+      // Skip items in error / pending_expiration state — recurring API will
+      // 400 on those. Update-mode reconnect (§Plaid update-mode) is the
+      // user-facing remedy.
+      if (item.status === "error" || item.status === "pending_expiration") {
+        continue;
+      }
+
+      let response;
+      try {
+        response = await plaidClient.transactionsRecurringGet({
+          access_token: item.accessToken,
+        });
+      } catch (err: any) {
+        const code = err?.response?.data?.error_code;
+        // PRODUCT_NOT_READY = Plaid hasn't analyzed enough history yet.
+        // Newly-linked items return this for ~24 hours. Skip silently and
+        // the next sync / webhook will trigger a re-fetch when ready.
+        if (code === "PRODUCT_NOT_READY") {
+          console.log(`[PlaidAdapter] recurring streams not ready yet for item ${item.id}`);
+          continue;
+        }
+        console.warn(`[PlaidAdapter] transactionsRecurringGet failed for item ${item.id}:`, code || err?.message);
+        continue;
+      }
+
+      const inflows = response.data.inflow_streams || [];
+      const outflows = response.data.outflow_streams || [];
+
+      // Collect every stream's first transaction_id so we can batch-load the
+      // local plaid_transactions rows once per item, not once per stream.
+      const allTxIds = new Set<string>();
+      for (const s of [...inflows, ...outflows]) {
+        if (s.transaction_ids?.[0]) allTxIds.add(s.transaction_ids[0]);
+      }
+
+      // Build a map of plaid transaction_id → merchant_entity_id for the
+      // streams we're about to normalize. One query per item.
+      const merchantIdByTxId = new Map<string, string | null>();
+      if (allTxIds.size > 0) {
+        const { rows } = await pool.query<{ transaction_id: string; merchant_entity_id: string | null }>(
+          `SELECT transaction_id, merchant_entity_id
+             FROM plaid_transactions
+            WHERE transaction_id = ANY($1::text[])`,
+          [Array.from(allTxIds)],
+        );
+        for (const r of rows) {
+          merchantIdByTxId.set(r.transaction_id, r.merchant_entity_id);
+        }
+      }
+
+      for (const s of inflows) {
+        streams.push(this.plaidStreamToNormalized(s, "inflow", item.id, merchantIdByTxId));
+      }
+      for (const s of outflows) {
+        streams.push(this.plaidStreamToNormalized(s, "outflow", item.id, merchantIdByTxId));
+      }
+    }
+
+    return streams;
+  }
+
+  /** Map a Plaid TransactionStream into the provider-agnostic shape. */
+  private plaidStreamToNormalized(
+    s: any, // Plaid TransactionStream — typed as any to avoid coupling to Plaid SDK types here
+    direction: "inflow" | "outflow",
+    itemId: string,
+    merchantIdByTxId: Map<string, string | null>,
+  ): NormalizedRecurringStream {
+    const firstTxId: string | undefined = s.transaction_ids?.[0];
+    const merchantId = firstTxId ? (merchantIdByTxId.get(firstTxId) ?? null) : null;
+
+    const lastAmount = Math.abs(parseFloat(String(s.last_amount?.amount ?? 0))) || 0;
+    const averageAmount = Math.abs(parseFloat(String(s.average_amount?.amount ?? 0))) || lastAmount;
+
+    const pfcDetailed = String(s.personal_finance_category?.detailed ?? "").toUpperCase();
+    const pfcPrimary = String(s.personal_finance_category?.primary ?? "").toUpperCase();
+    const { category } = this.remapCategory(pfcDetailed || pfcPrimary || null, {
+      pfcPrimary: pfcPrimary || null,
+      pfcDetailed: pfcDetailed || null,
+      merchant: this.normalizeMerchant(s.merchant_name || s.description),
+    });
+
+    return {
+      streamId: s.stream_id,
+      providerSource: "plaid",
+      itemId,
+      accountId: s.account_id,
+      direction,
+      merchant: this.normalizeMerchant(s.merchant_name || s.description) || "Unknown",
+      merchantId,
+      category,
+      rawProviderCategory: pfcDetailed || pfcPrimary || "",
+      frequency: mapPlaidFrequency(s.frequency),
+      status: mapPlaidStreamStatus(s.status, s.is_active),
+      confidence: mapPfcConfidence(s.personal_finance_category?.confidence_level),
+      lastAmount,
+      averageAmount,
+      lastDate: s.last_date,
+      nextExpectedDate: s.predicted_next_date ?? null,
+      occurrenceCount: s.transaction_ids?.length ?? 0,
+      isActive: s.is_active === true,
+      rawTransactionIds: s.transaction_ids ?? [],
+    };
+  }
+}
+
+// ─── Plaid → Normalized helpers ──────────────────────────────────────────
+
+/**
+ * Map Plaid's RecurringTransactionFrequency enum to our normalized type.
+ * Plaid: UNKNOWN | WEEKLY | BIWEEKLY | SEMI_MONTHLY | MONTHLY | ANNUALLY.
+ * "Annually" becomes "yearly" in our taxonomy. UNKNOWN → null (downstream
+ * marks the stream as irregular if the period calculator can't project).
+ */
+function mapPlaidFrequency(f: string | null | undefined): RecurringStreamFrequency {
+  switch (String(f || "").toUpperCase()) {
+    case "WEEKLY": return "weekly";
+    case "BIWEEKLY": return "biweekly";
+    case "SEMI_MONTHLY": return "semi-monthly";
+    case "MONTHLY": return "monthly";
+    case "ANNUALLY": return "yearly";
+    default: return null;
+  }
+}
+
+/**
+ * Map Plaid's TransactionStreamStatus + is_active boolean to our normalized
+ * lifecycle enum.
+ *
+ * Plaid status enum is intentionally narrow: UNKNOWN, MATURE, EARLY_DETECTION,
+ * TOMBSTONED. We use is_active as the second axis to distinguish "currently
+ * receiving money" from "stream existed but stopped" (manifests as MATURE +
+ * is_active=false → "late").
+ */
+function mapPlaidStreamStatus(
+  status: string | null | undefined,
+  isActive: boolean | null | undefined,
+): RecurringStreamStatus {
+  const s = String(status || "").toUpperCase();
+  if (s === "TOMBSTONED") return "tombstoned";
+  if (s === "EARLY_DETECTION") return "early_detection";
+  if (s === "MATURE") {
+    return isActive === false ? "late" : "mature";
+  }
+  // UNKNOWN or anything else — treat as active. The period calculator only
+  // auto-promotes streams with status === "mature", so UNKNOWN streams
+  // surface as suggestions rather than auto-added registry rows.
+  return "active";
+}
+
+/**
+ * Map Plaid's PFC confidence_level string to our normalized enum. Plaid
+ * doesn't expose a confidence on the stream itself — only on the embedded
+ * personal_finance_category. We surface that as the stream's confidence
+ * because the wizard's auto-promote gate (very_high + mature) needs it.
+ */
+function mapPfcConfidence(level: string | null | undefined): RecurringStreamConfidence {
+  switch (String(level || "").toUpperCase()) {
+    case "VERY_HIGH": return "very_high";
+    case "HIGH": return "high";
+    case "MEDIUM": return "medium";
+    case "LOW": return "low";
+    default: return "medium"; // UNKNOWN / null → medium (don't auto-promote, don't reject)
   }
 }
 

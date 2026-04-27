@@ -74,8 +74,10 @@ const institutionsApi = new InstitutionsApi(mxConfiguration);
 const widgetsApi = new WidgetsApi(mxConfiguration);
 
 // ─── Legacy Axios client (kept for backward compat with routes that import it) ─
+// 2026-04-26: exported (was const) so the financial-engine MxAdapter can call
+// /users/{guid}/recurring_transactions for Provider-First SSOT (Phase 1).
 import axios, { AxiosInstance, AxiosError } from "axios";
-const mxClient: AxiosInstance = axios.create({
+export const mxClient: AxiosInstance = axios.create({
   baseURL: MX_API_BASE_URL,
   headers: {
     "Content-Type": "application/json",

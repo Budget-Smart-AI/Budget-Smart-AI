@@ -6648,6 +6648,20 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
               );
             }
 
+          } else if (webhook_code === "RECURRING_TRANSACTIONS_UPDATE") {
+            // Phase 0 Provider-First SSOT (2026-04-26): Plaid notifies us
+            // whenever the recurring stream analysis for this item changes
+            // (new stream detected, frequency change, status transition,
+            // tombstone). The webhook fires automatically once /transactions/
+            // recurring/get has been called at least once for the item, and
+            // routinely thereafter as Plaid re-evaluates streams.
+            //
+            // For now we just LOG the receipt — Phase 6 of the strategy doc
+            // wires the registry reconciliation that fires here. The reason
+            // we accept the webhook now is so Plaid doesn't retry / give up
+            // on us when we ship later phases. The handler is safe to land
+            // ahead of the reconciler.
+            console.log(`[Plaid Webhook] RECURRING_TRANSACTIONS_UPDATE received for item ${item.id} (user ${item.user_id}) — Phase 6 reconciler will pick this up once shipped`);
           } else if (webhook_code === "HISTORICAL_UPDATE") {
             // HISTORICAL_UPDATE means Plaid has prepared the FULL 24-month history.
             // Reset cursor to null so the sync fetches ALL history from scratch.
@@ -6994,39 +7008,87 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
           error_message: errorMessage
         });
 
-        // If additional_consented_products fails, try with just transactions + auth
-        // but KEEP account_filters so loan/investment accounts still appear
-        if (errorCode === 'INVALID_PRODUCT' || errorMessage.includes('liabilities') || errorMessage.includes('investments')) {
-          console.log("[Plaid] Retrying without additional_consented_products...");
+        // 2026-04-26 — Mortgage-disappearing bug fix:
+        // Previous fallback used products = [Transactions, Auth] which dropped
+        // Liabilities. Without Liabilities in primary products, Plaid Link
+        // hides mortgage/loan accounts from the account-selection UI (per the
+        // comment above on the primary path — regressed in 93ddc71).
+        //
+        // The fallback runs when the FIRST attempt fails with INVALID_PRODUCT
+        // because the institution doesn't support EITHER Liabilities OR
+        // Investments. Most often Investments is the culprit (Liabilities is
+        // widely supported for Canadian banks). Try a tiered fallback:
+        //   1) drop ONLY Investments — keep Liabilities so mortgages appear
+        //   2) if that still fails, drop Liabilities too as last resort
+        const isProductError =
+          errorCode === 'INVALID_PRODUCT' ||
+          errorMessage.includes('liabilities') ||
+          errorMessage.includes('investments');
 
-          // Same intent issued above is still valid — Plaid retried our
-          // linkTokenCreate, but the user is still mid-flow.
-          const fallbackResponse = await plaidClient.linkTokenCreate({
-            user: { client_user_id: String(userId) },
-            client_name: "Budget Smart AI",
-            products: [Products.Transactions, Products.Auth],
-            country_codes: PLAID_COUNTRY_CODES,
-            language: PLAID_LANGUAGE,
-            webhook: process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`,
-            transactions: {
-              days_requested: 730,
-            },
-            account_filters: PLAID_ACCOUNT_FILTERS as any,
-          });
+        if (isProductError) {
+          // Tier 1 fallback: drop additional_consented_products (Investments)
+          // but KEEP Liabilities in primary so mortgage accounts still appear
+          // in the Plaid Link account-selector.
+          console.log("[Plaid] Retrying tier-1 fallback (drop Investments, KEEP Liabilities)...");
+          try {
+            const tier1Response = await plaidClient.linkTokenCreate({
+              user: { client_user_id: String(userId) },
+              client_name: "Budget Smart AI",
+              products: [Products.Transactions, Products.Auth, Products.Liabilities],
+              country_codes: PLAID_COUNTRY_CODES,
+              language: PLAID_LANGUAGE,
+              webhook: process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`,
+              transactions: {
+                days_requested: 730,
+              },
+              account_filters: PLAID_ACCOUNT_FILTERS as any,
+            });
+            console.log("[Plaid] Link token created (tier-1 fallback: dropped Investments, kept Liabilities)");
+            return res.json({
+              link_token: tier1Response.data.link_token,
+              intent_id: linkIntent.intentId,
+              intent_expires_at: linkIntent.expiresAt.toISOString(),
+              currentBankCount,
+              maxBankAccounts,
+              canAddMore: hasUnlimitedBanks || currentBankCount < maxBankAccounts,
+              warning: "Connected without investments product"
+            });
+          } catch (tier1Err: any) {
+            const tier1Code = tier1Err?.response?.data?.error_code;
+            const tier1Msg = tier1Err?.response?.data?.error_message || '';
+            console.log("[Plaid] Tier-1 fallback also failed:", { tier1Code, tier1Msg });
 
-          console.log("[Plaid] Link token created (fallback: transactions + auth only, with account_filters)");
-          return res.json({
-            link_token: fallbackResponse.data.link_token,
-            intent_id: linkIntent.intentId,
-            intent_expires_at: linkIntent.expiresAt.toISOString(),
-            currentBankCount,
-            maxBankAccounts,
-            canAddMore: hasUnlimitedBanks || currentBankCount < maxBankAccounts,
-            warning: "Connected without liabilities/investments products"
-          });
+            // Tier 2 fallback: drop Liabilities too as last resort. This is
+            // the path that loses mortgage accounts — only used when the
+            // institution flat-out refuses Liabilities. account_filters
+            // STILL includes loan, but Plaid Link won't necessarily surface
+            // those accounts without Liabilities in primary products.
+            const tier2Response = await plaidClient.linkTokenCreate({
+              user: { client_user_id: String(userId) },
+              client_name: "Budget Smart AI",
+              products: [Products.Transactions, Products.Auth],
+              country_codes: PLAID_COUNTRY_CODES,
+              language: PLAID_LANGUAGE,
+              webhook: process.env.PLAID_WEBHOOK_URL || `${process.env.APP_URL}/api/plaid/webhook`,
+              transactions: {
+                days_requested: 730,
+              },
+              account_filters: PLAID_ACCOUNT_FILTERS as any,
+            });
+            console.log("[Plaid] Link token created (tier-2 fallback: dropped Liabilities + Investments)");
+            return res.json({
+              link_token: tier2Response.data.link_token,
+              intent_id: linkIntent.intentId,
+              intent_expires_at: linkIntent.expiresAt.toISOString(),
+              currentBankCount,
+              maxBankAccounts,
+              canAddMore: hasUnlimitedBanks || currentBankCount < maxBankAccounts,
+              warning: "Connected without liabilities/investments — mortgage accounts may not appear"
+            });
+          }
         }
-        
-        // Re-throw if not a liabilities issue
+
+        // Re-throw if not a product-support issue
         throw plaidError;
       }
     } catch (error: any) {

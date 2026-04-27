@@ -12,6 +12,8 @@ import {
   BankingAdapter,
   NormalizedAccount,
   NormalizedTransaction,
+  NormalizedRecurringStream,
+  RecurringStreamFrequency,
   AccountCategory,
   ProviderItemStatus,
   ClassifyIncomeInput,
@@ -131,6 +133,111 @@ export class ManualAdapter implements BankingAdapter {
       merchant: input.merchant ?? null,
     });
     return { category: r.category, isIncome: r.isIncome };
+  }
+
+  // ─── Recurring streams (Phase 1, Provider-First SSOT) ───────────────────
+  //
+  // Manual entries don't have provider-side recurring detection — by
+  // definition they're user-driven. We synthesize streams from existing
+  // income (isRecurring=true) and bills rows that the user has already
+  // formalized. These are inherently "high confidence + active" because
+  // the user explicitly created them.
+  //
+  // No detection or clustering happens here — just a shape adapter so the
+  // fan-out function can return manual streams alongside Plaid/MX streams
+  // for users who run partly-manual setups.
+  async getRecurringStreams(userId: string): Promise<NormalizedRecurringStream[]> {
+    const { storage } = await import("../../../storage");
+
+    const [incomeRows, billRows] = await Promise.all([
+      storage.getIncomes(userId),
+      storage.getBills(userId),
+    ]);
+
+    const streams: NormalizedRecurringStream[] = [];
+
+    // Income side — user-confirmed recurring income only.
+    for (const inc of incomeRows) {
+      if (inc.isRecurring !== "true") continue;
+      if (inc.isActive === "false") continue;
+      const amount = Math.abs(parseFloat(String(inc.amount || 0))) || 0;
+      streams.push({
+        streamId: `manual-income-${inc.id}`,
+        providerSource: "manual",
+        itemId: "manual",
+        accountId: inc.linkedPlaidAccountId || "manual",
+        direction: "inflow",
+        merchant: inc.source || "Income",
+        merchantId: null,
+        category: inc.canonicalCategoryId || "income_other",
+        rawProviderCategory: "",
+        frequency: mapManualRecurrence(inc.recurrence),
+        status: "active",
+        confidence: "high", // user said so
+        lastAmount: amount,
+        averageAmount: amount,
+        lastDate: inc.date || "",
+        nextExpectedDate: null,
+        occurrenceCount: 0,
+        isActive: inc.isActive !== "false",
+        rawTransactionIds: [],
+      });
+    }
+
+    // Bills side — paused bills are skipped (user temporarily suppressed them).
+    for (const bill of billRows) {
+      if (bill.isPaused === "true") continue;
+      const amount = Math.abs(parseFloat(String(bill.amount || 0))) || 0;
+      streams.push({
+        streamId: `manual-bill-${bill.id}`,
+        providerSource: "manual",
+        itemId: "manual",
+        accountId: bill.linkedPlaidAccountId || "manual",
+        direction: "outflow",
+        merchant: bill.merchant || bill.name || "Bill",
+        merchantId: null,
+        category: bill.canonicalCategoryId || "uncategorized",
+        rawProviderCategory: "",
+        frequency: mapManualRecurrence(bill.recurrence),
+        status: "active",
+        confidence: "high",
+        lastAmount: amount,
+        averageAmount: amount,
+        // Manual bills don't track lastDate per-occurrence; lastNotifiedCycle
+        // is the closest proxy. Leave blank if unknown — period calculator
+        // computes occurrences from frequency + dueDay anchor.
+        lastDate: bill.startDate || bill.lastNotifiedCycle || "",
+        nextExpectedDate: null,
+        occurrenceCount: 0,
+        isActive: bill.isPaused !== "true",
+        rawTransactionIds: [],
+      });
+    }
+
+    return streams;
+  }
+}
+
+function mapManualRecurrence(r: string | null | undefined): RecurringStreamFrequency {
+  switch (String(r || "").toLowerCase()) {
+    case "weekly": return "weekly";
+    case "biweekly":
+    case "bi-weekly":
+      return "biweekly";
+    case "semimonthly":
+    case "semi-monthly":
+      return "semi-monthly";
+    case "monthly": return "monthly";
+    case "quarterly": return "quarterly";
+    case "yearly":
+    case "annual":
+    case "annually":
+      return "yearly";
+    case "custom":
+    case "one_time":
+    case "irregular":
+      return "irregular";
+    default: return null;
   }
 }
 
