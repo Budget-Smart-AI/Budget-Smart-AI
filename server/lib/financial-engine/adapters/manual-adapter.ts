@@ -81,6 +81,12 @@ export class ManualAdapter implements BankingAdapter {
 
       return {
         id: tx.id,
+        // Phase 3.2: Manual transactions have no upstream provider id —
+        // they live only in our DB. Set null so income.ts knows to fall
+        // back to the by-id map for these (manual-synthesized streams use
+        // tx.id directly as the rawTransactionId — see manual-adapter
+        // getRecurringStreams).
+        providerTransactionId: null,
         date: tx.date,
         amount,
         direction: isCredit ? "credit" : "debit",

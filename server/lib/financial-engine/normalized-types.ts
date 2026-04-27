@@ -53,8 +53,17 @@ export type AccountCategory =
 // ─── Normalized Transaction ───────────────────────────────────────────────
 
 export interface NormalizedTransaction {
-  /** Unique ID (provider-generated) */
+  /** Unique ID — our internal DB row UUID (plaid_transactions.id, etc.).
+   *  Adapters set this to the local row's primary key. */
   id: string;
+  /**
+   * Provider-issued transaction id — Plaid `transaction_id`, MX
+   * `transaction_guid`. Distinct from `id` (which is our internal UUID).
+   * Populated by adapters; null for manual entries. Used by Phase 3
+   * stream-membership matching: NormalizedRecurringStream.rawTransactionIds
+   * holds provider ids, so the period calculator looks up by this field.
+   */
+  providerTransactionId?: string | null;
   /** Transaction date in yyyy-MM-dd format */
   date: string;
   /**

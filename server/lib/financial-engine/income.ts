@@ -641,7 +641,14 @@ export function calculateIncomeForPeriod(params: {
   // was conservatively guarded by `hasProjection` but still risked treating
   // any matching merchant credit as income. Stream-membership is precise:
   // ONLY transactions Plaid clustered into this specific stream count.
-  const txByIdInWindow = new Map<string, NormalizedTransaction>();
+  //
+  // Phase 3.2 (2026-04-27): two indexes are needed because
+  // NormalizedRecurringStream.rawTransactionIds holds PROVIDER-issued ids
+  // (Plaid `transaction_id`, MX `transaction_guid`) — NOT our internal
+  // UUIDs. Plaid + MX adapters now populate `providerTransactionId`; we
+  // index by that for stream lookup, and keep the by-id map only for the
+  // depositsByKey path (which iterates everything anyway).
+  const txByProviderIdInWindow = new Map<string, NormalizedTransaction>();
 
   for (const tx of transactions) {
     try {
@@ -651,8 +658,12 @@ export function calculateIncomeForPeriod(params: {
       }
       hasAnyTransactions = true;
 
-      // Index by id for stream-membership matching (cheap, only built once).
-      txByIdInWindow.set(tx.id, tx);
+      // Phase 3.2: index by providerTransactionId for stream-membership
+      // matching. Fall back to internal id for manual entries (whose
+      // synthesized streams reference tx.id directly — see
+      // manual-adapter.getRecurringStreams).
+      const providerKey = tx.providerTransactionId ?? tx.id;
+      txByProviderIdInWindow.set(providerKey, tx);
 
       // Skip pending, transfers, non-income for the actual income sum.
       // The Plaid adapter (post-Step-2) is now strict about isIncome —
@@ -728,7 +739,10 @@ export function calculateIncomeForPeriod(params: {
         let streamTotal = 0;
         let streamCount = 0;
         for (const txId of stream.rawTransactionIds) {
-          const tx = txByIdInWindow.get(txId);
+          // Phase 3.2: stream.rawTransactionIds holds PROVIDER ids
+          // (Plaid `transaction_id` / MX `transaction_guid`). Look up
+          // against the providerTransactionId-keyed index so we hit.
+          const tx = txByProviderIdInWindow.get(txId);
           if (!tx) continue; // Member tx is outside the period window — skip.
           if (tx.isPending) continue;
           // Don't filter on tx.isIncome / tx.isTransfer here — the stream
@@ -779,7 +793,8 @@ export function calculateIncomeForPeriod(params: {
       const stream = streamsById.get(srcStreamId!);
       if (stream) {
         for (const txId of stream.rawTransactionIds) {
-          const tx = txByIdInWindow.get(txId);
+          // Phase 3.2: provider id, not internal UUID — see comment above.
+          const tx = txByProviderIdInWindow.get(txId);
           if (!tx || tx.isPending) continue;
           // Only re-add credits Plaid mis-classified — credits already in
           // actualIncomeCents (isIncome=true) shouldn't double-count.

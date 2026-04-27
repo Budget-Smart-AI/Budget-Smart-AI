@@ -153,6 +153,10 @@ export class MxAdapter implements BankingAdapter {
 
       return {
         id: tx.id || tx.transactionGuid || tx.guid,
+        // Phase 3.2: MX's transaction_guid — used by income.ts stream-
+        // membership matching against NormalizedRecurringStream.rawTransactionIds.
+        // For MX recurring streams, transactionGuids are the canonical id.
+        providerTransactionId: tx.transactionGuid ?? tx.guid ?? null,
         date: tx.date || tx.transactedAt,
         amount,
         direction: isCredit ? "credit" : "debit",

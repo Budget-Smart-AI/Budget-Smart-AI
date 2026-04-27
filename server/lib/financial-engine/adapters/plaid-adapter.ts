@@ -186,6 +186,12 @@ export class PlaidAdapter implements BankingAdapter {
 
       return {
         id: tx.id,
+        // Phase 3.2: Plaid's external transaction_id (stored in
+        // plaid_transactions.transaction_id). Used by income.ts
+        // stream-membership matching against
+        // NormalizedRecurringStream.rawTransactionIds, which holds
+        // Plaid-issued ids — not our internal UUIDs.
+        providerTransactionId: tx.transactionId ?? null,
         date: tx.date,
         amount,
         direction: isCredit ? "credit" : "debit",
