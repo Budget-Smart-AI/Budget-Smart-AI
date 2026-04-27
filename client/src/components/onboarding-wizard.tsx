@@ -1048,28 +1048,44 @@ function ScanningStep({
 // ─── Step 4: Confirm Detected Income ──────────────────────────────────────────
 
 // Detected income source shape (matches what /api/onboarding/detect-now writes
-// into onboardingAnalysis.analysisData.incomeSources). Kept loose because the
-// upstream detector also produces optional fields like confidence/occurrences
-// that we surface in the UI but don't require.
+// into onboardingAnalysis.analysisData.incomeSources). Phase 2 (2026-04-26)
+// added the streamId / wasAutoPromoted / status / nextExpectedDate fields
+// so ConfirmIncomeStep can distinguish:
+//   - Auto-promoted streams (mature + very_high) — already in income_sources
+//     registry; render with "Auto-added ✓" badge, banner-style; no
+//     re-confirmation needed
+//   - Suggested streams (lower confidence or not-yet-mature) — render with
+//     confirm button; user explicitly opts in
+// Kept loose because pre-Phase-2 cached payloads still produce the older
+// shape without the new fields.
 interface DetectedIncomeSource {
   source: string;
   amount: number;
   category?: string | null;
   recurrence?: string | null;
   dueDay?: number | null;
-  confidence?: "high" | "medium" | "low" | null;
+  confidence?: "very_high" | "high" | "medium" | "low" | null;
   occurrences?: number | null;
+  // Phase 2 fields — all optional for back-compat with cached pre-Phase-2 payloads.
+  streamId?: string | null;
+  wasAutoPromoted?: boolean;
+  status?: "early_detection" | "active" | "mature" | "late" | "tombstoned" | null;
+  nextExpectedDate?: string | null;
 }
 
 // Convert per-pay amount + cadence into approximate monthly take-home for
 // the wizard's monthlyIncome summary. Used only for the "Saved!" recap on
 // the final step — the detected source itself is stored at its native
 // cadence in the DB so projections/forecasts stay accurate.
+//
+// Accepts both hyphenated ("semi-monthly") and unhyphenated ("semimonthly")
+// since the registry uses one form and the NormalizedRecurringStream uses
+// the other.
 function paydayToMonthly(amount: number, recurrence?: string | null): number {
   const r = (recurrence || "monthly").toLowerCase();
   if (r === "weekly") return amount * 52 / 12;
   if (r === "biweekly") return amount * 26 / 12;
-  if (r === "semi-monthly") return amount * 2;
+  if (r === "semi-monthly" || r === "semimonthly") return amount * 2;
   if (r === "monthly") return amount;
   if (r === "quarterly") return amount / 3;
   if (r === "yearly") return amount / 12;
@@ -1080,11 +1096,30 @@ function recurrenceLabel(r?: string | null): string {
   switch ((r || "").toLowerCase()) {
     case "weekly": return "Weekly";
     case "biweekly": return "Every 2 weeks";
-    case "semi-monthly": return "Twice a month";
+    case "semi-monthly":
+    case "semimonthly":
+      return "Twice a month";
     case "monthly": return "Monthly";
     case "quarterly": return "Quarterly";
     case "yearly": return "Yearly";
     default: return r ? String(r) : "Recurring";
+  }
+}
+
+/**
+ * Confidence label for the detected-source card. Hides "low" confidence
+ * entirely — those should be unobtrusive enough that we just show the
+ * source without a badge. "very_high" → "High" in display because users
+ * don't think in 4 tiers.
+ */
+function confidenceLabel(c: DetectedIncomeSource["confidence"]): string | null {
+  switch (c) {
+    case "very_high":
+    case "high":
+      return "High confidence";
+    case "medium": return "Medium confidence";
+    case "low":    return null;
+    default:       return null;
   }
 }
 
@@ -1160,35 +1195,48 @@ function MonthlyIncomeStep({
           {detectedSources.map((src, i) => {
             const isOn = accepted[i] !== false;
             const monthly = paydayToMonthly(src.amount, src.recurrence);
+            const autoPromoted = src.wasAutoPromoted === true;
+            const confLabel = confidenceLabel(src.confidence);
             return (
               <button
                 key={i}
                 onClick={() => setAccepted((a) => ({ ...a, [i]: !isOn }))}
                 className={`w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${
                   isOn
-                    ? "border-green-500 bg-green-50 dark:bg-green-950/20 ring-1 ring-green-500"
+                    ? autoPromoted
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 ring-1 ring-emerald-500"
+                      : "border-green-500 bg-green-50 dark:bg-green-950/20 ring-1 ring-green-500"
                     : "border-border bg-muted/20 opacity-60"
                 }`}
               >
                 <div className="mt-0.5 shrink-0">
                   {isOn ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    <CheckCircle2 className={`h-5 w-5 ${autoPromoted ? "text-emerald-600" : "text-green-600"}`} />
                   ) : (
                     <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/40" />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{src.source}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold truncate">{src.source}</p>
+                    {autoPromoted && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                        <Sparkles className="h-2.5 w-2.5" />
+                        Auto-added
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {currencyLabel}
                     {src.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     {" · "}
                     {recurrenceLabel(src.recurrence)}
-                    {src.confidence ? ` · ${src.confidence} confidence` : ""}
+                    {confLabel ? ` · ${confLabel}` : ""}
                   </p>
                   <p className="text-[11px] text-muted-foreground/80 mt-0.5">
                     ≈ {currencyLabel}
                     {Math.round(monthly).toLocaleString()} / month
+                    {autoPromoted ? " · already saved — uncheck to remove" : ""}
                   </p>
                 </div>
               </button>
@@ -1603,6 +1651,12 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
         dueDay: typeof s.dueDay === "number" ? s.dueDay : null,
         confidence: s.confidence ?? null,
         occurrences: typeof s.occurrences === "number" ? s.occurrences : null,
+        // Phase 2 fields — passed through if present, default-undefined for
+        // back-compat with cached pre-Phase-2 payloads.
+        streamId: typeof s.streamId === "string" ? s.streamId : null,
+        wasAutoPromoted: s.wasAutoPromoted === true,
+        status: s.status ?? null,
+        nextExpectedDate: typeof s.nextExpectedDate === "string" ? s.nextExpectedDate : null,
       })).filter((s: DetectedIncomeSource) => s.amount > 0)
     : [];
 
@@ -1681,14 +1735,20 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
           console.error("Failed to save income:", err);
         }
       }
-      // Persist each confirmed detected source as an actual Income row so
-      // Dashboard / Forecast / Money Timeline pick them up immediately.
-      // /api/onboarding/save-selections already does the createIncome loop
-      // with the right shape (source/amount/category/recurrence/dueDay).
-      if (confirmedSources.length > 0) {
+      // Persist each NON-auto-promoted confirmed detected source as an
+      // actual Income row so Dashboard / Forecast / Money Timeline pick
+      // them up immediately. Auto-promoted streams (Phase 2) already have
+      // income_sources rows materialised by /api/onboarding/detect-now;
+      // skipping them here prevents duplicate income table rows that
+      // would surface as ghost manual entries alongside the registry-
+      // backed source. (Phase 3 cuts the period calculator over to read
+      // from income_sources, at which point the income table becomes
+      // a legacy manual-entry-only path.)
+      const sourcesToSave = confirmedSources.filter((s) => !s.wasAutoPromoted);
+      if (sourcesToSave.length > 0) {
         try {
           await apiRequest("POST", "/api/onboarding/save-selections", {
-            incomeSources: confirmedSources.map((s) => ({
+            incomeSources: sourcesToSave.map((s) => ({
               source: s.source,
               amount: s.amount,
               category: s.category || "Salary",

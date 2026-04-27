@@ -9985,48 +9985,239 @@ Rules:
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // POST /api/onboarding/detect-now — On-demand income detection for the
-  // setup wizard's Scanning step. Runs detectRecurringIncomeSuggestions
-  // synchronously instead of waiting for the nightly scheduler. Persists
-  // the detected sources into onboardingAnalysis.analysisData.incomeSources
-  // in a shape compatible with the wizard's existing detectedIncome read
-  // path (source / amount / category / recurrence / dueDay).
+  // Phase 2 helpers — map provider-agnostic stream metadata into the shapes
+  // the income_sources registry expects.
+  //
+  // Income source registry columns are constrained:
+  //   - `category` MUST be in INCOME_CATEGORIES (Salary | Interest | Freelance |
+  //     Business | Investments | Rental | Gifts | Refunds | Other)
+  //   - `recurrence` MUST be in RECURRENCE_OPTIONS (weekly | biweekly |
+  //     semimonthly (NO HYPHEN!) | monthly | quarterly | yearly | custom |
+  //     irregular | one_time)
+  //
+  // NormalizedRecurringStream uses the canonical_categories.id slug for
+  // category (e.g. "income_salary") and uses "semi-monthly" (hyphenated)
+  // for the frequency. These helpers translate.
+  //
+  // Defaults are intentionally conservative ("Other" / "irregular") rather
+  // than guessing — the user can edit either via the Income page.
+  // ──────────────────────────────────────────────────────────────────────────
+  function mapCanonicalToIncomeCategory(canonical: string): string {
+    switch ((canonical || "").toLowerCase()) {
+      case "income_salary":      return "Salary";
+      case "income_freelance":   return "Freelance";
+      case "income_business":    return "Business";
+      case "income_investment":  return "Investments";
+      case "income_rental":      return "Rental";
+      case "income_gifts":       return "Gifts";
+      case "transfer_refund":    return "Refunds";
+      case "income_other":       return "Other";
+      default:                   return "Other";
+    }
+  }
+
+  function mapStreamFrequencyToRecurrence(
+    f: "weekly" | "biweekly" | "semi-monthly" | "monthly" | "quarterly" | "yearly" | "irregular" | null,
+  ): string {
+    switch (f) {
+      case "weekly":       return "weekly";
+      case "biweekly":     return "biweekly";
+      case "semi-monthly": return "semimonthly"; // registry uses no-hyphen variant
+      case "monthly":      return "monthly";
+      case "quarterly":    return "quarterly";
+      case "yearly":       return "yearly";
+      case "irregular":    return "irregular";
+      case null:           return "irregular";
+      default:             return "irregular";
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /api/onboarding/detect-now — Provider-First income detection for
+  // the setup wizard's Scanning step.
+  //
+  // Phase 2 Provider-First SSOT (2026-04-26 — see PROVIDER_FIRST_SSOT_STRATEGY.md).
+  //
+  // Replaces the home-grown detectRecurringIncomeSuggestions() with a call
+  // to getRecurringStreams() — the provider-agnostic fan-out that pulls
+  // ML-clustered streams from Plaid `/transactions/recurring/get` and MX's
+  // recurring_transactions endpoint (free with our existing plans, Ryan
+  // confirmed 2026-04-26).
+  //
+  // Flow:
+  //   1. Fan out across providers → NormalizedRecurringStream[] (inflows)
+  //   2. For each stream:
+  //      - If shouldAutoPromote() (mature + very_high + active inflow per
+  //        Ryan's locked §8.1 decision): auto-create income_sources row
+  //        if not already present, mark autoDetected=true, link via stream_id
+  //      - Skip rows the user has tombstoned (user_dismissed_at non-null —
+  //        soft-delete per §8.2). Plaid webhooks DO NOT auto-resurrect these.
+  //   3. Persist all streams to analysisData.incomeSources for the wizard
+  //      to display, enriched with `wasAutoPromoted` so ConfirmIncomeStep
+  //      can distinguish auto-confirmed (banner: "We added Roche — tap to
+  //      edit/remove") from suggested (card with confirm button).
+  //   4. Save step=4 server-side.
   // ──────────────────────────────────────────────────────────────────────────
   app.post("/api/onboarding/detect-now", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { detectRecurringIncomeSuggestions } = await import("./recurring-income-detector");
+      const { getRecurringStreams, shouldAutoPromote } =
+        await import("./lib/financial-engine/get-recurring-streams");
+      const { normalizeSourceName } =
+        await import("./lib/financial-engine/income");
 
-      const suggestions = await detectRecurringIncomeSuggestions(userId);
+      // 1. Pull all inflow streams across providers, ranked by confidence.
+      const streams = await getRecurringStreams([userId], {
+        direction: "inflow",
+        excludeTombstoned: true,
+      });
 
-      // Map IncomeSuggestion shape (name/amount/category/...) into the wizard's
-      // analysisData.incomeSources shape (source/amount/category/...).
-      const incomeSources = suggestions.map((s) => ({
-        source: s.name,
-        amount: s.amount,
-        category: s.category || "Other",
-        recurrence: s.recurrence,
-        dueDay: s.dueDay,
-        confidence: s.confidence,
-        occurrences: s.occurrences,
-        frequency: s.frequency,
-      }));
+      // 2. Load existing income_sources for dedupe + tombstone-skip.
+      // We deliberately bypass storage.getIncomeSourcesByUserIds() because
+      // that helper filters to isActive=true — but dismissed rows may have
+      // isActive=false (Ryan §8.2 soft-delete may set both). We need to
+      // see every row including dismissed ones so the auto-promote logic
+      // doesn't recreate them.
+      const { incomeSources: incomeSourcesTable } = await import("@shared/schema");
+      const existingSources = await db
+        .select()
+        .from(incomeSourcesTable)
+        .where(eq(incomeSourcesTable.userId, userId));
+      const sourceByStreamId = new Map<string, typeof existingSources[number]>();
+      const sourceByNormName = new Map<string, typeof existingSources[number]>();
+      for (const src of existingSources) {
+        if (src.streamId) sourceByStreamId.set(src.streamId, src);
+        if (src.normalizedSource) sourceByNormName.set(src.normalizedSource, src);
+      }
 
-      const existing = await storage.getOnboardingAnalysis(userId);
-      let merged: any = { incomeSources };
+      // Promotion log — turned into the response so the wizard can render
+      // both auto-promoted and suggested-but-not-promoted streams together.
+      type StreamForWizard = {
+        streamId: string;
+        source: string;
+        amount: number;
+        category: string;
+        recurrence: string | null;
+        dueDay: number;
+        confidence: string;
+        occurrences: number;
+        frequency: string | null;
+        status: string;
+        nextExpectedDate: string | null;
+        wasAutoPromoted: boolean;
+      };
+
+      const wizardStreams: StreamForWizard[] = [];
+      let autoPromotedCount = 0;
+
+      for (const stream of streams) {
+        const merchantDisplay = stream.merchant || "Income";
+        const normName = normalizeSourceName(merchantDisplay);
+        if (!normName) continue;
+
+        // Existing-source lookup: prefer streamId match (precise) then
+        // normalized-name match (covers pre-Phase-2 detector-created rows).
+        const existingByStream = sourceByStreamId.get(stream.streamId);
+        const existingByName = sourceByNormName.get(normName);
+        const existing = existingByStream ?? existingByName;
+
+        // Tombstone short-circuit — user dismissed this earlier; skip per §8.2.
+        if (existing?.userDismissedAt) {
+          continue;
+        }
+
+        const incomeCategory = mapCanonicalToIncomeCategory(stream.category);
+        const recurrenceForRegistry = mapStreamFrequencyToRecurrence(stream.frequency);
+        const dueDay = stream.lastDate
+          ? Math.max(1, Math.min(31, parseInt(stream.lastDate.slice(8, 10), 10) || 1))
+          : 1;
+
+        let wasAutoPromoted = false;
+
+        // 3. Auto-promote when the stream meets the gate AND there's no
+        //    existing registry row to update. We do NOT update an existing
+        //    row's amount or category here — that's the user's territory.
+        //    We only update an existing row's stream_id when missing (so
+        //    the webhook reconciler can find it later).
+        //
+        //    upsertIncomeSource is idempotent against (user_id, normalized_source)
+        //    so we don't need an explicit existence check before insert; the
+        //    `existing` lookup above is for the wasAutoPromoted flag and
+        //    streamId backfill path.
+        if (!existing && shouldAutoPromote(stream)) {
+          try {
+            await storage.upsertIncomeSource(userId, {
+              normalizedSource: normName,
+              displayName: merchantDisplay,
+              recurrence: recurrenceForRegistry as any,
+              mode: "fixed",
+              cadenceAnchor: stream.lastDate || new Date().toISOString().slice(0, 10),
+              category: incomeCategory as any,
+              isActive: true,
+              autoDetected: true,
+              detectedAt: new Date(),
+              linkedPlaidAccountId: stream.providerSource === "plaid"
+                ? stream.accountId
+                : null,
+              streamId: stream.streamId,
+            } as any, {
+              // Seed an open-ended amount row so projections work immediately.
+              amount: String(stream.lastAmount),
+              effectiveFrom: stream.lastDate || new Date().toISOString().slice(0, 10),
+            });
+            autoPromotedCount++;
+            wasAutoPromoted = true;
+          } catch (upsertErr: any) {
+            console.warn(
+              `[detect-now] auto-promote upsert failed for ${normName} (user ${userId}):`,
+              upsertErr?.message || upsertErr,
+            );
+          }
+        } else if (existing && !existing.streamId && stream.streamId) {
+          // Backfill missing stream_id on a row created by the home-grown
+          // detector before Phase 2. Idempotent. Lets webhook reconciler
+          // (Phase 6) find this row later.
+          try {
+            await storage.updateIncomeSource(userId, existing.id, {
+              streamId: stream.streamId,
+            } as any);
+          } catch (updateErr: any) {
+            console.warn(
+              `[detect-now] stream_id backfill failed for source ${existing.id}:`,
+              updateErr?.message,
+            );
+          }
+        }
+
+        wizardStreams.push({
+          streamId: stream.streamId,
+          source: merchantDisplay,
+          amount: stream.lastAmount,
+          category: incomeCategory,
+          recurrence: recurrenceForRegistry,
+          dueDay,
+          confidence: stream.confidence,
+          occurrences: stream.occurrenceCount,
+          frequency: stream.frequency,
+          status: stream.status,
+          nextExpectedDate: stream.nextExpectedDate,
+          wasAutoPromoted: wasAutoPromoted || (!!existing && existing.autoDetected === true),
+        });
+      }
+
+      // 4. Persist streams into analysisData for refresh recovery + bump step.
+      const existingAnalysis = await storage.getOnboardingAnalysis(userId);
+      let merged: any = { incomeSources: wizardStreams };
       try {
-        if (existing?.analysisData && existing.analysisData !== "{}") {
-          const prev = JSON.parse(existing.analysisData);
-          merged = { ...prev, incomeSources };
+        if (existingAnalysis?.analysisData && existingAnalysis.analysisData !== "{}") {
+          const prev = JSON.parse(existingAnalysis.analysisData);
+          merged = { ...prev, incomeSources: wizardStreams };
         }
       } catch {
         // Corrupt existing analysisData — overwrite cleanly.
       }
 
-      // Step 4 = Confirm Detected Income (post-Scanning). Even if no sources
-      // were found, we still advance — ConfirmIncomeStep handles the empty
-      // case with a manual-entry fallback.
-      if (existing) {
+      if (existingAnalysis) {
         await storage.updateOnboardingAnalysis(userId, {
           analysisData: JSON.stringify(merged),
           step: 4,
@@ -10039,7 +10230,11 @@ Rules:
         });
       }
 
-      res.json({ incomeSources, count: incomeSources.length });
+      res.json({
+        incomeSources: wizardStreams,
+        count: wizardStreams.length,
+        autoPromotedCount,
+      });
     } catch (error: any) {
       console.error("Error in /api/onboarding/detect-now:", error);
       res.status(500).json({ error: error?.message || "Failed to detect income" });

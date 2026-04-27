@@ -2755,6 +2755,11 @@ export class DatabaseStorage implements IStorage {
         autoDetected: src.autoDetected ?? false,
         detectedAt: src.detectedAt ?? new Date(),
         linkedPlaidAccountId: src.linkedPlaidAccountId ?? null,
+        // Phase 2 Provider-First SSOT: backfill streamId on existing rows
+        // (e.g. ones created by the home-grown detector before Phase 2).
+        // COALESCE so once set, the streamId persists across re-upserts —
+        // we never overwrite a known stream id with NULL.
+        streamId: sql`COALESCE(${incomeSources.streamId}, ${(src as any).streamId ?? null})`,
         updatedAt: new Date(),
       },
     } as any).returning();

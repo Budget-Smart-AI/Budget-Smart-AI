@@ -432,6 +432,20 @@ export const incomeSources = pgTable("income_sources", {
   // scoped to the correct account if the user has multiple paychecks routed
   // to different banks.
   linkedPlaidAccountId: varchar("linked_plaid_account_id"),
+  // ─── Provider-First SSOT linkage (Phase 2, migration 0044) ─────────────
+  // Provider-stable stream id from Plaid `/transactions/recurring/get`
+  // (or MX equivalent). NULL for manual entries and pre-Phase-2 rows that
+  // were created by the home-grown detector. Phase 6's webhook reconciler
+  // looks up rows by this column when a RECURRING_TRANSACTIONS_UPDATE fires.
+  streamId: text("stream_id"),
+  // Soft-delete tombstone — set when the user explicitly dismisses a
+  // detected stream as "not income". Period calculator skips rows where
+  // this is non-null. Plaid webhook does NOT auto-resurrect — user must
+  // explicitly restore from the wizard's dismissed-sources view.
+  userDismissedAt: timestamp("user_dismissed_at"),
+  // Free-form note on why the user dismissed this stream. Helps AI
+  // assistant reason about user intent. Not used in calculations.
+  dismissalReason: text("dismissal_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
