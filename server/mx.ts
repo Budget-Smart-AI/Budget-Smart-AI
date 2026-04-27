@@ -901,6 +901,3 @@ export async function syncMXTransactions(
   }
 }
 
-// ─── Exports ────────────────────────────────────────────────────────────────
-
-export { mxClient };
