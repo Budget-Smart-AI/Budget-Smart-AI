@@ -239,6 +239,20 @@ function ConnectBankStep({
   const [subStep, setSubStep] = useState<"connect-bank" | "phone-ready">("connect-bank");
   const [pendingPlaidOpen, setPendingPlaidOpen] = useState(false);
 
+  // Loop-bug v2 belt-and-suspenders: useState only captures the prop on
+  // first mount, so if bankAlreadyConnected changes from false → true after
+  // mount (e.g., onboardingStatus query finished loading after this
+  // component mounted), `connected` would stay false. Sync the prop into
+  // local state whenever it flips truthy. Parent's effect now also forces
+  // step ≥ 3 in this scenario so this should rarely fire — keeping it as
+  // a defense-in-depth guard so we never re-show the country selector to
+  // someone who already linked a bank.
+  useEffect(() => {
+    if (bankAlreadyConnected && !connected) {
+      setConnected(true);
+    }
+  }, [bankAlreadyConnected]);
+
   const { toast } = useToast();
 
   const { data: wizardProviders = [], isLoading: providersLoading } = useQuery<WizardProvider[]>({
@@ -265,7 +279,13 @@ function ConnectBankStep({
       }
     } catch (error: any) {
       console.error("Error fetching link token:", error);
+      // Frozen-modal v2 fix: ensure pendingPlaidOpen AND parent plaidOpen
+      // are both reset so a failed token fetch never leaves the wizard
+      // dimmed waiting for a Plaid widget that will never load. The
+      // 403 "Bank account limit reached" is the most common trigger —
+      // user hit Add Bank a second time on a free plan.
       setPendingPlaidOpen(false);
+      onPlaidOpen?.(false);
       const msg = error?.message || "Failed to connect bank account.";
       toast({
         title: "Unable to connect bank",
@@ -274,7 +294,7 @@ function ConnectBankStep({
       });
     }
     return null;
-  }, [toast]);
+  }, [toast, onPlaidOpen]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -1451,6 +1471,27 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
   const [plaidOpen, setPlaidOpen] = useState(false);
   const { toast } = useToast();
 
+  // Plaid frozen-modal guard (2026-04-26):
+  // When ConnectBankStep calls onPlaidOpen(true), the wizard dims itself and
+  // becomes pointer-events-none until the Plaid widget calls onSuccess /
+  // onExit. Both of those reset plaidOpen back to false. But if the Plaid
+  // widget never actually opens (CDN failure, expired token, popup blocker,
+  // ready=false at the moment open() ran), neither callback fires and the
+  // wizard is permanently dimmed — user reports "screen goes to dark modal
+  // and freezes" with no way to recover.
+  //
+  // Fix: a 90-second hard timeout that force-resets plaidOpen if no callback
+  // came back. 90s is generous (real Plaid Link flows complete well under
+  // 60s); long enough that a slow legitimate flow doesn't get cut off.
+  useEffect(() => {
+    if (!plaidOpen) return;
+    const timer = setTimeout(() => {
+      console.warn("[wizard] Plaid open timeout — force-resetting plaidOpen to recover from stuck modal");
+      setPlaidOpen(false);
+    }, 90_000);
+    return () => clearTimeout(timer);
+  }, [plaidOpen]);
+
   // Collected data
   const [bankConnected, setBankConnected] = useState(false);
   const [accountCount, setAccountCount] = useState(0);
@@ -1515,7 +1556,23 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     if (onboardingStatus.analysisData?.recurringBills) {
       setBillsDetected(onboardingStatus.analysisData.recurringBills.length);
     }
-    const serverStep = Math.max(1, Math.min(onboardingStatus.currentStep, TOTAL_STEPS));
+    // Loop-bug v2 fix (2026-04-26):
+    // The previous bankAlreadyConnected prop fix had a race — useState only
+    // captures the prop on FIRST mount. If onboardingStatus was still
+    // loading when ConnectBankStep first mounted, bankAlreadyConnected was
+    // undefined and `connected` initialised to false. Once a Plaid item
+    // exists, the user must NOT see ConnectBankStep again under any
+    // condition — short-circuit the entire step by floor-bumping minStep
+    // to 3 (Scanning) whenever hasPlaidConnection is true. ConnectBankStep
+    // simply never mounts in the loop scenario.
+    let minStep = 1;
+    if (onboardingStatus.hasPlaidConnection) {
+      minStep = 3;
+    }
+    const serverStep = Math.max(
+      minStep,
+      Math.min(onboardingStatus.currentStep, TOTAL_STEPS),
+    );
     if (serverStep > step) {
       setStep(serverStep);
     }
