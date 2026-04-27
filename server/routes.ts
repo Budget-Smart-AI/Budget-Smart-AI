@@ -6648,6 +6648,33 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
               );
             }
 
+            // Phase 5 (Wizard Rebuild, 2026-04-27): on INITIAL_UPDATE
+            // specifically, stamp plaid_items.initial_sync_at so the new
+            // onboarding wizard's sync-status endpoint can flip
+            // transactionsLoaded=true. Also fire a first detect-income
+            // pass — it usually returns 0 streams this early (Plaid hasn't
+            // computed recurring yet) but it lets last_income_detection_at
+            // begin reflecting reality. The proper detect happens on
+            // RECURRING_TRANSACTIONS_UPDATE below.
+            if (webhook_code === "INITIAL_UPDATE") {
+              try {
+                await pool.query(
+                  `UPDATE plaid_items SET initial_sync_at = NOW() WHERE id = $1 AND initial_sync_at IS NULL`,
+                  [item.id],
+                );
+                console.log(`[Plaid Webhook] ✅ initial_sync_at stamped for item ${item.id}`);
+              } catch (stampErr: any) {
+                console.warn(`[Plaid Webhook] initial_sync_at stamp failed for ${item.id}:`, stampErr?.message);
+              }
+              // Fire-and-forget: detect-income against any streams that
+              // happen to exist this early. NotifyWhenReady email path
+              // checked at the end of every sync-status flip.
+              const { runIncomeDetection } = await import("./lib/onboarding/detect-income");
+              runIncomeDetection(item.user_id).catch((err: any) =>
+                console.error("[Plaid Webhook] runIncomeDetection (INITIAL_UPDATE) failed:", err?.message),
+              );
+            }
+
           } else if (webhook_code === "RECURRING_TRANSACTIONS_UPDATE") {
             // Phase 0 Provider-First SSOT (2026-04-26): Plaid notifies us
             // whenever the recurring stream analysis for this item changes
@@ -6656,12 +6683,63 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             // recurring/get has been called at least once for the item, and
             // routinely thereafter as Plaid re-evaluates streams.
             //
-            // For now we just LOG the receipt — Phase 6 of the strategy doc
-            // wires the registry reconciliation that fires here. The reason
-            // we accept the webhook now is so Plaid doesn't retry / give up
-            // on us when we ship later phases. The handler is safe to land
-            // ahead of the reconciler.
-            console.log(`[Plaid Webhook] RECURRING_TRANSACTIONS_UPDATE received for item ${item.id} (user ${item.user_id}) — Phase 6 reconciler will pick this up once shipped`);
+            // Phase 5 (Wizard Rebuild, 2026-04-27): wired to actually do
+            // something now — stamp recurring_synced_at and re-run the
+            // detect-income helper so any newly-mature streams get
+            // auto-promoted into income_sources. This also retires the
+            // Phase 6 stub: the registry reconciliation IS this re-run.
+            console.log(`[Plaid Webhook] RECURRING_TRANSACTIONS_UPDATE received for item ${item.id} (user ${item.user_id})`);
+            try {
+              await pool.query(
+                `UPDATE plaid_items SET recurring_synced_at = NOW() WHERE id = $1`,
+                [item.id],
+              );
+              console.log(`[Plaid Webhook] ✅ recurring_synced_at stamped for item ${item.id}`);
+            } catch (stampErr: any) {
+              console.warn(`[Plaid Webhook] recurring_synced_at stamp failed for ${item.id}:`, stampErr?.message);
+            }
+            try {
+              const { runIncomeDetection } = await import("./lib/onboarding/detect-income");
+              const detectResult = await runIncomeDetection(item.user_id);
+              console.log(
+                `[Plaid Webhook] runIncomeDetection (RECURRING) for ${item.user_id}: ${detectResult.count} streams, ${detectResult.autoPromotedCount} auto-promoted`,
+              );
+
+              // Phase 5 notify-when-ready: if the user hit "Email me when
+              // ready" on the wizard wait screen, check whether the full
+              // sync is now complete and fire the email. We do this from
+              // the webhook because that's the moment recurringComputed
+              // flips true — most likely the last of the three sync flags
+              // to flip — meaning allComplete=true is achievable for the
+              // first time.
+              try {
+                const user = await storage.getUser(item.user_id);
+                let progress: any = {};
+                try { progress = user?.onboardingProgress ? JSON.parse(user.onboardingProgress) : {}; } catch { progress = {}; }
+                if (progress.notifyWhenReady === true && !progress.notifyWhenReadySent) {
+                  const { rows: statusRows } = await pool.query(
+                    `SELECT
+                       (SELECT bool_or(initial_sync_at IS NOT NULL)     FROM plaid_items WHERE user_id = $1) AS transactions_loaded,
+                       (SELECT bool_or(recurring_synced_at IS NOT NULL) FROM plaid_items WHERE user_id = $1) AS recurring_computed,
+                       (SELECT last_income_detection_at IS NOT NULL     FROM users        WHERE id      = $1) AS income_detected`,
+                    [item.user_id],
+                  );
+                  const s = statusRows[0] || {};
+                  const allComplete = s.transactions_loaded === true && s.recurring_computed === true && s.income_detected === true;
+                  if (allComplete && user?.email) {
+                    const { sendDashboardReadyEmail } = await import("./email");
+                    await sendDashboardReadyEmail(user.email, user.firstName || user.username || "");
+                    progress.notifyWhenReadySent = true;
+                    await storage.updateUserOnboarding(item.user_id, true, progress);
+                    console.log(`[Plaid Webhook] 📧 Dashboard-ready email sent to ${user.email}`);
+                  }
+                }
+              } catch (notifyErr: any) {
+                console.warn(`[Plaid Webhook] notify-when-ready check failed:`, notifyErr?.message);
+              }
+            } catch (err: any) {
+              console.warn(`[Plaid Webhook] runIncomeDetection (RECURRING) failed:`, err?.message);
+            }
           } else if (webhook_code === "HISTORICAL_UPDATE") {
             // HISTORICAL_UPDATE means Plaid has prepared the FULL 24-month history.
             // Reset cursor to null so the sync fetches ALL history from scratch.
@@ -9864,13 +9942,6 @@ Rules:
       const analysis = await storage.getOnboardingAnalysis(userId);
       const plaidItemsList = await storage.getPlaidItems(userId);
 
-      // Wizard step routing — must stay aligned with onboarding-wizard.tsx
-      // TOTAL_STEPS=5 (Welcome / Connect Bank / Scanning / Confirm Income / Ready).
-      // The floors below upgrade the step based on observable user state so a
-      // user who refreshes mid-flow lands on a sane page even if no
-      // save-step call was made for the section they reached. The
-      // analysis.step override always wins so the wizard's explicit
-      // save-step calls are authoritative.
       let currentStep = 1;
       if (plaidItemsList.length > 0) currentStep = 2;
       if (analysis?.analysisData && analysis.analysisData !== "{}") currentStep = 4;
@@ -9936,51 +10007,6 @@ Rules:
     } catch (error) {
       console.error("Error completing onboarding:", error);
       res.status(500).json({ error: "Failed to complete onboarding" });
-    }
-  });
-
-  app.post("/api/onboarding/save-income-goal", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      if ((req.session as any).isDemo) return res.json({ success: true, demo: true });
-
-      const { monthlyIncome, budgetCategory, budgetAmount } = req.body;
-      const today = new Date().toISOString().split("T")[0];
-      const month = today.slice(0, 7);
-
-      if (monthlyIncome && parseFloat(String(monthlyIncome)) > 0) {
-        await storage.createIncome({
-          userId,
-          source: "Monthly Income",
-          amount: String(monthlyIncome),
-          date: today,
-          canonicalCategoryId: "income_salary",
-          isActive: "true",
-          isRecurring: "true",
-          recurrence: "monthly",
-          dueDay: 1,
-        });
-      }
-
-      if (budgetCategory && budgetAmount && parseFloat(String(budgetAmount)) > 0) {
-        const existing = await storage.getBudgetsByMonth(userId, month);
-        const alreadyExists = existing.find(b => b.canonicalCategoryId === budgetCategory);
-        if (!alreadyExists) {
-          await storage.createBudget({
-            userId,
-            canonicalCategoryId: budgetCategory as any,
-            amount: String(budgetAmount),
-            month,
-          });
-        } else {
-          await storage.updateBudget(alreadyExists.id, { amount: String(budgetAmount) });
-        }
-      }
-
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error("Error saving income/goal:", error);
-      res.status(500).json({ error: error.message || "Failed to save income and goal" });
     }
   });
 
@@ -10061,199 +10087,124 @@ Rules:
   app.post("/api/onboarding/detect-now", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { getRecurringStreams, shouldAutoPromote } =
-        await import("./lib/financial-engine/get-recurring-streams");
-      const { normalizeSourceName } =
-        await import("./lib/financial-engine/income");
-
-      // 1. Pull all inflow streams across providers, ranked by confidence.
-      const streams = await getRecurringStreams([userId], {
-        direction: "inflow",
-        excludeTombstoned: true,
-      });
-
-      // 2. Load existing income_sources for dedupe + tombstone-skip.
-      // We deliberately bypass storage.getIncomeSourcesByUserIds() because
-      // that helper filters to isActive=true — but dismissed rows may have
-      // isActive=false (Ryan §8.2 soft-delete may set both). We need to
-      // see every row including dismissed ones so the auto-promote logic
-      // doesn't recreate them.
-      const { incomeSources: incomeSourcesTable } = await import("@shared/schema");
-      const existingSources = await db
-        .select()
-        .from(incomeSourcesTable)
-        .where(eq(incomeSourcesTable.userId, userId));
-      const sourceByStreamId = new Map<string, typeof existingSources[number]>();
-      const sourceByNormName = new Map<string, typeof existingSources[number]>();
-      for (const src of existingSources) {
-        if (src.streamId) sourceByStreamId.set(src.streamId, src);
-        if (src.normalizedSource) sourceByNormName.set(src.normalizedSource, src);
-      }
-
-      // Promotion log — turned into the response so the wizard can render
-      // both auto-promoted and suggested-but-not-promoted streams together.
-      type StreamForWizard = {
-        streamId: string;
-        source: string;
-        amount: number;
-        category: string;
-        recurrence: string | null;
-        dueDay: number;
-        confidence: string;
-        occurrences: number;
-        frequency: string | null;
-        status: string;
-        nextExpectedDate: string | null;
-        wasAutoPromoted: boolean;
-      };
-
-      const wizardStreams: StreamForWizard[] = [];
-      let autoPromotedCount = 0;
-
-      for (const stream of streams) {
-        const merchantDisplay = stream.merchant || "Income";
-        const normName = normalizeSourceName(merchantDisplay);
-        if (!normName) continue;
-
-        // Existing-source lookup: prefer streamId match (precise) then
-        // normalized-name match (covers pre-Phase-2 detector-created rows).
-        const existingByStream = sourceByStreamId.get(stream.streamId);
-        const existingByName = sourceByNormName.get(normName);
-        const existing = existingByStream ?? existingByName;
-
-        // Tombstone short-circuit — user dismissed this earlier; skip per §8.2.
-        if (existing?.userDismissedAt) {
-          continue;
-        }
-
-        const incomeCategory = mapCanonicalToIncomeCategory(stream.category);
-        const recurrenceForRegistry = mapStreamFrequencyToRecurrence(stream.frequency);
-        const dueDay = stream.lastDate
-          ? Math.max(1, Math.min(31, parseInt(stream.lastDate.slice(8, 10), 10) || 1))
-          : 1;
-
-        let wasAutoPromoted = false;
-
-        // 3. Auto-promote when the stream meets the gate AND there's no
-        //    existing registry row to update. We do NOT update an existing
-        //    row's amount or category here — that's the user's territory.
-        //    We only update an existing row's stream_id when missing (so
-        //    the webhook reconciler can find it later).
-        //
-        //    upsertIncomeSource is idempotent against (user_id, normalized_source)
-        //    so we don't need an explicit existence check before insert; the
-        //    `existing` lookup above is for the wasAutoPromoted flag and
-        //    streamId backfill path.
-        if (!existing && shouldAutoPromote(stream)) {
-          try {
-            await storage.upsertIncomeSource(userId, {
-              normalizedSource: normName,
-              displayName: merchantDisplay,
-              recurrence: recurrenceForRegistry as any,
-              mode: "fixed",
-              cadenceAnchor: stream.lastDate || new Date().toISOString().slice(0, 10),
-              category: incomeCategory as any,
-              isActive: true,
-              autoDetected: true,
-              detectedAt: new Date(),
-              linkedPlaidAccountId: stream.providerSource === "plaid"
-                ? stream.accountId
-                : null,
-              streamId: stream.streamId,
-            } as any, {
-              // Seed an open-ended amount row so projections work immediately.
-              amount: String(stream.lastAmount),
-              effectiveFrom: stream.lastDate || new Date().toISOString().slice(0, 10),
-            });
-            autoPromotedCount++;
-            wasAutoPromoted = true;
-          } catch (upsertErr: any) {
-            console.warn(
-              `[detect-now] auto-promote upsert failed for ${normName} (user ${userId}):`,
-              upsertErr?.message || upsertErr,
-            );
-          }
-        } else if (existing && !existing.streamId && stream.streamId) {
-          // Backfill missing stream_id on a row created by the home-grown
-          // detector before Phase 2. Idempotent. Lets webhook reconciler
-          // (Phase 6) find this row later.
-          try {
-            await storage.updateIncomeSource(userId, existing.id, {
-              streamId: stream.streamId,
-            } as any);
-          } catch (updateErr: any) {
-            console.warn(
-              `[detect-now] stream_id backfill failed for source ${existing.id}:`,
-              updateErr?.message,
-            );
-          }
-        }
-
-        wizardStreams.push({
-          streamId: stream.streamId,
-          source: merchantDisplay,
-          amount: stream.lastAmount,
-          category: incomeCategory,
-          recurrence: recurrenceForRegistry,
-          dueDay,
-          confidence: stream.confidence,
-          occurrences: stream.occurrenceCount,
-          frequency: stream.frequency,
-          status: stream.status,
-          nextExpectedDate: stream.nextExpectedDate,
-          wasAutoPromoted: wasAutoPromoted || (!!existing && existing.autoDetected === true),
-        });
-      }
-
-      // 4. Persist streams into analysisData for refresh recovery + bump step.
-      const existingAnalysis = await storage.getOnboardingAnalysis(userId);
-      let merged: any = { incomeSources: wizardStreams };
-      try {
-        if (existingAnalysis?.analysisData && existingAnalysis.analysisData !== "{}") {
-          const prev = JSON.parse(existingAnalysis.analysisData);
-          merged = { ...prev, incomeSources: wizardStreams };
-        }
-      } catch {
-        // Corrupt existing analysisData — overwrite cleanly.
-      }
-
-      if (existingAnalysis) {
-        await storage.updateOnboardingAnalysis(userId, {
-          analysisData: JSON.stringify(merged),
-          step: 4,
-        });
-      } else {
-        await storage.createOnboardingAnalysis({
-          userId,
-          analysisData: JSON.stringify(merged),
-          step: 4,
-        });
-      }
-
-      res.json({
-        incomeSources: wizardStreams,
-        count: wizardStreams.length,
-        autoPromotedCount,
-      });
+      // Phase 5 (Wizard Rebuild, 2026-04-27): the body of this endpoint
+      // moved into a shared helper so the Plaid webhook handler can call
+      // the same code path on INITIAL_UPDATE / RECURRING_TRANSACTIONS_UPDATE
+      // without HTTP indirection. The endpoint is now a thin wrapper.
+      const { runIncomeDetection } = await import("./lib/onboarding/detect-income");
+      const result = await runIncomeDetection(userId);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(result);
     } catch (error: any) {
       console.error("Error in /api/onboarding/detect-now:", error);
       res.status(500).json({ error: error?.message || "Failed to detect income" });
     }
   });
 
-  app.post("/api/onboarding/save-step", requireAuth, async (req, res) => {
+  // ──────────────────────────────────────────────────────────────────────────
+  // GET /api/onboarding/sync-status — Phase 5 (Wizard Rebuild, 2026-04-27).
+  //
+  // Three-boolean status used by the new onboarding wizard's wait screen.
+  // Each boolean means "this stage of the post-Plaid-Link pipeline has
+  // completed at least once" — NOT "we found anything." A user with no
+  // recurring income hits incomeDetected=true once runIncomeDetection
+  // finishes its run with zero results. They are never trapped on the
+  // wait screen.
+  //
+  // Backed by columns added in migration 0045:
+  //   plaid_items.initial_sync_at        ← set in webhook after INITIAL_UPDATE
+  //   plaid_items.recurring_synced_at    ← set in webhook after RECURRING_TRANSACTIONS_UPDATE
+  //   users.last_income_detection_at     ← set in runIncomeDetection (always)
+  //
+  // Cache-Control: no-store per the auth-API rule (the wizard polls every
+  // 3s; cached responses would lock the screen on stale state).
+  // ──────────────────────────────────────────────────────────────────────────
+  app.get("/api/onboarding/sync-status", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const { step } = req.body;
-      const existing = await storage.getOnboardingAnalysis(userId);
-      if (existing) {
-        await storage.updateOnboardingAnalysis(userId, { step });
-      } else {
-        await storage.createOnboardingAnalysis({ userId, analysisData: "{}", step });
+      const { rows } = await pool.query(
+        `SELECT
+           (SELECT bool_or(initial_sync_at IS NOT NULL)     FROM plaid_items WHERE user_id = $1) AS transactions_loaded,
+           (SELECT bool_or(recurring_synced_at IS NOT NULL) FROM plaid_items WHERE user_id = $1) AS recurring_computed,
+           (SELECT last_income_detection_at IS NOT NULL     FROM users        WHERE id      = $1) AS income_detected,
+           (SELECT count(*)::int FROM plaid_items WHERE user_id = $1)                              AS plaid_item_count`,
+        [userId],
+      );
+      const r = rows[0] || {};
+      const transactionsLoaded = r.transactions_loaded === true;
+      const recurringComputed = r.recurring_computed === true;
+      const incomeDetected = r.income_detected === true;
+      const hasPlaidItems = (r.plaid_item_count || 0) > 0;
+      // allComplete only flips when all three stages have run AND the user
+      // actually has a Plaid item connected. A user without a Plaid item
+      // has nothing to wait for — they're either manual-only or need to
+      // restart the wizard.
+      const allComplete = hasPlaidItems && transactionsLoaded && recurringComputed && incomeDetected;
+
+      // When allComplete flips, eagerly mark onboarding complete so the
+      // come-back path on next login lands them on the dashboard rather
+      // than re-showing the wizard. Idempotent.
+      if (allComplete) {
+        try {
+          const user = await storage.getUser(userId);
+          if (user && user.onboardingComplete !== "true") {
+            await storage.updateUserOnboarding(userId, true, {});
+          }
+        } catch (markErr: any) {
+          console.warn(
+            `[sync-status] failed to mark onboarding complete for ${userId}:`,
+            markErr?.message,
+          );
+        }
       }
+
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        transactionsLoaded,
+        recurringComputed,
+        incomeDetected,
+        allComplete,
+        hasPlaidItems,
+      });
+    } catch (error: any) {
+      console.error("Error in /api/onboarding/sync-status:", error);
+      res.status(500).json({ error: "Failed to read sync status" });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // POST /api/onboarding/notify-when-ready — Phase 5 (Wizard Rebuild).
+  //
+  // Escape hatch: user has been waiting >3 minutes on the sync screen and
+  // clicked "Email me when ready." Server stores the request flag; the
+  // sync-status flip in the webhook handler will fire a "Your dashboard is
+  // ready" email. The user can safely close the tab.
+  //
+  // Implementation note: we just set a column on the user record. The
+  // email trigger lives in the webhook handler that flips allComplete=true.
+  // Keeping the endpoint trivial avoids race conditions around "did we
+  // already become ready while the user was clicking the button."
+  // ──────────────────────────────────────────────────────────────────────────
+  app.post("/api/onboarding/notify-when-ready", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      // Reuse onboarding_progress as a flag bag (no schema change needed).
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      let progress: any = {};
+      try {
+        progress = user.onboardingProgress
+          ? JSON.parse(user.onboardingProgress)
+          : {};
+      } catch {
+        progress = {};
+      }
+      progress.notifyWhenReady = true;
+      await storage.updateUserOnboarding(userId, false, progress);
       res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to save step" });
+    } catch (error: any) {
+      console.error("Error in /api/onboarding/notify-when-ready:", error);
+      res.status(500).json({ error: "Failed to register notify-when-ready" });
     }
   });
 
@@ -10377,55 +10328,6 @@ ${JSON.stringify(txSummary)}`;
     } catch (error: any) {
       console.error("Error analyzing transactions:", error);
       res.status(500).json({ error: error.message || "Failed to analyze transactions" });
-    }
-  });
-
-  app.post("/api/onboarding/save-selections", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const { incomeSources, bills: billItems } = req.body;
-
-      let incomeCount = 0;
-      let billCount = 0;
-
-      if (Array.isArray(incomeSources)) {
-        for (const inc of incomeSources) {
-          const today = new Date().toISOString().split("T")[0];
-          await storage.createIncome({
-            userId,
-            source: inc.source,
-            amount: String(inc.amount),
-            date: today,
-            canonicalCategoryId: inc.category || "Other",
-            isRecurring: "true",
-            recurrence: inc.recurrence || "monthly",
-            dueDay: inc.dueDay || 1,
-            isActive: "true",
-          });
-          incomeCount++;
-        }
-      }
-
-      if (Array.isArray(billItems)) {
-        for (const bill of billItems) {
-          await storage.createBill({
-            userId,
-            name: bill.name,
-            amount: String(bill.amount),
-            category: bill.category || "Other",
-            dueDay: bill.dueDay || 1,
-            recurrence: bill.recurrence || "monthly",
-            notes: "Added during onboarding",
-            startDate: new Date().toISOString().split("T")[0],
-          } as any);
-          billCount++;
-        }
-      }
-
-      res.json({ success: true, created: { income: incomeCount, bills: billCount } });
-    } catch (error) {
-      console.error("Error saving onboarding selections:", error);
-      res.status(500).json({ error: "Failed to save selections" });
     }
   });
 

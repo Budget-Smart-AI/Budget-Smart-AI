@@ -1389,6 +1389,109 @@ The Budget Smart AI Team`;
   }
 }
 
+/**
+ * Send a "Your dashboard is ready" email to a user who hit
+ * "Email me when ready" on the onboarding wait screen and then logged
+ * out. Triggered server-side by the Plaid webhook handler the moment
+ * sync-status flips to allComplete=true. Idempotent against the
+ * onboardingProgress.notifyWhenReadySent flag (set by the webhook
+ * handler once this returns true).
+ *
+ * Phase 5 (Wizard Rebuild, 2026-04-27).
+ */
+export async function sendDashboardReadyEmail(
+  toEmail: string,
+  firstName: string,
+): Promise<boolean> {
+  if (!process.env.POSTMARK_USERNAME) {
+    console.warn("[Email] Postmark not configured, skipping dashboard-ready email");
+    return false;
+  }
+  const fromEmail = process.env.ALERT_EMAIL_FROM;
+  const appUrl = process.env.APP_URL || "https://app.budgetsmart.io";
+
+  if (!fromEmail) {
+    console.log("[Email] ALERT_EMAIL_FROM missing, skipping dashboard-ready email");
+    return false;
+  }
+
+  const displayName = firstName || "there";
+  const subject = "Your Budget Smart AI dashboard is ready";
+
+  const textBody = `Hi ${displayName},
+
+Good news — we've finished setting up your dashboard. Everything is ready:
+
+  • Your transactions are synced
+  • Your recurring income has been detected
+  • Your accounts and balances are loaded
+
+Sign in to start exploring:
+${appUrl}/dashboard
+
+If you have any questions, reply to this email or reach us at support@budgetsmart.io.
+
+Best regards,
+The Budget Smart AI Team`;
+
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9fafb;">
+  <div style="background: #ffffff; border-radius: 12px; padding: 32px; border: 1px solid #e5e7eb;">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="color: #059669; font-size: 24px; margin: 0;">Your dashboard is ready ✓</h1>
+      <p style="color: #6b7280; font-size: 15px; margin-top: 8px;">Hi ${displayName}, we've finished setting things up.</p>
+    </div>
+    <p style="color: #374151; font-size: 15px;">Everything is in place:</p>
+    <ul style="color: #374151; font-size: 14px; line-height: 1.9;">
+      <li>Your transactions are synced</li>
+      <li>Your recurring income has been detected</li>
+      <li>Your accounts and balances are loaded</li>
+    </ul>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="${appUrl}/dashboard" style="background: #059669; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 15px;">
+        Go to Dashboard →
+      </a>
+    </div>
+    <hr style="margin: 28px 0; border: none; border-top: 1px solid #e5e7eb;">
+    <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+      Questions? Reply to this email or reach us at
+      <a href="mailto:support@budgetsmart.io" style="color: #059669;">support@budgetsmart.io</a>.
+    </p>
+    <p style="color: #9ca3af; font-size: 12px; text-align: center;">© ${new Date().getFullYear()} Budget Smart AI</p>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const client = getPostmarkClient();
+    if (!client) {
+      console.log("[Email] Postmark not configured, skipping dashboard-ready email.");
+      return false;
+    }
+    const result = await client.sendEmail({
+      From: fromEmail,
+      To: toEmail,
+      Subject: subject,
+      TextBody: textBody,
+      HtmlBody: htmlBody,
+    });
+    logEmail({
+      userId: null,
+      recipientEmail: toEmail,
+      subject,
+      type: "dashboard_ready",
+      status: "sent",
+      postmarkMessageId: (result as any)?.MessageID ?? null,
+    }).catch(() => {});
+    console.log(`[DashboardReady] Email sent to: ${toEmail}`);
+    return true;
+  } catch (error) {
+    console.error("[DashboardReady] Failed to send email:", error);
+    return false;
+  }
+}
+
 export async function checkAndSendUsageMilestoneEmails(): Promise<void> {
   const client = getPostmarkClient();
   const fromEmail = process.env.ALERT_EMAIL_FROM;

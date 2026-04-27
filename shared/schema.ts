@@ -675,6 +675,11 @@ export const plaidItems = pgTable("plaid_items", {
   accessTokenEnc: text("access_token_enc"), // AES-256-GCM encrypted access token
   itemIdEnc: text("item_id_enc"),           // AES-256-GCM encrypted item id
   isSyncing: boolean("is_syncing").default(false), // Lock flag to prevent concurrent syncs (race condition guard)
+  // Phase 5 (Wizard Rebuild, 2026-04-27): timestamps the new sync-status
+  // endpoint reads to decide whether the post-Link pipeline has progressed.
+  // Set in the /api/plaid/webhook handler. Migration 0045.
+  initialSyncAt: timestamp("initial_sync_at"),       // INITIAL_UPDATE handled + syncTransactions complete
+  recurringSyncedAt: timestamp("recurring_synced_at"), // RECURRING_TRANSACTIONS_UPDATE handled + detect-income ran
 });
 
 // Plaid Accounts table - individual bank accounts
@@ -867,6 +872,11 @@ export const users = pgTable("users", {
   isApproved: text("is_approved").default("false"),
   onboardingComplete: text("onboarding_complete").default("false"),
   onboardingProgress: text("onboarding_progress").default("{}"),
+  // Phase 5 (Wizard Rebuild, 2026-04-27): timestamp set whenever
+  // runIncomeDetection(userId) finishes a run, regardless of whether
+  // streams were found. The new sync-status endpoint reads this as the
+  // "incomeDetected" boolean. Migration 0045 added the column.
+  lastIncomeDetectionAt: timestamp("last_income_detection_at"),
   googleId: text("google_id").unique(),
   // Stripe subscription fields
   stripeCustomerId: text("stripe_customer_id"),
