@@ -116,6 +116,10 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     const monthStart = startOfMonth(today);
     const monthEnd = endOfMonth(today);
 
+    // Phase 3.1 — fetch recurring streams alongside the rest. Adapter errors
+    // return [] gracefully so dashboard never breaks on a Plaid 4xx.
+    const { getRecurringStreams } = await import("../../lib/financial-engine/get-recurring-streams");
+
     // Fetch all data in parallel
     const [
       billsData,
@@ -130,6 +134,7 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       rawDebts,
       rawInvestmentAccounts,
       rawHoldings,
+      incomeStreams,
     ] = await Promise.all([
       EngineStorage.getBillsByUserIds(userIds),
       EngineStorage.getIncomesByUserIds(userIds),
@@ -143,6 +148,10 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       EngineStorage.getDebtDetails(userId),
       EngineStorage.getInvestmentAccounts(userId),
       EngineStorage.getHoldingsByUser(userId),
+      getRecurringStreams(userIds, { direction: "inflow" }).catch((err) => {
+        console.warn("[engine.dashboard] getRecurringStreams failed (non-fatal):", err?.message);
+        return [];
+      }),
     ]);
 
     // Map schema types → engine types
@@ -176,6 +185,7 @@ router.get("/dashboard", async (req: Request, res: Response) => {
       monthStart,
       monthEnd,
       today,
+      incomeStreams,
     });
     const expenses = calculateExpensesForPeriod({
       expenses: expensesData,
@@ -362,11 +372,23 @@ router.get("/income", async (req: Request, res: Response) => {
     // identified even when no deposit has landed in the current month yet.
     const lookbackStart = startOfMonth(subMonths(startDate, 3));
 
-    const [incomeData, incomeRegistry, transactions, historicalTransactions] = await Promise.all([
+    // Phase 3.1 Provider-First SSOT (2026-04-26): fan out across providers
+    // to fetch recurring streams. calculateIncomeForPeriod uses these to
+    // match registry sources by stream-membership instead of fuzzy merchant
+    // name (root fix for the Coreslab/Roche $0-received bug — Plaid
+    // mis-classifies those payrolls per-tx but the stream API clusters them
+    // correctly). Adapter errors return [] gracefully so a Plaid 4xx never
+    // breaks this endpoint.
+    const { getRecurringStreams } = await import("../../lib/financial-engine/get-recurring-streams");
+    const [incomeData, incomeRegistry, transactions, historicalTransactions, incomeStreams] = await Promise.all([
       EngineStorage.getIncomesByUserIds(userIds),
       loadIncomeRegistry(userIds),
       getAllNormalizedTransactions(userIds, startDate, endDate),
       getAllNormalizedTransactions(userIds, lookbackStart, endDate),
+      getRecurringStreams(userIds, { direction: "inflow" }).catch((err) => {
+        console.warn("[engine.income] getRecurringStreams failed (non-fatal):", err?.message);
+        return [];
+      }),
     ]);
 
     const result = calculateIncomeForPeriod({
@@ -377,6 +399,7 @@ router.get("/income", async (req: Request, res: Response) => {
       historicalTransactions,
       monthStart: startDate,
       monthEnd: endDate,
+      incomeStreams,
     });
 
     res.json(result as IncomeResult);
@@ -674,8 +697,9 @@ router.get("/health-score", async (req: Request, res: Response) => {
     const monthEnd = endOfMonth(today);
 
     const userIds = requireContext(req).householdUserIds;
+    const { getRecurringStreams } = await import("../../lib/financial-engine/get-recurring-streams");
 
-    const [incomeData, incomeRegistry, budgetsData, billsData, savingsGoalsData, expensesData, transactions] =
+    const [incomeData, incomeRegistry, budgetsData, billsData, savingsGoalsData, expensesData, transactions, incomeStreams] =
       await Promise.all([
         EngineStorage.getIncomesByUserIds(userIds),
         loadIncomeRegistry(userIds),
@@ -684,6 +708,10 @@ router.get("/health-score", async (req: Request, res: Response) => {
         EngineStorage.getSavingsGoalsByUserIds(userIds),
         EngineStorage.getExpensesByUserIds(userIds),
         getAllNormalizedTransactions(userIds, monthStart, monthEnd),
+        getRecurringStreams(userIds, { direction: "inflow" }).catch((err) => {
+          console.warn("[engine.financial-health] getRecurringStreams failed (non-fatal):", err?.message);
+          return [];
+        }),
       ]);
 
     const income = calculateIncomeForPeriod({
@@ -694,6 +722,7 @@ router.get("/health-score", async (req: Request, res: Response) => {
       monthStart,
       monthEnd,
       today,
+      incomeStreams,
     });
     const expenses = calculateExpensesForPeriod({
       expenses: expensesData,
@@ -1063,12 +1092,17 @@ router.get("/safe-to-spend", async (req: Request, res: Response) => {
     const monthStart = startOfMonth(today);
     const monthEnd = endOfMonth(today);
 
-    const [billsData, incomeData, incomeRegistry, expensesData, transactions] = await Promise.all([
+    const { getRecurringStreams } = await import("../../lib/financial-engine/get-recurring-streams");
+    const [billsData, incomeData, incomeRegistry, expensesData, transactions, incomeStreams] = await Promise.all([
       EngineStorage.getBillsByUserIds(userIds),
       EngineStorage.getIncomesByUserIds(userIds),
       loadIncomeRegistry(userIds),
       EngineStorage.getExpensesByUserIds(userIds),
       getAllNormalizedTransactions(userIds, monthStart, monthEnd),
+      getRecurringStreams(userIds, { direction: "inflow" }).catch((err) => {
+        console.warn("[engine.safe-to-spend] getRecurringStreams failed (non-fatal):", err?.message);
+        return [];
+      }),
     ]);
 
     const income = calculateIncomeForPeriod({
@@ -1078,6 +1112,7 @@ router.get("/safe-to-spend", async (req: Request, res: Response) => {
       transactions,
       monthStart,
       monthEnd,
+      incomeStreams,
       today,
     });
     const expenses = calculateExpensesForPeriod({
@@ -1389,12 +1424,18 @@ router.get("/reports", async (req: Request, res: Response) => {
     const monthStart = startOfMonth(today);
     const monthEnd = endOfMonth(today);
 
+    const { getRecurringStreams } = await import("../../lib/financial-engine/get-recurring-streams");
+
     // Get all base data
-    const [expensesData, incomeData, incomeRegistry, billsData] = await Promise.all([
+    const [expensesData, incomeData, incomeRegistry, billsData, incomeStreams] = await Promise.all([
       EngineStorage.getExpensesByUserIds(userIds),
       EngineStorage.getIncomesByUserIds(userIds),
       loadIncomeRegistry(userIds),
       EngineStorage.getBillsByUserIds(userIds),
+      getRecurringStreams(userIds, { direction: "inflow" }).catch((err) => {
+        console.warn("[engine.reports] getRecurringStreams failed (non-fatal):", err?.message);
+        return [];
+      }),
     ]);
 
     // Get normalized transactions for both date range and current month
@@ -1420,6 +1461,7 @@ router.get("/reports", async (req: Request, res: Response) => {
       monthStart,
       monthEnd,
       today,
+      incomeStreams,
     });
     const currentMonthBills = calculateBillsForPeriod({
       bills: billsData,
