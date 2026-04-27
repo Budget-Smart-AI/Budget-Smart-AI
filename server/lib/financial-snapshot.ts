@@ -131,6 +131,10 @@ export async function getHouseholdFinancialSnapshot(
   const windowEnd = endOfMonth(now);
 
   // Fetch raw inputs. All calls are household-fanned-out at the storage layer.
+  // Phase 3 Provider-First SSOT (2026-04-26): also fetch recurring streams
+  // so calculateIncomeForPeriod can match registry sources via stream
+  // membership (precise) instead of fuzzy merchant-name lookup.
+  const { getRecurringStreams } = await import("./financial-engine/get-recurring-streams");
   const [
     billsData,
     incomeData,
@@ -138,6 +142,7 @@ export async function getHouseholdFinancialSnapshot(
     expensesData,
     transactions,
     historicalTransactions,
+    incomeStreams,
   ] = await Promise.all([
     EngineStorage.getBillsByUserIds(userIds),
     EngineStorage.getIncomesByUserIds(userIds),
@@ -151,6 +156,14 @@ export async function getHouseholdFinancialSnapshot(
       startOfMonth(subMonths(now, months + 3 - 1)),
       windowEnd,
     ),
+    // Provider-detected recurring streams (Plaid + MX + Manual via adapters).
+    // Inflows only — outflows go through the bills/subscriptions path.
+    // Adapter-level errors return [] gracefully so a Plaid 4xx never breaks
+    // the snapshot. Cached transparently inside the adapters where possible.
+    getRecurringStreams(userIds, { direction: "inflow" }).catch((err) => {
+      console.warn("[financial-snapshot] getRecurringStreams failed (non-fatal):", err?.message);
+      return [];
+    }),
   ]);
 
   // Second pass to load effective-dated unit amounts for the income registry.
@@ -181,6 +194,10 @@ export async function getHouseholdFinancialSnapshot(
       monthStart,
       monthEnd,
       today: now,
+      // Phase 3 — pass streams so registry sources with streamId compute
+      // their period actuals from stream membership (bypasses tx.isIncome
+      // mis-classification at the per-tx level).
+      incomeStreams,
     });
 
     const expenses = calculateExpensesForPeriod({

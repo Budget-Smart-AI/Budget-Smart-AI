@@ -45,7 +45,7 @@ import {
   IncomeProjectionConfidence,
   IncomeSourceMode,
 } from './types';
-import type { NormalizedTransaction } from './normalized-types';
+import type { NormalizedTransaction, NormalizedRecurringStream } from './normalized-types';
 import type { Income, IncomeSource, IncomeSourceAmount } from '@shared/schema';
 
 // ─── Precision Helpers ──────────────────────────────────────────────────────
@@ -573,6 +573,17 @@ export function calculateIncomeForPeriod(params: {
   monthStart: Date;
   monthEnd: Date;
   today?: Date;
+  /**
+   * Provider-First SSOT Phase 3 (2026-04-26 — see PROVIDER_FIRST_SSOT_STRATEGY.md).
+   * When supplied, registry sources whose `streamId` matches a stream here
+   * compute their period actuals from the stream's `rawTransactionIds`
+   * (precise) instead of the fuzzy merchant-name match against deposits.
+   * Bypasses the `tx.isIncome` filter that was causing Coreslab/Roche
+   * paychecks to show $0 received because Plaid mis-classified them as
+   * transfers. Optional for back-compat — callers without streams keep the
+   * legacy depositsByKey path.
+   */
+  incomeStreams?: NormalizedRecurringStream[];
 }): IncomeResult {
   const {
     income: incomeRecords = [],
@@ -583,6 +594,7 @@ export function calculateIncomeForPeriod(params: {
     monthStart,
     monthEnd,
     today = new Date(),
+    incomeStreams = [],
   } = params;
 
   // Period classification — drives whether bySource amounts come from
@@ -608,10 +620,28 @@ export function calculateIncomeForPeriod(params: {
   const transactionEndDate = endOfMonth(monthEnd);
 
   // depositsByKey: normalized name → { total, merchant, category, count }
+  // Built from STRICT income-classified credits (tx.isIncome === true).
+  // Used to compute the dashboard's "actual income" total and the unmatched-
+  // deposits list at the bottom of the Income page. Registry sources WITHOUT
+  // a streamId (manual entries, pre-Phase-2 detector rows) still match
+  // through this index via fuzzy merchant-name lookup.
   const depositsByKey: Record<
     string,
     { total: number; count: number; merchant: string; category: string }
   > = {};
+
+  // Phase 3 Provider-First SSOT (2026-04-26): build a per-tx index keyed by
+  // transaction id so we can compute period actuals for stream-backed
+  // registry sources by summing the stream's `rawTransactionIds` directly.
+  // This bypasses the `tx.isIncome` filter that was causing Coreslab/Roche
+  // to show $0 received — Plaid mis-classified those payrolls as transfers,
+  // but the stream API correctly grouped them as recurring income.
+  //
+  // Replaces the `allCreditsByKey` band-aid added 2026-04-26 morning, which
+  // was conservatively guarded by `hasProjection` but still risked treating
+  // any matching merchant credit as income. Stream-membership is precise:
+  // ONLY transactions Plaid clustered into this specific stream count.
+  const txByIdInWindow = new Map<string, NormalizedTransaction>();
 
   for (const tx of transactions) {
     try {
@@ -620,6 +650,9 @@ export function calculateIncomeForPeriod(params: {
         continue;
       }
       hasAnyTransactions = true;
+
+      // Index by id for stream-membership matching (cheap, only built once).
+      txByIdInWindow.set(tx.id, tx);
 
       // Skip pending, transfers, non-income for the actual income sum.
       // The Plaid adapter (post-Step-2) is now strict about isIncome —
@@ -649,6 +682,15 @@ export function calculateIncomeForPeriod(params: {
     }
   }
 
+  // Phase 3: index streams by streamId for fast lookup inside the registry
+  // source loop. Inflows only — outflows go through the bills/subscriptions
+  // path and don't drive the income calculation.
+  const streamsById = new Map<string, NormalizedRecurringStream>();
+  for (const stream of incomeStreams) {
+    if (stream.direction !== "inflow") continue;
+    streamsById.set(stream.streamId, stream);
+  }
+
   // ─── Step B: Registry-driven sources ──────────────────────────────────
   // For each active registry source, build a bySource entry. Use actuals
   // for past/current months and projection for future months. Drift
@@ -658,22 +700,92 @@ export function calculateIncomeForPeriod(params: {
   for (const src of incomeSources) {
     if (!src.isActive) continue;
 
+    // Phase 2 §8.2 tombstone-skip — user dismissed this stream as "not
+    // income" (e.g. monthly gift from grandma). Period calculator excludes
+    // it from bySource[]; Plaid webhook will not auto-resurrect the row.
+    if ((src as any).userDismissedAt) continue;
+
     const key = src.normalizedSource || normalizeSourceName(src.displayName);
     registryKeysHandled.add(key);
 
     const amounts = amountsBySourceId[src.id] || [];
     const projection = projectFromRegistry(src, amounts, monthStart, monthEnd);
 
-    // Match deposits to this source via normalized name (exact, then partial).
-    let matched = depositsByKey[key];
+    let matched: { total: number; count: number; merchant: string; category: string } | undefined;
+    let matchedViaStream = false;
+
+    // Phase 3 — stream-membership match (precise, bypasses tx.isIncome).
+    // For sources linked to a provider stream (Plaid `stream_id` populated
+    // by Phase 2's auto-promote / detect-now backfill), sum the stream's
+    // `rawTransactionIds` directly. This is the ROOT FIX for Coreslab/Roche
+    // $0-received: even when Plaid mis-classifies the per-tx PFC primary as
+    // TRANSFER_IN_*, the stream itself was correctly clustered as recurring
+    // income, so summing its members gives the right number.
+    const srcStreamId = (src as any).streamId as string | null | undefined;
+    if (srcStreamId) {
+      const stream = streamsById.get(srcStreamId);
+      if (stream && stream.rawTransactionIds.length > 0) {
+        let streamTotal = 0;
+        let streamCount = 0;
+        for (const txId of stream.rawTransactionIds) {
+          const tx = txByIdInWindow.get(txId);
+          if (!tx) continue; // Member tx is outside the period window — skip.
+          if (tx.isPending) continue;
+          // Don't filter on tx.isIncome / tx.isTransfer here — the stream
+          // membership IS the trust signal. Plaid clustered these as
+          // recurring income; we honour that over per-tx classification.
+          streamTotal += Math.abs(parseFloat(String(tx.amount)));
+          streamCount += 1;
+        }
+        if (streamCount > 0) {
+          matched = {
+            total: streamTotal,
+            count: streamCount,
+            merchant: src.displayName,
+            category: src.category || "Salary",
+          };
+          matchedViaStream = true;
+        }
+      }
+    }
+
+    // Legacy fallback for sources without streamId (manual entries,
+    // pre-Phase-2 detector rows that haven't been backfilled yet, MX
+    // streams whose recurring endpoint didn't return tx ids). Fuzzy
+    // merchant-name match against the income-classified deposits index.
     if (!matched) {
-      for (const [k, info] of Object.entries(depositsByKey)) {
-        if (k.includes(key) || key.includes(k)) {
-          matched = info;
-          // Don't delete from depositsByKey here — we want one source to be
-          // able to match, but other registry rows iterating later need to
-          // see the same data. Dedup by key happens after the loop.
-          break;
+      matched = depositsByKey[key];
+      if (!matched) {
+        for (const [k, info] of Object.entries(depositsByKey)) {
+          if (k.includes(key) || key.includes(k)) {
+            matched = info;
+            // Don't delete from depositsByKey here — we want one source to be
+            // able to match, but other registry rows iterating later need to
+            // see the same data. Dedup by key happens after the loop.
+            break;
+          }
+        }
+      }
+    }
+
+    // If we matched via the stream-membership path AND those transactions
+    // were filtered out of `actualIncomeCents` above (because they had
+    // tx.isIncome=false from Plaid's mis-classification), add them back in
+    // so the dashboard's "actual income" total includes the registry-
+    // confirmed paychecks. Without this, the Income page bySource shows
+    // Coreslab as $1,862 received but the Dashboard "Bank Deposits"
+    // widget shows $0 — exactly the Ryan-reported drift.
+    if (matchedViaStream && matched) {
+      const stream = streamsById.get(srcStreamId!);
+      if (stream) {
+        for (const txId of stream.rawTransactionIds) {
+          const tx = txByIdInWindow.get(txId);
+          if (!tx || tx.isPending) continue;
+          // Only re-add credits Plaid mis-classified — credits already in
+          // actualIncomeCents (isIncome=true) shouldn't double-count.
+          if (!tx.isIncome) {
+            actualIncomeCents += toCents(tx.amount);
+          }
         }
       }
     }
