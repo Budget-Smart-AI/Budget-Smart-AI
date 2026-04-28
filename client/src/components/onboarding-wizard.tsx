@@ -48,6 +48,15 @@ import { useToast } from "@/hooks/use-toast";
 interface OnboardingWizardProps {
   open: boolean;
   onComplete: () => void;
+  /**
+   * User clicked the X to dismiss before completing the flow. The
+   * pipeline still runs server-side, so this is safe. The parent
+   * should hide the wizard for the rest of this session but NOT mark
+   * onboarding_complete=true — on next page load (or after refresh)
+   * the wizard reappears if onboarding_complete is still false. This
+   * matches "I'll do this later" semantics.
+   */
+  onDismiss?: () => void;
   isDemo?: boolean;
 }
 
@@ -458,7 +467,7 @@ function StepDots({ stage }: { stage: Stage }) {
 
 // ─── Root component ─────────────────────────────────────────────────────
 
-export function OnboardingWizard({ open, onComplete, isDemo = false }: OnboardingWizardProps) {
+export function OnboardingWizard({ open, onComplete, onDismiss, isDemo = false }: OnboardingWizardProps) {
   const [stage, setStage] = useState<Stage>("welcome");
 
   // Tracks whether the user has actively watched the SyncStatusStep tick
@@ -516,13 +525,16 @@ export function OnboardingWizard({ open, onComplete, isDemo = false }: Onboardin
     <Dialog
       open={open}
       onOpenChange={(isOpen) => {
-        // Wizard is non-dismissible: clicking outside or hitting escape
-        // does NOT close it. The user must finish the flow or use the
-        // email-me-when-ready link. This prevents the "user closes
-        // wizard at the moment of detection and loses progress" bug
-        // that the legacy 5-step wizard had.
+        // Phase 5: the X button (shadcn's built-in DialogPrimitive.Close)
+        // calls onOpenChange(false) directly. We route that to onDismiss
+        // — the parent hides the wizard for this session but does NOT
+        // mark onboarding_complete=true. The post-Plaid-Link pipeline
+        // runs server-side regardless of whether the wizard is open, so
+        // closing it doesn't lose any work. Click-outside and escape are
+        // still blocked below (preventDefault on the DialogContent
+        // handlers) so the X is the only intentional close path.
         if (!isOpen) {
-          // No-op. (Could surface a "close anyway?" confirm later.)
+          onDismiss?.();
         }
       }}
     >

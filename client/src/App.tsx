@@ -189,6 +189,12 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
 
 function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: () => void; isAdmin: boolean; username: string; isDemo: boolean }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
+  // Phase 5 (2026-04-27): session-scoped flag set when the user dismisses
+  // the wizard via the X. Prevents the wizard from immediately re-opening
+  // because the onboarding/status query refetch returns onboardingComplete
+  // =false. Reset on next mount (page reload) so the user is gently
+  // nudged again next session.
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [location, setLocation] = useLocation();
 
   const { data: onboardingStatus } = useQuery<{ onboardingComplete: boolean }>({
@@ -203,17 +209,20 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
   }, []);
 
   useEffect(() => {
-    if (onboardingStatus && !onboardingStatus.onboardingComplete) {
+    if (onboardingStatus && !onboardingStatus.onboardingComplete && !onboardingDismissed) {
       setShowOnboarding(true);
     }
-  }, [onboardingStatus]);
+  }, [onboardingStatus, onboardingDismissed]);
 
   useEffect(() => {
     // Onboarding is a modal, not a router-addressable path. Handle the
     // /setup-wizard and /onboarding aliases (used by Fresh Start, demo
     // banner, settings page) by toggling the modal state and redirecting
-    // back to the dashboard so the URL stays clean.
+    // back to the dashboard so the URL stays clean. Explicit URL access
+    // also clears the session-scoped dismissed flag — the user is
+    // explicitly asking for the wizard, so honour that.
     if (location === "/setup-wizard" || location === "/onboarding") {
+      setOnboardingDismissed(false);
       setShowOnboarding(true);
       setLocation("/");
     }
@@ -222,6 +231,14 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
     queryClient.invalidateQueries({ queryKey: ["/api/onboarding/status"] });
+  };
+
+  const handleOnboardingDismiss = () => {
+    setShowOnboarding(false);
+    setOnboardingDismissed(true);
+    // Deliberately NOT invalidating the status query here — that would
+    // refetch and re-trigger the show-wizard effect. The dismissed flag
+    // guards against that until the next page reload.
   };
 
   const style = {
@@ -253,7 +270,12 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
           </main>
         </div>
       </div>
-      <OnboardingWizard open={showOnboarding} onComplete={handleOnboardingComplete} isDemo={isDemo} />
+      <OnboardingWizard
+        open={showOnboarding}
+        onComplete={handleOnboardingComplete}
+        onDismiss={handleOnboardingDismiss}
+        isDemo={isDemo}
+      />
       <PWAInstallPrompt />
     </SidebarProvider>
     </FeatureUsageProvider>
