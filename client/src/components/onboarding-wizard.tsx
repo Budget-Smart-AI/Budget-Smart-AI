@@ -484,24 +484,59 @@ export function OnboardingWizard({ open, onComplete, onDismiss, isDemo = false }
     staleTime: 0,
   });
 
-  // Decide initial stage on every open transition. We don't want to keep
-  // resetting to Welcome each time the dialog re-renders, just on the
-  // edge transitions.
+  // Phase 5 hot-fix v2 (2026-04-29): the previous version of this effect
+  // re-ran on EVERY poll (every 3s, when sync-status returned new data)
+  // and could fall through to setStage("welcome") — overriding whatever
+  // stage the user had advanced to via Get Started / Connect Bank /
+  // onAllComplete. That's the "wizard back at Welcome after Plaid" bug
+  // Ryan hit during verification.
+  //
+  // Two changes:
+  //  1. initializedRef gates the stage-decision logic so it only runs
+  //     ONCE per open transition. After first decision, internal
+  //     setStage calls (button clicks, onAllComplete) own the stage.
+  //     Resets when the wizard closes so the next open starts fresh.
+  //  2. The "auto-dismiss on allComplete + liveTick" guard runs on EVERY
+  //     status update, not just on first mount. Catches the race where
+  //     SyncStatusStep's onAllComplete fires, parent calls onComplete(),
+  //     but App.tsx hasn't yet flipped showOnboarding=false (or the
+  //     refetched /api/onboarding/status hasn't landed). In that window,
+  //     the mount-decision useEffect would fall through to "welcome" and
+  //     show Welcome instead of the dashboard.
+  const initializedRef = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedRef.current = false;
+      return;
+    }
     if (statusLoading) return;
-    if (status?.allComplete && !liveTickRef.current) {
+
+    // Always-on guard: if everything is complete AND the user already
+    // saw the live tick this session, dismiss immediately. Handles the
+    // post-completion race where the wizard hasn't yet been told to
+    // close by App.tsx.
+    if (status?.allComplete && liveTickRef.current) {
+      onComplete();
+      return;
+    }
+
+    // First-mount stage decision per open transition. Runs once.
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
+    if (status?.allComplete) {
+      // Already done, never saw the live tick — come-back path.
       setStage("splash");
       return;
     }
-    if (status?.hasPlaidItems && !status?.allComplete) {
+    if (status?.hasPlaidItems) {
       // User connected previously, sync still in progress — drop into
-      // SyncStatusStep without making them re-click the Welcome button.
+      // SyncStatusStep without making them re-click Get Started.
       setStage("sync");
       return;
     }
     setStage("welcome");
-  }, [open, status?.allComplete, status?.hasPlaidItems, statusLoading]);
+  }, [open, status?.allComplete, status?.hasPlaidItems, statusLoading, onComplete]);
 
   const handleAllComplete = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["/api/onboarding/status"] });
