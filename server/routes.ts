@@ -6652,10 +6652,7 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
             // specifically, stamp plaid_items.initial_sync_at so the new
             // onboarding wizard's sync-status endpoint can flip
             // transactionsLoaded=true. Also fire a first detect-income
-            // pass — it usually returns 0 streams this early (Plaid hasn't
-            // computed recurring yet) but it lets last_income_detection_at
-            // begin reflecting reality. The proper detect happens on
-            // RECURRING_TRANSACTIONS_UPDATE below.
+            // pass that doubles as the recurring-streams primer.
             if (webhook_code === "INITIAL_UPDATE") {
               try {
                 await pool.query(
@@ -6666,13 +6663,35 @@ ${messages.map(m => `[${m.senderType.toUpperCase()}] ${m.message}`).join("\n\n")
               } catch (stampErr: any) {
                 console.warn(`[Plaid Webhook] initial_sync_at stamp failed for ${item.id}:`, stampErr?.message);
               }
-              // Fire-and-forget: detect-income against any streams that
-              // happen to exist this early. NotifyWhenReady email path
-              // checked at the end of every sync-status flip.
-              const { runIncomeDetection } = await import("./lib/onboarding/detect-income");
-              runIncomeDetection(item.user_id).catch((err: any) =>
-                console.error("[Plaid Webhook] runIncomeDetection (INITIAL_UPDATE) failed:", err?.message),
-              );
+              // Phase 5 hot-fix (2026-04-29): Plaid only fires the
+              // RECURRING_TRANSACTIONS_UPDATE webhook on RE-evaluations
+              // of streams — NOT on the first computation. For brand-new
+              // items, that means recurring_synced_at would never be
+              // stamped and the wizard's "Finding your income" checkmark
+              // would never tick.
+              //
+              // runIncomeDetection internally calls /transactions/recurring/
+              // get, which IS the first computation. The response may be
+              // empty (Plaid hasn't computed yet) or already-populated
+              // (Plaid finished before we asked); either way, the call
+              // itself "primes" Plaid so the subsequent webhook starts
+              // firing. Stamp recurring_synced_at as soon as the call
+              // completes successfully so the wizard advances. The later
+              // RECURRING_TRANSACTIONS_UPDATE branch keeps refreshing it.
+              try {
+                const { runIncomeDetection } = await import("./lib/onboarding/detect-income");
+                await runIncomeDetection(item.user_id);
+                await pool.query(
+                  `UPDATE plaid_items SET recurring_synced_at = NOW() WHERE id = $1 AND recurring_synced_at IS NULL`,
+                  [item.id],
+                );
+                console.log(`[Plaid Webhook] ✅ recurring_synced_at stamped for item ${item.id} (INITIAL_UPDATE primer)`);
+              } catch (err: any) {
+                console.error(
+                  `[Plaid Webhook] runIncomeDetection (INITIAL_UPDATE) failed for item ${item.id}:`,
+                  err?.message || err,
+                );
+              }
             }
 
           } else if (webhook_code === "RECURRING_TRANSACTIONS_UPDATE") {

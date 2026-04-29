@@ -1099,6 +1099,15 @@ export async function autoReconcile(userId: string): Promise<{
         amount: String(txAmount),
         date: tx.date,
         category: expenseCategory,
+        // Phase 5 hot-fix (2026-04-29): expenses.canonical_category_id is
+        // NOT NULL post-Phase-A. Source plaid_transactions rows can have
+        // it null when the merchant doesn't match any canonical mapper —
+        // those rows used to silently fail this insert with a 23502
+        // constraint violation, flooding logs and dropping every
+        // uncategorized purchase from the expenses table. Fall back to
+        // 'uncategorized' (the system canonical row seeded in migration
+        // 0040) so the insert always succeeds.
+        canonicalCategoryId: tx.canonicalCategoryId || 'uncategorized',
         notes,
         taxDeductible: "false",
         taxCategory: null,
@@ -1486,6 +1495,12 @@ export async function autoReconcileMX(userId: string): Promise<{
           amount: String(txAmount),
           date: tx.date,
           category: expenseCategory,
+          // Phase 5 hot-fix (2026-04-29): same fix as the Plaid path
+          // above — expenses.canonical_category_id is NOT NULL, so fall
+          // back to 'uncategorized' when the source MX row didn't get a
+          // canonical mapping. Snake-case access because this loop reads
+          // mx_transactions via raw SQL.
+          canonicalCategoryId: (tx as any).canonical_category_id || 'uncategorized',
           notes: 'Auto-imported from bank transaction',
           taxDeductible: 'false',
           taxCategory: null,
