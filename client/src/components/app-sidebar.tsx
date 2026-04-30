@@ -215,7 +215,11 @@ const NAV_GROUPS: NavGroupDef[] = [
     icon: Settings,
     defaultOpen: false,
     items: [
-      { title: "Setup Wizard", url: "/setup-wizard" },
+      // Phase 5R (2026-04-29): the modal-based OnboardingWizard was retired.
+      // The "Setup Wizard" link now opens the ConnectBankWizard on the
+      // /accounts page (location-aware, routes Plaid vs MX based on country).
+      // Kept the title — users still recognise it.
+      { title: "Setup Wizard", url: "/accounts?connect=1" },
       { title: "Settings", url: "/settings/profile" },
       { title: "Help Center", url: "/help" },
       { title: "Support", url: "/support" },

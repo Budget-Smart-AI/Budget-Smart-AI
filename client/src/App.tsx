@@ -11,7 +11,12 @@ import { ThemeQuickSwitcher } from "@/components/ui/ThemeQuickSwitcher";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TopNavBar } from "@/components/TopNavBar";
-import { OnboardingWizard } from "@/components/onboarding-wizard";
+// Phase 5R (2026-04-29): OnboardingWizard component retired entirely.
+// The bank-connect flow lives on /accounts via ConnectBankWizard, which
+// already handles location-based Plaid/MX routing — the modal-based
+// wizard was duplicating that logic with worse UX. The "Setup Wizard"
+// left-nav link, /setup-wizard, and /onboarding URL aliases all now
+// redirect to /accounts?connect=1 (auto-opens ConnectBankWizard).
 import { PWAInstallPrompt } from "@/components/pwa-install-prompt";
 import { FeatureUsageProvider } from "@/contexts/FeatureUsageContext";
 import { SubscriptionGate } from "@/components/subscription-gate";
@@ -188,18 +193,7 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
 }
 
 function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: () => void; isAdmin: boolean; username: string; isDemo: boolean }) {
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  // Phase 5 (2026-04-27): session-scoped flag set when the user dismisses
-  // the wizard via the X. Prevents the wizard from immediately re-opening
-  // because the onboarding/status query refetch returns onboardingComplete
-  // =false. Reset on next mount (page reload) so the user is gently
-  // nudged again next session.
-  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [location, setLocation] = useLocation();
-
-  const { data: onboardingStatus } = useQuery<{ onboardingComplete: boolean }>({
-    queryKey: ["/api/onboarding/status"],
-  });
 
   const logoutMutation = useLogout(onLogout);
 
@@ -208,38 +202,17 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
     localStorage.removeItem("pendingCheckout");
   }, []);
 
+  // Phase 5R (2026-04-29): /setup-wizard and /onboarding URL aliases
+  // (used by Fresh Start, demo banner, settings page, left-nav) now
+  // redirect to /accounts?connect=1 — bank-accounts.tsx auto-opens the
+  // ConnectBankWizard mini-modal when the query param is present. The
+  // old auto-popup OnboardingWizard is gone; bank connection is now an
+  // explicit user action from /accounts only.
   useEffect(() => {
-    if (onboardingStatus && !onboardingStatus.onboardingComplete && !onboardingDismissed) {
-      setShowOnboarding(true);
-    }
-  }, [onboardingStatus, onboardingDismissed]);
-
-  useEffect(() => {
-    // Onboarding is a modal, not a router-addressable path. Handle the
-    // /setup-wizard and /onboarding aliases (used by Fresh Start, demo
-    // banner, settings page) by toggling the modal state and redirecting
-    // back to the dashboard so the URL stays clean. Explicit URL access
-    // also clears the session-scoped dismissed flag — the user is
-    // explicitly asking for the wizard, so honour that.
     if (location === "/setup-wizard" || location === "/onboarding") {
-      setOnboardingDismissed(false);
-      setShowOnboarding(true);
-      setLocation("/");
+      setLocation("/accounts?connect=1");
     }
   }, [location, setLocation]);
-
-  const handleOnboardingComplete = () => {
-    setShowOnboarding(false);
-    queryClient.invalidateQueries({ queryKey: ["/api/onboarding/status"] });
-  };
-
-  const handleOnboardingDismiss = () => {
-    setShowOnboarding(false);
-    setOnboardingDismissed(true);
-    // Deliberately NOT invalidating the status query here — that would
-    // refetch and re-trigger the show-wizard effect. The dismissed flag
-    // guards against that until the next page reload.
-  };
 
   const style = {
     "--sidebar-width": "16rem",
@@ -270,12 +243,6 @@ function AuthenticatedApp({ onLogout, isAdmin, username, isDemo }: { onLogout: (
           </main>
         </div>
       </div>
-      <OnboardingWizard
-        open={showOnboarding}
-        onComplete={handleOnboardingComplete}
-        onDismiss={handleOnboardingDismiss}
-        isDemo={isDemo}
-      />
       <PWAInstallPrompt />
     </SidebarProvider>
     </FeatureUsageProvider>

@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 /**
  * DemoBanner — shown on financial pages when the user has demo data loaded.
  * Detects demo data via GET /api/user/has-demo-data.
- * "Connect Bank" navigates to /onboarding.
- * "Clear Demo Data" calls POST /api/auth/fresh-start silently (no modal), then redirects to /onboarding.
+ * "Connect Bank" navigates to /accounts?connect=1 (auto-opens ConnectBankWizard).
+ * "Clear Demo Data" calls POST /api/auth/fresh-start silently, then redirects
+ * to /accounts?connect=1.
  */
 export function DemoBanner() {
   const { toast } = useToast();
@@ -44,7 +45,7 @@ export function DemoBanner() {
         title: "Demo data cleared",
         description: "Your account has been reset. Connect a bank to get started.",
       });
-      navigate("/onboarding");
+      navigate("/accounts?connect=1");
     },
     onError: (err: Error) => {
       toast({
@@ -74,7 +75,7 @@ export function DemoBanner() {
           size="sm"
           variant="outline"
           className="h-7 border-blue-300 bg-white text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-blue-700 dark:bg-transparent dark:text-blue-300 dark:hover:bg-blue-900"
-          onClick={() => navigate("/onboarding")}
+          onClick={() => navigate("/accounts?connect=1")}
         >
           <Building2 className="mr-1.5 h-3.5 w-3.5" />
           Connect Bank

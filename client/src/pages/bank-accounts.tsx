@@ -1620,6 +1620,22 @@ export default function BankAccounts() {
   const [tellerOpen, setTellerOpen] = useState(false);
   const [tellerMode, setTellerMode] = useState<"transaction" | "health_summary" | "bulk_triage">("transaction");
 
+  // Phase 5R (2026-04-29): when the user lands on /accounts?connect=1
+  // (left-nav "Setup Wizard", /setup-wizard alias, /onboarding alias,
+  // demo banner, settings page), auto-open the ConnectBankWizard so
+  // they don't have to click again. The query param is cleared once
+  // we've handled it so a refresh doesn't re-trigger.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connect") === "1") {
+      setShowConnectWizard(true);
+      // Clean up the URL so a refresh doesn't keep re-triggering.
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, "", cleanUrl);
+    }
+  }, []);
+
   const startDate = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const endDate = format(endOfMonth(currentMonth), "yyyy-MM-dd");
 

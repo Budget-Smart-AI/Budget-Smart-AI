@@ -1456,118 +1456,54 @@ Return JSON: { "income": [...] }`;
   /**
    * POST /api/income/registry/refresh
    *
-   * Auto-classifier for the income-source registry. Pulls the last 6 months
-   * of inflow transactions across all providers (Plaid + MX + Manual), runs
-   * the registry classifier, and upserts each detected stream into
-   * `income_sources` with a seed `income_source_amounts` row dated `today`.
+   * Phase 5R rewrite (2026-04-29): now delegates to runIncomeDetection,
+   * the same provider-first SSOT helper that the Plaid webhook handler
+   * fires on INITIAL_UPDATE / RECURRING_TRANSACTIONS_UPDATE. This kills
+   * three birds:
    *
-   * This is the single source of truth that drives the new projection path
-   * in `calculateIncomeForPeriod`. Idempotent — safe to call repeatedly. A
-   * future amount row inserted via PATCH (Step 6) is preserved because
-   * `upsertIncomeSource` only seeds when no amount history exists.
+   *   1. The legacy classifyDepositsForRegistry classifier was creating
+   *      phantom income_sources rows (Scotiabank Transit, Correction OPOS
+   *      Pc Express, etc.) — anything Plaid did NOT classify as a
+   *      recurring inflow stream. With Plaid Recurring as the SSOT,
+   *      registry rows now only exist for Plaid+MX-confirmed streams.
+   *
+   *   2. Fixes the §8.1 auto-promote gate (mature + very_high) being
+   *      bypassed when the user clicked "Refresh from bank history" —
+   *      that path used to insert anything the classifier flagged,
+   *      regardless of confidence. The shared helper now governs.
+   *
+   *   3. Single code path for income detection — webhook, manual refresh
+   *      button, and any future caller all hit the same logic. No more
+   *      drift between the legacy classifier's output and Plaid's.
+   *
+   * Idempotent. Always stamps users.last_income_detection_at via the
+   * helper, so the user knows when the registry was last refreshed.
    */
   app.post("/api/income/registry/refresh", requireAuth, requireWriteAccess, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const today = new Date();
-      const startDate = new Date(today);
-      startDate.setMonth(startDate.getMonth() - 6);
+      const { runIncomeDetection } = await import("./lib/onboarding/detect-income");
+      const result = await runIncomeDetection(userId);
 
-      const { plaidAdapter, mxAdapter, manualAdapter } = await import("./lib/financial-engine");
-      const { classifyDepositsForRegistry } = await import("./lib/financial-engine/categories/registry-classifier");
-
-      const startStr = startDate.toISOString().split("T")[0];
-      const endStr = today.toISOString().split("T")[0];
-
-      // Aggregate normalized transactions across providers
-      const normalized: any[] = [];
-
-      // Plaid — only include explicitly-active accounts
-      const plaidItems = await storage.getPlaidItems(userId);
-      for (const item of plaidItems) {
-        const accounts = await storage.getPlaidAccounts(item.id);
-        const activeIds = accounts.filter(a => a.isActive === "true").map(a => a.id);
-        if (activeIds.length === 0) continue;
-        const raw = await storage.getPlaidTransactions(activeIds, { startDate: startStr, endDate: endStr });
-        normalized.push(...plaidAdapter.normalizeTransactions(raw));
-      }
-
-      // MX
-      const mxAccounts = await storage.getMxAccountsByUserId(userId);
-      const mxActiveIds = mxAccounts
-        .filter((a: any) => a.isActive === "true" || a.isActive === true)
-        .map((a: any) => a.id || a.guid);
-      if (mxActiveIds.length > 0) {
-        const rawMx = await storage.getMxTransactions(mxActiveIds, { startDate: startStr, endDate: endStr });
-        normalized.push(...mxAdapter.normalizeTransactions(rawMx));
-      }
-
-      // Manual
-      const rawManual = await storage.getManualTransactionsByUser(userId, { startDate: startStr, endDate: endStr });
-      normalized.push(...manualAdapter.normalizeTransactions(rawManual));
-
-      // Project to DepositSample[] — credits only, ignore transfers between
-      // the user's own accounts. The classifier itself drops < $100 means.
-      // We pass the adapter-canonical `incomeCategory` as the provider-
-      // neutral routing input. Provider signals (PFC / MX top-level) are
-      // only read if the adapter chose to surface them on the normalized
-      // row — otherwise this works with any future aggregator.
-      const deposits = normalized
-        .filter(tx => tx.direction === "credit" && !tx.isTransfer && tx.amount > 0)
-        .map(tx => ({
-          date: tx.date,
-          amount: tx.amount,
-          merchant: tx.merchant || "",
-          incomeCategory: tx.incomeCategory ?? null,
-          providerSignals: tx.providerSignals ?? undefined,
-        }));
-
-      const classifications = classifyDepositsForRegistry(deposits, { today });
-
-      const todayStr = today.toISOString().split("T")[0];
-      const results: any[] = [];
-
-      for (const c of classifications) {
-        const src = await storage.upsertIncomeSource(
-          userId,
-          {
-            normalizedSource: c.normalizedSource,
-            displayName: c.displayName,
-            recurrence: c.recurrence as any,
-            mode: c.mode as any,
-            cadenceAnchor: c.cadenceAnchor,
-            cadenceExtra: c.cadenceExtra ?? null,
-            category: c.category,
-            isActive: true,
-            autoDetected: true,
-            detectedAt: today,
-          } as any,
-          { amount: c.unitAmount.toFixed(2), effectiveFrom: todayStr },
-        );
-        results.push({
-          id: src.id,
-          source: c.displayName,
-          normalizedSource: c.normalizedSource,
-          mode: c.mode,
-          recurrence: c.recurrence,
-          cadenceAnchor: c.cadenceAnchor,
-          cadenceExtra: c.cadenceExtra,
-          category: c.category,
-          unitAmount: c.unitAmount,
-          occurrences: c.occurrences,
-          amountCv: c.amountCv,
-          confidence:
-            c.mode === "fixed" ? "high" : c.mode === "variable" ? "medium" : "low",
-        });
-      }
-
+      res.setHeader("Cache-Control", "no-store");
       res.json({
         success: true,
-        windowStart: startStr,
-        windowEnd: endStr,
-        depositsAnalyzed: deposits.length,
-        sourcesDetected: results.length,
-        sources: results,
+        sourcesDetected: result.count,
+        autoPromotedCount: result.autoPromotedCount,
+        sources: result.incomeSources.map((s) => ({
+          source: s.source,
+          streamId: s.streamId,
+          mode: "fixed",
+          recurrence: s.recurrence,
+          category: s.category,
+          unitAmount: s.amount,
+          occurrences: s.occurrences,
+          confidence: s.confidence,
+          frequency: s.frequency,
+          status: s.status,
+          nextExpectedDate: s.nextExpectedDate,
+          wasAutoPromoted: s.wasAutoPromoted,
+        })),
       });
     } catch (error: any) {
       console.error("Income registry refresh error:", error);
@@ -9953,81 +9889,17 @@ Rules:
   });
 
   // ============ ONBOARDING ============
-
-  app.get("/api/onboarding/status", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const user = await storage.getUser(userId);
-      const analysis = await storage.getOnboardingAnalysis(userId);
-      const plaidItemsList = await storage.getPlaidItems(userId);
-
-      let currentStep = 1;
-      if (plaidItemsList.length > 0) currentStep = 2;
-      if (analysis?.analysisData && analysis.analysisData !== "{}") currentStep = 4;
-      if (analysis?.step && analysis.step > currentStep) currentStep = analysis.step;
-
-      res.json({
-        onboardingComplete: user?.onboardingComplete === "true",
-        currentStep,
-        hasPlaidConnection: plaidItemsList.length > 0,
-        hasAnalysis: !!analysis?.analysisData && analysis.analysisData !== "{}",
-        analysisData: analysis?.analysisData ? JSON.parse(analysis.analysisData) : null,
-      });
-    } catch (error) {
-      console.error("Error checking onboarding status:", error);
-      res.status(500).json({ error: "Failed to check onboarding status" });
-    }
-  });
-
-  app.post("/api/onboarding/complete", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-
-        // For demo users, just return success without actually updating
-        if ((req.session as any).isDemo) {
-          return res.json({ success: true, demo: true });
-        }
-
-      const { progress } = req.body;
-      await storage.updateUserOnboarding(userId, true, progress);
-
-      // Create default spending alerts for new users
-      try {
-        const existingAlerts = await db.query.spendingAlerts.findMany({
-          where: eq(spendingAlerts.userId, userId),
-        });
-        if (existingAlerts.length === 0) {
-          await db.insert(spendingAlerts).values([
-            {
-              userId,
-              alertType: "total_monthly",
-              threshold: "10000",
-              period: "monthly",
-              notifyEmail: true,
-              notifyInApp: true,
-              isActive: true,
-            },
-            {
-              userId,
-              alertType: "single_transaction",
-              threshold: "1000",
-              period: "per_transaction",
-              notifyEmail: true,
-              notifyInApp: true,
-              isActive: true,
-            },
-          ]);
-        }
-      } catch (alertErr) {
-        console.error("[Onboarding] Failed to create default spending alerts (non-fatal):", alertErr);
-      }
-
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error completing onboarding:", error);
-      res.status(500).json({ error: "Failed to complete onboarding" });
-    }
-  });
+  //
+  // Phase 5R (2026-04-29): Wizard retired. The four endpoints below
+  // (status, complete, sync-status, notify-when-ready) had the wizard as
+  // their only caller. They are marked for deletion in the Phase 5R
+  // commit. Left in place temporarily so this PR is bisectable. Cline
+  // should delete them entirely as part of the commit cleanup pass —
+  // see PHASE_5R_HANDOFF.md for line ranges.
+  //
+  // Kept: POST /api/onboarding/detect-now (still useful as a manual
+  // refresh trigger; runIncomeDetection helper is still called by the
+  // Plaid webhook handler regardless).
 
   // ──────────────────────────────────────────────────────────────────────────
   // Phase 2 helpers — map provider-agnostic stream metadata into the shapes
@@ -10117,113 +9989,6 @@ Rules:
     } catch (error: any) {
       console.error("Error in /api/onboarding/detect-now:", error);
       res.status(500).json({ error: error?.message || "Failed to detect income" });
-    }
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // GET /api/onboarding/sync-status — Phase 5 (Wizard Rebuild, 2026-04-27).
-  //
-  // Three-boolean status used by the new onboarding wizard's wait screen.
-  // Each boolean means "this stage of the post-Plaid-Link pipeline has
-  // completed at least once" — NOT "we found anything." A user with no
-  // recurring income hits incomeDetected=true once runIncomeDetection
-  // finishes its run with zero results. They are never trapped on the
-  // wait screen.
-  //
-  // Backed by columns added in migration 0045:
-  //   plaid_items.initial_sync_at        ← set in webhook after INITIAL_UPDATE
-  //   plaid_items.recurring_synced_at    ← set in webhook after RECURRING_TRANSACTIONS_UPDATE
-  //   users.last_income_detection_at     ← set in runIncomeDetection (always)
-  //
-  // Cache-Control: no-store per the auth-API rule (the wizard polls every
-  // 3s; cached responses would lock the screen on stale state).
-  // ──────────────────────────────────────────────────────────────────────────
-  app.get("/api/onboarding/sync-status", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const { rows } = await pool.query(
-        `SELECT
-           (SELECT bool_or(initial_sync_at IS NOT NULL)     FROM plaid_items WHERE user_id = $1) AS transactions_loaded,
-           (SELECT bool_or(recurring_synced_at IS NOT NULL) FROM plaid_items WHERE user_id = $1) AS recurring_computed,
-           (SELECT last_income_detection_at IS NOT NULL     FROM users        WHERE id      = $1) AS income_detected,
-           (SELECT count(*)::int FROM plaid_items WHERE user_id = $1)                              AS plaid_item_count`,
-        [userId],
-      );
-      const r = rows[0] || {};
-      const transactionsLoaded = r.transactions_loaded === true;
-      const recurringComputed = r.recurring_computed === true;
-      const incomeDetected = r.income_detected === true;
-      const hasPlaidItems = (r.plaid_item_count || 0) > 0;
-      // allComplete only flips when all three stages have run AND the user
-      // actually has a Plaid item connected. A user without a Plaid item
-      // has nothing to wait for — they're either manual-only or need to
-      // restart the wizard.
-      const allComplete = hasPlaidItems && transactionsLoaded && recurringComputed && incomeDetected;
-
-      // When allComplete flips, eagerly mark onboarding complete so the
-      // come-back path on next login lands them on the dashboard rather
-      // than re-showing the wizard. Idempotent.
-      if (allComplete) {
-        try {
-          const user = await storage.getUser(userId);
-          if (user && user.onboardingComplete !== "true") {
-            await storage.updateUserOnboarding(userId, true, {});
-          }
-        } catch (markErr: any) {
-          console.warn(
-            `[sync-status] failed to mark onboarding complete for ${userId}:`,
-            markErr?.message,
-          );
-        }
-      }
-
-      res.setHeader("Cache-Control", "no-store");
-      res.json({
-        transactionsLoaded,
-        recurringComputed,
-        incomeDetected,
-        allComplete,
-        hasPlaidItems,
-      });
-    } catch (error: any) {
-      console.error("Error in /api/onboarding/sync-status:", error);
-      res.status(500).json({ error: "Failed to read sync status" });
-    }
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // POST /api/onboarding/notify-when-ready — Phase 5 (Wizard Rebuild).
-  //
-  // Escape hatch: user has been waiting >3 minutes on the sync screen and
-  // clicked "Email me when ready." Server stores the request flag; the
-  // sync-status flip in the webhook handler will fire a "Your dashboard is
-  // ready" email. The user can safely close the tab.
-  //
-  // Implementation note: we just set a column on the user record. The
-  // email trigger lives in the webhook handler that flips allComplete=true.
-  // Keeping the endpoint trivial avoids race conditions around "did we
-  // already become ready while the user was clicking the button."
-  // ──────────────────────────────────────────────────────────────────────────
-  app.post("/api/onboarding/notify-when-ready", requireAuth, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      // Reuse onboarding_progress as a flag bag (no schema change needed).
-      const user = await storage.getUser(userId);
-      if (!user) return res.status(404).json({ error: "User not found" });
-      let progress: any = {};
-      try {
-        progress = user.onboardingProgress
-          ? JSON.parse(user.onboardingProgress)
-          : {};
-      } catch {
-        progress = {};
-      }
-      progress.notifyWhenReady = true;
-      await storage.updateUserOnboarding(userId, false, progress);
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error("Error in /api/onboarding/notify-when-ready:", error);
-      res.status(500).json({ error: "Failed to register notify-when-ready" });
     }
   });
 

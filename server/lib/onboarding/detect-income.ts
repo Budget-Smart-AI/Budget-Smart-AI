@@ -47,20 +47,63 @@ import {
 } from "../financial-engine/get-recurring-streams";
 import { normalizeSourceName } from "../financial-engine/income";
 
-// Local maps duplicated from routes.ts so the helper is import-safe from
-// the webhook handler. Kept in sync intentionally — both sides should
-// resolve a stream the same way.
+/**
+ * Map a stream's canonical category (as produced by remapToCanonicalCategory
+ * in shared-normalizers.ts) to the income-source registry's user-facing
+ * category label.
+ *
+ * Phase 6C (2026-04-29): the previous version of this map only knew about
+ * the legacy `income_*` slug naming (e.g. "income_salary"). But the actual
+ * canonical strings produced by remapToCanonicalCategory are Monarch-
+ * style display names like "Income", "Paychecks", "Investment Income".
+ * Mismatch caused every Plaid-detected paycheck (Coreslab, Roche) to fall
+ * through to "Other".
+ *
+ * This widens the map to handle BOTH naming styles, plus the PFC-detailed
+ * names that show up when a stream's PFC primary is INCOME but detailed
+ * is more specific (INCOME_WAGES, INCOME_DIVIDENDS, etc.).
+ */
 function mapCanonicalToIncomeCategory(canonical: string): string {
-  switch ((canonical || "").toLowerCase()) {
-    case "income_salary":      return "Salary";
-    case "income_freelance":   return "Freelance";
-    case "income_business":    return "Business";
-    case "income_investment":  return "Investments";
-    case "income_rental":      return "Rental";
-    case "income_gifts":       return "Gifts";
-    case "transfer_refund":    return "Refunds";
-    case "income_other":       return "Other";
-    default:                   return "Other";
+  const c = (canonical || "").toLowerCase().trim();
+  switch (c) {
+    // Monarch-style canonical names produced by remapToCanonicalCategory.
+    // These are what plaid-adapter / mx-adapter actually return.
+    case "income":                return "Salary";   // primary PFC = INCOME → default to Salary
+    case "paychecks":             return "Salary";   // INCOME_WAGES → "Paychecks"
+    case "investment income":     return "Investments";  // INCOME_DIVIDENDS / INCOME_INTEREST_EARNED
+    case "interest":              return "Interest";
+    case "other income":          return "Other";    // INCOME_OTHER_INCOME / INCOME_RETIREMENT_PENSION / INCOME_UNEMPLOYMENT
+    case "refunds & returns":     return "Refunds";
+    case "refund":                return "Refunds";
+    // Direct PFC-detailed pass-through (defensive — some adapters might
+    // surface the raw PFC instead of the remap output).
+    case "income_wages":          return "Salary";
+    case "income_dividends":      return "Investments";
+    case "income_interest_earned": return "Interest";
+    case "income_other_income":   return "Other";
+    case "income_retirement_pension": return "Other";
+    case "income_unemployment":   return "Other";
+    case "income_tax_refund":     return "Refunds";
+    // Legacy slug names from the pre-Phase-A taxonomy. Kept for back-compat
+    // with any caller still using them.
+    case "income_salary":         return "Salary";
+    case "income_freelance":      return "Freelance";
+    case "income_business":       return "Business";
+    case "income_investment":     return "Investments";
+    case "income_rental":         return "Rental";
+    case "income_gifts":          return "Gifts";
+    case "transfer_refund":       return "Refunds";
+    default:
+      // Unknown — log so we can extend the map and fall through to "Other"
+      // rather than silently dropping. Salaried payrolls now go through the
+      // INCOME_WAGES → "Paychecks" path; this default is for genuinely
+      // unmapped categories.
+      if (c) {
+        console.warn(
+          `[detect-income] unknown canonical category "${canonical}", defaulting to Other`,
+        );
+      }
+      return "Other";
   }
 }
 
@@ -188,6 +231,63 @@ export async function runIncomeDetection(userId: string): Promise<DetectIncomeRe
           console.warn(
             `[detect-income] auto-promote upsert failed for ${normName} (user ${userId}):`,
             upsertErr?.message || upsertErr,
+          );
+        }
+      } else if (existing && existing.streamId === stream.streamId) {
+        // Phase 6F (2026-04-29): existing row already linked to this
+        // exact Plaid stream. Refresh fields that Plaid-side may have
+        // drifted on (cadence, category, amount). Common case: legacy
+        // classifyDepositsForRegistry had upserted with the wrong
+        // cadence (e.g. mapped semi-monthly → biweekly), and the row
+        // also got stream_id back-filled. Manual user edits get
+        // clobbered here — revisit once we have a "user_edited_at"
+        // sentinel column. For now, trust Plaid's current view.
+        const drifted: Record<string, any> = {};
+        if (existing.recurrence !== recurrenceForRegistry) {
+          drifted.recurrence = recurrenceForRegistry;
+        }
+        if (existing.category !== incomeCategory) {
+          drifted.category = incomeCategory;
+        }
+        if (Object.keys(drifted).length > 0) {
+          try {
+            await storage.updateIncomeSource(userId, existing.id, drifted as any);
+            console.log(
+              `[detect-income] healed drift for ${normName} (user ${userId}):`,
+              drifted,
+            );
+          } catch (updateErr: any) {
+            console.warn(
+              `[detect-income] drift heal failed for source ${existing.id}:`,
+              updateErr?.message,
+            );
+          }
+        }
+        // Phase 6A (2026-04-29): also refresh the active income_source_amounts
+        // row when Plaid's lastAmount differs from our most recent. We
+        // close the open row and insert a new effective-dated row so the
+        // history is preserved. Only run when the drift is meaningful
+        // (>$1) to avoid noise.
+        try {
+          const amounts = await storage.getIncomeSourceAmountsBySourceIds([existing.id]);
+          const active = amounts.find((a: any) => !a.effectiveTo);
+          const currentAmt = active ? parseFloat(String(active.amount)) : 0;
+          if (active && Math.abs(currentAmt - stream.lastAmount) >= 1) {
+            const today = new Date().toISOString().slice(0, 10);
+            await storage.insertIncomeSourceAmount(
+              existing.id,
+              String(stream.lastAmount),
+              today,
+              "plaid_drift_refresh",
+            );
+            console.log(
+              `[detect-income] amount drift healed for ${normName}: ${currentAmt} → ${stream.lastAmount}`,
+            );
+          }
+        } catch (amtErr: any) {
+          console.warn(
+            `[detect-income] amount drift refresh failed for source ${existing.id}:`,
+            amtErr?.message,
           );
         }
       } else if (existing && !existing.streamId && stream.streamId) {

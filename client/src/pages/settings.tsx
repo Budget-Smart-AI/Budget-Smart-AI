@@ -3261,7 +3261,10 @@ export default function Settings({ onLogout }: SettingsProps) {
                 className="group flex flex-col items-center gap-3 p-5 rounded-xl border-2 border-primary/30 hover:border-primary bg-card hover:bg-primary/5 transition-all text-left"
                 onClick={() => {
                   setShowFreshStartInterstitial(false);
-                  navigate("/onboarding");
+                  // Phase 5R (2026-04-29): /onboarding alias still routes
+                  // to /accounts?connect=1 via App.tsx, but go direct to
+                  // skip the redirect hop.
+                  navigate("/accounts?connect=1");
                 }}
               >
                 <div className="w-12 h-12 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
