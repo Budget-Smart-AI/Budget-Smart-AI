@@ -185,22 +185,56 @@ function compareStreams(a: NormalizedRecurringStream, b: NormalizedRecurringStre
 // ─── Auto-promotion gate (per strategy §8.1 decision) ────────────────────
 
 /**
- * Inflow streams ONLY. Returns true when the stream meets the auto-promote
- * threshold (Ryan's decision 2026-04-26): VERY_HIGH confidence AND MATURE
- * status. These get a registry row created automatically with
- * `auto_detected=true, isActive=true` and a non-blocking banner on the
- * dashboard.
+ * Inflow streams ONLY. Returns true when the stream is trustworthy enough
+ * to drop straight into the income_sources registry with auto_detected=true.
+ *
+ * Original §8.1 gate (2026-04-26): mature + very_high.
+ *
+ * Phase 6P-2 refinement (2026-04-29): the strict very_high gate locked
+ * out real paychecks because Plaid grades many Canadian payrolls as
+ * `medium` regardless of how long they've been recurring. Ryan's own
+ * Coreslab payroll has 83 occurrences over 18+ months and Plaid still
+ * grades it `medium` — the stream-level analysis is mature and reliable
+ * but the per-tx PFC confidence is conservative. We were leaving real,
+ * recurring inflows out of the registry and showing them as one-off
+ * "Bank Detected" rows that never project forward.
+ *
+ * The refined gate accepts EITHER:
+ *   - very_high confidence (Plaid is sure) + mature, OR
+ *   - medium-or-better confidence + mature + occurrenceCount >= 6
+ *     (six occurrences = ~3 months of biweekly or 6 months of monthly
+ *      pay, enough history that the stream is clearly recurring even
+ *      when Plaid's per-tx confidence is hedging).
+ *
+ * Streams that fail BOTH branches (e.g. low confidence, or very young)
+ * are surfaced as "Suggestions" the user can confirm manually.
  *
  * Outflow streams are NEVER auto-promoted — the user formalizes which
- * recurring outflows they want tracked from a Suggestions inbox. Bills and
- * subscriptions are noisier than paychecks (Plaid may flag a one-off
+ * recurring outflows they want tracked from a Suggestions inbox. Bills
+ * and subscriptions are noisier than paychecks (Plaid may flag a one-off
  * Amazon order or a 3-month Netflix trial as "recurring") so we require
- * explicit confirmation.
+ * explicit confirmation for those.
  */
 export function shouldAutoPromote(stream: NormalizedRecurringStream): boolean {
   if (stream.direction !== "inflow") return false;
-  if (stream.status !== "mature") return false;
-  if (stream.confidence !== "very_high") return false;
   if (!stream.isActive) return false;
-  return true;
+  if (stream.status !== "mature") return false;
+
+  // Branch A: very_high confidence — original §8.1 gate, no minimum
+  // occurrence count required (Plaid's strongest signal).
+  if (stream.confidence === "very_high") return true;
+
+  // Branch B: medium/high confidence with proven track record. Six
+  // occurrences is the minimum because that's enough to rule out a
+  // 3-month Plaid sample on a fresh connection — once we've seen six
+  // payments at the same cadence we're confident this is real income,
+  // even if Plaid's per-tx classification is hedging.
+  if (
+    (stream.confidence === "high" || stream.confidence === "medium") &&
+    stream.occurrenceCount >= 6
+  ) {
+    return true;
+  }
+
+  return false;
 }
