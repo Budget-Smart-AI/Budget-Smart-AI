@@ -159,6 +159,14 @@ function ProtectedRouter({ onLogout, isAdmin }: { onLogout: () => void; isAdmin:
       <Route path="/investments" component={Investments} />
       <Route path="/assets" component={Assets} />
       <Route path="/net-worth" component={NetWorth} />
+      {/* UAT-15 fix (2026-04-30): /wealth, /forecast, and /money-timeline
+       * all 404'd with the dev-error message because they were referenced
+       * (left-nav group, memory entries, prior page link-outs) but had
+       * no route. Redirect to the closest equivalent so users don't hit
+       * a 404 from a perfectly-typed URL. */}
+      <Route path="/wealth"><Redirect to="/net-worth" /></Route>
+      <Route path="/forecast"><Redirect to="/reports" /></Route>
+      <Route path="/money-timeline"><Redirect to="/reports" /></Route>
       <Route path="/calendar" component={FinancialCalendar} />
       <Route path="/split-expenses" component={SplitExpenses} />
       <Route path="/simulator" component={Simulator} />
