@@ -13,6 +13,12 @@ import { autoReconcile } from "./lib/auto-reconciler";
 // Plaid-only detectTransferPairs that previously lived in this file.
 import { matchTransferPairs } from "./lib/transfer-pair-matcher";
 import { matchRefunds } from "./lib/refund-matcher";
+// UAT-16 fix (2026-05-01): Phase A dual-write was missing on this code
+// path — every new plaid_transactions row was hardcoded to canonical
+// "uncategorized" instead of being resolved via the shared §6.2.6
+// resolver. Import the sync resolver so the INSERT branch below can
+// produce a real canonical id from Plaid's PFC detailed value.
+import { resolveCanonicalCategorySync } from "./migrations/category-unification/resolver";
 
 const configuration = new Configuration({
   basePath: PlaidEnvironments.production,
@@ -387,7 +393,24 @@ async function upsertTransaction(userId: string, itemId: string, tx: any): Promi
       counterpartyName: counterpartyName,
       counterpartyType: counterpartyType,
       counterpartyWebsite: counterpartyWebsite,
-      canonicalCategoryId: "uncategorized",
+      // UAT-16 fix (2026-05-01): Phase A dual-write at INSERT time. The
+      // previous version of this line hardcoded "uncategorized" on every
+      // new row, which left 313/313 of Ryan's Plaid transactions stuck
+      // with no canonical category — killing every spending breakdown,
+      // every report's category split, and the Expenses dual-source
+      // contradiction. The shared resolver inspects PFC detailed first
+      // (richer signal), then deterministic legacy-string map, and
+      // returns NULL when both miss (the nightly reconcile job picks
+      // those up via Bedrock — see resolver.ts §6.2.6 design).
+      // Fall back to "uncategorized" when sync miss so the NOT NULL
+      // constraint on plaid_transactions.canonical_category_id holds.
+      canonicalCategoryId: resolveCanonicalCategorySync({
+        legacyCategory: pfcPrimary || null,
+        plaidDetailed: pfcDetailed || null,
+        merchantName: tx.merchant_name || null,
+        amount: parseFloat(String(tx.amount)) || null,
+        rowKind: "plaid",
+      }).canonicalId ?? "uncategorized",
     });
   }
 }
