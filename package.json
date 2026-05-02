@@ -27,6 +27,8 @@
     "seed:registry": "tsx scripts/seed-income-registry.ts",
     "backfill:merchant-names:dry": "tsx scripts/backfill-merchant-names.ts --dry-run",
     "backfill:merchant-names": "tsx scripts/backfill-merchant-names.ts",
+    "backfill:plaid-canonical:dry": "tsx scripts/backfill-plaid-canonical.ts --dry-run",
+    "backfill:plaid-canonical": "tsx scripts/backfill-plaid-canonical.ts",
     "seed:canonical-categories": "tsx scripts/seed-canonical-categories.ts"
   },
   "dependencies": {
