@@ -133,6 +133,21 @@ interface ExpenseResult {
   dailyTotals: Record<string, number>;
 }
 
+/** Lightweight shape returned by /api/expenses/for-period — bank transactions
+ *  (plaid_transactions + manual_transactions) shaped for the list table.
+ *  UAT-17: replaces the empty legacy /api/expenses query. */
+interface BankExpenseRow {
+  id: string;
+  date: string;
+  amount: string;
+  merchant: string;
+  category: string;
+  source: "plaid" | "manual";
+  accountId?: string;
+  canonicalCategoryId?: string | null;
+  isoCurrencyCode?: string;
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function formatCurrency(amount: string | number) {
@@ -144,6 +159,19 @@ function formatCurrency(amount: string | number) {
 function isForeignCurrency(expense: Expense): boolean {
   const iso = (expense as any).isoCurrencyCode;
   return iso && iso !== "CAD";
+}
+
+/** Returns the CAD-equivalent amount for a foreign-currency expense.
+ *  If an exchangeRate field is present we use it; otherwise fall back to the
+ *  raw amount (which Plaid already converts for us in most cases). */
+function effectiveCadAmount(expense: Expense): number {
+  const raw = typeof expense.amount === "string" ? parseFloat(expense.amount) : Number(expense.amount);
+  const rate = (expense as any).exchangeRate;
+  if (rate && !isNaN(Number(rate))) return raw * Number(rate);
+  // Plaid typically stores amount in account currency; if iso != CAD the
+  // displayed value is already the foreign amount so just return it as-is
+  // (best-effort — a real FX service would be needed for precision).
+  return raw;
 }
 
 const CURRENCY_FLAG: Record<string, string> = {
@@ -397,6 +425,7 @@ function ExpenseForm({ expense, onClose }: { expense?: Expense; onClose: () => v
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({ title: "Expense added successfully" });
       onClose();
@@ -416,6 +445,7 @@ function ExpenseForm({ expense, onClose }: { expense?: Expense; onClose: () => v
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({ title: "Expense updated successfully" });
       onClose();
@@ -671,10 +701,63 @@ export default function ExpensesPage() {
   const prevMonthStart = format(lastMonthRange.start, "yyyy-MM-dd");
   const prevMonthEnd = format(lastMonthRange.end, "yyyy-MM-dd");
 
-  // fetch raw expense list for table display and filtering
-  const { data: expenses = [], isLoading } = useQuery<Expense[]>({
+  // UAT-17: fetch bank transactions from /api/expenses/for-period (reads from
+  // plaid_transactions + manual_transactions) instead of the legacy /api/expenses
+  // table which is empty for Plaid-only users. The for-period endpoint already
+  // does transfer-exclusion, deduplication, and debit-only filtering.
+  // We fetch a wide 6-month window and let client-side filters narrow it.
+  const sixMonthsAgo = format(startOfMonth(subMonths(now, 6)), "yyyy-MM-dd");
+  const todayStr = format(now, "yyyy-MM-dd");
+
+  const { data: bankTxResponse, isLoading: isBankLoading } = useQuery<{
+    transactions: BankExpenseRow[];
+    total: number;
+    count: number;
+  }>({
+    queryKey: ["/api/expenses/for-period", { startDate: sixMonthsAgo, endDate: todayStr }],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/expenses/for-period?startDate=${sixMonthsAgo}&endDate=${todayStr}`
+      );
+      return res.json();
+    },
+  });
+
+  // Also fetch legacy manual expenses (for edit/delete/tax-tag operations)
+  const { data: legacyExpenses = [] } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
   });
+
+  // Merge: bank transactions as Expense-shaped objects + any legacy manual rows
+  const expenses: Expense[] = useMemo(() => {
+    const bankRows = (bankTxResponse?.transactions ?? []).map((tx) => ({
+      // Map BankExpenseRow → Expense-compatible shape
+      id: tx.id,
+      userId: "",
+      merchant: tx.merchant || "Unknown",
+      amount: String(tx.amount),
+      date: tx.date,
+      category: tx.category || "Other",
+      notes: null,
+      taxDeductible: null,
+      isBusinessExpense: null,
+      taxCategory: null,
+      canonicalCategoryId: tx.canonicalCategoryId ?? null,
+      externalTransactionId: tx.source === "plaid" ? tx.id : null,
+      isoCurrencyCode: tx.isoCurrencyCode ?? null,
+      // source tag for getExpenseSource()
+      _source: tx.source,
+    } as unknown as Expense));
+
+    // Deduplicate: if a legacy manual expense has the same id as a bank row, skip it
+    const bankIds = new Set(bankRows.map((r) => r.id));
+    const manualOnly = legacyExpenses.filter((e) => !bankIds.has(e.id));
+
+    return [...bankRows, ...manualOnly];
+  }, [bankTxResponse, legacyExpenses]);
+
+  const isLoading = isBankLoading;
 
   // fetch financial engine stats for summary cards
   const { data: expenseStats } = useQuery<ExpenseResult>({
@@ -697,6 +780,7 @@ export default function ExpensesPage() {
     mutationFn: async (id: string) => apiRequest("DELETE", `/api/expenses/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({ title: "Expense deleted" });
       setDeletingExpense(undefined);
@@ -710,6 +794,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       setSelectedIds(new Set());
       toast({ title: "Expenses updated" });
@@ -723,6 +808,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       setSelectedIds(new Set());
       toast({ title: "Expenses deleted" });
@@ -739,6 +825,7 @@ export default function ExpensesPage() {
     },
     onSuccess: (data: { billMatches?: number; expenseMatches?: number; autoCreated?: number }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       const total = (data.billMatches ?? 0) + (data.expenseMatches ?? 0) + (data.autoCreated ?? 0);
       toast({
@@ -761,6 +848,7 @@ export default function ExpensesPage() {
       apiRequest("PATCH", `/api/expenses/${id}`, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       setIsTaxCategoryOpen(false);
       setTaxCategoryExpense(undefined);
@@ -777,6 +865,7 @@ export default function ExpensesPage() {
     },
     onSuccess: (_, ids) => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses/for-period"] });
       queryClient.invalidateQueries({ queryKey: ["/api/engine/dashboard"] });
       toast({
         title: `${ids.length} expense${ids.length !== 1 ? "s" : ""} reconciled`,
