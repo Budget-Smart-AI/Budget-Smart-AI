@@ -1003,9 +1003,22 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/expenses/:id", requireAuth, async (req, res) => {
+  app.get("/api/expenses/:id", requireAuth, async (req, res, next) => {
+    // UAT-17 hot-fix (2026-05-01): the /api/expenses/for-period route is
+    // registered later in this file (~line 14301) and was being shadowed
+    // by this :id handler — every call to /api/expenses/for-period was
+    // hitting this handler with req.params.id="for-period", finding no
+    // matching expense, and returning 404. Front-end's Expenses LIST
+    // therefore showed empty even after Cline's commit 04deace cut the
+    // client over to /api/expenses/for-period. Skip non-UUID-shaped ids
+    // so Express moves on to the next matching route.
+    const id = String(req.params.id ?? "");
+    const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    if (!looksLikeUuid) {
+      return next();
+    }
     try {
-      const expense = await storage.getExpense((req.params.id as string));
+      const expense = await storage.getExpense(id);
       if (!expense) {
         return res.status(404).json({ error: "Expense not found" });
       }
