@@ -144,7 +144,7 @@ function PaymentStatusBadge({
     return (
       <div className="flex flex-col gap-0.5">
         <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800 w-fit">
-          â Paid
+          ✓ Paid
         </Badge>
         <span className="text-xs text-muted-foreground">
           {formatCurrency(bill.lastPayment.amount)} on {format(paidDate, "MMM d")}
@@ -215,9 +215,9 @@ function BillPaymentHistory({ billId }: { billId: string }) {
                 key={payment.id}
                 className="flex items-center gap-1.5 bg-background border rounded-md px-2.5 py-1.5 text-xs"
               >
-                <span className="text-green-600 dark:text-green-400 font-medium">â</span>
+                <span className="text-green-600 dark:text-green-400 font-medium">✓</span>
                 <span className="font-medium">{format(paidDate, "MMM d, yyyy")}</span>
-                <span className="text-muted-foreground">â</span>
+                <span className="text-muted-foreground">—</span>
                 <span className="font-semibold">{formatCurrency(payment.amount)}</span>
               </div>
             );
@@ -967,7 +967,7 @@ export default function Bills() {
     queryKey: ["/api/engine/bills"],
   });
 
-  // Build a lookup from billId â engine-computed next due date
+  // Build a lookup from billId → engine-computed next due date
   const engineDueDateMap = new Map<string, string>();
   if (engineBills?.upcomingBills) {
     for (const ub of engineBills.upcomingBills) {
@@ -1298,7 +1298,7 @@ export default function Bills() {
                           className="mt-1.5 text-xs font-semibold text-amber-300 underline underline-offset-2 hover:text-amber-200"
                           onClick={() => { setIsDetectDialogOpen(false); window.location.href = "/upgrade"; }}
                         >
-                          Upgrade to Pro â
+                          Upgrade to Pro →
                         </button>
                       </div>
                     </div>
@@ -1320,7 +1320,7 @@ export default function Bills() {
                             className="font-semibold underline underline-offset-2 hover:text-amber-200"
                             onClick={() => { setIsDetectDialogOpen(false); window.location.href = "/upgrade"; }}
                           >
-                            Upgrade to Pro for unlimited bills â
+                            Upgrade to Pro for unlimited bills →
                           </button>
                         </p>
                       </div>
@@ -1333,12 +1333,12 @@ export default function Bills() {
                     <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-4 py-3">
                       <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
                       <p className="text-xs text-amber-300">
-                        â¡ Only {remaining} bill slot{remaining !== 1 ? "s" : ""} remaining on your free plan.{" "}
+                        ⚠ Only {remaining} bill slot{remaining !== 1 ? "s" : ""} remaining on your free plan.{" "}
                         <button
                           className="font-semibold underline underline-offset-2 hover:text-amber-200"
                           onClick={() => { setIsDetectDialogOpen(false); window.location.href = "/upgrade"; }}
                         >
-                          Upgrade to Pro â
+                          Upgrade to Pro →
                         </button>
                       </p>
                     </div>
@@ -1376,9 +1376,9 @@ export default function Bills() {
                       </div>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <span>{formatCurrency(bill.amount)}</span>
-                        <span>â¢</span>
+                        <span>•</span>
                         <span>{bill.recurrence}</span>
-                        <span>â¢</span>
+                        <span>•</span>
                         <Badge variant="outline" className="text-xs">{bill.category}</Badge>
                       </div>
                     </div>
@@ -1619,7 +1619,7 @@ export default function Bills() {
               </Table>
             )}
 
-          {/* Inline limit banner â shown below the bills list when at/near the limit */}
+          {/* Inline limit banner — shown below the bills list when at/near the limit */}
           {(() => {
             const billState = getFeatureState("bill_tracking");
             if (!billState || billState.limit === null) return null;
@@ -1637,7 +1637,7 @@ export default function Bills() {
                     <p className="text-xs text-amber-200/80 mt-0.5">
                       Upgrade to Pro for unlimited bills.{" "}
                       <a href="/upgrade" className="font-semibold underline underline-offset-2 hover:text-amber-200">
-                        Upgrade to Pro â
+                        Upgrade to Pro →
                       </a>
                     </p>
                   </div>
@@ -1650,9 +1650,9 @@ export default function Bills() {
                 <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-4 py-3">
                   <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
                   <p className="text-xs text-amber-300">
-                    â¡ Only {remaining} bill slot{remaining !== 1 ? "s" : ""} remaining on your free plan.{" "}
+                    ⚠ Only {remaining} bill slot{remaining !== 1 ? "s" : ""} remaining on your free plan.{" "}
                     <a href="/upgrade" className="font-semibold underline underline-offset-2 hover:text-amber-200">
-                      Upgrade to Pro for unlimited bills â
+                      Upgrade to Pro for unlimited bills →
                     </a>
                   </p>
                 </div>
