@@ -1245,7 +1245,7 @@ export default function ExpensesPage() {
               />
             </div>
 
-            {/* Addition 2: Category filter dropdown */}
+            {/* Addition 2: Category filter dropdown — shows canonical display name, filters by canonical id */}
             <Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1); }}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="All Categories" />
@@ -1253,7 +1253,9 @@ export default function ExpensesPage() {
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
                 {uniqueCategories.map((cat) => (
-                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  <SelectItem key={cat} value={cat}>
+                    {categoryMap.get(cat)?.displayName ?? cat}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

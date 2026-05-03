@@ -14335,23 +14335,21 @@ The Budget Smart AI Team`,
 
       // CLASSIFICATION: only count genuine expenses
       // - amount > 0 = money leaving the account (Plaid sign convention)
-      // - isTransfer !== "true" = not a transfer between own accounts
+      // - isTransfer column = SSOT for transfer detection (§6.3.1)
+      //     • plaid_transactions.is_transfer is boolean
+      //     • manual_transactions.is_transfer is text "true"/"false"
+      // - canonical_category_id of "transfer" also signals a transfer
       // - pending !== "true" = settled transactions only
-      // - Skip categories that indicate transfers/income even if isTransfer isn't set
-      const TRANSFER_CATEGORIES = new Set([
-        "transfer", "transfers", "transfer_in", "transfer_out",
-        "transfer_credit_card_payment", "transfer_deposit",
-        "loan_payments", "credit card payment", "credit card", "payment",
-        "income", "payroll", "wages",
-      ]);
-
-      function isTransferTx(tx: { isTransfer?: string | boolean; category?: string | null; personalCategory?: string | null }): boolean {
-        if (tx.isTransfer === "true" || tx.isTransfer === true) return true;
-        const cat = ((tx.personalCategory || tx.category) ?? "").toLowerCase();
-        return TRANSFER_CATEGORIES.has(cat);
+      function isTransferTx(tx: { isTransfer?: string | boolean | null; canonicalCategoryId?: string | null }): boolean {
+        if (tx.isTransfer === true || tx.isTransfer === "true") return true;
+        if (tx.canonicalCategoryId === "transfer") return true;
+        return false;
       }
 
-      // Filter Plaid transactions to only genuine expenses
+      // Filter Plaid transactions to only genuine expenses.
+      // §6.2.8: legacy `category`/`personalCategory` columns were dropped — the
+      // SSOT for category display is `canonicalCategoryId`. Pass it through to
+      // the client which resolves it via useCategoryMap()/getCategoryDisplayName().
       const plaidExpenses = plaidTransactions
         .filter((tx: any) =>
           parseFloat(tx.amount) > 0 &&
@@ -14363,9 +14361,12 @@ The Budget Smart AI Team`,
           date: tx.date,
           amount: tx.amount,
           merchant: tx.merchantName || tx.name,
-          category: tx.personalCategory || tx.category || "Other",
+          // Legacy text column for backward compat; client prefers canonicalCategoryId.
+          category: tx.canonicalCategoryId ?? "uncategorized",
+          canonicalCategoryId: tx.canonicalCategoryId ?? null,
           source: "plaid" as const,
           accountId: tx.plaidAccountId,
+          isoCurrencyCode: tx.isoCurrencyCode ?? "CAD",
         }));
 
       // Filter manual transactions to only genuine expenses
@@ -14379,9 +14380,11 @@ The Budget Smart AI Team`,
           date: tx.date,
           amount: tx.amount,
           merchant: tx.merchant,
-          category: tx.category || "Other",
+          category: tx.canonicalCategoryId ?? "uncategorized",
+          canonicalCategoryId: tx.canonicalCategoryId ?? null,
           source: "manual" as const,
           accountId: tx.accountId,
+          isoCurrencyCode: "CAD",
         }));
 
       // DEDUPLICATION: Remove duplicate transactions that appear in both
