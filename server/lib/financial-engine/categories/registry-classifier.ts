@@ -260,7 +260,10 @@ function pickCategory(
   if (det.startsWith("INCOME_RETIREMENT")) return "Investments";
   if (det.startsWith("INCOME_RENTAL")) return "Rental";
   if (det.startsWith("INCOME_TAX_REFUND") || det.startsWith("INCOME_REFUND")) return "Refunds";
-  if (det.startsWith("INCOME_WAGES")) return "Salary";
+  // UAT-17 (2026-05-01): INCOME_SALARY (Plaid Canadian payroll) +
+  // INCOME_MILITARY treated identically to INCOME_WAGES.
+  if (det.startsWith("INCOME_WAGES") || det.startsWith("INCOME_SALARY") || det.startsWith("INCOME_MILITARY")) return "Salary";
+  if (det.startsWith("INCOME_GIG_ECONOMY")) return "Freelance";
 
   const prim = (signals?.pfcPrimary || "").toUpperCase();
   if (prim === "INCOME") return "Salary"; // safest default for INCOME without subtype

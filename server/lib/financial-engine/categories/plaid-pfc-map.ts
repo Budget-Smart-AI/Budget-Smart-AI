@@ -31,6 +31,17 @@ export const PLAID_DETAILED_TO_MONARCH: Record<string, string> = {
   INCOME_TAX_REFUND: "Refunds & Returns",
   INCOME_UNEMPLOYMENT: "Other Income",
   INCOME_WAGES: "Paychecks",
+  // UAT-17 (2026-05-01): Plaid's Canadian payroll feed returns INCOME_SALARY
+  // (not in PFC v2 published list). Treat identically to INCOME_WAGES.
+  // Plus the rest of the PFC v2 income subcategories that the original
+  // map missed.
+  INCOME_SALARY: "Paychecks",
+  INCOME_MILITARY: "Paychecks",
+  INCOME_BENEFITS: "Other Income",
+  INCOME_GIG_ECONOMY: "Other Income",
+  INCOME_RENTAL_INCOME: "Other Income",
+  INCOME_CHILD_SUPPORT: "Other Income",
+  INCOME_ALIMONY: "Other Income",
   INCOME_OTHER_INCOME: "Other Income",
 
   // ── TRANSFER_IN (kind: transfer; excluded from spending/income totals) ───

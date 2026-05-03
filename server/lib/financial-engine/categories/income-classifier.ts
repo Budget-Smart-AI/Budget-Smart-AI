@@ -92,15 +92,31 @@ const AFFILIATE_MERCHANT_PATTERNS: RegExp[] = [
   /paypal.*payout/i,
 ];
 
-/** Direct PFC-detailed → category map. Matched as exact string AND prefix. */
+/** Direct PFC-detailed → category map. Matched as exact string AND prefix.
+ *
+ * UAT-17 (2026-05-01): expanded to cover Plaid PFC v2 income subcategories
+ * the original list missed. INCOME_SALARY is what Plaid actually returns
+ * for Canadian payrolls (Scotiabank et al.) — its absence from this map
+ * was the root cause of Coreslab/Roche showing $0 received in April /
+ * March / earlier despite valid INCOME_SALARY-tagged transactions in
+ * plaid_transactions. INCOME_BENEFITS / INCOME_GIG_ECONOMY / etc. were
+ * also missing from the previous version.
+ */
 const PFC_DETAILED_MAP: Array<{ prefix: string; category: IncomeCategoryName }> = [
   { prefix: "INCOME_WAGES", category: "Salary" },
+  { prefix: "INCOME_SALARY", category: "Salary" },
+  { prefix: "INCOME_MILITARY", category: "Salary" },
   { prefix: "INCOME_INTEREST_EARNED", category: "Interest" },
   { prefix: "INCOME_DIVIDENDS", category: "Investments" },
   { prefix: "INCOME_RETIREMENT_PENSION", category: "Other" },
   { prefix: "INCOME_TAX_REFUND", category: "Refunds" },
   { prefix: "INCOME_UNEMPLOYMENT", category: "Other" },
   { prefix: "INCOME_OTHER_INCOME", category: "Other" },
+  { prefix: "INCOME_BENEFITS", category: "Other" },
+  { prefix: "INCOME_GIG_ECONOMY", category: "Freelance" },
+  { prefix: "INCOME_RENTAL_INCOME", category: "Rental" },
+  { prefix: "INCOME_CHILD_SUPPORT", category: "Other" },
+  { prefix: "INCOME_ALIMONY", category: "Other" },
 ];
 
 /**

@@ -185,6 +185,10 @@ export function mapPlaidCategoryDetailed(detailed: string | null | undefined): s
     INCOME_TAX_REFUND: "Income",
     INCOME_UNEMPLOYMENT: "Income",
     INCOME_WAGES: "Salary",
+    // UAT-17 (2026-05-01): Plaid's Canadian payroll feed returns
+    // INCOME_SALARY (not in Plaid's PFC v2 published list) for some
+    // institutions like Scotiabank. Treat it identically to INCOME_WAGES.
+    INCOME_SALARY: "Salary",
     INCOME_OTHER: "Income",
     // PFC v2 new income subcategories
     INCOME_BENEFITS: "Income",             // Government benefits (SSI, disability, etc.)

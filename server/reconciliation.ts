@@ -69,6 +69,8 @@ const PLAID_TO_INCOME_CATEGORY: Record<string, string> = {
   "INCOME_DIVIDENDS": "Investments",
   "INCOME_INTEREST_EARNED": "Investments",
   "INCOME_WAGES": "Salary",
+  // UAT-17 (2026-05-01): Plaid Canadian payroll returns INCOME_SALARY.
+  "INCOME_SALARY": "Salary",
   "TRANSFER_DEPOSIT": "Other",
 };
 
